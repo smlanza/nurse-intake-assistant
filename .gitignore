@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+env/
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# VS Code
+.vscode/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Test Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Build Artifacts
+dist/
+build/
+*.egg-info/
+
+# Azure Functions
+local.settings.json
+
+# Azure AI Foundry / Secrets
+secrets.json
+config.local.json
+
+# Terraform (if used later)
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Node (if frontend added later)
+node_modules/
+
+# Misc
+*.tmp
+*.bak
