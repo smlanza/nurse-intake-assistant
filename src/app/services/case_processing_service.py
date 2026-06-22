@@ -3,6 +3,7 @@ from pathlib import Path
 
 from src.app.models.case import CaseDocument, CaseType, UrgencySource
 from src.app.models.ai_outputs import UrgencyClassificationResult
+from src.app.services.case_repository import CaseRepository
 from src.app.services.mock_ai_service import MockAiService
 from src.app.services.urgency_rules_service import (
     RuleEvaluationResult,
@@ -23,11 +24,13 @@ class CaseProcessingService:
         self,
         ai_service: MockAiService | None = None,
         rules_service: UrgencyRulesService | None = None,
+        case_repository: CaseRepository | None = None,
     ) -> None:
         self.ai_service = ai_service or MockAiService()
         self.rules_service = rules_service or UrgencyRulesService(
             Path(__file__).parents[1] / "config" / "red_flags.yaml"
         )
+        self.case_repository = case_repository
 
     async def process(self, raw_text: str, case_type: CaseType) -> CaseDocument:
         """Process supplied text into a completed in-memory case document."""
@@ -46,7 +49,7 @@ class CaseProcessingService:
         )
         now = datetime.now(timezone.utc)
 
-        return CaseDocument(
+        case = CaseDocument(
             createdDate=now.date().isoformat(),
             createdUtc=now,
             lastStatusUpdatedUtc=now,
@@ -72,6 +75,11 @@ class CaseProcessingService:
             ),
             reviewStatus="New",
         )
+
+        if self.case_repository is not None:
+            await self.case_repository.save(case)
+
+        return case
 
     @staticmethod
     def _merge_urgency_source(

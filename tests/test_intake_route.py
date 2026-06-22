@@ -29,6 +29,8 @@ def test_text_intake_returns_completed_routine_case() -> None:
     assert case["urgency"] == "Routine"
     assert case["sourceSystem"] == "local-test"
     assert case["sourceCallId"] == "test-call-123"
+    assert case["id"]
+    assert case["summary"] == "Patient is calling about medication refill."
 
 
 @pytest.mark.parametrize("text", ["I have chest pain.", "I have shortness of breath."])

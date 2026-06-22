@@ -15,6 +15,19 @@ ROUTINE_TEXT = (
 )
 
 
+class RecordingCaseRepository:
+    def __init__(self) -> None:
+        self.saved_case: CaseDocument | None = None
+
+    async def save(self, case: CaseDocument) -> None:
+        self.saved_case = case
+
+    async def get_by_id(self, case_id: str) -> CaseDocument | None:
+        if self.saved_case is not None and self.saved_case.id == case_id:
+            return self.saved_case
+        return None
+
+
 def test_routine_intake_creates_completed_case() -> None:
     case = asyncio.run(CaseProcessingService().process(ROUTINE_TEXT, "text-intake"))
 
@@ -32,6 +45,15 @@ def test_routine_intake_creates_completed_case() -> None:
     assert case.intakeStatus == "Complete"
     assert case.reviewStatus == "New"
     assert date.fromisoformat(case.createdDate) == case.createdUtc.date()
+
+
+def test_processed_case_is_saved_through_repository() -> None:
+    repository = RecordingCaseRepository()
+    service = CaseProcessingService(case_repository=repository)
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert repository.saved_case == case
 
 
 def test_urgent_red_flag_intake_creates_completed_urgent_case() -> None:
