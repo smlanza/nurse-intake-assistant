@@ -27,6 +27,7 @@ class CaseProcessingService:
         rules_service: UrgencyRulesService | None = None,
         case_repository: CaseRepository | None = None,
         email_notification_sender: EmailNotificationSender | None = None,
+        suppress_notifications: bool = False,
     ) -> None:
         self.ai_service = ai_service or MockAiService()
         self.rules_service = rules_service or UrgencyRulesService(
@@ -34,6 +35,7 @@ class CaseProcessingService:
         )
         self.case_repository = case_repository
         self.email_notification_sender = email_notification_sender
+        self.suppress_notifications = suppress_notifications
 
     async def process(self, raw_text: str, case_type: CaseType) -> CaseDocument:
         """Process supplied text into a completed in-memory case document."""
@@ -82,7 +84,10 @@ class CaseProcessingService:
         if self.case_repository is not None:
             await self.case_repository.save(case)
 
-        if self.email_notification_sender is not None:
+        if (
+            self.email_notification_sender is not None
+            and not self.suppress_notifications
+        ):
             self.email_notification_sender.send_case_notification(
                 recipient="nurse@example.com",
                 subject=f"New {case.urgency} intake case",

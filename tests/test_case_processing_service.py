@@ -85,6 +85,44 @@ def test_processed_case_is_saved_and_sends_email_notification() -> None:
     assert case.summary in notification.body
 
 
+def test_case_processing_service_accepts_suppress_notifications_flag() -> None:
+    service = CaseProcessingService(suppress_notifications=True)
+
+    assert service.suppress_notifications is True
+
+
+def test_suppressed_notifications_still_returns_and_saves_case() -> None:
+    repository = InMemoryCaseRepository()
+    email_sender = MockEmailNotificationSender()
+    service = CaseProcessingService(
+        case_repository=repository,
+        email_notification_sender=email_sender,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert isinstance(case, CaseDocument)
+    assert case.id
+    assert case.summary == "Patient is calling about medication refill."
+    assert case.urgency == "Routine"
+    assert asyncio.run(repository.get_by_id(case.id)) == case
+    assert email_sender.sent_notifications == []
+
+
+def test_explicit_false_suppression_sends_email_notification() -> None:
+    email_sender = MockEmailNotificationSender()
+    service = CaseProcessingService(
+        email_notification_sender=email_sender,
+        suppress_notifications=False,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert len(email_sender.sent_notifications) == 1
+    assert email_sender.sent_notifications[0].case_id == case.id
+
+
 def test_urgent_red_flag_intake_creates_completed_urgent_case() -> None:
     text = "My name is Jane Doe and I have CHEST PAIN."
 
