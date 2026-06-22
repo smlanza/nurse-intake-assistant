@@ -65,3 +65,51 @@ def test_app_mode_reads_environment_value(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("APP_MODE", "azure")
 
     assert AppSettings().app_mode == "azure"
+
+
+def test_cosmos_settings_use_expected_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("COSMOS_DATABASE_NAME", raising=False)
+    monkeypatch.delenv("COSMOS_CONTAINER_NAME", raising=False)
+    monkeypatch.delenv("COSMOS_ENDPOINT", raising=False)
+    monkeypatch.delenv("COSMOS_KEY", raising=False)
+
+    settings = AppSettings()
+
+    assert settings.cosmos_database_name == "nurse-intake"
+    assert settings.cosmos_container_name == "cases"
+    assert settings.cosmos_endpoint is None
+    assert settings.cosmos_key is None
+
+
+def test_cosmos_settings_read_and_trim_environment_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("COSMOS_DATABASE_NAME", "  intake-db  ")
+    monkeypatch.setenv("COSMOS_CONTAINER_NAME", "  intake-cases  ")
+    monkeypatch.setenv("COSMOS_ENDPOINT", "  https://example.documents.azure.com  ")
+    monkeypatch.setenv("COSMOS_KEY", "  secret-key  ")
+
+    settings = AppSettings()
+
+    assert settings.cosmos_database_name == "intake-db"
+    assert settings.cosmos_container_name == "intake-cases"
+    assert settings.cosmos_endpoint == "https://example.documents.azure.com"
+    assert settings.cosmos_key == "secret-key"
+
+
+def test_blank_optional_cosmos_settings_are_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("COSMOS_ENDPOINT", "   ")
+    monkeypatch.setenv("COSMOS_KEY", "   ")
+
+    settings = AppSettings()
+
+    assert settings.cosmos_endpoint is None
+    assert settings.cosmos_key is None
