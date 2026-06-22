@@ -4,6 +4,11 @@ from src.app.models.case import CaseDocument
 
 
 class CosmosCaseRepository:
+    """Persist cases through an injected Cosmos-style async container.
+
+    Container injection keeps repository tests independent of Azure and its SDK.
+    """
+
     def __init__(
         self,
         container: Any,

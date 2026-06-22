@@ -9,6 +9,8 @@ def create_case_repository(
     settings: AppSettings,
     cosmos_container: Any = None,
 ) -> CaseRepository:
+    """Select the MVP repository implementation for the configured app mode."""
+
     app_mode = settings.app_mode.strip().lower()
 
     if app_mode == "mock":

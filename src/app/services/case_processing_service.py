@@ -13,7 +13,7 @@ from src.app.services.urgency_rules_service import (
 
 
 class CaseProcessingService:
-    """Orchestrates local text processing without persistence or external services."""
+    """Orchestrate intake extraction, urgency, persistence, and notification."""
 
     _SUPPORTED_CASE_TYPES: tuple[CaseType, ...] = (
         "text-intake",
@@ -38,7 +38,7 @@ class CaseProcessingService:
         self.suppress_notifications = suppress_notifications
 
     async def process(self, raw_text: str, case_type: CaseType) -> CaseDocument:
-        """Process supplied text into a completed in-memory case document."""
+        """Process supplied text into a completed case document."""
         if case_type not in self._SUPPORTED_CASE_TYPES:
             raise ValueError(f"Unsupported case type: {case_type}")
 

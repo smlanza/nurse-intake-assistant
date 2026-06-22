@@ -5,6 +5,8 @@ from src.app.models.case import CaseDocument
 
 @runtime_checkable
 class CaseRepository(Protocol):
+    """Define storage operations independently of the persistence provider."""
+
     async def save(self, case: CaseDocument) -> CaseDocument:
         ...
 
@@ -13,6 +15,8 @@ class CaseRepository(Protocol):
 
 
 class InMemoryCaseRepository:
+    """Store cases in process memory for local development and tests."""
+
     def __init__(self) -> None:
         self._cases: dict[str, CaseDocument] = {}
 

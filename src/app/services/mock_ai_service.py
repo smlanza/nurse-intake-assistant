@@ -8,7 +8,7 @@ from src.app.models.ai_outputs import (
 
 
 class MockAiService:
-    """Deterministic local substitute for the future Azure AI service."""
+    """Provide deterministic local behavior in place of a future Azure AI/LLM."""
 
     _SYMPTOM_TERMS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("chest pain", ("chest pain", "chest pressure", "tightness in chest")),

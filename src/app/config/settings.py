@@ -2,6 +2,8 @@ import os
 
 
 class AppSettings:
+    """Read the MVP runtime mode, suppression, and Cosmos configuration."""
+
     app_mode: str
     demo_suppress_notifications: bool
     cosmos_database_name: str

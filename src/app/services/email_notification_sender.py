@@ -22,6 +22,8 @@ class EmailNotificationSender(Protocol):
 
 
 class MockEmailNotificationSender:
+    """Record email notifications in memory for tests and demo inspection."""
+
     def __init__(self) -> None:
         self.sent_notifications: list[EmailNotification] = []
 

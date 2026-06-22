@@ -35,6 +35,8 @@ class RuleEvaluationResult(BaseModel):
 
 
 class UrgencyRulesService:
+    """Apply deterministic red-flag rules alongside advisory AI urgency."""
+
     def __init__(self, config_path: str | Path):
         self.config_path = Path(config_path)
         self.config = self._load_config()
