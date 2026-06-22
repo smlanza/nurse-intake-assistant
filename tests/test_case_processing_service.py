@@ -5,7 +5,9 @@ import pytest
 
 from src.app.models.ai_outputs import UrgencyClassificationResult
 from src.app.models.case import CaseDocument
+from src.app.services.case_repository import InMemoryCaseRepository
 from src.app.services.case_processing_service import CaseProcessingService
+from src.app.services.email_notification_sender import MockEmailNotificationSender
 from src.app.services.mock_ai_service import MockAiService
 
 
@@ -54,6 +56,33 @@ def test_processed_case_is_saved_through_repository() -> None:
     case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
 
     assert repository.saved_case == case
+
+
+def test_case_processing_service_accepts_email_notification_sender() -> None:
+    email_sender = MockEmailNotificationSender()
+
+    service = CaseProcessingService(email_notification_sender=email_sender)
+
+    assert service.email_notification_sender is email_sender
+
+
+def test_processed_case_is_saved_and_sends_email_notification() -> None:
+    repository = InMemoryCaseRepository()
+    email_sender = MockEmailNotificationSender()
+    service = CaseProcessingService(
+        case_repository=repository,
+        email_notification_sender=email_sender,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert isinstance(case, CaseDocument)
+    assert asyncio.run(repository.get_by_id(case.id)) == case
+    assert len(email_sender.sent_notifications) == 1
+    notification = email_sender.sent_notifications[0]
+    assert notification.case_id == case.id
+    assert case.urgency in notification.subject
+    assert case.summary in notification.body
 
 
 def test_urgent_red_flag_intake_creates_completed_urgent_case() -> None:

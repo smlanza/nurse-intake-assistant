@@ -4,6 +4,7 @@ from pathlib import Path
 from src.app.models.case import CaseDocument, CaseType, UrgencySource
 from src.app.models.ai_outputs import UrgencyClassificationResult
 from src.app.services.case_repository import CaseRepository
+from src.app.services.email_notification_sender import EmailNotificationSender
 from src.app.services.mock_ai_service import MockAiService
 from src.app.services.urgency_rules_service import (
     RuleEvaluationResult,
@@ -25,12 +26,14 @@ class CaseProcessingService:
         ai_service: MockAiService | None = None,
         rules_service: UrgencyRulesService | None = None,
         case_repository: CaseRepository | None = None,
+        email_notification_sender: EmailNotificationSender | None = None,
     ) -> None:
         self.ai_service = ai_service or MockAiService()
         self.rules_service = rules_service or UrgencyRulesService(
             Path(__file__).parents[1] / "config" / "red_flags.yaml"
         )
         self.case_repository = case_repository
+        self.email_notification_sender = email_notification_sender
 
     async def process(self, raw_text: str, case_type: CaseType) -> CaseDocument:
         """Process supplied text into a completed in-memory case document."""
@@ -78,6 +81,14 @@ class CaseProcessingService:
 
         if self.case_repository is not None:
             await self.case_repository.save(case)
+
+        if self.email_notification_sender is not None:
+            self.email_notification_sender.send_case_notification(
+                recipient="nurse@example.com",
+                subject=f"New {case.urgency} intake case",
+                body=case.summary or "A new intake case is ready for review.",
+                case_id=case.id,
+            )
 
         return case
 
