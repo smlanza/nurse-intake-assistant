@@ -1,12 +1,13 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
 
+from src.app.dependencies import case_repository
 from src.app.models.case import CaseDocument
 from src.app.services.case_processing_service import CaseProcessingService
 
 
 router = APIRouter(prefix="/intake", tags=["intake"])
-case_processing_service = CaseProcessingService()
+case_processing_service = CaseProcessingService(case_repository=case_repository)
 
 
 class TextIntakeRequest(BaseModel):
