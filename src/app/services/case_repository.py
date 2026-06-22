@@ -1,8 +1,9 @@
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 from src.app.models.case import CaseDocument
 
 
+@runtime_checkable
 class CaseRepository(Protocol):
     async def save(self, case: CaseDocument) -> CaseDocument:
         ...
