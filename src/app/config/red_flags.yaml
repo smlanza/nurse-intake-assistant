@@ -1,0 +1,34 @@
+red_flags:
+  - id: chest_pain
+    label: Chest pain
+    terms:
+      - chest pain
+      - chest pressure
+      - tightness in chest
+    urgency: Urgent
+
+  - id: shortness_of_breath
+    label: Shortness of breath
+    terms:
+      - shortness of breath
+      - trouble breathing
+      - can't breathe
+      - cannot breathe
+    urgency: Urgent
+
+  - id: stroke_symptoms
+    label: Stroke symptoms
+    terms:
+      - face drooping
+      - slurred speech
+      - arm weakness
+      - sudden confusion
+    urgency: Urgent
+
+  - id: severe_bleeding
+    label: Severe bleeding
+    terms:
+      - severe bleeding
+      - bleeding won't stop
+      - bleeding will not stop
+    urgency: Urgent
