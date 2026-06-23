@@ -3,6 +3,7 @@ from typing import Any
 from src.app.config.settings import AppSettings
 from src.app.services.case_repository import CaseRepository, InMemoryCaseRepository
 from src.app.services.cosmos_case_repository import CosmosCaseRepository
+from src.app.services.cosmos_container_factory import create_cosmos_container
 
 
 def create_case_repository(
@@ -18,7 +19,7 @@ def create_case_repository(
 
     if app_mode == "cosmos":
         if cosmos_container is None:
-            raise ValueError("A Cosmos container is required for cosmos APP_MODE")
+            cosmos_container = create_cosmos_container(settings)
         return CosmosCaseRepository(container=cosmos_container)
 
     raise ValueError(f"Unsupported APP_MODE: {settings.app_mode}")

@@ -9,6 +9,10 @@ class FakeCosmosContainer:
     pass
 
 
+class OtherFakeCosmosContainer:
+    pass
+
+
 def settings_for_mode(monkeypatch: pytest.MonkeyPatch, app_mode: str) -> AppSettings:
     monkeypatch.setenv("APP_MODE", app_mode)
     return AppSettings()
@@ -64,12 +68,88 @@ def test_unsupported_app_mode_raises_value_error_with_mode(
         create_case_repository(settings)
 
 
-def test_cosmos_mode_requires_injected_container(
+def test_cosmos_mode_without_container_requires_cosmos_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from src.app.services.repository_factory import create_case_repository
 
     settings = settings_for_mode(monkeypatch, "cosmos")
 
-    with pytest.raises(ValueError, match="container"):
+    with pytest.raises(ValueError, match="COSMOS_ENDPOINT"):
         create_case_repository(settings)
+
+
+def test_cosmos_mode_without_injected_container_creates_cosmos_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.repository_factory as repository_factory
+
+    settings = settings_for_mode(monkeypatch, "cosmos")
+    container = FakeCosmosContainer()
+    calls: list[AppSettings] = []
+
+    def fake_create_cosmos_container(settings_arg: AppSettings) -> FakeCosmosContainer:
+        calls.append(settings_arg)
+        return container
+
+    monkeypatch.setattr(
+        repository_factory,
+        "create_cosmos_container",
+        fake_create_cosmos_container,
+        raising=False,
+    )
+
+    repository = repository_factory.create_case_repository(settings)
+
+    assert calls == [settings]
+    assert isinstance(repository, CosmosCaseRepository)
+    assert repository.container is container
+
+
+def test_cosmos_mode_with_injected_container_does_not_create_cosmos_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.repository_factory as repository_factory
+
+    settings = settings_for_mode(monkeypatch, "cosmos")
+    container = OtherFakeCosmosContainer()
+
+    def fail_if_called(settings_arg: AppSettings) -> None:
+        raise AssertionError("create_cosmos_container should not be called")
+
+    monkeypatch.setattr(
+        repository_factory,
+        "create_cosmos_container",
+        fail_if_called,
+        raising=False,
+    )
+
+    repository = repository_factory.create_case_repository(
+        settings,
+        cosmos_container=container,
+    )
+
+    assert isinstance(repository, CosmosCaseRepository)
+    assert repository.container is container
+
+
+def test_mock_mode_does_not_create_cosmos_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.repository_factory as repository_factory
+
+    settings = settings_for_mode(monkeypatch, "mock")
+
+    def fail_if_called(settings_arg: AppSettings) -> None:
+        raise AssertionError("create_cosmos_container should not be called")
+
+    monkeypatch.setattr(
+        repository_factory,
+        "create_cosmos_container",
+        fail_if_called,
+        raising=False,
+    )
+
+    repository = repository_factory.create_case_repository(settings)
+
+    assert isinstance(repository, InMemoryCaseRepository)
