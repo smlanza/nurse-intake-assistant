@@ -10,7 +10,11 @@ class CaseRepository(Protocol):
     async def save(self, case: CaseDocument) -> CaseDocument:
         ...
 
-    async def get_by_id(self, case_id: str) -> CaseDocument | None:
+    async def get_by_id(
+        self,
+        case_id: str,
+        created_date: str | None = None,
+    ) -> CaseDocument | None:
         ...
 
 
@@ -24,5 +28,9 @@ class InMemoryCaseRepository:
         self._cases[case.id] = case
         return case
 
-    async def get_by_id(self, case_id: str) -> CaseDocument | None:
+    async def get_by_id(
+        self,
+        case_id: str,
+        created_date: str | None = None,
+    ) -> CaseDocument | None:
         return self._cases.get(case_id)

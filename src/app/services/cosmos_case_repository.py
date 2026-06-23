@@ -21,11 +21,21 @@ class CosmosCaseRepository:
         await self.container.upsert_item(case.model_dump(mode="json"))
         return case
 
-    async def get_by_id(self, case_id: str) -> CaseDocument | None:
+    async def get_by_id(
+        self,
+        case_id: str,
+        created_date: str | None = None,
+    ) -> CaseDocument | None:
+        if created_date is None:
+            raise ValueError(
+                "created_date is required for Cosmos case lookup with the "
+                "/createdDate partition key"
+            )
+
         try:
             stored_case = await self.container.read_item(
                 item=case_id,
-                partition_key=case_id,
+                partition_key=created_date,
             )
         except self.not_found_exceptions:
             return None

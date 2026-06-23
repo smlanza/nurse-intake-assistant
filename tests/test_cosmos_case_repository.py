@@ -54,10 +54,11 @@ def test_cosmos_repository_upserts_serialized_case_and_returns_original() -> Non
     saved_case = asyncio.run(repository.save(case))
 
     assert container.upserted_items == [case.model_dump(mode="json")]
+    assert container.upserted_items[0]["createdDate"] == case.createdDate
     assert saved_case is case
 
 
-def test_cosmos_repository_reads_case_by_id_and_case_id_partition_key() -> None:
+def test_cosmos_repository_reads_case_by_id_and_created_date_partition_key() -> None:
     from src.app.services.cosmos_case_repository import CosmosCaseRepository
 
     container = FakeCosmosContainer()
@@ -68,10 +69,10 @@ def test_cosmos_repository_reads_case_by_id_and_case_id_partition_key() -> None:
         not_found_exceptions=(FakeNotFoundError,),
     )
 
-    asyncio.run(repository.get_by_id(case.id))
+    asyncio.run(repository.get_by_id(case.id, created_date=case.createdDate))
 
     assert container.read_calls == [
-        {"item": case.id, "partition_key": case.id},
+        {"item": case.id, "partition_key": case.createdDate},
     ]
 
 
@@ -86,10 +87,29 @@ def test_cosmos_repository_returns_case_document_from_stored_dictionary() -> Non
         not_found_exceptions=(FakeNotFoundError,),
     )
 
-    retrieved_case = asyncio.run(repository.get_by_id(case.id))
+    retrieved_case = asyncio.run(
+        repository.get_by_id(case.id, created_date=case.createdDate)
+    )
 
     assert isinstance(retrieved_case, CaseDocument)
     assert retrieved_case == case
+
+
+def test_cosmos_repository_requires_created_date_for_case_lookup() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    repository = CosmosCaseRepository(
+        container=FakeCosmosContainer(),
+        not_found_exceptions=(FakeNotFoundError,),
+    )
+
+    try:
+        asyncio.run(repository.get_by_id("case-123"))
+    except ValueError as error:
+        assert "created_date is required" in str(error)
+        assert "/createdDate" in str(error)
+    else:
+        raise AssertionError("Expected created_date requirement to raise ValueError")
 
 
 def test_cosmos_repository_returns_none_when_case_is_missing() -> None:
@@ -102,7 +122,9 @@ def test_cosmos_repository_returns_none_when_case_is_missing() -> None:
         not_found_exceptions=(FakeNotFoundError,),
     )
 
-    retrieved_case = asyncio.run(repository.get_by_id("missing-case"))
+    retrieved_case = asyncio.run(
+        repository.get_by_id("missing-case", created_date="2026-06-23")
+    )
 
     assert retrieved_case is None
 
