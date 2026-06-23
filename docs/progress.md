@@ -25,6 +25,8 @@ Completed:
 - Azure Cosmos SDK dependency added to `requirements.txt`
 - Repository factory now supports `APP_MODE=cosmos` without an injected
   container by calling `create_cosmos_container(settings)`
+- Decision: the Cosmos cases container will use `/createdDate` as its partition
+  key
 
 Current working local pipeline:
 
@@ -43,9 +45,17 @@ Available demo/read routes:
 
 Repository support:
 - `InMemoryCaseRepository` is used by the running FastAPI app.
+- Case documents include a date-only `createdDate` field.
+- `InMemoryCaseRepository.get_by_id(case_id, created_date=None)` accepts the
+  optional `created_date` parameter for interface compatibility and ignores it.
 - `CosmosCaseRepository` serializes and upserts case documents through an injected
   Cosmos-style container. It reads with `item=case_id` and
-  `partition_key=case_id`, and maps configured not-found exceptions to `None`.
+  `partition_key=createdDate` when `created_date` is supplied, and maps
+  configured not-found exceptions to `None`.
+- `CosmosCaseRepository.get_by_id(case_id, created_date=...)` supports efficient
+  point reads with the `/createdDate` partition key.
+- `CosmosCaseRepository` raises a clear error when `created_date` is missing for
+  Cosmos lookup.
 - `create_case_repository(settings, cosmos_container=None)` selects the in-memory
   repository for `APP_MODE=mock` and the Cosmos repository for
   `APP_MODE=cosmos`. Mode matching ignores case and surrounding whitespace.
@@ -59,6 +69,8 @@ Repository support:
   and mock mode remains unchanged.
 
 Cosmos container support:
+- Bicep should use `/createdDate` for the Cosmos cases container partition key
+  when Infrastructure as Code work begins.
 - `create_cosmos_container(settings, cosmos_client_class=None)` validates
   `COSMOS_ENDPOINT` and `COSMOS_KEY`, creates a Cosmos client, retrieves the
   configured database, and retrieves the configured container.
@@ -78,19 +90,20 @@ App settings:
   `None`.
 
 Not yet implemented:
+- Optional `createdDate` query parameter on `GET /cases/{case_id}`
 - Infrastructure as Code for Cosmos DB resources
 - Real email provider
 - SMS provider
 - Authentication
 
 Latest test result:
-- 75 passed
+- 76 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Begin Infrastructure as Code with Bicep for Cosmos DB resources, after
-confirming the Cosmos partition key decision.
+Update `GET /cases/{case_id}` to accept an optional `createdDate` query
+parameter and pass it to `repository.get_by_id`.
 
 ## Workflow
 
