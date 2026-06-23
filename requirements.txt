@@ -8,3 +8,4 @@ pytest
 httpx
 jinja2
 python-multipart
+azure-cosmos
