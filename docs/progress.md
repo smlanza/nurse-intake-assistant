@@ -110,9 +110,18 @@ Infrastructure support:
   Log Analytics workspace, and Application Insights.
 - Parameters cover environment name, location, project name, Cosmos database
   name, and Cosmos container name.
-- Outputs include Cosmos account name, Cosmos endpoint, database name, and
-  container name.
+- Outputs include Cosmos account name, Cosmos endpoint, database name, container
+  name, Application Insights name, and Application Insights connection string.
 - The template does not include secrets.
+- `az bicep build --file infra/main.bicep` passed.
+- Azure deployment group validation passed against `rg-nurse-intake-dev` in
+  `eastus`.
+- Actual Azure deployment succeeded.
+- Verified in the Azure Portal that the resource group contained Application
+  Insights, Log Analytics workspace, Azure Cosmos DB account, and Storage
+  account.
+- Dev resource group cleanup was planned with:
+  `az group delete --name rg-nurse-intake-dev --yes`.
 
 Latest test result:
 - 77 passed
@@ -120,14 +129,18 @@ Latest test result:
 
 ## Next Step
 
-Validate the Bicep baseline with Azure CLI, then plan the next infrastructure
-slice for application hosting.
+Confirm the dev resource group was deleted for cost control, then commit and push
+this infrastructure baseline.
+
+After that, the next TDD slice is to wire deployed Cosmos DB connection settings
+into app configuration while preserving `APP_MODE=mock` as the default local mode.
 
 ## Workflow
 
-1. Ask ChatGPT for next Codex prompt.
-2. Paste prompt into Codex.
-3. Run pytest.
-4. Run git status.
-5. Review output with ChatGPT.
-6. Commit and push.
+1. Confirm Azure cleanup: `az group exists --name rg-nurse-intake-dev` should
+   return `false`.
+2. Run pytest.
+3. Run git status.
+4. Review output with ChatGPT.
+5. Commit and push.
+6. Ask ChatGPT for the next Codex prompt.
