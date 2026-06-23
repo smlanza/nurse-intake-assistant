@@ -18,6 +18,8 @@ Completed:
 - Email notification inspection route: `GET /notifications/email`
 - Cosmos case repository using an injected Cosmos-style container
 - Repository factory for selecting in-memory or Cosmos persistence by app mode
+- FastAPI dependency wiring now creates the shared app-level case repository
+  through `create_case_repository(settings)` in mock mode
 
 Current working local pipeline:
 
@@ -25,7 +27,8 @@ POST /intake/text
 → CaseProcessingService
 → MockAiService
 → UrgencyRulesService
-→ InMemoryCaseRepository
+→ create_case_repository(settings)
+→ InMemoryCaseRepository for `APP_MODE=mock`
 → MockEmailNotificationSender (unless suppressed)
 → CaseDocument response
 
@@ -42,7 +45,8 @@ Repository support:
   repository for `APP_MODE=mock` and the Cosmos repository for
   `APP_MODE=cosmos`. Mode matching ignores case and surrounding whitespace.
 - Cosmos mode currently requires an injected container. The repository factory is
-  not yet wired into the FastAPI dependencies.
+  wired into the FastAPI dependencies for mock mode, but real Cosmos container
+  creation is not yet implemented.
 
 App settings:
 - `APP_MODE` defaults to `mock`.
@@ -60,14 +64,13 @@ Not yet implemented:
 - Authentication
 
 Latest test result:
-- 67 passed
+- 68 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Use TDD to wire the repository factory into FastAPI dependencies for mock mode
-while preserving current behavior. Add real Cosmos container creation and
-configuration as a separate later slice.
+Use TDD to add real Cosmos DB client/container creation and configuration while
+preserving the current mock-mode behavior.
 
 ## Workflow
 
