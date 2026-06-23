@@ -27,6 +27,8 @@ Completed:
   container by calling `create_cosmos_container(settings)`
 - Decision: the Cosmos cases container will use `/createdDate` as its partition
   key
+- Case retrieval route accepts optional `createdDate` query parameter and passes
+  it to `repository.get_by_id` as `created_date`
 
 Current working local pipeline:
 
@@ -40,7 +42,11 @@ POST /intake/text
 → CaseDocument response
 
 Available demo/read routes:
-- `GET /cases/{case_id}` returns a saved case.
+- `GET /cases/{case_id}` returns a saved case in mock/default mode without
+  requiring `createdDate`.
+- `GET /cases/{case_id}?createdDate=YYYY-MM-DD` passes `createdDate` to the
+  repository as `created_date`, supporting efficient Cosmos point reads when the
+  client knows the case date.
 - `GET /notifications/email` returns recorded mock email notifications in send order.
 
 Repository support:
@@ -90,20 +96,19 @@ App settings:
   `None`.
 
 Not yet implemented:
-- Optional `createdDate` query parameter on `GET /cases/{case_id}`
 - Infrastructure as Code for Cosmos DB resources
 - Real email provider
 - SMS provider
 - Authentication
 
 Latest test result:
-- 76 passed
+- 77 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Update `GET /cases/{case_id}` to accept an optional `createdDate` query
-parameter and pass it to `repository.get_by_id`.
+Begin Bicep/Infrastructure as Code for Cosmos DB resources using `/createdDate`
+as the cases container partition key.
 
 ## Workflow
 
