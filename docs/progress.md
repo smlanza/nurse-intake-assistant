@@ -23,6 +23,8 @@ Completed:
 - Cosmos container factory:
   `create_cosmos_container(settings, cosmos_client_class=None)`
 - Azure Cosmos SDK dependency added to `requirements.txt`
+- Repository factory now supports `APP_MODE=cosmos` without an injected
+  container by calling `create_cosmos_container(settings)`
 
 Current working local pipeline:
 
@@ -47,9 +49,14 @@ Repository support:
 - `create_case_repository(settings, cosmos_container=None)` selects the in-memory
   repository for `APP_MODE=mock` and the Cosmos repository for
   `APP_MODE=cosmos`. Mode matching ignores case and surrounding whitespace.
-- Cosmos mode currently requires an injected container when using
-  `create_case_repository`. The repository factory is wired into the FastAPI
-  dependencies for mock mode, and mock mode remains unchanged.
+- In Cosmos mode, `create_case_repository(settings)` calls
+  `create_cosmos_container(settings)` and wraps the returned container in
+  `CosmosCaseRepository`.
+- Injected Cosmos containers still take precedence for tests.
+- Mock mode still returns `InMemoryCaseRepository` and does not call Cosmos
+  container creation.
+- The repository factory is wired into the FastAPI dependencies for mock mode,
+  and mock mode remains unchanged.
 
 Cosmos container support:
 - `create_cosmos_container(settings, cosmos_client_class=None)` validates
@@ -71,21 +78,19 @@ App settings:
   `None`.
 
 Not yet implemented:
-- Repository factory fallback from `APP_MODE=cosmos` to real Cosmos container
-  creation when no container is injected
+- Infrastructure as Code for Cosmos DB resources
 - Real email provider
 - SMS provider
 - Authentication
 
 Latest test result:
-- 72 passed
+- 75 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Use TDD to wire `create_case_repository` so `APP_MODE=cosmos` can call
-`create_cosmos_container(settings)` when no injected container is supplied,
-while preserving injected containers and mock mode.
+Begin Infrastructure as Code with Bicep for Cosmos DB resources, after
+confirming the Cosmos partition key decision.
 
 ## Workflow
 
