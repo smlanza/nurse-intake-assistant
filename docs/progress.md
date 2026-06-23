@@ -29,6 +29,8 @@ Completed:
   key
 - Case retrieval route accepts optional `createdDate` query parameter and passes
   it to `repository.get_by_id` as `created_date`
+- Minimal Bicep infrastructure baseline in `infra/main.bicep`
+- `infra/README.md` with Azure CLI build, validate, deploy, and cleanup commands
 
 Current working local pipeline:
 
@@ -75,8 +77,7 @@ Repository support:
   and mock mode remains unchanged.
 
 Cosmos container support:
-- Bicep should use `/createdDate` for the Cosmos cases container partition key
-  when Infrastructure as Code work begins.
+- Bicep uses `/createdDate` for the Cosmos cases container partition key.
 - `create_cosmos_container(settings, cosmos_client_class=None)` validates
   `COSMOS_ENDPOINT` and `COSMOS_KEY`, creates a Cosmos client, retrieves the
   configured database, and retrieves the configured container.
@@ -96,10 +97,22 @@ App settings:
   `None`.
 
 Not yet implemented:
-- Infrastructure as Code for Cosmos DB resources
+- Application hosting infrastructure
+- Azure AI Foundry, Speech, ACS Email, ACS SMS, and Key Vault resources
 - Real email provider
 - SMS provider
 - Authentication
+
+Infrastructure support:
+- `infra/main.bicep` is a resource-group-scope MVP baseline.
+- It creates a serverless Azure Cosmos DB account, Cosmos SQL database, `cases`
+  container using `/createdDate` as the partition key, Azure Storage account,
+  Log Analytics workspace, and Application Insights.
+- Parameters cover environment name, location, project name, Cosmos database
+  name, and Cosmos container name.
+- Outputs include Cosmos account name, Cosmos endpoint, database name, and
+  container name.
+- The template does not include secrets.
 
 Latest test result:
 - 77 passed
@@ -107,8 +120,8 @@ Latest test result:
 
 ## Next Step
 
-Begin Bicep/Infrastructure as Code for Cosmos DB resources using `/createdDate`
-as the cases container partition key.
+Validate the Bicep baseline with Azure CLI, then plan the next infrastructure
+slice for application hosting.
 
 ## Workflow
 
