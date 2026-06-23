@@ -20,6 +20,9 @@ Completed:
 - Repository factory for selecting in-memory or Cosmos persistence by app mode
 - FastAPI dependency wiring now creates the shared app-level case repository
   through `create_case_repository(settings)` in mock mode
+- Cosmos container factory:
+  `create_cosmos_container(settings, cosmos_client_class=None)`
+- Azure Cosmos SDK dependency added to `requirements.txt`
 
 Current working local pipeline:
 
@@ -44,9 +47,19 @@ Repository support:
 - `create_case_repository(settings, cosmos_container=None)` selects the in-memory
   repository for `APP_MODE=mock` and the Cosmos repository for
   `APP_MODE=cosmos`. Mode matching ignores case and surrounding whitespace.
-- Cosmos mode currently requires an injected container. The repository factory is
-  wired into the FastAPI dependencies for mock mode, but real Cosmos container
-  creation is not yet implemented.
+- Cosmos mode currently requires an injected container when using
+  `create_case_repository`. The repository factory is wired into the FastAPI
+  dependencies for mock mode, and mock mode remains unchanged.
+
+Cosmos container support:
+- `create_cosmos_container(settings, cosmos_client_class=None)` validates
+  `COSMOS_ENDPOINT` and `COSMOS_KEY`, creates a Cosmos client, retrieves the
+  configured database, and retrieves the configured container.
+- Production usage lazily imports the Azure Cosmos SDK client.
+- Tests can inject a fake client class to avoid real Azure access and network
+  calls.
+- Tests cover missing `COSMOS_ENDPOINT`, missing `COSMOS_KEY`, and valid
+  client/database/container retrieval through fakes.
 
 App settings:
 - `APP_MODE` defaults to `mock`.
@@ -58,19 +71,21 @@ App settings:
   `None`.
 
 Not yet implemented:
-- Real Azure Cosmos DB client/container creation
+- Repository factory fallback from `APP_MODE=cosmos` to real Cosmos container
+  creation when no container is injected
 - Real email provider
 - SMS provider
 - Authentication
 
 Latest test result:
-- 68 passed
+- 72 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Use TDD to add real Cosmos DB client/container creation and configuration while
-preserving the current mock-mode behavior.
+Use TDD to wire `create_case_repository` so `APP_MODE=cosmos` can call
+`create_cosmos_container(settings)` when no injected container is supplied,
+while preserving injected containers and mock mode.
 
 ## Workflow
 
