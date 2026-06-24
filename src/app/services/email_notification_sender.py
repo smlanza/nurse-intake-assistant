@@ -42,3 +42,26 @@ class MockEmailNotificationSender:
                 case_id=case_id,
             )
         )
+
+
+class AcsEmailNotificationSender:
+    """Placeholder ACS Email sender until the real provider is wired."""
+
+    def __init__(
+        self,
+        connection_string: str,
+        sender_address: str,
+        default_recipient: str,
+    ) -> None:
+        self.connection_string = connection_string
+        self.sender_address = sender_address
+        self.default_recipient = default_recipient
+
+    def send_case_notification(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        case_id: str,
+    ) -> None:
+        raise NotImplementedError("ACS Email sending is not implemented yet.")

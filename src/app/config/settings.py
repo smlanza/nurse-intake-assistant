@@ -2,10 +2,15 @@ import os
 
 
 class AppSettings:
-    """Read the MVP runtime mode, suppression, and Cosmos configuration."""
+    """Read MVP runtime, notification, and Cosmos configuration."""
 
     app_mode: str
     demo_suppress_notifications: bool
+    email_provider: str
+    email_provider_normalized: str
+    acs_email_connection_string: str | None
+    acs_email_sender_address: str | None
+    nurse_notification_email: str | None
     cosmos_database_name: str
     cosmos_container_name: str
     cosmos_endpoint: str | None
@@ -16,6 +21,13 @@ class AppSettings:
         self.demo_suppress_notifications = self._parse_bool(
             os.getenv("DEMO_SUPPRESS_NOTIFICATIONS", "false")
         )
+        self.email_provider = os.getenv("EMAIL_PROVIDER", "mock")
+        self.email_provider_normalized = self.email_provider.strip().lower()
+        self.acs_email_connection_string = self._optional_env(
+            "ACS_EMAIL_CONNECTION_STRING"
+        )
+        self.acs_email_sender_address = self._optional_env("ACS_EMAIL_SENDER_ADDRESS")
+        self.nurse_notification_email = self._optional_env("NURSE_NOTIFICATION_EMAIL")
         self.cosmos_database_name = os.getenv(
             "COSMOS_DATABASE_NAME", "nurse-intake"
         ).strip()

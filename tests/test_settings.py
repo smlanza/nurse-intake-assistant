@@ -130,3 +130,70 @@ def test_blank_optional_cosmos_settings_are_none(
 
     assert settings.cosmos_endpoint is None
     assert settings.cosmos_key is None
+
+
+def test_email_provider_defaults_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("EMAIL_PROVIDER", raising=False)
+
+    assert AppSettings().email_provider == "mock"
+
+
+def test_email_provider_reads_environment_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("EMAIL_PROVIDER", "  ACS  ")
+
+    assert AppSettings().email_provider == "  ACS  "
+    assert AppSettings().email_provider_normalized == "acs"
+
+
+def test_acs_email_settings_default_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("ACS_EMAIL_CONNECTION_STRING", raising=False)
+    monkeypatch.delenv("ACS_EMAIL_SENDER_ADDRESS", raising=False)
+    monkeypatch.delenv("NURSE_NOTIFICATION_EMAIL", raising=False)
+
+    settings = AppSettings()
+
+    assert settings.acs_email_connection_string is None
+    assert settings.acs_email_sender_address is None
+    assert settings.nurse_notification_email is None
+
+
+def test_acs_email_settings_trim_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("ACS_EMAIL_CONNECTION_STRING", "  endpoint=example  ")
+    monkeypatch.setenv("ACS_EMAIL_SENDER_ADDRESS", "  sender@example.com  ")
+    monkeypatch.setenv("NURSE_NOTIFICATION_EMAIL", "  nurse@example.com  ")
+
+    settings = AppSettings()
+
+    assert settings.acs_email_connection_string == "endpoint=example"
+    assert settings.acs_email_sender_address == "sender@example.com"
+    assert settings.nurse_notification_email == "nurse@example.com"
+
+
+def test_blank_acs_email_settings_are_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("ACS_EMAIL_CONNECTION_STRING", "   ")
+    monkeypatch.setenv("ACS_EMAIL_SENDER_ADDRESS", "   ")
+    monkeypatch.setenv("NURSE_NOTIFICATION_EMAIL", "   ")
+
+    settings = AppSettings()
+
+    assert settings.acs_email_connection_string is None
+    assert settings.acs_email_sender_address is None
+    assert settings.nurse_notification_email is None
