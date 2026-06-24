@@ -62,9 +62,63 @@ Create the deployment:
 ```bash
 az deployment group create \
   --resource-group "$RESOURCE_GROUP" \
+  --name main \
   --template-file infra/main.bicep \
   --parameters environmentName=demo location="$LOCATION" projectName=nurse-intake cosmosDatabaseName=nurse-intake cosmosContainerName=cases
 ```
+
+## Run App Against Deployed Cosmos DB
+
+`APP_MODE=mock` remains the default local mode. Only set `APP_MODE=cosmos` when
+you intentionally want the app to use a deployed Cosmos DB account.
+
+Get the Cosmos endpoint from the latest deployment output:
+
+```bash
+COSMOS_ENDPOINT=$(az deployment group show \
+  --resource-group "$RESOURCE_GROUP" \
+  --name main \
+  --query properties.outputs.cosmosEndpoint.value \
+  --output tsv)
+```
+
+Or get the endpoint directly from the Cosmos account:
+
+```bash
+COSMOS_ACCOUNT_NAME=$(az cosmosdb list \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "[0].name" \
+  --output tsv)
+
+COSMOS_ENDPOINT=$(az cosmosdb show \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$COSMOS_ACCOUNT_NAME" \
+  --query documentEndpoint \
+  --output tsv)
+```
+
+Get a Cosmos key:
+
+```bash
+COSMOS_KEY=$(az cosmosdb keys list \
+  --resource-group "$RESOURCE_GROUP" \
+  --name "$COSMOS_ACCOUNT_NAME" \
+  --query primaryMasterKey \
+  --output tsv)
+```
+
+Example local environment values:
+
+```bash
+APP_MODE=cosmos
+COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
+COSMOS_KEY=your-local-development-key
+COSMOS_DATABASE_NAME=nurse-intake
+COSMOS_CONTAINER_NAME=cases
+```
+
+Do not commit `.env` or real Cosmos keys. Keep real secrets local for this MVP
+slice.
 
 ## Delete Resources
 

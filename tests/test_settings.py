@@ -70,6 +70,7 @@ def test_app_mode_reads_environment_value(monkeypatch: pytest.MonkeyPatch) -> No
 def test_cosmos_settings_use_expected_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     from src.app.config.settings import AppSettings
 
+    monkeypatch.setenv("APP_MODE", "mock")
     monkeypatch.delenv("COSMOS_DATABASE_NAME", raising=False)
     monkeypatch.delenv("COSMOS_CONTAINER_NAME", raising=False)
     monkeypatch.delenv("COSMOS_ENDPOINT", raising=False)
@@ -81,6 +82,22 @@ def test_cosmos_settings_use_expected_defaults(monkeypatch: pytest.MonkeyPatch) 
     assert settings.cosmos_container_name == "cases"
     assert settings.cosmos_endpoint is None
     assert settings.cosmos_key is None
+
+
+def test_mock_mode_does_not_require_cosmos_endpoint_or_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+    from src.app.services.case_repository import InMemoryCaseRepository
+    from src.app.services.repository_factory import create_case_repository
+
+    monkeypatch.setenv("APP_MODE", "mock")
+    monkeypatch.delenv("COSMOS_ENDPOINT", raising=False)
+    monkeypatch.delenv("COSMOS_KEY", raising=False)
+
+    repository = create_case_repository(AppSettings())
+
+    assert isinstance(repository, InMemoryCaseRepository)
 
 
 def test_cosmos_settings_read_and_trim_environment_values(

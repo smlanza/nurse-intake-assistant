@@ -51,7 +51,10 @@ def test_create_cosmos_container_requires_endpoint(
     settings = cosmos_settings(monkeypatch)
     settings.cosmos_endpoint = None
 
-    with pytest.raises(ValueError, match="COSMOS_ENDPOINT"):
+    with pytest.raises(
+        ValueError,
+        match="COSMOS_ENDPOINT is required for cosmos APP_MODE",
+    ):
         create_cosmos_container(settings, cosmos_client_class=FakeCosmosClient)
 
 
@@ -63,7 +66,10 @@ def test_create_cosmos_container_requires_key(
     settings = cosmos_settings(monkeypatch)
     settings.cosmos_key = None
 
-    with pytest.raises(ValueError, match="COSMOS_KEY"):
+    with pytest.raises(
+        ValueError,
+        match="COSMOS_KEY is required for cosmos APP_MODE",
+    ):
         create_cosmos_container(settings, cosmos_client_class=FakeCosmosClient)
 
 
@@ -102,3 +108,23 @@ def test_create_cosmos_container_returns_configured_container(
     assert client.requested_database_name == "intake-db"
     assert client.database.requested_container_name == "cases"
     assert container is client.database.container
+
+
+def test_create_cosmos_container_accepts_trimmed_endpoint_and_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+    from src.app.services.cosmos_container_factory import create_cosmos_container
+
+    monkeypatch.setenv("APP_MODE", "cosmos")
+    monkeypatch.setenv("COSMOS_ENDPOINT", "  https://trimmed.documents.azure.com  ")
+    monkeypatch.setenv("COSMOS_KEY", "  trimmed-key  ")
+    monkeypatch.setenv("COSMOS_DATABASE_NAME", "nurse-intake")
+    monkeypatch.setenv("COSMOS_CONTAINER_NAME", "cases")
+
+    create_cosmos_container(AppSettings(), cosmos_client_class=FakeCosmosClient)
+
+    client = FakeCosmosClient.instance
+    assert client is not None
+    assert client.endpoint == "https://trimmed.documents.azure.com"
+    assert client.credential == "trimmed-key"
