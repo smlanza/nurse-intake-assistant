@@ -40,6 +40,9 @@ Completed:
   methods while preserving async fake-container support in tests
 - Text intake request source metadata is persisted after route-level
   `sourceSystem` and `sourceCallId` assignment
+- Cosmos-backed case lookup now returns a clean HTTP 400 when `createdDate` is
+  missing, rather than bubbling the repository partition-key requirement as HTTP
+  500
 
 Current working local pipeline:
 
@@ -58,10 +61,11 @@ Available demo/read routes:
 - `GET /cases/{case_id}?createdDate=YYYY-MM-DD` passes `createdDate` to the
   repository as `created_date`, supporting efficient Cosmos point reads when the
   client knows the case date.
-- In Cosmos mode, `GET /cases/{case_id}` without `createdDate` currently returns
-  a server error because the Cosmos repository requires the `/createdDate`
-  partition key. This is expected for the current implementation but should be
-  improved to a clean client error.
+- In mock/default mode, `GET /cases/{case_id}` continues to work without
+  requiring `createdDate`.
+- In Cosmos mode, `GET /cases/{case_id}` without `createdDate` returns HTTP 400
+  with a response detail explaining that `createdDate` is required for
+  Cosmos-backed case lookup.
 - `GET /notifications/email` returns recorded mock email notifications in send order.
 
 Repository support:
@@ -77,8 +81,8 @@ Repository support:
   methods and async fake container methods used by tests.
 - `CosmosCaseRepository.get_by_id(case_id, created_date=...)` supports efficient
   point reads with the `/createdDate` partition key.
-- `CosmosCaseRepository` raises a clear error when `created_date` is missing for
-  Cosmos lookup.
+- `CosmosCaseRepository` raises `MissingCasePartitionKeyError` when
+  `created_date` is missing for Cosmos lookup.
 - `create_case_repository(settings, cosmos_container=None)` selects the in-memory
   repository for `APP_MODE=mock` and the Cosmos repository for
   `APP_MODE=cosmos`. Mode matching ignores case and surrounding whitespace.
@@ -156,25 +160,26 @@ Infrastructure support:
   - `GET /cases/{case_id}?createdDate=2026-06-24` returned HTTP 200
   - Direct Azure Cosmos SDK read confirmed the case existed in the deployed
     `cases` container
-  - `GET /cases/{case_id}` without `createdDate` returned HTTP 500, matching the
-    current Cosmos repository partition-key requirement
+  - Follow-up TDD slice changed `GET /cases/{case_id}` without `createdDate` in
+    Cosmos mode from HTTP 500 to HTTP 400 with a clear client-facing message
 - Dev resource group was deleted after verification. Final check:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 82 passed
+- 84 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Commit and push the Cosmos smoke-test fixes and progress documentation.
+Commit and push the clean Cosmos missing-`createdDate` behavior and progress
+documentation.
 
-After that, the recommended next TDD slice is to improve Cosmos-mode error
-handling for missing `createdDate` so `GET /cases/{case_id}` returns a clean
-400/422 client error instead of HTTP 500 when `APP_MODE=cosmos`.
+After that, the recommended next TDD slice is ACS Email configuration/provider
+scaffolding. Start that code slice with a RED-stage-only prompt so the failing
+tests can be reviewed before implementation.
 
-Do not start hosting, Key Vault, Azure AI Foundry, ACS Email, ACS SMS, or
-authentication yet.
+Do not start hosting, Key Vault, Azure AI Foundry, ACS SMS, or authentication
+yet.
 
 ## Workflow
 
