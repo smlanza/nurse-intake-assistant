@@ -51,6 +51,9 @@ Completed:
 - `AcsEmailNotificationSender` placeholder exists for provider selection tests
 - `create_email_notification_sender(settings)` selects mock or ACS email sender
   by provider setting, with case-insensitive and whitespace-tolerant matching
+- FastAPI dependency setup now creates the shared app-level email notification
+  sender through `create_email_notification_sender(settings)`
+- Mock/default notification behavior remains preserved after factory wiring
 
 Current working local pipeline:
 
@@ -60,7 +63,8 @@ POST /intake/text
 → UrgencyRulesService
 → create_case_repository(settings)
 → InMemoryCaseRepository for `APP_MODE=mock`
-→ MockEmailNotificationSender (unless suppressed)
+→ create_email_notification_sender(settings)
+→ MockEmailNotificationSender for `EMAIL_PROVIDER=mock` (unless suppressed)
 → CaseDocument response
 
 Available demo/read routes:
@@ -139,9 +143,14 @@ Email notification support:
   connection string, sender address, and nurse notification email.
 - Unknown `EMAIL_PROVIDER` values raise a clear configuration error.
 - Mock provider mode does not require ACS Email settings.
+- FastAPI dependencies create the shared app-level email sender through
+  `create_email_notification_sender(settings)`.
+- In mock/default mode, `GET /notifications/email` still returns recorded mock
+  email notifications in send order.
+- `DEMO_SUPPRESS_NOTIFICATIONS=true` still suppresses email notifications.
 - Real ACS Email sending is not implemented yet.
 - The ACS Email SDK has not been added yet.
-- The FastAPI app dependencies are not wired to the email sender factory yet.
+- ACS Email settings are not documented in `.env.example` yet.
 
 Not yet implemented:
 - Application hosting infrastructure
@@ -192,16 +201,17 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 97 passed
+- 98 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Commit and push the ACS Email provider scaffolding and progress documentation.
+Commit and push the email sender factory dependency wiring and progress
+documentation.
 
-After that, the recommended next TDD slice is to wire the email sender factory
-into FastAPI dependencies while preserving mock email as the default. Start that
-code slice with a RED-stage-only prompt so the failing tests can be reviewed
+After that, the recommended next TDD slice is RED-stage-only tests for
+`.env.example` and documentation updates for ACS Email configuration, since the
+ACS settings are not documented there yet. The failing tests should be reviewed
 before implementation.
 
 Do not start hosting, Key Vault, Azure AI Foundry, ACS SMS, or authentication
