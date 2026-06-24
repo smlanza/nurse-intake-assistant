@@ -60,6 +60,13 @@ Completed:
   sender address and default nurse recipient, includes case id, urgency, summary,
   and patient/callback information when available, and does not include the ACS
   connection string
+- `AcsEmailNotificationSender` supports both injected clients and injected
+  client factories
+- `AcsEmailNotificationSender` lazily creates the ACS Email client on first send
+  when no client is injected
+- Created ACS Email clients are reused across sends
+- `create_acs_email_client(connection_string)` lazily imports the Azure
+  Communication Email SDK client
 
 Current working local pipeline:
 
@@ -164,9 +171,16 @@ Email notification support:
 - The generated ACS Email payload includes case id, urgency, summary, and
   patient/callback information when available.
 - Tests verify the ACS connection string is not included in the email payload.
+- `AcsEmailNotificationSender` supports injected fake clients and injected fake
+  client factories for tests.
+- If no client is injected, the sender lazily creates an ACS Email client on the
+  first send and reuses it across subsequent sends.
+- `create_acs_email_client(connection_string)` lazily imports
+  `azure.communication.email.EmailClient`.
 - Real ACS Email sending is not implemented yet.
 - Real ACS SDK integration and live ACS Email sending are still not implemented.
 - The ACS Email SDK has not been added yet.
+- No live ACS Email send has been executed yet.
 - Do not commit real ACS connection strings or secrets.
 
 Not yet implemented:
@@ -218,17 +232,18 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 102 passed
+- 105 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Commit and push the ACS Email fake-client send behavior and progress
+Commit and push the ACS Email lazy client factory behavior and progress
 documentation.
 
-After that, the recommended next TDD slice is RED-stage-only tests for ACS Email
-SDK client creation/factory behavior, without live Azure calls. The failing tests
-should be reviewed before implementation.
+After that, the recommended next TDD slice is RED-stage-only tests for adding the
+Azure Communication Email package to `requirements.txt` and documenting a manual
+ACS Email smoke-test checklist. The failing tests should be reviewed before
+implementation, and no live Azure calls should be made in automated tests.
 
 Do not start hosting, Key Vault, Azure AI Foundry, ACS SMS, or authentication
 yet.
