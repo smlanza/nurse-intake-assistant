@@ -10,6 +10,42 @@ class FakeAcsEmailClient:
         self.sent_messages.append(message)
 
 
+class FakeSuccessfulPoller:
+    def result(self) -> dict:
+        return {"status": "Succeeded"}
+
+
+class FakeSuccessfulAcsEmailClient:
+    def __init__(self) -> None:
+        self.sent_messages: list[dict] = []
+
+    def begin_send(self, message: dict) -> FakeSuccessfulPoller:
+        self.sent_messages.append(message)
+        return FakeSuccessfulPoller()
+
+
+def test_acs_sender_returns_true_when_client_accepts_send() -> None:
+    from src.app.services.email_notification_sender import AcsEmailNotificationSender
+
+    fake_client = FakeSuccessfulAcsEmailClient()
+    sender = AcsEmailNotificationSender(
+        connection_string="endpoint=https://example.communication.azure.com/;accesskey=fake-secret",
+        sender_address="sender@example.com",
+        default_recipient="nurse@example.com",
+        email_client=fake_client,
+    )
+
+    result = sender.send_case_notification(
+        recipient="nurse@example.com",
+        subject="New Routine intake case case-success",
+        body="Summary: Patient needs a medication refill.",
+        case_id="case-success",
+    )
+
+    assert result is True
+    assert len(fake_client.sent_messages) == 1
+
+
 def test_acs_sender_sends_case_notification_to_default_nurse_recipient() -> None:
     from src.app.services.email_notification_sender import AcsEmailNotificationSender
 
@@ -32,7 +68,7 @@ def test_acs_sender_sends_case_notification_to_default_nurse_recipient() -> None
         case_id="case-123",
     )
 
-    assert result is None
+    assert result is True
     assert len(fake_client.sent_messages) == 1
     message = fake_client.sent_messages[0]
     assert message["senderAddress"] == "sender@example.com"

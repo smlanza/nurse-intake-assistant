@@ -30,6 +30,17 @@ class RecordingCaseRepository:
         return None
 
 
+class SuccessfulEmailNotificationSender:
+    def send_case_notification(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        case_id: str,
+    ) -> bool:
+        return True
+
+
 def test_routine_intake_creates_completed_case() -> None:
     case = asyncio.run(CaseProcessingService().process(ROUTINE_TEXT, "text-intake"))
 
@@ -83,6 +94,16 @@ def test_processed_case_is_saved_and_sends_email_notification() -> None:
     assert notification.case_id == case.id
     assert case.urgency in notification.subject
     assert case.summary in notification.body
+
+
+def test_successful_email_notification_updates_returned_case() -> None:
+    service = CaseProcessingService(
+        email_notification_sender=SuccessfulEmailNotificationSender()
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.notificationEmailSent is True
 
 
 def test_case_processing_service_accepts_suppress_notifications_flag() -> None:

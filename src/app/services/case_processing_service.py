@@ -88,12 +88,14 @@ class CaseProcessingService:
             self.email_notification_sender is not None
             and not self.suppress_notifications
         ):
-            self.email_notification_sender.send_case_notification(
+            email_sent = self.email_notification_sender.send_case_notification(
                 recipient="nurse@example.com",
                 subject=f"New {case.urgency} intake case",
                 body=case.summary or "A new intake case is ready for review.",
                 case_id=case.id,
             )
+            if email_sent is True:
+                case.notificationEmailSent = True
 
         return case
 

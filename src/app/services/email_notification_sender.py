@@ -67,8 +67,8 @@ class AcsEmailNotificationSender:
         subject: str,
         body: str,
         case_id: str,
-    ) -> None:
-        self._get_email_client().begin_send(
+    ) -> bool:
+        poller = self._get_email_client().begin_send(
             {
                 "senderAddress": self.sender_address,
                 "recipients": {
@@ -80,6 +80,9 @@ class AcsEmailNotificationSender:
                 },
             }
         )
+        if hasattr(poller, "result"):
+            poller.result()
+        return True
 
     def _get_email_client(self) -> Any:
         if self.email_client is None:
