@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 from src.app.services.case_repository import InMemoryCaseRepository
+from src.app.services.email_notification_sender import MockEmailNotificationSender
 
 
 APP_SETUP_MODULES = (
@@ -57,6 +58,50 @@ def test_fastapi_app_setup_creates_case_repository_through_factory_once(
         assert main.app is not None
     finally:
         repository_factory.create_case_repository = original_factory
+        for module_name in reversed(APP_SETUP_MODULES):
+            original_module = original_modules[module_name]
+            if original_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = original_module
+
+
+def test_fastapi_app_setup_creates_email_sender_through_factory_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.email_notification_sender_factory as sender_factory
+
+    calls: list[str] = []
+    sender = MockEmailNotificationSender()
+
+    def fake_create_email_notification_sender(settings: Any) -> MockEmailNotificationSender:
+        calls.append(settings.email_provider_normalized)
+        return sender
+
+    original_factory = sender_factory.create_email_notification_sender
+    original_modules: dict[str, ModuleType | None] = {
+        module_name: sys.modules.get(module_name)
+        for module_name in APP_SETUP_MODULES
+    }
+
+    monkeypatch.setenv("EMAIL_PROVIDER", "mock")
+    monkeypatch.setattr(
+        sender_factory,
+        "create_email_notification_sender",
+        fake_create_email_notification_sender,
+    )
+
+    try:
+        for module_name in APP_SETUP_MODULES:
+            sys.modules.pop(module_name, None)
+
+        importlib.import_module("src.app.main")
+        dependencies = sys.modules["src.app.dependencies"]
+
+        assert calls == ["mock"]
+        assert dependencies.email_notification_sender is sender
+    finally:
+        sender_factory.create_email_notification_sender = original_factory
         for module_name in reversed(APP_SETUP_MODULES):
             original_module = original_modules[module_name]
             if original_module is None:
