@@ -43,6 +43,14 @@ Completed:
 - Cosmos-backed case lookup now returns a clean HTTP 400 when `createdDate` is
   missing, rather than bubbling the repository partition-key requirement as HTTP
   500
+- ACS Email provider scaffolding completed through RED then GREEN TDD stages
+- `EMAIL_PROVIDER` setting defaults to `mock`
+- ACS Email configuration settings were added:
+  `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
+  `NURSE_NOTIFICATION_EMAIL`
+- `AcsEmailNotificationSender` placeholder exists for provider selection tests
+- `create_email_notification_sender(settings)` selects mock or ACS email sender
+  by provider setting, with case-insensitive and whitespace-tolerant matching
 
 Current working local pipeline:
 
@@ -111,11 +119,29 @@ Cosmos container support:
 App settings:
 - `APP_MODE` defaults to `mock`.
 - `DEMO_SUPPRESS_NOTIFICATIONS` defaults to `false`.
+- `EMAIL_PROVIDER` defaults to `mock`.
+- `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
+  `NURSE_NOTIFICATION_EMAIL` default to `None`.
 - `COSMOS_DATABASE_NAME` defaults to `nurse-intake`.
 - `COSMOS_CONTAINER_NAME` defaults to `cases`.
 - `COSMOS_ENDPOINT` and `COSMOS_KEY` default to `None`.
 - Cosmos environment values are trimmed; blank endpoint and key values become
   `None`.
+- ACS Email environment values are trimmed; blank ACS Email values become
+  `None`.
+
+Email notification support:
+- `MockEmailNotificationSender` remains the default notification sender.
+- `create_email_notification_sender(settings)` returns
+  `MockEmailNotificationSender` for `EMAIL_PROVIDER=mock`.
+- `create_email_notification_sender(settings)` returns
+  `AcsEmailNotificationSender` for `EMAIL_PROVIDER=acs` after validating the ACS
+  connection string, sender address, and nurse notification email.
+- Unknown `EMAIL_PROVIDER` values raise a clear configuration error.
+- Mock provider mode does not require ACS Email settings.
+- Real ACS Email sending is not implemented yet.
+- The ACS Email SDK has not been added yet.
+- The FastAPI app dependencies are not wired to the email sender factory yet.
 
 Not yet implemented:
 - Application hosting infrastructure
@@ -166,17 +192,17 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 84 passed
+- 97 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Commit and push the clean Cosmos missing-`createdDate` behavior and progress
-documentation.
+Commit and push the ACS Email provider scaffolding and progress documentation.
 
-After that, the recommended next TDD slice is ACS Email configuration/provider
-scaffolding. Start that code slice with a RED-stage-only prompt so the failing
-tests can be reviewed before implementation.
+After that, the recommended next TDD slice is to wire the email sender factory
+into FastAPI dependencies while preserving mock email as the default. Start that
+code slice with a RED-stage-only prompt so the failing tests can be reviewed
+before implementation.
 
 Do not start hosting, Key Vault, Azure AI Foundry, ACS SMS, or authentication
 yet.
