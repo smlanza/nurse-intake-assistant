@@ -70,6 +70,16 @@ Completed:
 - Azure Communication Email SDK dependency is listed in `requirements.txt`
 - `docs/manual-acs-email-smoke-test.md` documents the manual ACS Email smoke-test
   checklist
+- 2026-06-24: Manual ACS Email smoke test completed successfully with the local
+  app running in `APP_MODE=mock`, `EMAIL_PROVIDER=acs`, and
+  `DEMO_SUPPRESS_NOTIFICATIONS=false`
+- ACS sender domain configuration issue was resolved by matching the
+  portal-generated sender domain exactly
+- `AcsEmailNotificationSender.send_case_notification(...)` returns `True` after
+  the ACS client accepts the send
+- `CaseProcessingService` applies the email sender result to the returned
+  `CaseDocument`, so successful sends are reflected as
+  `notificationEmailSent=true`
 
 Current working local pipeline:
 
@@ -180,18 +190,28 @@ Email notification support:
   first send and reuses it across subsequent sends.
 - `create_acs_email_client(connection_string)` lazily imports
   `azure.communication.email.EmailClient`.
-- Real ACS Email sending is not implemented yet.
-- Real ACS SDK integration and live ACS Email sending are still not implemented.
+- `AcsEmailNotificationSender.send_case_notification(...)` returns `True` when
+  the ACS client accepts the send.
+- `CaseProcessingService` sets `notificationEmailSent=true` on the returned case
+  when the email sender reports a successful send.
+- Live ACS Email smoke testing is complete.
 - The Azure Communication Email package is listed in `requirements.txt`.
 - Manual ACS Email smoke-test checklist:
   `docs/manual-acs-email-smoke-test.md`.
-- No live ACS Email send has been executed yet.
+- Manual smoke test result from 2026-06-24:
+  - `POST /intake/text` returned HTTP 200
+  - Response included `notificationEmailSent=true`
+  - Response included `notificationSmsSent=false`
+  - Response included `sourceSystem=manual-acs-smoke-test`
+  - Response included `sourceCallId=acs-smoke-012`
+  - A real email notification was received
+  - `notificationSmsSent=false` is expected because SMS remains unimplemented
 - Do not commit real ACS connection strings or secrets.
 
 Not yet implemented:
 - Application hosting infrastructure
 - Azure AI Foundry, Speech, ACS Email, ACS SMS, and Key Vault resources
-- Real email provider
+- Production-grade ACS Email failure handling
 - SMS provider
 - Authentication
 
@@ -237,13 +257,13 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 108 passed
+- 110 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Commit and push the ACS Email SDK dependency/checklist documentation and progress
-documentation.
+Reset local `.env` back to safe mock defaults after live ACS Email testing, then
+commit and push the ACS Email tracking changes.
 
 After that, the recommended next TDD slice is RED-stage-only tests for improving
 the ACS Email sender's production error handling around SDK send failures,

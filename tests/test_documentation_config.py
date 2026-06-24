@@ -23,7 +23,7 @@ def test_project_docs_explain_acs_email_configuration() -> None:
     assert "ACS_EMAIL_CONNECTION_STRING" in docs_text
     assert "ACS_EMAIL_SENDER_ADDRESS" in docs_text
     assert "NURSE_NOTIFICATION_EMAIL" in docs_text
-    assert "Real ACS Email sending is not implemented yet" in docs_text
+    assert "Live ACS Email smoke testing is complete" in docs_text
     assert "Do not commit" in docs_text
     assert "connection strings" in docs_text
 
