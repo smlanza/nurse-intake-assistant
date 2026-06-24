@@ -53,11 +53,13 @@ class AcsEmailNotificationSender:
         sender_address: str,
         default_recipient: str,
         email_client: Any | None = None,
+        email_client_factory: Any | None = None,
     ) -> None:
         self.connection_string = connection_string
         self.sender_address = sender_address
         self.default_recipient = default_recipient
         self.email_client = email_client
+        self.email_client_factory = email_client_factory or create_acs_email_client
 
     def send_case_notification(
         self,
@@ -66,10 +68,7 @@ class AcsEmailNotificationSender:
         body: str,
         case_id: str,
     ) -> None:
-        if self.email_client is None:
-            raise NotImplementedError("ACS Email client is not configured yet.")
-
-        self.email_client.begin_send(
+        self._get_email_client().begin_send(
             {
                 "senderAddress": self.sender_address,
                 "recipients": {
@@ -81,3 +80,14 @@ class AcsEmailNotificationSender:
                 },
             }
         )
+
+    def _get_email_client(self) -> Any:
+        if self.email_client is None:
+            self.email_client = self.email_client_factory(self.connection_string)
+        return self.email_client
+
+
+def create_acs_email_client(connection_string: str) -> Any:
+    from azure.communication.email import EmailClient
+
+    return EmailClient.from_connection_string(connection_string)
