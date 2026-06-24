@@ -32,4 +32,5 @@ async def create_text_intake(request: TextIntakeRequest) -> CaseDocument:
     case = await case_processing_service.process(request.text, "text-intake")
     case.sourceSystem = request.sourceSystem
     case.sourceCallId = request.sourceCallId
+    await case_repository.save(case)
     return case
