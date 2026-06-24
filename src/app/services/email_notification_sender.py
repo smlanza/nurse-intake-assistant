@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -45,17 +45,19 @@ class MockEmailNotificationSender:
 
 
 class AcsEmailNotificationSender:
-    """Placeholder ACS Email sender until the real provider is wired."""
+    """Build ACS Email messages through an injected client."""
 
     def __init__(
         self,
         connection_string: str,
         sender_address: str,
         default_recipient: str,
+        email_client: Any | None = None,
     ) -> None:
         self.connection_string = connection_string
         self.sender_address = sender_address
         self.default_recipient = default_recipient
+        self.email_client = email_client
 
     def send_case_notification(
         self,
@@ -64,4 +66,18 @@ class AcsEmailNotificationSender:
         body: str,
         case_id: str,
     ) -> None:
-        raise NotImplementedError("ACS Email sending is not implemented yet.")
+        if self.email_client is None:
+            raise NotImplementedError("ACS Email client is not configured yet.")
+
+        self.email_client.begin_send(
+            {
+                "senderAddress": self.sender_address,
+                "recipients": {
+                    "to": [{"address": self.default_recipient}],
+                },
+                "content": {
+                    "subject": subject,
+                    "plainText": body,
+                },
+            }
+        )
