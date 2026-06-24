@@ -67,6 +67,9 @@ Completed:
 - Created ACS Email clients are reused across sends
 - `create_acs_email_client(connection_string)` lazily imports the Azure
   Communication Email SDK client
+- Azure Communication Email SDK dependency is listed in `requirements.txt`
+- `docs/manual-acs-email-smoke-test.md` documents the manual ACS Email smoke-test
+  checklist
 
 Current working local pipeline:
 
@@ -179,7 +182,9 @@ Email notification support:
   `azure.communication.email.EmailClient`.
 - Real ACS Email sending is not implemented yet.
 - Real ACS SDK integration and live ACS Email sending are still not implemented.
-- The ACS Email SDK has not been added yet.
+- The Azure Communication Email package is listed in `requirements.txt`.
+- Manual ACS Email smoke-test checklist:
+  `docs/manual-acs-email-smoke-test.md`.
 - No live ACS Email send has been executed yet.
 - Do not commit real ACS connection strings or secrets.
 
@@ -232,18 +237,18 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 105 passed
+- 108 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Commit and push the ACS Email lazy client factory behavior and progress
+Commit and push the ACS Email SDK dependency/checklist documentation and progress
 documentation.
 
-After that, the recommended next TDD slice is RED-stage-only tests for adding the
-Azure Communication Email package to `requirements.txt` and documenting a manual
-ACS Email smoke-test checklist. The failing tests should be reviewed before
-implementation, and no live Azure calls should be made in automated tests.
+After that, the recommended next TDD slice is RED-stage-only tests for improving
+the ACS Email sender's production error handling around SDK send failures,
+without live Azure calls. The failing tests should be reviewed before
+implementation.
 
 Do not start hosting, Key Vault, Azure AI Foundry, ACS SMS, or authentication
 yet.

@@ -26,3 +26,35 @@ def test_project_docs_explain_acs_email_configuration() -> None:
     assert "Real ACS Email sending is not implemented yet" in docs_text
     assert "Do not commit" in docs_text
     assert "connection strings" in docs_text
+
+
+def test_requirements_include_acs_email_sdk() -> None:
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text()
+
+    assert "azure-communication-email" in requirements
+
+
+def test_manual_acs_email_smoke_test_checklist_exists() -> None:
+    checklist_path = PROJECT_ROOT / "docs" / "manual-acs-email-smoke-test.md"
+
+    assert checklist_path.exists()
+
+    checklist = checklist_path.read_text()
+    assert "Manual ACS Email Smoke Test" in checklist
+    assert "EMAIL_PROVIDER=acs" in checklist
+    assert "ACS_EMAIL_CONNECTION_STRING" in checklist
+    assert "ACS_EMAIL_SENDER_ADDRESS" in checklist
+    assert "NURSE_NOTIFICATION_EMAIL" in checklist
+    assert "uvicorn" in checklist
+    assert "POST /intake/text" in checklist
+    assert "EMAIL_PROVIDER=mock" in checklist
+    assert "Do not commit" in checklist
+    assert "connection strings" in checklist
+    assert "manual" in checklist
+    assert "automated tests" in checklist
+
+
+def test_progress_links_manual_acs_email_smoke_test() -> None:
+    docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
+
+    assert "docs/manual-acs-email-smoke-test.md" in docs_text
