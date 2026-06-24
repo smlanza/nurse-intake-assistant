@@ -120,6 +120,9 @@ COSMOS_CONTAINER_NAME=cases
 Do not commit `.env` or real Cosmos keys. Keep real secrets local for this MVP
 slice.
 
+For the full local-to-Cosmos verification checklist, see
+[`docs/manual-cosmos-smoke-test.md`](../docs/manual-cosmos-smoke-test.md).
+
 ## Delete Resources
 
 Delete the whole resource group when the demo is finished to avoid ongoing charges:
