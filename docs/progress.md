@@ -31,6 +31,15 @@ Completed:
   it to `repository.get_by_id` as `created_date`
 - Minimal Bicep infrastructure baseline in `infra/main.bicep`
 - `infra/README.md` with Azure CLI build, validate, deploy, and cleanup commands
+- `.env.example` documents Cosmos settings while keeping `APP_MODE=mock` as the
+  safe default local mode
+- `docs/manual-cosmos-smoke-test.md` documents the manual local-to-Azure Cosmos
+  verification path
+- Manual local-to-Azure Cosmos smoke test completed successfully
+- `CosmosCaseRepository` now supports the synchronous Azure Cosmos SDK container
+  methods while preserving async fake-container support in tests
+- Text intake request source metadata is persisted after route-level
+  `sourceSystem` and `sourceCallId` assignment
 
 Current working local pipeline:
 
@@ -49,6 +58,10 @@ Available demo/read routes:
 - `GET /cases/{case_id}?createdDate=YYYY-MM-DD` passes `createdDate` to the
   repository as `created_date`, supporting efficient Cosmos point reads when the
   client knows the case date.
+- In Cosmos mode, `GET /cases/{case_id}` without `createdDate` currently returns
+  a server error because the Cosmos repository requires the `/createdDate`
+  partition key. This is expected for the current implementation but should be
+  improved to a clean client error.
 - `GET /notifications/email` returns recorded mock email notifications in send order.
 
 Repository support:
@@ -60,6 +73,8 @@ Repository support:
   Cosmos-style container. It reads with `item=case_id` and
   `partition_key=createdDate` when `created_date` is supplied, and maps
   configured not-found exceptions to `None`.
+- `CosmosCaseRepository` supports both synchronous Azure Cosmos SDK container
+  methods and async fake container methods used by tests.
 - `CosmosCaseRepository.get_by_id(case_id, created_date=...)` supports efficient
   point reads with the `/createdDate` partition key.
 - `CosmosCaseRepository` raises a clear error when `created_date` is missing for
@@ -86,6 +101,8 @@ Cosmos container support:
   calls.
 - Tests cover missing `COSMOS_ENDPOINT`, missing `COSMOS_KEY`, and valid
   client/database/container retrieval through fakes.
+- Manual smoke testing verified that the local FastAPI app can use a deployed
+  Cosmos DB account with `APP_MODE=cosmos`.
 
 App settings:
 - `APP_MODE` defaults to `mock`.
@@ -122,25 +139,47 @@ Infrastructure support:
   account.
 - Dev resource group cleanup was planned with:
   `az group delete --name rg-nurse-intake-dev --yes`.
+- Manual Cosmos smoke test deployment:
+  - Resource group: `rg-nurse-intake-dev`
+  - Region: `eastus`
+  - Cosmos account: `nurse-intake-dev-mvtiwfmiol4pw`
+  - Database: `nurse-intake`
+  - Container: `cases`
+  - Endpoint verified:
+    `https://nurse-intake-dev-mvtiwfmiol4pw.documents.azure.com:443/`
+  - No Cosmos keys or secrets were committed or documented.
+- Manual smoke test safe intake:
+  - Text: Jane Doe medication refill demo intake
+  - Saved case id: `58053e1d-11bf-457d-8959-ee48c81b7f31`
+  - Saved `createdDate`: `2026-06-24`
+  - `POST /intake/text` returned HTTP 200
+  - `GET /cases/{case_id}?createdDate=2026-06-24` returned HTTP 200
+  - Direct Azure Cosmos SDK read confirmed the case existed in the deployed
+    `cases` container
+  - `GET /cases/{case_id}` without `createdDate` returned HTTP 500, matching the
+    current Cosmos repository partition-key requirement
+- Dev resource group was deleted after verification. Final check:
+  `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 77 passed
+- 82 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Confirm the dev resource group was deleted for cost control, then commit and push
-this infrastructure baseline.
+Commit and push the Cosmos smoke-test fixes and progress documentation.
 
-After that, the next TDD slice is to wire deployed Cosmos DB connection settings
-into app configuration while preserving `APP_MODE=mock` as the default local mode.
+After that, the recommended next TDD slice is to improve Cosmos-mode error
+handling for missing `createdDate` so `GET /cases/{case_id}` returns a clean
+400/422 client error instead of HTTP 500 when `APP_MODE=cosmos`.
+
+Do not start hosting, Key Vault, Azure AI Foundry, ACS Email, ACS SMS, or
+authentication yet.
 
 ## Workflow
 
-1. Confirm Azure cleanup: `az group exists --name rg-nurse-intake-dev` should
-   return `false`.
-2. Run pytest.
-3. Run git status.
-4. Review output with ChatGPT.
-5. Commit and push.
-6. Ask ChatGPT for the next Codex prompt.
+1. Run pytest.
+2. Run git status.
+3. Review output with ChatGPT.
+4. Commit and push.
+5. Ask ChatGPT for the next Codex prompt.
