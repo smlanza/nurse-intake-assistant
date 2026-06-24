@@ -91,6 +91,66 @@ def test_get_case_passes_created_date_query_parameter_to_repository(
     assert repository.created_date == "2026-06-23"
 
 
+def test_get_case_returns_client_error_when_created_date_is_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.routes.cases as cases_route
+    from src.app.services.cosmos_case_repository import MissingCasePartitionKeyError
+
+    class CosmosStyleRepository:
+        async def get_by_id(
+            self,
+            case_id: str,
+            created_date: str | None = None,
+        ) -> CaseDocument | None:
+            raise MissingCasePartitionKeyError(
+                "created_date is required for Cosmos case lookup with the "
+                "/createdDate partition key"
+            )
+
+    monkeypatch.setattr(cases_route, "case_repository", CosmosStyleRepository())
+    test_app = FastAPI()
+    test_app.include_router(cases_route.router)
+    local_client = TestClient(test_app)
+
+    response = local_client.get("/cases/case-123")
+
+    assert response.status_code == 400
+    assert "createdDate" in response.json()["detail"]
+
+
+def test_get_case_allows_missing_created_date_when_repository_does_not_require_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.routes.cases as cases_route
+
+    class MockStyleRepository:
+        async def get_by_id(
+            self,
+            case_id: str,
+            created_date: str | None = None,
+        ) -> CaseDocument:
+            now = datetime.now(timezone.utc)
+            return CaseDocument(
+                id=case_id,
+                createdDate="2026-06-23",
+                createdUtc=now,
+                lastStatusUpdatedUtc=now,
+                caseType="text-intake",
+                processingStatus="Completed",
+            )
+
+    monkeypatch.setattr(cases_route, "case_repository", MockStyleRepository())
+    test_app = FastAPI()
+    test_app.include_router(cases_route.router)
+    local_client = TestClient(test_app)
+
+    response = local_client.get("/cases/case-123")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "case-123"
+
+
 def test_get_case_returns_404_when_case_does_not_exist() -> None:
     response = client.get("/cases/nonexistent-case-id")
 

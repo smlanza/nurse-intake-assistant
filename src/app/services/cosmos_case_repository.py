@@ -4,6 +4,10 @@ from typing import Any
 from src.app.models.case import CaseDocument
 
 
+class MissingCasePartitionKeyError(ValueError):
+    """Raised when Cosmos case lookup is missing the createdDate partition key."""
+
+
 class CosmosCaseRepository:
     """Persist cases through an injected Cosmos-style container.
 
@@ -28,7 +32,7 @@ class CosmosCaseRepository:
         created_date: str | None = None,
     ) -> CaseDocument | None:
         if created_date is None:
-            raise ValueError(
+            raise MissingCasePartitionKeyError(
                 "created_date is required for Cosmos case lookup with the "
                 "/createdDate partition key"
             )

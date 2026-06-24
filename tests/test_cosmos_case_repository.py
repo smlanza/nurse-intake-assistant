@@ -143,7 +143,10 @@ def test_cosmos_repository_returns_case_document_from_stored_dictionary() -> Non
 
 
 def test_cosmos_repository_requires_created_date_for_case_lookup() -> None:
-    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+    from src.app.services.cosmos_case_repository import (
+        CosmosCaseRepository,
+        MissingCasePartitionKeyError,
+    )
 
     repository = CosmosCaseRepository(
         container=FakeCosmosContainer(),
@@ -152,11 +155,14 @@ def test_cosmos_repository_requires_created_date_for_case_lookup() -> None:
 
     try:
         asyncio.run(repository.get_by_id("case-123"))
-    except ValueError as error:
+    except MissingCasePartitionKeyError as error:
         assert "created_date is required" in str(error)
         assert "/createdDate" in str(error)
     else:
-        raise AssertionError("Expected created_date requirement to raise ValueError")
+        raise AssertionError(
+            "Expected created_date requirement to raise "
+            "MissingCasePartitionKeyError"
+        )
 
 
 def test_cosmos_repository_returns_none_when_case_is_missing() -> None:
