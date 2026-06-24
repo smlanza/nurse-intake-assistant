@@ -54,6 +54,12 @@ Completed:
 - FastAPI dependency setup now creates the shared app-level email notification
   sender through `create_email_notification_sender(settings)`
 - Mock/default notification behavior remains preserved after factory wiring
+- `AcsEmailNotificationSender` has minimal send behavior covered by fake-client
+  tests without live Azure calls
+- ACS Email payload tests verify the generated message uses the configured
+  sender address and default nurse recipient, includes case id, urgency, summary,
+  and patient/callback information when available, and does not include the ACS
+  connection string
 
 Current working local pipeline:
 
@@ -152,7 +158,14 @@ Email notification support:
 - In mock/default mode, `GET /notifications/email` still returns recorded mock
   email notifications in send order.
 - `DEMO_SUPPRESS_NOTIFICATIONS=true` still suppresses email notifications.
+- `AcsEmailNotificationSender.send_case_notification(...)` can build an
+  ACS-style email payload and submit it through an injected fake client in tests.
+- ACS Email sender tests use an injected fake client and do not call live Azure.
+- The generated ACS Email payload includes case id, urgency, summary, and
+  patient/callback information when available.
+- Tests verify the ACS connection string is not included in the email payload.
 - Real ACS Email sending is not implemented yet.
+- Real ACS SDK integration and live ACS Email sending are still not implemented.
 - The ACS Email SDK has not been added yet.
 - Do not commit real ACS connection strings or secrets.
 
@@ -205,18 +218,17 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 98 passed
+- 102 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
 
-Commit and push the email sender factory dependency wiring and progress
+Commit and push the ACS Email fake-client send behavior and progress
 documentation.
 
-After that, the recommended next TDD slice is RED-stage-only tests for
-`.env.example` and documentation updates for ACS Email configuration, since the
-ACS settings are not documented there yet. The failing tests should be reviewed
-before implementation.
+After that, the recommended next TDD slice is RED-stage-only tests for ACS Email
+SDK client creation/factory behavior, without live Azure calls. The failing tests
+should be reviewed before implementation.
 
 Do not start hosting, Key Vault, Azure AI Foundry, ACS SMS, or authentication
 yet.
