@@ -135,12 +135,16 @@ App settings:
   `None`.
 
 Email notification support:
+- Mock email remains the default local mode.
 - `MockEmailNotificationSender` remains the default notification sender.
 - `create_email_notification_sender(settings)` returns
   `MockEmailNotificationSender` for `EMAIL_PROVIDER=mock`.
+- `EMAIL_PROVIDER=acs` selects the ACS Email provider.
 - `create_email_notification_sender(settings)` returns
   `AcsEmailNotificationSender` for `EMAIL_PROVIDER=acs` after validating the ACS
   connection string, sender address, and nurse notification email.
+- Required ACS Email settings are `ACS_EMAIL_CONNECTION_STRING`,
+  `ACS_EMAIL_SENDER_ADDRESS`, and `NURSE_NOTIFICATION_EMAIL`.
 - Unknown `EMAIL_PROVIDER` values raise a clear configuration error.
 - Mock provider mode does not require ACS Email settings.
 - FastAPI dependencies create the shared app-level email sender through
@@ -150,7 +154,7 @@ Email notification support:
 - `DEMO_SUPPRESS_NOTIFICATIONS=true` still suppresses email notifications.
 - Real ACS Email sending is not implemented yet.
 - The ACS Email SDK has not been added yet.
-- ACS Email settings are not documented in `.env.example` yet.
+- Do not commit real ACS connection strings or secrets.
 
 Not yet implemented:
 - Application hosting infrastructure
