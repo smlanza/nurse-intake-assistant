@@ -95,6 +95,12 @@ Completed:
 - `create_sms_notification_sender(settings)` selects mock or ACS SMS sender by
   provider setting, with case-insensitive and whitespace-tolerant matching
 - Mock SMS mode does not require ACS SMS settings
+- Mock SMS notification wiring into intake processing is complete
+- `CaseProcessingService` accepts an optional SMS notification sender dependency
+- FastAPI dependency setup now creates the shared app-level SMS notification
+  sender through `create_sms_notification_sender(settings)`
+- Default mock-mode text intake returns `notificationSmsSent=true` when
+  notifications are not suppressed
 
 Current working local pipeline:
 
@@ -106,6 +112,8 @@ POST /intake/text
 → InMemoryCaseRepository for `APP_MODE=mock`
 → create_email_notification_sender(settings)
 → MockEmailNotificationSender for `EMAIL_PROVIDER=mock` (unless suppressed)
+→ create_sms_notification_sender(settings)
+→ MockSmsNotificationSender for `SMS_PROVIDER=mock` (unless suppressed)
 → CaseDocument response
 
 Available demo/read routes:
@@ -197,6 +205,7 @@ Email notification support:
 - In mock/default mode, `GET /notifications/email` still returns recorded mock
   email notifications in send order.
 - `DEMO_SUPPRESS_NOTIFICATIONS=true` still suppresses email notifications.
+- `DEMO_SUPPRESS_NOTIFICATIONS=true` also suppresses SMS notifications.
 - `AcsEmailNotificationSender.send_case_notification(...)` can build an
   ACS-style email payload and submit it through an injected fake client in tests.
 - ACS Email sender tests use an injected fake client and do not call live Azure.
@@ -234,7 +243,8 @@ Email notification support:
 
 SMS notification support:
 - Mock SMS is the default local mode.
-- `MockSmsNotificationSender` exists as a placeholder for safe local/mock mode.
+- `MockSmsNotificationSender` records sent SMS notifications in memory for safe
+  local/mock mode.
 - `AcsSmsNotificationSender` exists as a configuration-only placeholder.
 - `create_sms_notification_sender(settings)` returns
   `MockSmsNotificationSender` for `SMS_PROVIDER=mock`.
@@ -246,16 +256,27 @@ SMS notification support:
   `ACS_SMS_FROM_PHONE_NUMBER`, and `NURSE_NOTIFICATION_PHONE_NUMBER`.
 - Unknown `SMS_PROVIDER` values raise a clear configuration error.
 - Mock SMS provider mode does not require ACS SMS settings.
+- FastAPI dependencies create the shared app-level SMS sender through
+  `create_sms_notification_sender(settings)`.
+- `CaseProcessingService` accepts an optional `sms_notification_sender`
+  dependency.
+- `CaseProcessingService` attempts SMS notification when notifications are not
+  suppressed.
+- `CaseProcessingService` sets `notificationSmsSent=true` on the returned case
+  when the SMS sender reports a successful send.
+- `CaseProcessingService` leaves `notificationSmsSent=false` when the SMS sender
+  reports a failed send.
+- SMS failure does not prevent the case from being saved or returned.
+- In default mock mode, `POST /intake/text` returns `notificationSmsSent=true`
+  when notifications are not suppressed.
 - No live Azure SMS calls are implemented yet.
 - No Azure SMS SDK dependency has been added yet.
-- SMS is not wired into `CaseProcessingService` yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
 
 Not yet implemented:
 - Application hosting infrastructure
 - Azure AI Foundry, Speech, ACS Email, ACS SMS, and Key Vault resources
 - Live ACS SMS sending
-- SMS integration into intake processing
 - Authentication
 
 Infrastructure support:
@@ -300,7 +321,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 127 passed
+- 135 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -308,13 +329,12 @@ Latest test result:
 Reset local `.env` back to safe mock defaults after live ACS Email testing, then
 commit and push the ACS Email tracking changes.
 
-ACS Email production failure handling and SMS provider scaffolding are complete.
-Review and commit the current documentation/code/test changes before selecting
-the next TDD slice.
+ACS Email production failure handling, SMS provider scaffolding, and mock SMS
+wiring into intake processing are complete. Review and commit the current
+documentation/code/test changes before selecting the next TDD slice.
 
-Do not start live ACS SMS sending, SMS integration into intake processing,
-hosting, Key Vault, Azure AI Foundry, voice intake, retry logic, or
-authentication yet.
+Do not start live ACS SMS sending, SMS inspection routes, hosting, Key Vault,
+Azure AI Foundry, voice intake, retry logic, or authentication yet.
 
 ## Workflow
 
