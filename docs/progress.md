@@ -120,6 +120,8 @@ Completed:
 - Local mock demo guide is complete:
   `docs/manual-local-mock-demo.md`
 - `.env.example` SMS documentation alignment is complete
+- Manual ACS SMS smoke-test guide placeholder is complete:
+  `docs/manual-acs-sms-smoke-test.md`
 
 Current working local pipeline:
 
@@ -153,6 +155,9 @@ Available demo/read routes:
   start the app with `uvicorn`, submit `POST /intake/text`, verify
   `GET /cases/{case_id}`, inspect `GET /notifications/email`, and inspect
   `GET /notifications/sms`.
+- `docs/manual-acs-sms-smoke-test.md` documents a future live ACS SMS
+  smoke-test checklist, including a planned `uvicorn` run step and planned
+  `POST /intake/text` verification.
 
 Repository support:
 - `InMemoryCaseRepository` is used by the running FastAPI app.
@@ -220,6 +225,10 @@ App settings:
   `NURSE_NOTIFICATION_PHONE_NUMBER`.
 - `.env.example` preserves existing email and Cosmos sample settings while
   keeping `APP_MODE=mock` as the safe default.
+- `docs/manual-acs-sms-smoke-test.md` documents future ACS SMS settings:
+  `SMS_PROVIDER=acs`, `ACS_SMS_CONNECTION_STRING`,
+  `ACS_SMS_FROM_PHONE_NUMBER`, `NURSE_NOTIFICATION_PHONE_NUMBER`, and
+  `DEMO_SUPPRESS_NOTIFICATIONS=false`.
 
 Email notification support:
 - Mock email remains the default local mode.
@@ -334,6 +343,17 @@ SMS notification support:
 - The local mock demo guide notes that live ACS SMS is not implemented yet.
 - `.env.example` does not include real phone numbers, real ACS connection
   strings, or access keys.
+- `docs/manual-acs-sms-smoke-test.md` documents expected future behavior:
+  `notificationSmsSent=true` after successful live ACS SMS send, with
+  `notificationEmailSent` remaining independent.
+- The ACS SMS smoke-test guide documents failure handling expectations: ACS SMS
+  send failure should not crash intake processing, and failed SMS should leave
+  `notificationSmsSent=false`.
+- The ACS SMS smoke-test guide notes current limitations: no Azure SMS SDK
+  dependency has been added, `create_acs_sms_client` is still a placeholder
+  factory boundary, and live ACS SMS smoke testing has not been completed.
+- The ACS SMS smoke-test guide warns not to commit secrets, connection strings,
+  access keys, or real phone numbers.
 - No live Azure SMS calls are implemented yet.
 - No Azure SMS SDK dependency has been added yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
@@ -386,7 +406,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 153 passed
+- 154 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -397,9 +417,9 @@ commit and push the ACS Email tracking changes.
 ACS Email production failure handling, SMS provider scaffolding, mock SMS wiring
 into intake processing, ACS SMS fake-client behavior, and ACS SMS production
 failure handling, mock SMS notification inspection, and the local mock demo
-guide, and `.env.example` SMS documentation alignment are complete. Review and
-commit the current documentation/code/test changes before selecting the next TDD
-slice.
+guide, `.env.example` SMS documentation alignment, and the manual ACS SMS
+smoke-test guide placeholder are complete. Review and commit the current
+documentation/code/test changes before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, Azure AI Foundry, voice
 intake, retry logic, or authentication yet.
