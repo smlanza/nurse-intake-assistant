@@ -80,6 +80,11 @@ Completed:
 - `CaseProcessingService` applies the email sender result to the returned
   `CaseDocument`, so successful sends are reflected as
   `notificationEmailSent=true`
+- ACS Email production failure handling is complete: client creation failures,
+  send submission failures, and poller/result failures return `False` instead
+  of raising
+- `CaseProcessingService` still saves and returns cases when email sending
+  fails, leaving `notificationEmailSent=false`
 
 Current working local pipeline:
 
@@ -192,8 +197,13 @@ Email notification support:
   `azure.communication.email.EmailClient`.
 - `AcsEmailNotificationSender.send_case_notification(...)` returns `True` when
   the ACS client accepts the send.
+- `AcsEmailNotificationSender.send_case_notification(...)` returns `False`
+  instead of raising when ACS client creation, send submission, or poller/result
+  handling fails.
 - `CaseProcessingService` sets `notificationEmailSent=true` on the returned case
   when the email sender reports a successful send.
+- `CaseProcessingService` leaves `notificationEmailSent=false` while still
+  saving and returning the case when the email sender reports a failed send.
 - Live ACS Email smoke testing is complete.
 - The Azure Communication Email package is listed in `requirements.txt`.
 - Manual ACS Email smoke-test checklist:
@@ -211,7 +221,6 @@ Email notification support:
 Not yet implemented:
 - Application hosting infrastructure
 - Azure AI Foundry, Speech, ACS Email, ACS SMS, and Key Vault resources
-- Production-grade ACS Email failure handling
 - SMS provider
 - Authentication
 
@@ -257,7 +266,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 110 passed
+- 114 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -265,10 +274,8 @@ Latest test result:
 Reset local `.env` back to safe mock defaults after live ACS Email testing, then
 commit and push the ACS Email tracking changes.
 
-After that, the recommended next TDD slice is RED-stage-only tests for improving
-the ACS Email sender's production error handling around SDK send failures,
-without live Azure calls. The failing tests should be reviewed before
-implementation.
+ACS Email production failure handling is complete. Review and commit the current
+documentation/code/test changes before selecting the next TDD slice.
 
 Do not start hosting, Key Vault, Azure AI Foundry, ACS SMS, or authentication
 yet.
