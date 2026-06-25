@@ -41,6 +41,17 @@ class SuccessfulEmailNotificationSender:
         return True
 
 
+class FailingEmailNotificationSender:
+    def send_case_notification(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        case_id: str,
+    ) -> bool:
+        return False
+
+
 def test_routine_intake_creates_completed_case() -> None:
     case = asyncio.run(CaseProcessingService().process(ROUTINE_TEXT, "text-intake"))
 
@@ -104,6 +115,20 @@ def test_successful_email_notification_updates_returned_case() -> None:
     case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
 
     assert case.notificationEmailSent is True
+
+
+def test_failed_email_notification_still_saves_and_returns_case() -> None:
+    repository = InMemoryCaseRepository()
+    service = CaseProcessingService(
+        case_repository=repository,
+        email_notification_sender=FailingEmailNotificationSender(),
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert isinstance(case, CaseDocument)
+    assert asyncio.run(repository.get_by_id(case.id)) == case
+    assert case.notificationEmailSent is False
 
 
 def test_case_processing_service_accepts_suppress_notifications_flag() -> None:

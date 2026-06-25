@@ -24,6 +24,21 @@ class FakeSuccessfulAcsEmailClient:
         return FakeSuccessfulPoller()
 
 
+class FailingAcsEmailClient:
+    def begin_send(self, message: dict) -> None:
+        raise RuntimeError("ACS send failed")
+
+
+class FailingPoller:
+    def result(self) -> None:
+        raise RuntimeError("ACS send polling failed")
+
+
+class PollerFailingAcsEmailClient:
+    def begin_send(self, message: dict) -> FailingPoller:
+        return FailingPoller()
+
+
 def test_acs_sender_returns_true_when_client_accepts_send() -> None:
     from src.app.services.email_notification_sender import AcsEmailNotificationSender
 
@@ -44,6 +59,69 @@ def test_acs_sender_returns_true_when_client_accepts_send() -> None:
 
     assert result is True
     assert len(fake_client.sent_messages) == 1
+
+
+def test_acs_sender_returns_false_when_client_raises_during_send() -> None:
+    from src.app.services.email_notification_sender import AcsEmailNotificationSender
+
+    sender = AcsEmailNotificationSender(
+        connection_string="endpoint=https://example.communication.azure.com/;accesskey=fake-secret",
+        sender_address="sender@example.com",
+        default_recipient="nurse@example.com",
+        email_client=FailingAcsEmailClient(),
+    )
+
+    result = sender.send_case_notification(
+        recipient="nurse@example.com",
+        subject="New Routine intake case case-send-fails",
+        body="Summary: Patient needs a medication refill.",
+        case_id="case-send-fails",
+    )
+
+    assert result is False
+
+
+def test_acs_sender_returns_false_when_client_factory_raises() -> None:
+    from src.app.services.email_notification_sender import AcsEmailNotificationSender
+
+    def failing_client_factory(connection_string: str) -> object:
+        raise RuntimeError("ACS client creation failed")
+
+    sender = AcsEmailNotificationSender(
+        connection_string="endpoint=https://example.communication.azure.com/;accesskey=fake-secret",
+        sender_address="sender@example.com",
+        default_recipient="nurse@example.com",
+        email_client_factory=failing_client_factory,
+    )
+
+    result = sender.send_case_notification(
+        recipient="nurse@example.com",
+        subject="New Routine intake case case-factory-fails",
+        body="Summary: Patient needs a medication refill.",
+        case_id="case-factory-fails",
+    )
+
+    assert result is False
+
+
+def test_acs_sender_returns_false_when_send_poller_result_raises() -> None:
+    from src.app.services.email_notification_sender import AcsEmailNotificationSender
+
+    sender = AcsEmailNotificationSender(
+        connection_string="endpoint=https://example.communication.azure.com/;accesskey=fake-secret",
+        sender_address="sender@example.com",
+        default_recipient="nurse@example.com",
+        email_client=PollerFailingAcsEmailClient(),
+    )
+
+    result = sender.send_case_notification(
+        recipient="nurse@example.com",
+        subject="New Routine intake case case-poller-fails",
+        body="Summary: Patient needs a medication refill.",
+        case_id="case-poller-fails",
+    )
+
+    assert result is False
 
 
 def test_acs_sender_sends_case_notification_to_default_nurse_recipient() -> None:
