@@ -64,14 +64,19 @@ class AcsSmsNotificationSender:
         body: str,
         case_id: str,
     ) -> bool:
-        self._get_sms_client().send(
-            {
-                "from": self.from_phone_number,
-                "to": [self.default_recipient],
-                "message": f"Case {case_id}: {body}",
-            }
-        )
-        return True
+        try:
+            result = self._get_sms_client().send(
+                {
+                    "from": self.from_phone_number,
+                    "to": [self.default_recipient],
+                    "message": f"Case {case_id}: {body}",
+                }
+            )
+            if hasattr(result, "wait"):
+                result.wait()
+            return True
+        except Exception:
+            return False
 
     def _get_sms_client(self) -> Any:
         if self.sms_client is None:

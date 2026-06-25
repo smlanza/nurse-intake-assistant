@@ -18,6 +18,21 @@ class RecordingAcsSmsClient:
         self.sent_messages.append(message)
 
 
+class FailingAcsSmsClient:
+    def send(self, message: dict) -> None:
+        raise RuntimeError("ACS SMS send failed")
+
+
+class FailingSmsSendResult:
+    def wait(self) -> None:
+        raise RuntimeError("ACS SMS result handling failed")
+
+
+class ResultFailingAcsSmsClient:
+    def send(self, message: dict) -> FailingSmsSendResult:
+        return FailingSmsSendResult()
+
+
 def test_acs_sms_sender_returns_true_when_client_accepts_send() -> None:
     from src.app.services.sms_notification_sender import AcsSmsNotificationSender
 
@@ -63,6 +78,66 @@ def test_acs_sms_sender_sends_case_notification_to_default_recipient() -> None:
     assert message["to"] == ["+15555550123"]
     assert "case-sms-123" in message["message"]
     assert "Patient has chest pain." in message["message"]
+
+
+def test_acs_sms_sender_returns_false_when_client_raises_during_send() -> None:
+    from src.app.services.sms_notification_sender import AcsSmsNotificationSender
+
+    sender = AcsSmsNotificationSender(
+        connection_string="endpoint=https://example.communication.azure.com/;accesskey=fake-secret",
+        from_phone_number="+15555550100",
+        default_recipient="+15555550123",
+        sms_client=FailingAcsSmsClient(),
+    )
+
+    result = sender.send_case_notification(
+        recipient="+15555550123",
+        body="Summary: Patient needs a medication refill.",
+        case_id="case-sms-send-fails",
+    )
+
+    assert result is False
+
+
+def test_acs_sms_sender_returns_false_when_client_factory_raises() -> None:
+    from src.app.services.sms_notification_sender import AcsSmsNotificationSender
+
+    def failing_client_factory(connection_string: str) -> object:
+        raise RuntimeError("ACS SMS client creation failed")
+
+    sender = AcsSmsNotificationSender(
+        connection_string="endpoint=https://example.communication.azure.com/;accesskey=fake-secret",
+        from_phone_number="+15555550100",
+        default_recipient="+15555550123",
+        sms_client_factory=failing_client_factory,
+    )
+
+    result = sender.send_case_notification(
+        recipient="+15555550123",
+        body="Summary: Patient needs a medication refill.",
+        case_id="case-sms-factory-fails",
+    )
+
+    assert result is False
+
+
+def test_acs_sms_sender_returns_false_when_send_result_path_raises() -> None:
+    from src.app.services.sms_notification_sender import AcsSmsNotificationSender
+
+    sender = AcsSmsNotificationSender(
+        connection_string="endpoint=https://example.communication.azure.com/;accesskey=fake-secret",
+        from_phone_number="+15555550100",
+        default_recipient="+15555550123",
+        sms_client=ResultFailingAcsSmsClient(),
+    )
+
+    result = sender.send_case_notification(
+        recipient="+15555550123",
+        body="Summary: Patient needs a medication refill.",
+        case_id="case-sms-result-fails",
+    )
+
+    assert result is False
 
 
 def test_acs_sms_sender_does_not_include_connection_string_in_sms_payload() -> None:

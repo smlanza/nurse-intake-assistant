@@ -73,6 +73,16 @@ class FailingSmsNotificationSender:
         return False
 
 
+class ExceptionSmsNotificationSender:
+    def send_case_notification(
+        self,
+        recipient: str,
+        body: str,
+        case_id: str,
+    ) -> bool:
+        raise RuntimeError("SMS notification failed")
+
+
 def test_routine_intake_creates_completed_case() -> None:
     case = asyncio.run(CaseProcessingService().process(ROUTINE_TEXT, "text-intake"))
 
@@ -177,6 +187,32 @@ def test_failed_sms_notification_still_saves_and_returns_case() -> None:
 
     assert isinstance(case, CaseDocument)
     assert asyncio.run(repository.get_by_id(case.id)) == case
+    assert case.notificationSmsSent is False
+
+
+def test_sms_sender_exception_still_saves_and_returns_case() -> None:
+    repository = InMemoryCaseRepository()
+    service = CaseProcessingService(
+        case_repository=repository,
+        sms_notification_sender=ExceptionSmsNotificationSender(),
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert isinstance(case, CaseDocument)
+    assert asyncio.run(repository.get_by_id(case.id)) == case
+    assert case.notificationSmsSent is False
+
+
+def test_sms_sender_exception_does_not_change_email_notification_behavior() -> None:
+    service = CaseProcessingService(
+        email_notification_sender=SuccessfulEmailNotificationSender(),
+        sms_notification_sender=ExceptionSmsNotificationSender(),
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.notificationEmailSent is True
     assert case.notificationSmsSent is False
 
 

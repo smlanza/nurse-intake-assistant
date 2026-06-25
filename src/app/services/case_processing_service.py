@@ -104,11 +104,14 @@ class CaseProcessingService:
             self.sms_notification_sender is not None
             and not self.suppress_notifications
         ):
-            sms_sent = self.sms_notification_sender.send_case_notification(
-                recipient=case.patient.callback_number or "",
-                body=case.summary or "A new intake case is ready for review.",
-                case_id=case.id,
-            )
+            try:
+                sms_sent = self.sms_notification_sender.send_case_notification(
+                    recipient=case.patient.callback_number or "",
+                    body=case.summary or "A new intake case is ready for review.",
+                    case_id=case.id,
+                )
+            except Exception:
+                sms_sent = False
             if sms_sent is True:
                 case.notificationSmsSent = True
 
