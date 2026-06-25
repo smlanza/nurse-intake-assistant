@@ -54,6 +54,34 @@ def test_manual_acs_email_smoke_test_checklist_exists() -> None:
     assert "automated tests" in checklist
 
 
+def test_manual_local_mock_demo_guide_exists() -> None:
+    guide_path = PROJECT_ROOT / "docs" / "manual-local-mock-demo.md"
+
+    assert guide_path.exists()
+
+    guide = guide_path.read_text()
+    assert "Local Mock Demo" in guide
+    assert "uvicorn" in guide
+    assert "APP_MODE=mock" in guide
+    assert "EMAIL_PROVIDER=mock" in guide
+    assert "SMS_PROVIDER=mock" in guide
+    assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in guide
+    assert "POST /intake/text" in guide
+    assert "Jane Doe" in guide
+    assert "medication refill" in guide
+    assert "GET /cases/{case_id}" in guide
+    assert "GET /notifications/email" in guide
+    assert "GET /notifications/sms" in guide
+    assert "notificationEmailSent=true" in guide
+    assert "notificationSmsSent=true" in guide
+    assert "no real email or SMS is sent" in guide
+    assert "Do not commit" in guide
+    assert "connection strings" in guide
+    assert "real phone numbers" in guide
+    assert "Live ACS SMS" in guide
+    assert "not implemented" in guide
+
+
 def test_progress_links_manual_acs_email_smoke_test() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
