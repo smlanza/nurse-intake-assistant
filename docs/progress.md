@@ -119,6 +119,7 @@ Completed:
   `GET /notifications/sms`
 - Local mock demo guide is complete:
   `docs/manual-local-mock-demo.md`
+- `.env.example` SMS documentation alignment is complete
 
 Current working local pipeline:
 
@@ -213,6 +214,12 @@ App settings:
 - The local mock demo guide documents safe default values:
   `APP_MODE=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and
   `DEMO_SUPPRESS_NOTIFICATIONS=false`.
+- `.env.example` documents `SMS_PROVIDER=mock` as the safe local default.
+- `.env.example` documents empty ACS SMS placeholders:
+  `ACS_SMS_CONNECTION_STRING`, `ACS_SMS_FROM_PHONE_NUMBER`, and
+  `NURSE_NOTIFICATION_PHONE_NUMBER`.
+- `.env.example` preserves existing email and Cosmos sample settings while
+  keeping `APP_MODE=mock` as the safe default.
 
 Email notification support:
 - Mock email remains the default local mode.
@@ -325,6 +332,8 @@ SMS notification support:
 - The local mock demo guide notes not to commit secrets, connection strings, or
   real phone numbers.
 - The local mock demo guide notes that live ACS SMS is not implemented yet.
+- `.env.example` does not include real phone numbers, real ACS connection
+  strings, or access keys.
 - No live Azure SMS calls are implemented yet.
 - No Azure SMS SDK dependency has been added yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
@@ -377,7 +386,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 152 passed
+- 153 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -388,8 +397,9 @@ commit and push the ACS Email tracking changes.
 ACS Email production failure handling, SMS provider scaffolding, mock SMS wiring
 into intake processing, ACS SMS fake-client behavior, and ACS SMS production
 failure handling, mock SMS notification inspection, and the local mock demo
-guide are complete. Review and commit the current documentation/code/test
-changes before selecting the next TDD slice.
+guide, and `.env.example` SMS documentation alignment are complete. Review and
+commit the current documentation/code/test changes before selecting the next TDD
+slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, Azure AI Foundry, voice
 intake, retry logic, or authentication yet.
