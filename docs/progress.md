@@ -123,6 +123,7 @@ Completed:
 - Manual ACS SMS smoke-test guide placeholder is complete:
   `docs/manual-acs-sms-smoke-test.md`
 - ACS SMS client factory scaffold is complete
+- Azure Communication Services SMS SDK dependency alignment is complete
 
 Current working local pipeline:
 
@@ -366,8 +367,13 @@ SMS notification support:
   clear `RuntimeError` mentioning `azure-communication-sms` and
   `SMS_PROVIDER=acs` without exposing the ACS SMS connection string, endpoint,
   access key, or secrets.
+- The Azure Communication Services SMS package
+  `azure-communication-sms` is listed in `requirements.txt`.
+- Existing requirements entries remain preserved, including `fastapi`,
+  `uvicorn[standard]`, `pytest`, `httpx`, `azure-communication-email`, and
+  `azure-cosmos`.
 - No live Azure SMS calls are implemented yet.
-- No Azure SMS SDK dependency has been added yet.
+- Live ACS SMS sending has not been smoke-tested yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
 
 Not yet implemented:
@@ -430,9 +436,9 @@ ACS Email production failure handling, SMS provider scaffolding, mock SMS wiring
 into intake processing, ACS SMS fake-client behavior, and ACS SMS production
 failure handling, mock SMS notification inspection, and the local mock demo
 guide, `.env.example` SMS documentation alignment, and the manual ACS SMS
-smoke-test guide placeholder, and the ACS SMS client factory scaffold are
-complete. Review and commit the current documentation/code/test changes before
-selecting the next TDD slice.
+smoke-test guide placeholder, the ACS SMS client factory scaffold, and ACS SMS
+SDK dependency alignment are complete. Review and commit the current
+documentation/code/test changes before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, Azure AI Foundry, voice
 intake, retry logic, or authentication yet.
