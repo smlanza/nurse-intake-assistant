@@ -1,3 +1,8 @@
+import importlib
+import sys
+from types import ModuleType
+
+
 class FakeAcsSmsClient:
     def __init__(self) -> None:
         self.sent_messages: list[dict] = []
@@ -226,3 +231,84 @@ def test_create_acs_sms_client_factory_function_exists() -> None:
     from src.app.services.sms_notification_sender import create_acs_sms_client
 
     assert callable(create_acs_sms_client)
+
+
+def test_create_acs_sms_client_lazily_imports_sdk_client(monkeypatch) -> None:
+    from src.app.services.sms_notification_sender import create_acs_sms_client
+
+    connection_string = (
+        "endpoint=https://example.communication.azure.com/;accesskey=fake-secret"
+    )
+
+    class FakeSmsClient:
+        connection_strings: list[str] = []
+
+        @classmethod
+        def from_connection_string(cls, value: str) -> "FakeSmsClient":
+            cls.connection_strings.append(value)
+            return cls()
+
+    azure_module = ModuleType("azure")
+    communication_module = ModuleType("azure.communication")
+    sms_module = ModuleType("azure.communication.sms")
+    sms_module.SmsClient = FakeSmsClient
+
+    monkeypatch.setitem(sys.modules, "azure", azure_module)
+    monkeypatch.setitem(sys.modules, "azure.communication", communication_module)
+    monkeypatch.setitem(sys.modules, "azure.communication.sms", sms_module)
+
+    client = create_acs_sms_client(connection_string)
+
+    assert isinstance(client, FakeSmsClient)
+    assert FakeSmsClient.connection_strings == [connection_string]
+
+
+def test_mock_app_startup_does_not_require_azure_sms_sdk(monkeypatch) -> None:
+    module_names = (
+        "src.app.main",
+        "src.app.routes.intake",
+        "src.app.routes.cases",
+        "src.app.routes.notifications",
+        "src.app.dependencies",
+    )
+    original_modules = {
+        module_name: sys.modules.get(module_name)
+        for module_name in module_names
+    }
+
+    monkeypatch.setenv("SMS_PROVIDER", "mock")
+    monkeypatch.delitem(sys.modules, "azure.communication.sms", raising=False)
+
+    try:
+        for module_name in module_names:
+            sys.modules.pop(module_name, None)
+
+        main = importlib.import_module("src.app.main")
+
+        assert main.app is not None
+        assert "azure.communication.sms" not in sys.modules
+    finally:
+        for module_name in reversed(module_names):
+            original_module = original_modules[module_name]
+            if original_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = original_module
+
+
+def test_create_acs_sms_client_missing_sdk_raises_clear_error() -> None:
+    from src.app.services.sms_notification_sender import create_acs_sms_client
+
+    connection_string = (
+        "endpoint=https://example.communication.azure.com/;accesskey=fake-secret"
+    )
+
+    try:
+        create_acs_sms_client(connection_string)
+    except RuntimeError as exc:
+        message = str(exc)
+        assert "azure-communication-sms" in message
+        assert "SMS_PROVIDER=acs" in message
+        assert connection_string not in message
+    else:
+        raise AssertionError("create_acs_sms_client should fail when SDK is missing")

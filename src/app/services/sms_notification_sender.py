@@ -85,4 +85,11 @@ class AcsSmsNotificationSender:
 
 
 def create_acs_sms_client(connection_string: str) -> Any:
-    raise NotImplementedError("ACS SMS client creation is not implemented yet")
+    try:
+        from azure.communication.sms import SmsClient
+    except (ImportError, ModuleNotFoundError) as exc:
+        raise RuntimeError(
+            "azure-communication-sms is required for SMS_PROVIDER=acs"
+        ) from exc
+
+    return SmsClient.from_connection_string(connection_string)
