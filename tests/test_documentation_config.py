@@ -53,6 +53,17 @@ def test_requirements_include_acs_email_sdk() -> None:
     assert "azure-communication-email" in requirements
 
 
+def test_requirements_document_acs_sms_sdk_dependency() -> None:
+    requirements = (PROJECT_ROOT / "requirements.txt").read_text()
+
+    assert "fastapi" in requirements
+    assert "uvicorn[standard]" in requirements
+    assert "pytest" in requirements
+    assert "httpx" in requirements
+    assert "azure-communication-email" in requirements
+    assert "azure-communication-sms" in requirements
+
+
 def test_manual_acs_email_smoke_test_checklist_exists() -> None:
     checklist_path = PROJECT_ROOT / "docs" / "manual-acs-email-smoke-test.md"
 

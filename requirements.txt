@@ -10,3 +10,4 @@ jinja2
 python-multipart
 azure-cosmos
 azure-communication-email
+azure-communication-sms
