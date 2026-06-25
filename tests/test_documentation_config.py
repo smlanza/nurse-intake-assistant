@@ -15,6 +15,25 @@ def test_env_example_documents_acs_email_configuration() -> None:
     assert "only required" in env_example
 
 
+def test_env_example_documents_sms_configuration() -> None:
+    env_example = (PROJECT_ROOT / ".env.example").read_text()
+
+    assert "APP_MODE=mock" in env_example
+    assert "EMAIL_PROVIDER=mock" in env_example
+    assert "ACS_EMAIL_CONNECTION_STRING=" in env_example
+    assert "COSMOS_ENDPOINT=" in env_example
+    assert "COSMOS_DATABASE_NAME=nurse-intake" in env_example
+    assert "SMS_PROVIDER=mock" in env_example
+    assert "ACS_SMS_CONNECTION_STRING=" in env_example
+    assert "ACS_SMS_FROM_PHONE_NUMBER=" in env_example
+    assert "NURSE_NOTIFICATION_PHONE_NUMBER=" in env_example
+    assert "SMS_PROVIDER=acs" in env_example
+    assert "only required" in env_example
+    assert "accesskey=" not in env_example.lower()
+    assert "+1" not in env_example
+    assert "555" not in env_example
+
+
 def test_project_docs_explain_acs_email_configuration() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
