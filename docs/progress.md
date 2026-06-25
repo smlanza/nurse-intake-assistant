@@ -101,6 +101,14 @@ Completed:
   sender through `create_sms_notification_sender(settings)`
 - Default mock-mode text intake returns `notificationSmsSent=true` when
   notifications are not suppressed
+- ACS SMS fake-client send behavior is complete without live Azure calls
+- `AcsSmsNotificationSender` supports injected fake clients and injected fake
+  client factories
+- `AcsSmsNotificationSender` lazily creates the ACS SMS client on first send
+  when no client is injected
+- Created ACS SMS clients are reused across sends
+- `create_acs_sms_client(connection_string)` exists as a placeholder factory
+  function without importing the Azure SMS SDK
 
 Current working local pipeline:
 
@@ -245,7 +253,8 @@ SMS notification support:
 - Mock SMS is the default local mode.
 - `MockSmsNotificationSender` records sent SMS notifications in memory for safe
   local/mock mode.
-- `AcsSmsNotificationSender` exists as a configuration-only placeholder.
+- `AcsSmsNotificationSender` can build an ACS-style SMS payload and submit it
+  through an injected fake client in tests.
 - `create_sms_notification_sender(settings)` returns
   `MockSmsNotificationSender` for `SMS_PROVIDER=mock`.
 - `SMS_PROVIDER=acs` selects the ACS SMS provider.
@@ -269,6 +278,15 @@ SMS notification support:
 - SMS failure does not prevent the case from being saved or returned.
 - In default mock mode, `POST /intake/text` returns `notificationSmsSent=true`
   when notifications are not suppressed.
+- ACS SMS sender tests use injected fake clients and do not call live Azure.
+- The generated ACS SMS message includes case id and body/summary text.
+- Tests verify the ACS SMS connection string is not included in the SMS payload.
+- `AcsSmsNotificationSender` supports injected fake clients and injected fake
+  client factories for tests.
+- If no client is injected, the sender lazily creates an ACS SMS client on the
+  first send using the injected factory and reuses it across subsequent sends.
+- `create_acs_sms_client(connection_string)` exists as a placeholder factory
+  function and does not import the Azure SMS SDK yet.
 - No live Azure SMS calls are implemented yet.
 - No Azure SMS SDK dependency has been added yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
@@ -321,7 +339,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 135 passed
+- 141 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -329,9 +347,10 @@ Latest test result:
 Reset local `.env` back to safe mock defaults after live ACS Email testing, then
 commit and push the ACS Email tracking changes.
 
-ACS Email production failure handling, SMS provider scaffolding, and mock SMS
-wiring into intake processing are complete. Review and commit the current
-documentation/code/test changes before selecting the next TDD slice.
+ACS Email production failure handling, SMS provider scaffolding, mock SMS wiring
+into intake processing, and ACS SMS fake-client behavior are complete. Review
+and commit the current documentation/code/test changes before selecting the next
+TDD slice.
 
 Do not start live ACS SMS sending, SMS inspection routes, hosting, Key Vault,
 Azure AI Foundry, voice intake, retry logic, or authentication yet.
