@@ -109,6 +109,12 @@ Completed:
 - Created ACS SMS clients are reused across sends
 - `create_acs_sms_client(connection_string)` exists as a placeholder factory
   function without importing the Azure SMS SDK
+- ACS SMS production failure handling is complete: client creation failures,
+  send submission failures, and send result/status failures return `False`
+  instead of raising
+- `CaseProcessingService` catches SMS sender exceptions so failed SMS sends do
+  not prevent cases from being saved or returned
+- SMS failure does not change successful email notification behavior
 
 Current working local pipeline:
 
@@ -276,6 +282,9 @@ SMS notification support:
 - `CaseProcessingService` leaves `notificationSmsSent=false` when the SMS sender
   reports a failed send.
 - SMS failure does not prevent the case from being saved or returned.
+- `CaseProcessingService` catches SMS sender exceptions and leaves
+  `notificationSmsSent=false`.
+- SMS sender exceptions do not change successful email notification behavior.
 - In default mock mode, `POST /intake/text` returns `notificationSmsSent=true`
   when notifications are not suppressed.
 - ACS SMS sender tests use injected fake clients and do not call live Azure.
@@ -287,6 +296,9 @@ SMS notification support:
   first send using the injected factory and reuses it across subsequent sends.
 - `create_acs_sms_client(connection_string)` exists as a placeholder factory
   function and does not import the Azure SMS SDK yet.
+- `AcsSmsNotificationSender.send_case_notification(...)` returns `False`
+  instead of raising when SMS client creation, send submission, or send
+  result/status handling fails.
 - No live Azure SMS calls are implemented yet.
 - No Azure SMS SDK dependency has been added yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
@@ -339,7 +351,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 141 passed
+- 146 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -348,9 +360,9 @@ Reset local `.env` back to safe mock defaults after live ACS Email testing, then
 commit and push the ACS Email tracking changes.
 
 ACS Email production failure handling, SMS provider scaffolding, mock SMS wiring
-into intake processing, and ACS SMS fake-client behavior are complete. Review
-and commit the current documentation/code/test changes before selecting the next
-TDD slice.
+into intake processing, ACS SMS fake-client behavior, and ACS SMS production
+failure handling are complete. Review and commit the current
+documentation/code/test changes before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, SMS inspection routes, hosting, Key Vault,
 Azure AI Foundry, voice intake, retry logic, or authentication yet.
