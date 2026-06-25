@@ -117,6 +117,8 @@ Completed:
 - SMS failure does not change successful email notification behavior
 - Mock SMS notification inspection route is complete:
   `GET /notifications/sms`
+- Local mock demo guide is complete:
+  `docs/manual-local-mock-demo.md`
 
 Current working local pipeline:
 
@@ -146,6 +148,10 @@ Available demo/read routes:
 - `GET /notifications/email` returns recorded mock email notifications in send order.
 - `GET /notifications/sms` returns recorded mock SMS notifications in send
   order for local/demo inspection.
+- `docs/manual-local-mock-demo.md` documents the local mock demo flow:
+  start the app with `uvicorn`, submit `POST /intake/text`, verify
+  `GET /cases/{case_id}`, inspect `GET /notifications/email`, and inspect
+  `GET /notifications/sms`.
 
 Repository support:
 - `InMemoryCaseRepository` is used by the running FastAPI app.
@@ -204,6 +210,9 @@ App settings:
 - ACS Email environment values are trimmed; blank ACS Email values become
   `None`.
 - ACS SMS environment values are trimmed; blank ACS SMS values become `None`.
+- The local mock demo guide documents safe default values:
+  `APP_MODE=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and
+  `DEMO_SUPPRESS_NOTIFICATIONS=false`.
 
 Email notification support:
 - Mock email remains the default local mode.
@@ -310,6 +319,12 @@ SMS notification support:
 - SMS notification inspection responses include recipient, body, and `case_id`.
 - Tests verify `GET /notifications/sms` does not expose ACS connection strings
   or secrets.
+- `docs/manual-local-mock-demo.md` documents expected mock demo behavior:
+  `notificationEmailSent=true` and `notificationSmsSent=true`.
+- The local mock demo guide notes that mock mode sends no real email or SMS.
+- The local mock demo guide notes not to commit secrets, connection strings, or
+  real phone numbers.
+- The local mock demo guide notes that live ACS SMS is not implemented yet.
 - No live Azure SMS calls are implemented yet.
 - No Azure SMS SDK dependency has been added yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
@@ -362,7 +377,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 151 passed
+- 152 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -372,9 +387,9 @@ commit and push the ACS Email tracking changes.
 
 ACS Email production failure handling, SMS provider scaffolding, mock SMS wiring
 into intake processing, ACS SMS fake-client behavior, and ACS SMS production
-failure handling, and mock SMS notification inspection are complete. Review and
-commit the current documentation/code/test changes before selecting the next TDD
-slice.
+failure handling, mock SMS notification inspection, and the local mock demo
+guide are complete. Review and commit the current documentation/code/test
+changes before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, Azure AI Foundry, voice
 intake, retry logic, or authentication yet.
