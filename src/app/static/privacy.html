@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy | Nurse Intake Assistant</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --text: #172033;
+      --muted: #5f6b7a;
+      --accent: #176b87;
+      --border: #d9e2ec;
+      --warning-bg: #fff7e6;
+      --warning-border: #e6b85c;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, Helvetica, sans-serif;
+      line-height: 1.6;
+    }
+
+    header,
+    main,
+    footer {
+      width: min(960px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 36px 0 20px;
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    nav a {
+      color: var(--accent);
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    nav a:hover,
+    nav a:focus {
+      text-decoration: underline;
+    }
+
+    main {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 28px;
+      box-shadow: 0 16px 36px rgba(23, 32, 51, 0.08);
+    }
+
+    h1,
+    h2 {
+      line-height: 1.25;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 2rem;
+    }
+
+    h2 {
+      margin-top: 30px;
+      font-size: 1.25rem;
+    }
+
+    p,
+    ul {
+      margin: 12px 0 0;
+    }
+
+    ul {
+      padding-left: 22px;
+    }
+
+    .meta {
+      color: var(--muted);
+      margin-top: 10px;
+    }
+
+    .notice {
+      background: var(--warning-bg);
+      border: 1px solid var(--warning-border);
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 20px;
+    }
+
+    footer {
+      color: var(--muted);
+      font-size: 0.95rem;
+      padding: 24px 0 40px;
+    }
+
+    @media (max-width: 640px) {
+      main {
+        padding: 22px;
+      }
+
+      h1 {
+        font-size: 1.7rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Privacy Policy</h1>
+    <p class="meta">Nurse Intake Assistant | Effective Date: [Effective Date] | Last Updated: [Last Updated Date]</p>
+    <nav aria-label="Legal document navigation">
+      <a href="privacy.html" aria-current="page">Privacy Policy</a>
+      <a href="terms.html">Terms of Use</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="notice" aria-labelledby="demo-notice">
+      <h2 id="demo-notice">Demo and Educational Use Notice</h2>
+      <p>
+        Nurse Intake Assistant is an AI-103 capstone and demonstration project for [Organization Name].
+        Unless this project is separately configured, reviewed, approved, and governed for production use,
+        it should be treated as an educational demo and not as a production medical, clinical, or regulated
+        health system.
+      </p>
+      <p>
+        Do not enter real patient data into a demo environment unless [Organization Name] has authorized that
+        use and completed the required legal, privacy, security, and operational review.
+      </p>
+    </section>
+
+    <section aria-labelledby="purpose">
+      <h2 id="purpose">Purpose of the Nurse Intake Assistant</h2>
+      <p>
+        Nurse Intake Assistant accepts patient intake text, generates nurse-facing summaries, identifies
+        possible urgency or red-flag indicators, tracks missing intake fields, stores case data, and may send
+        configured demo email or SMS notifications. The application is intended to support review workflows,
+        not to replace clinical judgment.
+      </p>
+    </section>
+
+    <section aria-labelledby="collect">
+      <h2 id="collect">Information the App May Collect</h2>
+      <p>Depending on configuration and use, the application may collect or generate:</p>
+      <ul>
+        <li>Patient-provided intake text.</li>
+        <li>Name, date of birth, callback number, symptoms, reason for calling, and other information typed by the user.</li>
+        <li>Generated summaries, urgency classifications, missing-field indicators, case status, and notification status.</li>
+        <li>Technical metadata such as timestamps, source system IDs, request IDs, logs, diagnostic events, and error details.</li>
+        <li>Hosting and service configuration details associated with [Hosting/Cloud Provider Details].</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="use">
+      <h2 id="use">How Information May Be Used</h2>
+      <p>Information may be used to:</p>
+      <ul>
+        <li>Generate intake summaries and structured case records.</li>
+        <li>Support nurse or clinical review workflows.</li>
+        <li>Send configured notifications through email, SMS, or related communication services.</li>
+        <li>Test, debug, secure, monitor, evaluate, and improve the application.</li>
+        <li>Investigate reliability, security, misuse, or compliance concerns.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="ai-processing">
+      <h2 id="ai-processing">AI Processing Notice</h2>
+      <p>
+        The application may use AI services to summarize intake text and identify possible urgency indicators.
+        AI outputs may be incomplete, inaccurate, outdated, biased, or unsuitable for a specific clinical
+        situation. AI-generated summaries and urgency indicators are decision-support only and require human
+        review by qualified personnel before any operational or clinical use.
+      </p>
+    </section>
+
+    <section aria-labelledby="sharing">
+      <h2 id="sharing">Data Sharing</h2>
+      <p>Information may be shared with or processed by:</p>
+      <ul>
+        <li>Cloud hosting, storage, database, logging, monitoring, and AI service providers, including [Hosting/Cloud Provider Details].</li>
+        <li>Communication providers used for configured email or SMS notifications.</li>
+        <li>Authorized project administrators, developers, instructors, reviewers, or support personnel.</li>
+        <li>Legal, security, compliance, or incident-response parties when required or appropriate.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="retention">
+      <h2 id="retention">Data Retention</h2>
+      <p>
+        Demo data should be retained only as long as needed for the approved demonstration, testing, evaluation,
+        or educational purpose. The expected retention period is [Data Retention Period]. Demo case records,
+        logs, message history, and related artifacts should be deleted when no longer needed.
+      </p>
+    </section>
+
+    <section aria-labelledby="security">
+      <h2 id="security">Security</h2>
+      <p>
+        [Organization Name] should configure appropriate safeguards before use, such as encrypted connections,
+        protected secrets, least-privilege access controls, authentication where required, logging controls,
+        monitored cloud resources, and environment-specific configuration. Security responsibilities may also
+        depend on the selected hosting, AI, database, and communication providers. No system can guarantee
+        absolute security.
+      </p>
+    </section>
+
+    <section aria-labelledby="responsibilities">
+      <h2 id="responsibilities">User Responsibilities</h2>
+      <ul>
+        <li>Do not enter real patient data into a demo environment unless that use has been approved.</li>
+        <li>Do not use the application for emergencies. Call emergency services or seek immediate medical care for urgent symptoms.</li>
+        <li>Review AI outputs carefully and do not rely on them as the sole basis for care, triage, or operational decisions.</li>
+        <li>Follow applicable laws, organizational policies, privacy rules, security requirements, and training instructions.</li>
+      </ul>
+    </section>
+
+    <section aria-labelledby="hipaa">
+      <h2 id="hipaa">HIPAA and Regulated Data Note</h2>
+      <p>
+        This document is not a HIPAA Notice of Privacy Practices and does not state or imply that the application
+        is HIPAA compliant. HIPAA applicability depends on whether the operator is a covered entity, business
+        associate, or other regulated party, and on how the application is configured and used. Any production
+        deployment involving protected health information or other regulated data should receive legal, privacy,
+        security, and compliance review before use.
+      </p>
+    </section>
+
+    <section aria-labelledby="contact">
+      <h2 id="contact">Contact Information</h2>
+      <p>
+        Questions about this policy or the Nurse Intake Assistant project may be directed to [Organization Name]
+        at [Contact Email] or [Mailing Address].
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      This privacy policy is a project placeholder for demonstration and educational use. It must be reviewed
+      and replaced or approved by appropriate legal, privacy, security, and compliance stakeholders before any
+      production or regulated use. It is not legal advice.
+    </p>
+  </footer>
+</body>
+</html>
