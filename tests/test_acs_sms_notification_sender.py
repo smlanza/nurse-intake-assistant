@@ -1,4 +1,5 @@
 import importlib
+import builtins
 import sys
 from types import ModuleType
 
@@ -296,12 +297,21 @@ def test_mock_app_startup_does_not_require_azure_sms_sdk(monkeypatch) -> None:
                 sys.modules[module_name] = original_module
 
 
-def test_create_acs_sms_client_missing_sdk_raises_clear_error() -> None:
+def test_create_acs_sms_client_missing_sdk_raises_clear_error(monkeypatch) -> None:
     from src.app.services.sms_notification_sender import create_acs_sms_client
 
     connection_string = (
         "endpoint=https://example.communication.azure.com/;accesskey=fake-secret"
     )
+    original_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "azure.communication.sms":
+            raise ModuleNotFoundError("No module named 'azure.communication.sms'")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    monkeypatch.delitem(sys.modules, "azure.communication.sms", raising=False)
 
     try:
         create_acs_sms_client(connection_string)
@@ -310,5 +320,8 @@ def test_create_acs_sms_client_missing_sdk_raises_clear_error() -> None:
         assert "azure-communication-sms" in message
         assert "SMS_PROVIDER=acs" in message
         assert connection_string not in message
+        assert "accesskey" not in message
+        assert "fake-secret" not in message
+        assert "endpoint=https://example.communication.azure.com/" not in message
     else:
         raise AssertionError("create_acs_sms_client should fail when SDK is missing")
