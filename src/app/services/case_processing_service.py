@@ -6,6 +6,7 @@ from src.app.models.ai_outputs import UrgencyClassificationResult
 from src.app.services.case_repository import CaseRepository
 from src.app.services.email_notification_sender import EmailNotificationSender
 from src.app.services.mock_ai_service import MockAiService
+from src.app.services.sms_notification_sender import SmsNotificationSender
 from src.app.services.urgency_rules_service import (
     RuleEvaluationResult,
     UrgencyRulesService,
@@ -27,6 +28,7 @@ class CaseProcessingService:
         rules_service: UrgencyRulesService | None = None,
         case_repository: CaseRepository | None = None,
         email_notification_sender: EmailNotificationSender | None = None,
+        sms_notification_sender: SmsNotificationSender | None = None,
         suppress_notifications: bool = False,
     ) -> None:
         self.ai_service = ai_service or MockAiService()
@@ -35,6 +37,7 @@ class CaseProcessingService:
         )
         self.case_repository = case_repository
         self.email_notification_sender = email_notification_sender
+        self.sms_notification_sender = sms_notification_sender
         self.suppress_notifications = suppress_notifications
 
     async def process(self, raw_text: str, case_type: CaseType) -> CaseDocument:
@@ -96,6 +99,18 @@ class CaseProcessingService:
             )
             if email_sent is True:
                 case.notificationEmailSent = True
+
+        if (
+            self.sms_notification_sender is not None
+            and not self.suppress_notifications
+        ):
+            sms_sent = self.sms_notification_sender.send_case_notification(
+                recipient=case.patient.callback_number or "",
+                body=case.summary or "A new intake case is ready for review.",
+                case_id=case.id,
+            )
+            if sms_sent is True:
+                case.notificationSmsSent = True
 
         return case
 

@@ -9,6 +9,7 @@ from src.app.services.case_repository import InMemoryCaseRepository
 from src.app.services.case_processing_service import CaseProcessingService
 from src.app.services.email_notification_sender import MockEmailNotificationSender
 from src.app.services.mock_ai_service import MockAiService
+from src.app.services.sms_notification_sender import MockSmsNotificationSender
 
 
 ROUTINE_TEXT = (
@@ -52,6 +53,26 @@ class FailingEmailNotificationSender:
         return False
 
 
+class SuccessfulSmsNotificationSender:
+    def send_case_notification(
+        self,
+        recipient: str,
+        body: str,
+        case_id: str,
+    ) -> bool:
+        return True
+
+
+class FailingSmsNotificationSender:
+    def send_case_notification(
+        self,
+        recipient: str,
+        body: str,
+        case_id: str,
+    ) -> bool:
+        return False
+
+
 def test_routine_intake_creates_completed_case() -> None:
     case = asyncio.run(CaseProcessingService().process(ROUTINE_TEXT, "text-intake"))
 
@@ -88,6 +109,14 @@ def test_case_processing_service_accepts_email_notification_sender() -> None:
     assert service.email_notification_sender is email_sender
 
 
+def test_case_processing_service_accepts_sms_notification_sender() -> None:
+    sms_sender = MockSmsNotificationSender()
+
+    service = CaseProcessingService(sms_notification_sender=sms_sender)
+
+    assert service.sms_notification_sender is sms_sender
+
+
 def test_processed_case_is_saved_and_sends_email_notification() -> None:
     repository = InMemoryCaseRepository()
     email_sender = MockEmailNotificationSender()
@@ -115,6 +144,40 @@ def test_successful_email_notification_updates_returned_case() -> None:
     case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
 
     assert case.notificationEmailSent is True
+
+
+def test_successful_sms_notification_updates_returned_case() -> None:
+    service = CaseProcessingService(
+        sms_notification_sender=SuccessfulSmsNotificationSender()
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.notificationSmsSent is True
+
+
+def test_failed_sms_notification_leaves_returned_case_unsent() -> None:
+    service = CaseProcessingService(
+        sms_notification_sender=FailingSmsNotificationSender()
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.notificationSmsSent is False
+
+
+def test_failed_sms_notification_still_saves_and_returns_case() -> None:
+    repository = InMemoryCaseRepository()
+    service = CaseProcessingService(
+        case_repository=repository,
+        sms_notification_sender=FailingSmsNotificationSender(),
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert isinstance(case, CaseDocument)
+    assert asyncio.run(repository.get_by_id(case.id)) == case
+    assert case.notificationSmsSent is False
 
 
 def test_failed_email_notification_still_saves_and_returns_case() -> None:
@@ -156,6 +219,19 @@ def test_suppressed_notifications_still_returns_and_saves_case() -> None:
     assert email_sender.sent_notifications == []
 
 
+def test_suppressed_notifications_suppresses_sms_notification() -> None:
+    sms_sender = MockSmsNotificationSender()
+    service = CaseProcessingService(
+        sms_notification_sender=sms_sender,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.notificationSmsSent is False
+    assert sms_sender.sent_notifications == []
+
+
 def test_explicit_false_suppression_sends_email_notification() -> None:
     email_sender = MockEmailNotificationSender()
     service = CaseProcessingService(
@@ -167,6 +243,23 @@ def test_explicit_false_suppression_sends_email_notification() -> None:
 
     assert len(email_sender.sent_notifications) == 1
     assert email_sender.sent_notifications[0].case_id == case.id
+
+
+def test_mock_sms_sender_records_case_notifications() -> None:
+    sms_sender = MockSmsNotificationSender()
+
+    result = sms_sender.send_case_notification(
+        recipient="+15555550123",
+        body="Summary: Patient needs a medication refill.",
+        case_id="case-sms-1",
+    )
+
+    assert result is True
+    assert len(sms_sender.sent_notifications) == 1
+    notification = sms_sender.sent_notifications[0]
+    assert notification.recipient == "+15555550123"
+    assert notification.body == "Summary: Patient needs a medication refill."
+    assert notification.case_id == "case-sms-1"
 
 
 def test_urgent_red_flag_intake_creates_completed_urgent_case() -> None:

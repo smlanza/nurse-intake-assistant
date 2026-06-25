@@ -1,5 +1,44 @@
+from dataclasses import dataclass
+from typing import Protocol
+
+
+@dataclass(frozen=True)
+class SmsNotification:
+    recipient: str
+    body: str
+    case_id: str
+
+
+class SmsNotificationSender(Protocol):
+    def send_case_notification(
+        self,
+        recipient: str,
+        body: str,
+        case_id: str,
+    ) -> bool:
+        ...
+
+
 class MockSmsNotificationSender:
-    """Placeholder SMS sender for safe local/mock mode."""
+    """Record SMS notifications in memory for tests and demo inspection."""
+
+    def __init__(self) -> None:
+        self.sent_notifications: list[SmsNotification] = []
+
+    def send_case_notification(
+        self,
+        recipient: str,
+        body: str,
+        case_id: str,
+    ) -> bool:
+        self.sent_notifications.append(
+            SmsNotification(
+                recipient=recipient,
+                body=body,
+                case_id=case_id,
+            )
+        )
+        return True
 
 
 class AcsSmsNotificationSender:

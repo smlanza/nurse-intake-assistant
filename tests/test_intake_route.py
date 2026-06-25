@@ -80,6 +80,30 @@ def test_text_intake_records_notification_through_shared_sender() -> None:
     assert case["summary"] in notification.body
 
 
+def test_text_intake_default_mock_mode_returns_successful_sms_notification() -> None:
+    from src.app.dependencies import email_notification_sender
+
+    email_notification_sender.sent_notifications.clear()
+
+    response = client.post(
+        "/intake/text",
+        json={
+            "text": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["id"]
+    assert case["notificationSmsSent"] is True
+    assert len(email_notification_sender.sent_notifications) == 1
+    assert email_notification_sender.sent_notifications[0].case_id == case["id"]
+
+
 def test_text_intake_persists_request_source_metadata(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
