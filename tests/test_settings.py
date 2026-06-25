@@ -197,3 +197,70 @@ def test_blank_acs_email_settings_are_none(
     assert settings.acs_email_connection_string is None
     assert settings.acs_email_sender_address is None
     assert settings.nurse_notification_email is None
+
+
+def test_sms_provider_defaults_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("SMS_PROVIDER", raising=False)
+
+    assert AppSettings().sms_provider == "mock"
+
+
+def test_sms_provider_reads_environment_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("SMS_PROVIDER", "  ACS  ")
+
+    assert AppSettings().sms_provider == "  ACS  "
+    assert AppSettings().sms_provider_normalized == "acs"
+
+
+def test_acs_sms_settings_default_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("ACS_SMS_CONNECTION_STRING", raising=False)
+    monkeypatch.delenv("ACS_SMS_FROM_PHONE_NUMBER", raising=False)
+    monkeypatch.delenv("NURSE_NOTIFICATION_PHONE_NUMBER", raising=False)
+
+    settings = AppSettings()
+
+    assert settings.acs_sms_connection_string is None
+    assert settings.acs_sms_from_phone_number is None
+    assert settings.nurse_notification_phone_number is None
+
+
+def test_acs_sms_settings_trim_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("ACS_SMS_CONNECTION_STRING", "  endpoint=example  ")
+    monkeypatch.setenv("ACS_SMS_FROM_PHONE_NUMBER", "  +15555550100  ")
+    monkeypatch.setenv("NURSE_NOTIFICATION_PHONE_NUMBER", "  +15555550123  ")
+
+    settings = AppSettings()
+
+    assert settings.acs_sms_connection_string == "endpoint=example"
+    assert settings.acs_sms_from_phone_number == "+15555550100"
+    assert settings.nurse_notification_phone_number == "+15555550123"
+
+
+def test_blank_acs_sms_settings_are_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("ACS_SMS_CONNECTION_STRING", "   ")
+    monkeypatch.setenv("ACS_SMS_FROM_PHONE_NUMBER", "   ")
+    monkeypatch.setenv("NURSE_NOTIFICATION_PHONE_NUMBER", "   ")
+
+    settings = AppSettings()
+
+    assert settings.acs_sms_connection_string is None
+    assert settings.acs_sms_from_phone_number is None
+    assert settings.nurse_notification_phone_number is None

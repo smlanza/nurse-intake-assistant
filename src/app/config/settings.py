@@ -11,6 +11,11 @@ class AppSettings:
     acs_email_connection_string: str | None
     acs_email_sender_address: str | None
     nurse_notification_email: str | None
+    sms_provider: str
+    sms_provider_normalized: str
+    acs_sms_connection_string: str | None
+    acs_sms_from_phone_number: str | None
+    nurse_notification_phone_number: str | None
     cosmos_database_name: str
     cosmos_container_name: str
     cosmos_endpoint: str | None
@@ -28,6 +33,17 @@ class AppSettings:
         )
         self.acs_email_sender_address = self._optional_env("ACS_EMAIL_SENDER_ADDRESS")
         self.nurse_notification_email = self._optional_env("NURSE_NOTIFICATION_EMAIL")
+        self.sms_provider = os.getenv("SMS_PROVIDER", "mock")
+        self.sms_provider_normalized = self.sms_provider.strip().lower()
+        self.acs_sms_connection_string = self._optional_env(
+            "ACS_SMS_CONNECTION_STRING"
+        )
+        self.acs_sms_from_phone_number = self._optional_env(
+            "ACS_SMS_FROM_PHONE_NUMBER"
+        )
+        self.nurse_notification_phone_number = self._optional_env(
+            "NURSE_NOTIFICATION_PHONE_NUMBER"
+        )
         self.cosmos_database_name = os.getenv(
             "COSMOS_DATABASE_NAME", "nurse-intake"
         ).strip()
