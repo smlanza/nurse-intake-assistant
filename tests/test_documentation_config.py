@@ -73,6 +73,38 @@ def test_manual_acs_email_smoke_test_checklist_exists() -> None:
     assert "automated tests" in checklist
 
 
+def test_manual_acs_sms_smoke_test_checklist_exists() -> None:
+    checklist_path = PROJECT_ROOT / "docs" / "manual-acs-sms-smoke-test.md"
+
+    assert checklist_path.exists()
+
+    checklist = checklist_path.read_text()
+    assert "Manual ACS SMS Smoke Test" in checklist
+    assert "Live ACS SMS" in checklist
+    assert "not implemented yet" in checklist
+    assert "placeholder" in checklist
+    assert "future live ACS SMS verification" in checklist
+    assert "SMS_PROVIDER=acs" in checklist
+    assert "ACS_SMS_CONNECTION_STRING" in checklist
+    assert "ACS_SMS_FROM_PHONE_NUMBER" in checklist
+    assert "NURSE_NOTIFICATION_PHONE_NUMBER" in checklist
+    assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in checklist
+    assert "Do not commit" in checklist
+    assert "connection strings" in checklist
+    assert "access keys" in checklist
+    assert "real phone numbers" in checklist
+    assert "uvicorn" in checklist
+    assert "POST /intake/text" in checklist
+    assert "notificationSmsSent=true" in checklist
+    assert "notificationEmailSent" in checklist
+    assert "independent" in checklist
+    assert "should not crash intake processing" in checklist
+    assert "notificationSmsSent=false" in checklist
+    assert "Azure SMS SDK" in checklist
+    assert "create_acs_sms_client" in checklist
+    assert "live ACS SMS smoke testing has not been completed" in checklist
+
+
 def test_manual_local_mock_demo_guide_exists() -> None:
     guide_path = PROJECT_ROOT / "docs" / "manual-local-mock-demo.md"
 
