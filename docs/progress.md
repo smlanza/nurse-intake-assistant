@@ -85,6 +85,16 @@ Completed:
   of raising
 - `CaseProcessingService` still saves and returns cases when email sending
   fails, leaving `notificationEmailSent=false`
+- SMS provider scaffolding is complete
+- `SMS_PROVIDER` setting defaults to `mock`
+- ACS SMS configuration settings were added:
+  `ACS_SMS_CONNECTION_STRING`, `ACS_SMS_FROM_PHONE_NUMBER`, and
+  `NURSE_NOTIFICATION_PHONE_NUMBER`
+- `MockSmsNotificationSender` and `AcsSmsNotificationSender` placeholders exist
+  for provider selection tests
+- `create_sms_notification_sender(settings)` selects mock or ACS SMS sender by
+  provider setting, with case-insensitive and whitespace-tolerant matching
+- Mock SMS mode does not require ACS SMS settings
 
 Current working local pipeline:
 
@@ -157,6 +167,9 @@ App settings:
 - `EMAIL_PROVIDER` defaults to `mock`.
 - `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
   `NURSE_NOTIFICATION_EMAIL` default to `None`.
+- `SMS_PROVIDER` defaults to `mock`.
+- `ACS_SMS_CONNECTION_STRING`, `ACS_SMS_FROM_PHONE_NUMBER`, and
+  `NURSE_NOTIFICATION_PHONE_NUMBER` default to `None`.
 - `COSMOS_DATABASE_NAME` defaults to `nurse-intake`.
 - `COSMOS_CONTAINER_NAME` defaults to `cases`.
 - `COSMOS_ENDPOINT` and `COSMOS_KEY` default to `None`.
@@ -164,6 +177,7 @@ App settings:
   `None`.
 - ACS Email environment values are trimmed; blank ACS Email values become
   `None`.
+- ACS SMS environment values are trimmed; blank ACS SMS values become `None`.
 
 Email notification support:
 - Mock email remains the default local mode.
@@ -218,10 +232,30 @@ Email notification support:
   - `notificationSmsSent=false` is expected because SMS remains unimplemented
 - Do not commit real ACS connection strings or secrets.
 
+SMS notification support:
+- Mock SMS is the default local mode.
+- `MockSmsNotificationSender` exists as a placeholder for safe local/mock mode.
+- `AcsSmsNotificationSender` exists as a configuration-only placeholder.
+- `create_sms_notification_sender(settings)` returns
+  `MockSmsNotificationSender` for `SMS_PROVIDER=mock`.
+- `SMS_PROVIDER=acs` selects the ACS SMS provider.
+- `create_sms_notification_sender(settings)` returns
+  `AcsSmsNotificationSender` for `SMS_PROVIDER=acs` after validating the ACS SMS
+  connection string, sender phone number, and nurse notification phone number.
+- Required ACS SMS settings are `ACS_SMS_CONNECTION_STRING`,
+  `ACS_SMS_FROM_PHONE_NUMBER`, and `NURSE_NOTIFICATION_PHONE_NUMBER`.
+- Unknown `SMS_PROVIDER` values raise a clear configuration error.
+- Mock SMS provider mode does not require ACS SMS settings.
+- No live Azure SMS calls are implemented yet.
+- No Azure SMS SDK dependency has been added yet.
+- SMS is not wired into `CaseProcessingService` yet.
+- Do not commit real ACS SMS connection strings, secrets, or phone numbers.
+
 Not yet implemented:
 - Application hosting infrastructure
 - Azure AI Foundry, Speech, ACS Email, ACS SMS, and Key Vault resources
-- SMS provider
+- Live ACS SMS sending
+- SMS integration into intake processing
 - Authentication
 
 Infrastructure support:
@@ -266,7 +300,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 114 passed
+- 127 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -274,11 +308,13 @@ Latest test result:
 Reset local `.env` back to safe mock defaults after live ACS Email testing, then
 commit and push the ACS Email tracking changes.
 
-ACS Email production failure handling is complete. Review and commit the current
-documentation/code/test changes before selecting the next TDD slice.
+ACS Email production failure handling and SMS provider scaffolding are complete.
+Review and commit the current documentation/code/test changes before selecting
+the next TDD slice.
 
-Do not start hosting, Key Vault, Azure AI Foundry, ACS SMS, or authentication
-yet.
+Do not start live ACS SMS sending, SMS integration into intake processing,
+hosting, Key Vault, Azure AI Foundry, voice intake, retry logic, or
+authentication yet.
 
 ## Workflow
 
