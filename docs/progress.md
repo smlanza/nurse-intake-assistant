@@ -122,6 +122,7 @@ Completed:
 - `.env.example` SMS documentation alignment is complete
 - Manual ACS SMS smoke-test guide placeholder is complete:
   `docs/manual-acs-sms-smoke-test.md`
+- ACS SMS client factory scaffold is complete
 
 Current working local pipeline:
 
@@ -354,6 +355,17 @@ SMS notification support:
   factory boundary, and live ACS SMS smoke testing has not been completed.
 - The ACS SMS smoke-test guide warns not to commit secrets, connection strings,
   access keys, or real phone numbers.
+- `create_acs_sms_client(connection_string)` lazily imports
+  `azure.communication.sms.SmsClient`.
+- `create_acs_sms_client(connection_string)` calls
+  `SmsClient.from_connection_string(connection_string)` and returns the created
+  SMS client instance.
+- Mock/default app startup does not require the Azure SMS SDK unless ACS SMS
+  client creation is requested.
+- If the Azure SMS SDK package is missing, `create_acs_sms_client` raises a
+  clear `RuntimeError` mentioning `azure-communication-sms` and
+  `SMS_PROVIDER=acs` without exposing the ACS SMS connection string, endpoint,
+  access key, or secrets.
 - No live Azure SMS calls are implemented yet.
 - No Azure SMS SDK dependency has been added yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
@@ -406,7 +418,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 154 passed
+- 157 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -418,8 +430,9 @@ ACS Email production failure handling, SMS provider scaffolding, mock SMS wiring
 into intake processing, ACS SMS fake-client behavior, and ACS SMS production
 failure handling, mock SMS notification inspection, and the local mock demo
 guide, `.env.example` SMS documentation alignment, and the manual ACS SMS
-smoke-test guide placeholder are complete. Review and commit the current
-documentation/code/test changes before selecting the next TDD slice.
+smoke-test guide placeholder, and the ACS SMS client factory scaffold are
+complete. Review and commit the current documentation/code/test changes before
+selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, Azure AI Foundry, voice
 intake, retry logic, or authentication yet.
