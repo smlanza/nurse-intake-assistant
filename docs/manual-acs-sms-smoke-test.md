@@ -2,19 +2,21 @@
 
 ## Purpose
 
-This guide is a placeholder checklist for future live ACS SMS verification. It
-captures the intended manual smoke-test flow before live ACS SMS sending is
-implemented.
+This guide records the ACS SMS smoke-test checklist and current stopping point.
+It remains a placeholder/checklist for future live ACS SMS verification after
+external toll-free verification is complete.
 
 ## Current status
 
-Live ACS SMS sending is not implemented yet. Mock SMS works locally, and ACS SMS
-has fake-client tests and failure handling, but no live Azure SMS SDK path is
-active.
+ACS SMS is integrated far enough to reach the Azure Communication Services SMS
+SDK/send-request path. Mock SMS remains the primary demo path. Live handset
+delivery is not confirmed yet. Confirmed live ACS SMS handset delivery is not implemented yet.
+
+ACS Email live smoke testing was previously completed successfully.
 
 ## Future required configuration
 
-Future live ACS SMS smoke testing will require:
+Live ACS SMS smoke testing uses:
 
 ```bash
 SMS_PROVIDER=acs
@@ -24,33 +26,55 @@ NURSE_NOTIFICATION_PHONE_NUMBER=
 DEMO_SUPPRESS_NOTIFICATIONS=false
 ```
 
-## Planned local run command
+## Local run command
 
-When live ACS SMS support exists, run the app locally with uvicorn:
+Run the app locally with uvicorn:
 
 ```bash
 .venv/bin/python -m uvicorn src.app.main:app --reload
 ```
 
-## Planned smoke-test steps
+## Smoke-test steps
 
-1. Confirm the future ACS SMS settings are present only in local environment
-   variables.
+1. Confirm ACS SMS settings are present only in local environment variables.
 2. Start the API with uvicorn.
 3. Submit a safe intake with `POST /intake/text`.
 4. Confirm the returned case id can be used for follow-up verification.
 5. Review the response fields for notification results.
 
-## Expected future results
+## Latest smoke attempt
 
-After a successful live ACS SMS send, the text intake response should include:
+The local app was run with:
+
+```text
+APP_MODE=mock
+SMS_PROVIDER=acs
+DEMO_SUPPRESS_NOTIFICATIONS=false
+```
+
+`POST /intake/text` returned HTTP 200, and the response showed:
 
 ```text
 notificationSmsSent=true
 ```
 
-`notificationEmailSent` behavior should remain independent of live ACS SMS
-success or failure.
+Handset SMS delivery was not confirmed.
+
+## Expected results
+
+After a successful live ACS SMS send-request path, the text intake response
+should include:
+
+```text
+notificationSmsSent=true
+```
+
+`notificationEmailSent` behavior should remain independent of ACS SMS success or
+failure.
+
+Important: `notificationSmsSent=true` currently means the application/provider
+send path accepted or completed without raising. It does not prove carrier
+delivery to the handset.
 
 ## Failure-handling expectations
 
@@ -62,6 +86,23 @@ notificationSmsSent=false
 
 The case should still be saved and returned for nurse review.
 
+## Current blocker
+
+- The initial ACS free trial number showed SMS unavailable, so it cannot be used
+  for SMS delivery.
+- A paid ACS toll-free number was acquired.
+- Azure Portal showed U.S./Canada toll-free SMS verification is mandatory.
+- Regulatory document submission was attempted, but Azure Portal returned
+  "Server not responding / Unable to access regulatory documents right now."
+- Live handset delivery is pending toll-free verification and external
+  Azure/carrier regulatory workflow completion.
+
+## MVP decision
+
+Do not block the project on toll-free verification. Mock SMS inspection remains
+the primary demo path for SMS. ACS SMS is integrated at the SDK/send-request
+level, with handset delivery pending external verification.
+
 ## Safety notes
 
 Do not commit secrets, connection strings, access keys, or real phone numbers.
@@ -70,6 +111,9 @@ when that future path is implemented.
 
 ## Current limitations
 
-- No Azure SMS SDK dependency has been added yet.
-- `create_acs_sms_client` is still a placeholder/factory boundary.
+- The Azure SMS SDK dependency has been added, but live handset delivery is
+  still externally blocked.
+- `create_acs_sms_client` is the factory boundary for the ACS SMS SDK client.
 - live ACS SMS smoke testing has not been completed yet.
+- Future enhancement: capture ACS message id/status or delivery report
+  semantics.

@@ -124,6 +124,11 @@ Completed:
   `docs/manual-acs-sms-smoke-test.md`
 - ACS SMS client factory scaffold is complete
 - Azure Communication Services SMS SDK dependency alignment is complete
+- ACS SMS implementation is code-complete enough to reach the ACS SMS SDK/send
+  request path
+- 2026-06-25: Live ACS SMS smoke attempt reached the app/provider send path, but
+  handset delivery was not confirmed because toll-free SMS verification is still
+  pending in the external Azure/carrier regulatory workflow
 
 Current working local pipeline:
 
@@ -372,14 +377,43 @@ SMS notification support:
 - Existing requirements entries remain preserved, including `fastapi`,
   `uvicorn[standard]`, `pytest`, `httpx`, `azure-communication-email`, and
   `azure-cosmos`.
-- No live Azure SMS calls are implemented yet.
-- Live ACS SMS sending has not been smoke-tested yet.
+- Local ACS SMS smoke attempt details:
+  - The app was run locally with `APP_MODE=mock`, `SMS_PROVIDER=acs`, and
+    `DEMO_SUPPRESS_NOTIFICATIONS=false`.
+  - `POST /intake/text` returned HTTP 200.
+  - The response showed `notificationSmsSent=true`.
+  - Handset SMS delivery was not confirmed.
+- ACS SMS delivery blocker:
+  - The initial ACS free trial number showed SMS unavailable, so it cannot be
+    used for SMS delivery.
+  - A paid ACS toll-free number was acquired.
+  - Azure Portal showed U.S./Canada toll-free SMS verification is mandatory.
+  - Regulatory document submission was attempted, but Azure Portal returned
+    "Server not responding / Unable to access regulatory documents right now."
+  - Live handset delivery is pending toll-free verification and external
+    Azure/carrier regulatory workflow completion.
+- MVP decision: do not block the project on toll-free verification. Mock SMS
+  inspection remains the primary demo path for SMS.
+- ACS SMS is documented as integrated at the SDK/send-request level, with
+  handset delivery pending external verification.
+- Live ACS SMS handset delivery has not been confirmed yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
+
+Known issues and future enhancements:
+- `notificationSmsSent=true` currently means the application/provider send path
+  accepted or completed without raising; it does not prove carrier delivery to a
+  handset. Future enhancement: capture ACS message id/status or delivery report
+  semantics.
+- Current red-flag rules are keyword-based and not negation-aware. For example,
+  text containing "No chest pain" can still trigger urgent classification.
+  Future enhancement: add negation-aware red-flag detection.
 
 Not yet implemented:
 - Application hosting infrastructure
 - Azure AI Foundry, Speech, ACS Email, ACS SMS, and Key Vault resources
-- Live ACS SMS sending
+- Confirmed live ACS SMS handset delivery
+- ACS SMS delivery report/status tracking
+- Negation-aware red-flag detection
 - Authentication
 
 Infrastructure support:
@@ -424,7 +458,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 157 passed
+- 158 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -437,8 +471,9 @@ into intake processing, ACS SMS fake-client behavior, and ACS SMS production
 failure handling, mock SMS notification inspection, and the local mock demo
 guide, `.env.example` SMS documentation alignment, and the manual ACS SMS
 smoke-test guide placeholder, the ACS SMS client factory scaffold, and ACS SMS
-SDK dependency alignment are complete. Review and commit the current
-documentation/code/test changes before selecting the next TDD slice.
+SDK dependency alignment are complete. ACS SMS reached the SDK/send-request path,
+but handset delivery remains pending toll-free verification. Review and commit
+the current documentation/code/test changes before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, Azure AI Foundry, voice
 intake, retry logic, or authentication yet.
