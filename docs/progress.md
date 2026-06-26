@@ -11,6 +11,7 @@ Completed:
 - Mock AI service
 - Structured missing intake field validation is complete
 - Case processing service
+- Human-in-the-loop nurse review workflow is complete
 - Text intake API route
 - In-memory case repository and shared app-level persistence
 - Case retrieval route: `GET /cases/{case_id}`
@@ -158,6 +159,24 @@ Completed:
   missing fields.
 - Structured missing-field validation remains deterministic and local. No Azure
   AI calls or external NLP dependencies were added.
+- Human-in-the-loop nurse review workflow is complete.
+- `POST /cases/{case_id}/review` marks a saved case as reviewed and returns the
+  updated case document.
+- Review state uses simple MVP statuses: `PendingReview` and `Reviewed`.
+- Newly created cases default to `PendingReview`.
+- Review metadata is persisted with the case, including `reviewedBy`,
+  `reviewNotes`, and `reviewedAt`.
+- Reviewing a missing case returns HTTP 404.
+- In mock/default mode, reviewing a case works without `createdDate`.
+- In Cosmos mode, review follows the existing lookup convention: missing
+  `createdDate` returns HTTP 400 with a clear message, and supplied
+  `createdDate` is passed to `repository.get_by_id` as `created_date`.
+- The updated reviewed case is saved through the existing repository
+  save/upsert behavior; no separate review repository was added.
+- The review workflow reinforces that AI output requires nurse review and that
+  the system is an intake assistant, not an autonomous medical decision-maker.
+- No authentication, role-based access control, Azure service calls, or
+  notification behavior changes were added for this slice.
 
 Current working local pipeline:
 
@@ -484,7 +503,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 171 passed
+- 176 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
