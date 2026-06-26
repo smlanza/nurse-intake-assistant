@@ -131,9 +131,16 @@ def test_manual_local_mock_demo_guide_exists() -> None:
     assert "POST /intake/text" in guide
     assert "Jane Doe" in guide
     assert "medication refill" in guide
+    assert "`GET /cases`" in guide
+    assert "GET /cases?reviewStatus=PendingReview" in guide
     assert "GET /cases/{case_id}" in guide
+    assert "POST /cases/{case_id}/review" in guide
+    assert "GET /cases?reviewStatus=Reviewed" in guide
     assert "GET /notifications/email" in guide
     assert "GET /notifications/sms" in guide
+    assert "reviewStatus" in guide
+    assert "PendingReview" in guide
+    assert "Reviewed" in guide
     assert "notificationEmailSent=true" in guide
     assert "notificationSmsSent=true" in guide
     assert "no real email or SMS is sent" in guide
