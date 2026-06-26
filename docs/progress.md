@@ -9,6 +9,7 @@ Completed:
 - Red-flag urgency rules engine
 - Negation-aware red-flag detection is complete
 - Mock AI service
+- AI extraction provider factory is complete
 - Structured missing intake field validation is complete
 - Case processing service
 - Human-in-the-loop nurse review workflow is complete
@@ -236,12 +237,30 @@ Completed:
 - No authentication, role-based access control, Azure service calls,
   infrastructure, Key Vault, hosting, Azure AI Foundry, voice intake, retry
   logic, or live ACS SMS work was added for this slice.
+- AI extraction provider factory is complete.
+- `AI_PROVIDER=mock` is now the safe default AI provider.
+- `.env.example` documents `AI_PROVIDER=mock` as the safe local default.
+- `create_ai_service(settings)` provides a clean provider-selection seam for
+  future Azure AI Foundry integration.
+- `AI_PROVIDER=mock` returns `MockAiService`.
+- AI provider matching is case-insensitive and whitespace-tolerant.
+- Unknown `AI_PROVIDER` values raise a clear configuration error.
+- Mock AI provider mode requires no Azure AI settings.
+- FastAPI dependencies now create the shared app-level AI service through
+  `create_ai_service(settings)`.
+- The app still uses `MockAiService` by default, and default mock intake
+  behavior remains preserved.
+- No live Azure AI calls, Azure AI SDK dependencies, ACS Email changes, ACS SMS
+  changes, repository changes, demo reset changes, infrastructure, hosting, Key
+  Vault, voice intake, retry logic, or authentication behavior was added for
+  this slice.
 
 Current working local pipeline:
 
 POST /intake/text
 → CaseProcessingService
-→ MockAiService
+→ create_ai_service(settings)
+→ MockAiService for `AI_PROVIDER=mock`
 → UrgencyRulesService
 → create_case_repository(settings)
 → InMemoryCaseRepository for `APP_MODE=mock`
@@ -319,6 +338,7 @@ Cosmos container support:
 App settings:
 - `APP_MODE` defaults to `mock`.
 - `DEMO_SUPPRESS_NOTIFICATIONS` defaults to `false`.
+- `AI_PROVIDER` defaults to `mock`.
 - `EMAIL_PROVIDER` defaults to `mock`.
 - `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
   `NURSE_NOTIFICATION_EMAIL` default to `None`.
@@ -333,9 +353,12 @@ App settings:
 - ACS Email environment values are trimmed; blank ACS Email values become
   `None`.
 - ACS SMS environment values are trimmed; blank ACS SMS values become `None`.
+- AI provider matching ignores case and surrounding whitespace; blank
+  `AI_PROVIDER` values normalize to `mock`.
 - The local mock demo guide documents safe default values:
   `APP_MODE=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and
   `DEMO_SUPPRESS_NOTIFICATIONS=false`.
+- `.env.example` documents `AI_PROVIDER=mock` as the safe local default.
 - `.env.example` documents `SMS_PROVIDER=mock` as the safe local default.
 - `.env.example` documents empty ACS SMS placeholders:
   `ACS_SMS_CONNECTION_STRING`, `ACS_SMS_FROM_PHONE_NUMBER`, and
@@ -565,7 +588,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 213 passed
+- 222 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
