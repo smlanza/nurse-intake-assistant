@@ -3,7 +3,7 @@ from datetime import date, datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from src.app.dependencies import case_repository
-from src.app.models.case import CaseDocument, ReviewStatus, Urgency
+from src.app.models.case import CaseDocument, CaseQueueSummary, ReviewStatus, Urgency
 from src.app.models.review import CaseReviewRequest
 from src.app.services.cosmos_case_repository import (
     CaseListNotSupportedError,
@@ -21,11 +21,7 @@ async def list_cases(
     fromDate: date | None = None,
     toDate: date | None = None,
 ) -> list[CaseDocument]:
-    if fromDate is not None and toDate is not None and fromDate > toDate:
-        raise HTTPException(
-            status_code=400,
-            detail="fromDate must be on or before toDate.",
-        )
+    _validate_date_range(fromDate, toDate)
 
     try:
         return await case_repository.list_cases(
@@ -39,6 +35,37 @@ async def list_cases(
             status_code=501,
             detail="Case list queries are not implemented for this repository.",
         ) from error
+
+
+@router.get("/summary", response_model=CaseQueueSummary)
+async def get_case_summary(
+    fromDate: date | None = None,
+    toDate: date | None = None,
+) -> CaseQueueSummary:
+    _validate_date_range(fromDate, toDate)
+
+    try:
+        cases = await case_repository.list_cases(
+            from_date=fromDate,
+            to_date=toDate,
+        )
+    except (CaseListNotSupportedError, NotImplementedError) as error:
+        raise HTTPException(
+            status_code=501,
+            detail="Case summary queries are not implemented for this repository.",
+        ) from error
+
+    return CaseQueueSummary(
+        total=len(cases),
+        pendingReview=sum(case.reviewStatus == "PendingReview" for case in cases),
+        reviewed=sum(case.reviewStatus == "Reviewed" for case in cases),
+        urgent=sum(case.urgency == "Urgent" for case in cases),
+        routine=sum(case.urgency == "Routine" for case in cases),
+        pendingUrgent=sum(
+            case.reviewStatus == "PendingReview" and case.urgency == "Urgent"
+            for case in cases
+        ),
+    )
 
 
 @router.get("/{case_id}", response_model=CaseDocument)
@@ -80,3 +107,14 @@ async def review_case(
     case.lastStatusUpdatedUtc = now
 
     return await case_repository.save(case)
+
+
+def _validate_date_range(
+    from_date: date | None,
+    to_date: date | None,
+) -> None:
+    if from_date is not None and to_date is not None and from_date > to_date:
+        raise HTTPException(
+            status_code=400,
+            detail="fromDate must be on or before toDate.",
+        )

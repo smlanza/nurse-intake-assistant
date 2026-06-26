@@ -68,3 +68,12 @@ class CaseDocument(BaseModel):
 
     audioBlobName: str | None = None
     audioDeleted: bool = False
+
+
+class CaseQueueSummary(BaseModel):
+    total: int
+    pendingReview: int
+    reviewed: int
+    urgent: int
+    routine: int
+    pendingUrgent: int

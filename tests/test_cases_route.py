@@ -416,6 +416,205 @@ def test_list_cases_returns_clear_error_when_repository_does_not_support_listing
     assert "not implemented" in response.json()["detail"]
 
 
+def test_case_summary_returns_zero_counts_when_no_cases_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total": 0,
+        "pendingReview": 0,
+        "reviewed": 0,
+        "urgent": 0,
+        "routine": 0,
+        "pendingUrgent": 0,
+    }
+
+
+def test_case_summary_returns_queue_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "urgent-pending",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                ),
+                build_queue_case(
+                    "routine-pending",
+                    review_status="PendingReview",
+                    urgency="Routine",
+                ),
+                build_queue_case(
+                    "urgent-reviewed",
+                    review_status="Reviewed",
+                    urgency="Urgent",
+                ),
+                build_queue_case(
+                    "routine-reviewed",
+                    review_status="Reviewed",
+                    urgency="Routine",
+                ),
+                build_queue_case(
+                    "routine-pending-2",
+                    review_status="PendingReview",
+                    urgency="Routine",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total": 5,
+        "pendingReview": 3,
+        "reviewed": 2,
+        "urgent": 2,
+        "routine": 3,
+        "pendingUrgent": 1,
+    }
+
+
+def test_case_summary_filters_from_date_inclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("older", created_date="2026-06-23"),
+                build_queue_case("start", created_date="2026-06-24"),
+                build_queue_case("newer", created_date="2026-06-25"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?fromDate=2026-06-24")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
+def test_case_summary_filters_to_date_inclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("older", created_date="2026-06-23"),
+                build_queue_case("end", created_date="2026-06-24"),
+                build_queue_case("newer", created_date="2026-06-25"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?toDate=2026-06-24")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
+def test_case_summary_filters_by_inclusive_date_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("older", created_date="2026-06-22"),
+                build_queue_case("start", created_date="2026-06-23"),
+                build_queue_case("end", created_date="2026-06-25"),
+                build_queue_case("newer", created_date="2026-06-26"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases/summary?fromDate=2026-06-23&toDate=2026-06-25"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
+def test_case_summary_rejects_invalid_from_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?fromDate=not-a-date")
+
+    assert response.status_code == 422
+
+
+def test_case_summary_rejects_invalid_to_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?toDate=not-a-date")
+
+    assert response.status_code == 422
+
+
+def test_case_summary_rejects_date_range_when_from_date_is_after_to_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases/summary?fromDate=2026-06-26&toDate=2026-06-25"
+    )
+
+    assert response.status_code == 400
+    assert "fromDate must be on or before toDate" in response.json()["detail"]
+
+
+def test_case_summary_returns_clear_error_when_repository_does_not_support_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RepositoryWithoutListSupport:
+        async def list_cases(
+            self,
+            review_status: str | None = None,
+            urgency: str | None = None,
+            from_date: str | None = None,
+            to_date: str | None = None,
+        ) -> list[CaseDocument]:
+            raise NotImplementedError("Case list queries are not implemented.")
+
+    local_client = create_local_cases_client(
+        monkeypatch,
+        RepositoryWithoutListSupport(),
+    )
+
+    response = local_client.get("/cases/summary")
+
+    assert response.status_code == 501
+    assert "not implemented" in response.json()["detail"]
+
+
 def test_review_case_marks_case_reviewed() -> None:
     created_case = create_case()
 
