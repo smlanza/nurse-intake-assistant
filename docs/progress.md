@@ -10,6 +10,7 @@ Completed:
 - Negation-aware red-flag detection is complete
 - Mock AI service
 - AI extraction provider factory is complete
+- Intake text validation is complete
 - Structured missing intake field validation is complete
 - Case processing service
 - Human-in-the-loop nurse review workflow is complete
@@ -254,6 +255,16 @@ Completed:
   changes, repository changes, demo reset changes, infrastructure, hosting, Key
   Vault, voice intake, retry logic, or authentication behavior was added for
   this slice.
+- Intake text validation is complete.
+- `POST /intake/text` rejects empty, whitespace-only, and too-short text.
+- Rejected intake requests do not create cases or mock email/SMS
+  notifications.
+- Valid intake requests continue to work normally.
+- This hardens the MVP API against accidental blank submissions from Swagger or
+  demo clients.
+- No ACS Email, ACS SMS, repository, AI provider factory, demo reset,
+  infrastructure, hosting, Key Vault, voice intake, retry logic, or
+  authentication behavior was changed for this slice.
 
 Current working local pipeline:
 
@@ -588,7 +599,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 222 passed
+- 224 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
