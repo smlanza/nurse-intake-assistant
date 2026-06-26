@@ -22,6 +22,13 @@ Urgency = Literal["Routine", "Urgent", "Unknown"]
 
 CaseType = Literal["phone-intake", "text-intake", "audio-upload"]
 UrgencySource = Literal["AI", "Rules", "RulesAndAI", "Unknown"]
+NotificationStatus = Literal[
+    "NotAttempted",
+    "MockRecorded",
+    "Accepted",
+    "Failed",
+    "Suppressed",
+]
 
 
 class CaseDocument(BaseModel):
@@ -64,7 +71,10 @@ class CaseDocument(BaseModel):
     reviewedAt: datetime | None = None
 
     notificationEmailSent: bool = False
+    notificationEmailStatus: NotificationStatus = "NotAttempted"
     notificationSmsSent: bool = False
+    notificationSmsStatus: NotificationStatus = "NotAttempted"
+    notificationSmsDeliveryConfirmed: bool = False
 
     audioBlobName: str | None = None
     audioDeleted: bool = False

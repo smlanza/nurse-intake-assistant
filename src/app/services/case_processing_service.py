@@ -4,9 +4,15 @@ from pathlib import Path
 from src.app.models.case import CaseDocument, CaseType, UrgencySource
 from src.app.models.ai_outputs import UrgencyClassificationResult
 from src.app.services.case_repository import CaseRepository
-from src.app.services.email_notification_sender import EmailNotificationSender
+from src.app.services.email_notification_sender import (
+    EmailNotificationSender,
+    MockEmailNotificationSender,
+)
 from src.app.services.mock_ai_service import MockAiService
-from src.app.services.sms_notification_sender import SmsNotificationSender
+from src.app.services.sms_notification_sender import (
+    MockSmsNotificationSender,
+    SmsNotificationSender,
+)
 from src.app.services.urgency_rules_service import (
     RuleEvaluationResult,
     UrgencyRulesService,
@@ -84,38 +90,82 @@ class CaseProcessingService:
             reviewStatus="PendingReview",
         )
 
+        self._apply_email_notification_status(case)
+        self._apply_sms_notification_status(case)
+
         if self.case_repository is not None:
             await self.case_repository.save(case)
 
-        if (
-            self.email_notification_sender is not None
-            and not self.suppress_notifications
-        ):
+        return case
+
+    def _apply_email_notification_status(self, case: CaseDocument) -> None:
+        if self.suppress_notifications:
+            case.notificationEmailSent = False
+            case.notificationEmailStatus = "Suppressed"
+            return
+
+        if self.email_notification_sender is None:
+            return
+
+        try:
             email_sent = self.email_notification_sender.send_case_notification(
                 recipient="nurse@example.com",
                 subject=f"New {case.urgency} intake case",
                 body=case.summary or "A new intake case is ready for review.",
                 case_id=case.id,
             )
-            if email_sent is True:
-                case.notificationEmailSent = True
+        except Exception:
+            email_sent = False
 
-        if (
-            self.sms_notification_sender is not None
-            and not self.suppress_notifications
-        ):
-            try:
-                sms_sent = self.sms_notification_sender.send_case_notification(
-                    recipient=case.patient.callback_number or "",
-                    body=case.summary or "A new intake case is ready for review.",
-                    case_id=case.id,
-                )
-            except Exception:
-                sms_sent = False
-            if sms_sent is True:
-                case.notificationSmsSent = True
+        if isinstance(self.email_notification_sender, MockEmailNotificationSender):
+            case.notificationEmailSent = email_sent is not False
+            case.notificationEmailStatus = (
+                "MockRecorded" if case.notificationEmailSent else "Failed"
+            )
+            return
 
-        return case
+        if email_sent is True:
+            case.notificationEmailSent = True
+            case.notificationEmailStatus = "Accepted"
+            return
+
+        case.notificationEmailSent = False
+        case.notificationEmailStatus = "Failed"
+
+    def _apply_sms_notification_status(self, case: CaseDocument) -> None:
+        case.notificationSmsDeliveryConfirmed = False
+
+        if self.suppress_notifications:
+            case.notificationSmsSent = False
+            case.notificationSmsStatus = "Suppressed"
+            return
+
+        if self.sms_notification_sender is None:
+            return
+
+        try:
+            sms_sent = self.sms_notification_sender.send_case_notification(
+                recipient=case.patient.callback_number or "",
+                body=case.summary or "A new intake case is ready for review.",
+                case_id=case.id,
+            )
+        except Exception:
+            sms_sent = False
+
+        if isinstance(self.sms_notification_sender, MockSmsNotificationSender):
+            case.notificationSmsSent = sms_sent is True
+            case.notificationSmsStatus = (
+                "MockRecorded" if case.notificationSmsSent else "Failed"
+            )
+            return
+
+        if sms_sent is True:
+            case.notificationSmsSent = True
+            case.notificationSmsStatus = "Accepted"
+            return
+
+        case.notificationSmsSent = False
+        case.notificationSmsStatus = "Failed"
 
     @staticmethod
     def _merge_urgency_source(

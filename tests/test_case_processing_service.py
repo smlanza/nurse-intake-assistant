@@ -83,6 +83,17 @@ class ExceptionSmsNotificationSender:
         raise RuntimeError("SMS notification failed")
 
 
+class ExceptionEmailNotificationSender:
+    def send_case_notification(
+        self,
+        recipient: str,
+        subject: str,
+        body: str,
+        case_id: str,
+    ) -> bool:
+        raise RuntimeError("Email notification failed")
+
+
 def test_routine_intake_creates_completed_case() -> None:
     case = asyncio.run(CaseProcessingService().process(ROUTINE_TEXT, "text-intake"))
 
@@ -144,6 +155,8 @@ def test_processed_case_is_saved_and_sends_email_notification() -> None:
     assert notification.case_id == case.id
     assert case.urgency in notification.subject
     assert case.summary in notification.body
+    assert case.notificationEmailSent is True
+    assert case.notificationEmailStatus == "MockRecorded"
 
 
 def test_successful_email_notification_updates_returned_case() -> None:
@@ -154,6 +167,7 @@ def test_successful_email_notification_updates_returned_case() -> None:
     case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
 
     assert case.notificationEmailSent is True
+    assert case.notificationEmailStatus == "Accepted"
 
 
 def test_successful_sms_notification_updates_returned_case() -> None:
@@ -164,6 +178,8 @@ def test_successful_sms_notification_updates_returned_case() -> None:
     case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
 
     assert case.notificationSmsSent is True
+    assert case.notificationSmsStatus == "Accepted"
+    assert case.notificationSmsDeliveryConfirmed is False
 
 
 def test_failed_sms_notification_leaves_returned_case_unsent() -> None:
@@ -174,6 +190,8 @@ def test_failed_sms_notification_leaves_returned_case_unsent() -> None:
     case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
 
     assert case.notificationSmsSent is False
+    assert case.notificationSmsStatus == "Failed"
+    assert case.notificationSmsDeliveryConfirmed is False
 
 
 def test_failed_sms_notification_still_saves_and_returns_case() -> None:
@@ -202,6 +220,8 @@ def test_sms_sender_exception_still_saves_and_returns_case() -> None:
     assert isinstance(case, CaseDocument)
     assert asyncio.run(repository.get_by_id(case.id)) == case
     assert case.notificationSmsSent is False
+    assert case.notificationSmsStatus == "Failed"
+    assert case.notificationSmsDeliveryConfirmed is False
 
 
 def test_sms_sender_exception_does_not_change_email_notification_behavior() -> None:
@@ -228,6 +248,22 @@ def test_failed_email_notification_still_saves_and_returns_case() -> None:
     assert isinstance(case, CaseDocument)
     assert asyncio.run(repository.get_by_id(case.id)) == case
     assert case.notificationEmailSent is False
+    assert case.notificationEmailStatus == "Failed"
+
+
+def test_email_sender_exception_still_saves_and_returns_case() -> None:
+    repository = InMemoryCaseRepository()
+    service = CaseProcessingService(
+        case_repository=repository,
+        email_notification_sender=ExceptionEmailNotificationSender(),
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert isinstance(case, CaseDocument)
+    assert asyncio.run(repository.get_by_id(case.id)) == case
+    assert case.notificationEmailSent is False
+    assert case.notificationEmailStatus == "Failed"
 
 
 def test_case_processing_service_accepts_suppress_notifications_flag() -> None:
@@ -253,6 +289,8 @@ def test_suppressed_notifications_still_returns_and_saves_case() -> None:
     assert case.urgency == "Routine"
     assert asyncio.run(repository.get_by_id(case.id)) == case
     assert email_sender.sent_notifications == []
+    assert case.notificationEmailSent is False
+    assert case.notificationEmailStatus == "Suppressed"
 
 
 def test_suppressed_notifications_suppresses_sms_notification() -> None:
@@ -265,6 +303,8 @@ def test_suppressed_notifications_suppresses_sms_notification() -> None:
     case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
 
     assert case.notificationSmsSent is False
+    assert case.notificationSmsStatus == "Suppressed"
+    assert case.notificationSmsDeliveryConfirmed is False
     assert sms_sender.sent_notifications == []
 
 
@@ -296,6 +336,37 @@ def test_mock_sms_sender_records_case_notifications() -> None:
     assert notification.recipient == "+15555550123"
     assert notification.body == "Summary: Patient needs a medication refill."
     assert notification.case_id == "case-sms-1"
+
+
+def test_mock_sms_notification_updates_returned_case_status() -> None:
+    sms_sender = MockSmsNotificationSender()
+    service = CaseProcessingService(sms_notification_sender=sms_sender)
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.notificationSmsSent is True
+    assert case.notificationSmsStatus == "MockRecorded"
+    assert case.notificationSmsDeliveryConfirmed is False
+
+
+def test_processed_case_is_saved_with_notification_statuses() -> None:
+    repository = InMemoryCaseRepository()
+    email_sender = MockEmailNotificationSender()
+    sms_sender = MockSmsNotificationSender()
+    service = CaseProcessingService(
+        case_repository=repository,
+        email_notification_sender=email_sender,
+        sms_notification_sender=sms_sender,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    saved_case = asyncio.run(repository.get_by_id(case.id))
+    assert saved_case == case
+    assert saved_case is not None
+    assert saved_case.notificationEmailStatus == "MockRecorded"
+    assert saved_case.notificationSmsStatus == "MockRecorded"
+    assert saved_case.notificationSmsDeliveryConfirmed is False
 
 
 def test_urgent_red_flag_intake_creates_completed_urgent_case() -> None:

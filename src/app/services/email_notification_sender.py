@@ -17,7 +17,7 @@ class EmailNotificationSender(Protocol):
         subject: str,
         body: str,
         case_id: str,
-    ) -> None:
+    ) -> bool | None:
         ...
 
 

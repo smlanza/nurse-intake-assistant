@@ -105,6 +105,10 @@ def test_text_intake_default_mock_mode_returns_successful_sms_notification() -> 
     case = response.json()
     assert case["id"]
     assert case["notificationSmsSent"] is True
+    assert case["notificationEmailSent"] is True
+    assert case["notificationEmailStatus"] == "MockRecorded"
+    assert case["notificationSmsStatus"] == "MockRecorded"
+    assert case["notificationSmsDeliveryConfirmed"] is False
     assert len(email_notification_sender.sent_notifications) == 1
     assert email_notification_sender.sent_notifications[0].case_id == case["id"]
 

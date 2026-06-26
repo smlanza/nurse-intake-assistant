@@ -18,6 +18,7 @@ Completed:
 - Mock nurse queue date filtering is complete
 - Nurse queue summary endpoint is complete
 - Mock-only demo reset endpoint is complete
+- Notification status semantics are complete
 - Text intake API route
 - In-memory case repository and shared app-level persistence
 - Case retrieval route: `GET /cases/{case_id}`
@@ -565,12 +566,37 @@ SMS notification support:
   handset delivery pending external verification.
 - Live ACS SMS handset delivery has not been confirmed yet.
 - Do not commit real ACS SMS connection strings, secrets, or phone numbers.
+- Notification status semantics are complete.
+- `CaseDocument` and intake responses now include `notificationEmailStatus`,
+  `notificationSmsStatus`, and `notificationSmsDeliveryConfirmed`.
+- Existing backward-compatible boolean fields remain:
+  `notificationEmailSent` and `notificationSmsSent`.
+- Notification status values are `NotAttempted`, `MockRecorded`, `Accepted`,
+  `Failed`, and `Suppressed`.
+- Mock email and SMS sends set the legacy sent booleans to `true` and report
+  `MockRecorded` status when a mock notification is recorded.
+- ACS-style fake sender success paths set the legacy sent booleans to `true`
+  and report `Accepted` status without implying final delivery.
+- SMS provider acceptance always leaves `notificationSmsDeliveryConfirmed=false`
+  until a future delivery-report/status slice exists.
+- Email and SMS sender `False` results or exceptions set the matching sent
+  boolean to `false` and report `Failed`, while still saving and returning the
+  case.
+- Notification suppression sets both sent booleans to `false`, reports
+  `Suppressed` for email and SMS, keeps
+  `notificationSmsDeliveryConfirmed=false`, and creates no mock notification
+  records.
+- Cases are saved after notification status is finalized so persisted cases and
+  returned responses agree.
+- No live Azure calls, ACS delivery reports, polling, retry logic,
+  authentication, hosting, Key Vault, or live Azure AI Foundry work was added
+  for this slice.
 
 Known issues and future enhancements:
-- `notificationSmsSent=true` currently means the application/provider send path
-  accepted or completed without raising; it does not prove carrier delivery to a
-  handset. Future enhancement: capture ACS message id/status or delivery report
-  semantics.
+- `notificationSmsSent=true` remains backward-compatible and should be read
+  alongside `notificationSmsStatus` and `notificationSmsDeliveryConfirmed`.
+- Future enhancement: capture ACS message id/status or delivery report
+  semantics to support confirmed handset delivery status.
 
 Not yet implemented:
 - Application hosting infrastructure
@@ -623,7 +649,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 237 passed
+- 241 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -632,13 +658,14 @@ Reset local `.env` back to safe mock defaults after live ACS Email testing, then
 commit and push the ACS Email tracking changes.
 
 ACS Email production failure handling, SMS provider scaffolding, mock SMS wiring
-into intake processing, ACS SMS fake-client behavior, and ACS SMS production
-failure handling, mock SMS notification inspection, and the local mock demo
-guide, `.env.example` SMS documentation alignment, and the manual ACS SMS
-smoke-test guide placeholder, the ACS SMS client factory scaffold, and ACS SMS
-SDK dependency alignment are complete. ACS SMS reached the SDK/send-request path,
-but handset delivery remains pending toll-free verification. Review and commit
-the current documentation/code/test changes before selecting the next TDD slice.
+into intake processing, ACS SMS fake-client behavior, ACS SMS production failure
+handling, mock SMS notification inspection, the local mock demo guide,
+`.env.example` SMS documentation alignment, the manual ACS SMS smoke-test guide
+placeholder, the ACS SMS client factory scaffold, ACS SMS SDK dependency
+alignment, and notification status semantics are complete. ACS SMS reached the
+SDK/send-request path, but handset delivery remains pending toll-free
+verification. Review and commit the current documentation/code/test changes
+before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
 extraction integration, voice intake, retry logic, or authentication yet.
