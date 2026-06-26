@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Protocol, runtime_checkable
 
-from src.app.models.case import CaseDocument, ReviewStatus, Urgency
+from src.app.models.case import CaseDocument, IntakeStatus, ReviewStatus, Urgency
 
 
 @runtime_checkable
@@ -22,6 +22,8 @@ class CaseRepository(Protocol):
         self,
         review_status: ReviewStatus | None = None,
         urgency: Urgency | None = None,
+        intake_status: IntakeStatus | None = None,
+        intake_complete: bool | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:
@@ -52,6 +54,8 @@ class InMemoryCaseRepository:
         self,
         review_status: ReviewStatus | None = None,
         urgency: Urgency | None = None,
+        intake_status: IntakeStatus | None = None,
+        intake_complete: bool | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:
@@ -62,6 +66,14 @@ class InMemoryCaseRepository:
 
         if urgency is not None:
             cases = [case for case in cases if case.urgency == urgency]
+
+        if intake_status is not None:
+            cases = [case for case in cases if case.intakeStatus == intake_status]
+
+        if intake_complete is not None:
+            cases = [
+                case for case in cases if case.intakeComplete is intake_complete
+            ]
 
         if from_date is not None:
             cases = [

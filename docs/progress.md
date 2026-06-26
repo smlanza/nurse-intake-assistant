@@ -18,6 +18,7 @@ Completed:
 - Human-in-the-loop nurse review workflow is complete
 - Nurse review request validation is complete
 - Mock nurse queue date filtering is complete
+- Mock nurse queue intake status filtering is complete
 - Mock nurse queue ordering and pagination are complete
 - Nurse queue summary endpoint is complete
 - Mock-only demo reset endpoint is complete
@@ -232,6 +233,27 @@ Completed:
 - Cosmos case list behavior remains a clear not-implemented boundary for now.
 - No Azure service calls, infrastructure, authentication, Key Vault, hosting,
   voice intake, retry logic, or live ACS SMS work was added for this slice.
+- Mock nurse queue intake status filtering is complete.
+- `GET /cases` supports `intakeStatus` filtering with `Complete`,
+  `NeedsFollowUp`, and `ProcessingFailed`.
+- `GET /cases` supports `intakeComplete=true` and `intakeComplete=false`
+  filtering.
+- Intake filters combine with `reviewStatus`, `urgency`, `fromDate`, `toDate`,
+  `limit`, and `offset`.
+- Queue behavior still applies filters first, sorts newest-first, and applies
+  pagination last.
+- Invalid `intakeStatus` and `intakeComplete` query values return client
+  errors through FastAPI validation.
+- `GET /cases/summary` now includes `completeIntakes` and
+  `needsFollowUpIntakes` counts.
+- Summary date filters apply consistently to intake completion counts.
+- Existing case detail route, review route, notification behavior, and
+  missing-field output remain unchanged.
+- Cosmos list/query behavior remains a clear not-implemented boundary.
+- No Cosmos cross-partition list/query work, Azure service calls,
+  infrastructure, authentication, Key Vault, hosting, voice intake, retry
+  logic, live Azure AI Foundry extraction, or ACS delivery-report work was added
+  for this slice.
 - Mock nurse queue ordering and pagination are complete.
 - `GET /cases` returns mock/in-memory cases newest-first by `createdUtc`.
 - Case id is used as a deterministic tie-breaker when `createdUtc` values are
@@ -378,6 +400,8 @@ Repository support:
 - `InMemoryCaseRepository.list_cases(...)` applies queue filters and returns
   cases newest-first by `createdUtc`, with case id as a deterministic
   tie-breaker.
+- `InMemoryCaseRepository.list_cases(...)` also supports `intakeStatus` and
+  `intakeComplete` filters for mock nurse queue follow-up workflows.
 - `CosmosCaseRepository` serializes and upserts case documents through an injected
   Cosmos-style container. It reads with `item=case_id` and
   `partition_key=createdDate` when `created_date` is supplied, and maps
@@ -699,7 +723,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 261 passed
+- 271 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -713,10 +737,11 @@ handling, mock SMS notification inspection, the local mock demo guide,
 `.env.example` SMS documentation alignment, the manual ACS SMS smoke-test guide
 placeholder, the ACS SMS client factory scaffold, ACS SMS SDK dependency
 alignment, notification status semantics, mock nurse queue ordering and
-pagination, nurse review request validation, and intake missing-field review
-priority are complete. ACS SMS reached the SDK/send-request path, but handset
-delivery remains pending toll-free verification. Review and commit the current
-documentation/code/test changes before selecting the next TDD slice.
+pagination, mock nurse queue intake status filtering, nurse review request
+validation, and intake missing-field review priority are complete. ACS SMS
+reached the SDK/send-request path, but handset delivery remains pending
+toll-free verification. Review and commit the current documentation/code/test
+changes before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
 extraction integration, voice intake, retry logic, or authentication yet.

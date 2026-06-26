@@ -1,7 +1,7 @@
 import asyncio
 from datetime import date, datetime, timezone
 
-from src.app.models.case import CaseDocument
+from src.app.models.case import CaseDocument, IntakeStatus
 
 
 def build_case() -> CaseDocument:
@@ -21,6 +21,8 @@ def build_case_with_queue_fields(
     urgency: str = "Routine",
     created_date: str | None = None,
     created_utc: datetime | None = None,
+    intake_status: IntakeStatus = "Complete",
+    intake_complete: bool = True,
 ) -> CaseDocument:
     if created_utc is not None:
         now = created_utc
@@ -36,6 +38,8 @@ def build_case_with_queue_fields(
         caseType="text-intake",
         reviewStatus=review_status,
         urgency=urgency,
+        intakeStatus=intake_status,
+        intakeComplete=intake_complete,
     )
 
 
@@ -321,3 +325,59 @@ def test_in_memory_repository_combines_date_and_urgency_filters() -> None:
     )
 
     assert [case.id for case in cases] == ["urgent-in-range"]
+
+
+def test_in_memory_repository_filters_cases_by_intake_status() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "complete",
+                intake_status="Complete",
+                intake_complete=True,
+            )
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "needs-follow-up",
+                intake_status="NeedsFollowUp",
+                intake_complete=False,
+            )
+        )
+    )
+
+    cases = asyncio.run(repository.list_cases(intake_status="NeedsFollowUp"))
+
+    assert [case.id for case in cases] == ["needs-follow-up"]
+
+
+def test_in_memory_repository_filters_cases_by_intake_complete() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "complete",
+                intake_status="Complete",
+                intake_complete=True,
+            )
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "needs-follow-up",
+                intake_status="NeedsFollowUp",
+                intake_complete=False,
+            )
+        )
+    )
+
+    cases = asyncio.run(repository.list_cases(intake_complete=False))
+
+    assert [case.id for case in cases] == ["needs-follow-up"]

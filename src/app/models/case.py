@@ -88,3 +88,5 @@ class CaseQueueSummary(BaseModel):
     urgent: int
     routine: int
     pendingUrgent: int
+    completeIntakes: int
+    needsFollowUpIntakes: int

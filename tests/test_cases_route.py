@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.app.main import app
-from src.app.models.case import CaseDocument
+from src.app.models.case import CaseDocument, IntakeStatus
 from src.app.services.case_repository import InMemoryCaseRepository
 
 
@@ -46,6 +46,8 @@ def build_queue_case(
     urgency: str = "Routine",
     created_date: str | None = None,
     created_utc: datetime | None = None,
+    intake_status: IntakeStatus = "Complete",
+    intake_complete: bool = True,
 ) -> CaseDocument:
     if created_utc is not None:
         now = created_utc
@@ -61,6 +63,8 @@ def build_queue_case(
         caseType="text-intake",
         reviewStatus=review_status,
         urgency=urgency,
+        intakeStatus=intake_status,
+        intakeComplete=intake_complete,
         processingStatus="Completed",
     )
 
@@ -303,6 +307,122 @@ def test_list_cases_filters_by_reviewed_status(
     assert [case["id"] for case in response.json()] == ["reviewed"]
 
 
+def test_list_cases_filters_by_needs_follow_up_intake_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "complete",
+                    intake_status="Complete",
+                    intake_complete=True,
+                ),
+                build_queue_case(
+                    "needs-follow-up",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?intakeStatus=NeedsFollowUp")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["needs-follow-up"]
+
+
+def test_list_cases_filters_by_complete_intake_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "complete",
+                    intake_status="Complete",
+                    intake_complete=True,
+                ),
+                build_queue_case(
+                    "needs-follow-up",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?intakeStatus=Complete")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["complete"]
+
+
+def test_list_cases_filters_by_incomplete_intake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "complete",
+                    intake_status="Complete",
+                    intake_complete=True,
+                ),
+                build_queue_case(
+                    "needs-follow-up",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?intakeComplete=false")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["needs-follow-up"]
+
+
+def test_list_cases_filters_by_complete_intake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "complete",
+                    intake_status="Complete",
+                    intake_complete=True,
+                ),
+                build_queue_case(
+                    "needs-follow-up",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?intakeComplete=true")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["complete"]
+
+
 def test_list_cases_filters_by_urgent_urgency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -471,6 +591,79 @@ def test_list_cases_combines_review_status_urgency_and_date_filters(
     assert [case["id"] for case in response.json()] == ["urgent-pending-in-range"]
 
 
+def test_list_cases_combines_intake_status_with_existing_filters_and_pagination(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "routine-needs-follow-up-newest",
+                    review_status="PendingReview",
+                    urgency="Routine",
+                    created_date="2026-06-27",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+                build_queue_case(
+                    "urgent-needs-follow-up-newest",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-26",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+                build_queue_case(
+                    "urgent-needs-follow-up-middle",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-25",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+                build_queue_case(
+                    "urgent-needs-follow-up-oldest",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-24",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+                build_queue_case(
+                    "urgent-complete",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-23",
+                    intake_status="Complete",
+                    intake_complete=True,
+                ),
+                build_queue_case(
+                    "urgent-needs-follow-up-reviewed",
+                    review_status="Reviewed",
+                    urgency="Urgent",
+                    created_date="2026-06-22",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?reviewStatus=PendingReview&urgency=Urgent"
+        "&intakeStatus=NeedsFollowUp&fromDate=2026-06-24&toDate=2026-06-26"
+        "&limit=1&offset=1"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == [
+        "urgent-needs-follow-up-middle"
+    ]
+
+
 def test_list_cases_rejects_invalid_review_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -489,6 +682,28 @@ def test_list_cases_rejects_invalid_urgency(
     local_client = create_local_cases_client(monkeypatch, repository)
 
     response = local_client.get("/cases?urgency=Emergent")
+
+    assert response.status_code == 422
+
+
+def test_list_cases_rejects_invalid_intake_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?intakeStatus=Waiting")
+
+    assert response.status_code == 422
+
+
+def test_list_cases_rejects_invalid_intake_complete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?intakeComplete=maybe")
 
     assert response.status_code == 422
 
@@ -572,6 +787,8 @@ def test_list_cases_returns_clear_error_when_repository_does_not_support_listing
             self,
             review_status: str | None = None,
             urgency: str | None = None,
+            intake_status: str | None = None,
+            intake_complete: bool | None = None,
             from_date: str | None = None,
             to_date: str | None = None,
         ) -> list[CaseDocument]:
@@ -604,6 +821,8 @@ def test_case_summary_returns_zero_counts_when_no_cases_exist(
         "urgent": 0,
         "routine": 0,
         "pendingUrgent": 0,
+        "completeIntakes": 0,
+        "needsFollowUpIntakes": 0,
     }
 
 
@@ -624,6 +843,8 @@ def test_case_summary_returns_queue_counts(
                     "routine-pending",
                     review_status="PendingReview",
                     urgency="Routine",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
                 ),
                 build_queue_case(
                     "urgent-reviewed",
@@ -639,6 +860,8 @@ def test_case_summary_returns_queue_counts(
                     "routine-pending-2",
                     review_status="PendingReview",
                     urgency="Routine",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
                 ),
             ],
         )
@@ -655,6 +878,8 @@ def test_case_summary_returns_queue_counts(
         "urgent": 2,
         "routine": 3,
         "pendingUrgent": 1,
+        "completeIntakes": 3,
+        "needsFollowUpIntakes": 2,
     }
 
 
@@ -678,6 +903,8 @@ def test_case_summary_is_not_paginated_by_limit_or_offset(
 
     assert response.status_code == 200
     assert response.json()["total"] == 3
+    assert response.json()["completeIntakes"] == 3
+    assert response.json()["needsFollowUpIntakes"] == 0
 
 
 def test_case_summary_filters_from_date_inclusive(
@@ -747,6 +974,53 @@ def test_case_summary_filters_by_inclusive_date_range(
 
     assert response.status_code == 200
     assert response.json()["total"] == 2
+
+
+def test_case_summary_intake_completion_counts_respect_date_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "older-incomplete",
+                    created_date="2026-06-22",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+                build_queue_case(
+                    "start-complete",
+                    created_date="2026-06-23",
+                    intake_status="Complete",
+                    intake_complete=True,
+                ),
+                build_queue_case(
+                    "end-incomplete",
+                    created_date="2026-06-25",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                ),
+                build_queue_case(
+                    "newer-complete",
+                    created_date="2026-06-26",
+                    intake_status="Complete",
+                    intake_complete=True,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases/summary?fromDate=2026-06-23&toDate=2026-06-25"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+    assert response.json()["completeIntakes"] == 1
+    assert response.json()["needsFollowUpIntakes"] == 1
 
 
 def test_case_summary_rejects_invalid_from_date(

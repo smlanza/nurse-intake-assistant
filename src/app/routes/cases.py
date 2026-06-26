@@ -4,7 +4,13 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query
 
 from src.app.dependencies import case_repository
-from src.app.models.case import CaseDocument, CaseQueueSummary, ReviewStatus, Urgency
+from src.app.models.case import (
+    CaseDocument,
+    CaseQueueSummary,
+    IntakeStatus,
+    ReviewStatus,
+    Urgency,
+)
 from src.app.models.review import CaseReviewRequest
 from src.app.services.cosmos_case_repository import (
     CaseListNotSupportedError,
@@ -19,6 +25,8 @@ router = APIRouter(prefix="/cases", tags=["cases"])
 async def list_cases(
     reviewStatus: ReviewStatus | None = None,
     urgency: Urgency | None = None,
+    intakeStatus: IntakeStatus | None = None,
+    intakeComplete: bool | None = None,
     fromDate: date | None = None,
     toDate: date | None = None,
     limit: Annotated[int | None, Query(gt=0, le=100)] = None,
@@ -30,6 +38,8 @@ async def list_cases(
         cases = await case_repository.list_cases(
             review_status=reviewStatus,
             urgency=urgency,
+            intake_status=intakeStatus,
+            intake_complete=intakeComplete,
             from_date=fromDate,
             to_date=toDate,
         )
@@ -73,6 +83,8 @@ async def get_case_summary(
             case.reviewStatus == "PendingReview" and case.urgency == "Urgent"
             for case in cases
         ),
+        completeIntakes=sum(case.intakeComplete for case in cases),
+        needsFollowUpIntakes=sum(not case.intakeComplete for case in cases),
     )
 
 
