@@ -9,6 +9,7 @@ Completed:
 - Red-flag urgency rules engine
 - Negation-aware red-flag detection is complete
 - Mock AI service
+- Structured missing intake field validation is complete
 - Case processing service
 - Text intake API route
 - In-memory case repository and shared app-level persistence
@@ -142,6 +143,21 @@ Completed:
   phrases.
 - Red-flag urgency rules remain deterministic and do not use an AI model or
   external NLP dependency.
+- Missing required intake fields are now surfaced clearly in the extraction and
+  case result.
+- The required intake fields for the current mock extraction path are
+  `patient.name`, `patient.date_of_birth`, `patient.callback_number`, and
+  `reason_for_calling`.
+- Full intake text with name, date of birth, callback number, and reason does
+  not report those fields as missing.
+- Text with only a reason such as "I need a refill" reports missing
+  `patient.name`, `patient.date_of_birth`, and `patient.callback_number`.
+- Text with name but no date of birth or callback number reports only the
+  missing fields.
+- Text with callback number but no name or date of birth reports only the
+  missing fields.
+- Structured missing-field validation remains deterministic and local. No Azure
+  AI calls or external NLP dependencies were added.
 
 Current working local pipeline:
 
@@ -468,7 +484,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 168 passed
+- 171 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
