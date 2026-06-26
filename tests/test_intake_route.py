@@ -10,6 +10,11 @@ from src.app.services.case_processing_service import CaseProcessingService
 client = TestClient(app)
 
 
+def reset_demo_state() -> None:
+    response = client.post("/demo/reset")
+    assert response.status_code == 200
+
+
 class SnapshotCaseRepository:
     def __init__(self) -> None:
         self.saved_cases: list[dict] = []
@@ -154,11 +159,34 @@ def test_text_intake_returns_urgent_for_red_flag(text: str) -> None:
     assert case["sourceSystem"] == "local"
 
 
-@pytest.mark.parametrize("text", ["", "   "])
-def test_text_intake_rejects_empty_text(text: str) -> None:
+@pytest.mark.parametrize("text", ["", "   ", "hi"])
+def test_text_intake_rejects_unusable_text_without_side_effects(text: str) -> None:
+    reset_demo_state()
+
     response = client.post("/intake/text", json={"text": text})
 
     assert response.status_code == 422
+    response_text = response.text
+    assert "text" in response_text
+    assert client.get("/cases").json() == []
+    assert client.get("/notifications/email").json() == []
+    assert client.get("/notifications/sms").json() == []
+
+
+def test_valid_text_intake_still_creates_case_after_validation() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/text",
+        json={"text": "I need a medication refill for tomorrow."},
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["id"]
+    assert client.get("/cases").json()[0]["id"] == case["id"]
+    assert client.get("/notifications/email").json()[0]["case_id"] == case["id"]
+    assert client.get("/notifications/sms").json()[0]["case_id"] == case["id"]
 
 
 def test_health_endpoint_still_works() -> None:

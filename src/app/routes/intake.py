@@ -13,6 +13,7 @@ from src.app.services.case_processing_service import CaseProcessingService
 
 
 router = APIRouter(prefix="/intake", tags=["intake"])
+TEXT_INTAKE_MIN_NON_WHITESPACE_CHARS = 10
 case_processing_service = CaseProcessingService(
     ai_service=ai_service,
     case_repository=case_repository,
@@ -29,9 +30,14 @@ class TextIntakeRequest(BaseModel):
 
     @field_validator("text")
     @classmethod
-    def text_must_not_be_blank(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("text must not be empty")
+    def text_must_be_usable(cls, value: str) -> str:
+        non_whitespace_count = sum(
+            1 for character in value.strip() if not character.isspace()
+        )
+        if non_whitespace_count < TEXT_INTAKE_MIN_NON_WHITESPACE_CHARS:
+            raise ValueError(
+                "text must contain at least 10 non-whitespace characters"
+            )
         return value
 
 
