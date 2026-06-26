@@ -1,6 +1,6 @@
 from typing import Protocol, runtime_checkable
 
-from src.app.models.case import CaseDocument
+from src.app.models.case import CaseDocument, ReviewStatus, Urgency
 
 
 @runtime_checkable
@@ -15,6 +15,13 @@ class CaseRepository(Protocol):
         case_id: str,
         created_date: str | None = None,
     ) -> CaseDocument | None:
+        ...
+
+    async def list_cases(
+        self,
+        review_status: ReviewStatus | None = None,
+        urgency: Urgency | None = None,
+    ) -> list[CaseDocument]:
         ...
 
 
@@ -34,3 +41,18 @@ class InMemoryCaseRepository:
         created_date: str | None = None,
     ) -> CaseDocument | None:
         return self._cases.get(case_id)
+
+    async def list_cases(
+        self,
+        review_status: ReviewStatus | None = None,
+        urgency: Urgency | None = None,
+    ) -> list[CaseDocument]:
+        cases = list(self._cases.values())
+
+        if review_status is not None:
+            cases = [case for case in cases if case.reviewStatus == review_status]
+
+        if urgency is not None:
+            cases = [case for case in cases if case.urgency == urgency]
+
+        return cases

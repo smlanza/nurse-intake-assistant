@@ -3,12 +3,32 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 
 from src.app.dependencies import case_repository
-from src.app.models.case import CaseDocument
+from src.app.models.case import CaseDocument, ReviewStatus, Urgency
 from src.app.models.review import CaseReviewRequest
-from src.app.services.cosmos_case_repository import MissingCasePartitionKeyError
+from src.app.services.cosmos_case_repository import (
+    CaseListNotSupportedError,
+    MissingCasePartitionKeyError,
+)
 
 
 router = APIRouter(prefix="/cases", tags=["cases"])
+
+
+@router.get("", response_model=list[CaseDocument])
+async def list_cases(
+    reviewStatus: ReviewStatus | None = None,
+    urgency: Urgency | None = None,
+) -> list[CaseDocument]:
+    try:
+        return await case_repository.list_cases(
+            review_status=reviewStatus,
+            urgency=urgency,
+        )
+    except (CaseListNotSupportedError, NotImplementedError) as error:
+        raise HTTPException(
+            status_code=501,
+            detail="Case list queries are not implemented for this repository.",
+        ) from error
 
 
 @router.get("/{case_id}", response_model=CaseDocument)

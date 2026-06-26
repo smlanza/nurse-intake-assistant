@@ -1,11 +1,15 @@
 import inspect
 from typing import Any
 
-from src.app.models.case import CaseDocument
+from src.app.models.case import CaseDocument, ReviewStatus, Urgency
 
 
 class MissingCasePartitionKeyError(ValueError):
     """Raised when Cosmos case lookup is missing the createdDate partition key."""
+
+
+class CaseListNotSupportedError(NotImplementedError):
+    """Raised when a repository cannot safely support case list queries yet."""
 
 
 class CosmosCaseRepository:
@@ -48,6 +52,15 @@ class CosmosCaseRepository:
             return None
 
         return CaseDocument.model_validate(stored_case)
+
+    async def list_cases(
+        self,
+        review_status: ReviewStatus | None = None,
+        urgency: Urgency | None = None,
+    ) -> list[CaseDocument]:
+        raise CaseListNotSupportedError(
+            "Case list queries are not implemented for Cosmos-backed storage yet."
+        )
 
 
 async def _maybe_await(value: Any) -> Any:

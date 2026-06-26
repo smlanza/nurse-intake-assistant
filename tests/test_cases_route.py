@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from src.app.main import app
 from src.app.models.case import CaseDocument
+from src.app.services.case_repository import InMemoryCaseRepository
 
 
 client = TestClient(app)
@@ -24,6 +26,44 @@ def create_case() -> dict:
     )
     assert response.status_code == 200
     return response.json()
+
+
+def create_local_cases_client(
+    monkeypatch: pytest.MonkeyPatch,
+    repository: object,
+) -> TestClient:
+    import src.app.routes.cases as cases_route
+
+    monkeypatch.setattr(cases_route, "case_repository", repository)
+    test_app = FastAPI()
+    test_app.include_router(cases_route.router)
+    return TestClient(test_app)
+
+
+def build_queue_case(
+    case_id: str,
+    review_status: str = "PendingReview",
+    urgency: str = "Routine",
+) -> CaseDocument:
+    now = datetime.now(timezone.utc)
+    return CaseDocument(
+        id=case_id,
+        createdDate=now.date().isoformat(),
+        createdUtc=now,
+        lastStatusUpdatedUtc=now,
+        caseType="text-intake",
+        reviewStatus=review_status,
+        urgency=urgency,
+        processingStatus="Completed",
+    )
+
+
+async def save_cases(
+    repository: InMemoryCaseRepository,
+    cases: list[CaseDocument],
+) -> None:
+    for case in cases:
+        await repository.save(case)
 
 
 def test_get_case_returns_200_when_case_exists() -> None:
@@ -50,6 +90,180 @@ def test_get_case_returns_saved_case_document_shape() -> None:
     assert retrieved_case["summary"]
     assert retrieved_case["patient"]
     assert retrieved_case["createdUtc"]
+
+
+def test_list_cases_returns_empty_list_when_no_cases_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_cases_returns_saved_cases_in_save_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("case-1"),
+                build_queue_case("case-2"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["case-1", "case-2"]
+
+
+def test_list_cases_filters_by_pending_review_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("pending", review_status="PendingReview"),
+                build_queue_case("reviewed", review_status="Reviewed"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?reviewStatus=PendingReview")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["pending"]
+
+
+def test_list_cases_filters_by_reviewed_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("pending", review_status="PendingReview"),
+                build_queue_case("reviewed", review_status="Reviewed"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?reviewStatus=Reviewed")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["reviewed"]
+
+
+def test_list_cases_filters_by_urgent_urgency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("routine", urgency="Routine"),
+                build_queue_case("urgent", urgency="Urgent"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?urgency=Urgent")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["urgent"]
+
+
+def test_list_cases_combines_review_status_and_urgency_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "routine-pending",
+                    review_status="PendingReview",
+                    urgency="Routine",
+                ),
+                build_queue_case(
+                    "urgent-pending",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                ),
+                build_queue_case(
+                    "urgent-reviewed",
+                    review_status="Reviewed",
+                    urgency="Urgent",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?reviewStatus=PendingReview&urgency=Urgent")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["urgent-pending"]
+
+
+def test_list_cases_rejects_invalid_review_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?reviewStatus=New")
+
+    assert response.status_code == 422
+
+
+def test_list_cases_rejects_invalid_urgency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?urgency=Emergent")
+
+    assert response.status_code == 422
+
+
+def test_list_cases_returns_clear_error_when_repository_does_not_support_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RepositoryWithoutListSupport:
+        async def list_cases(
+            self,
+            review_status: str | None = None,
+            urgency: str | None = None,
+        ) -> list[CaseDocument]:
+            raise NotImplementedError("Case list queries are not implemented.")
+
+    local_client = create_local_cases_client(
+        monkeypatch,
+        RepositoryWithoutListSupport(),
+    )
+
+    response = local_client.get("/cases")
+
+    assert response.status_code == 501
+    assert "not implemented" in response.json()["detail"]
 
 
 def test_review_case_marks_case_reviewed() -> None:
