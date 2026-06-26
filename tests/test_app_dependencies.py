@@ -7,6 +7,7 @@ import pytest
 
 from src.app.services.case_repository import InMemoryCaseRepository
 from src.app.services.email_notification_sender import MockEmailNotificationSender
+from src.app.services.mock_ai_service import MockAiService
 from src.app.services.sms_notification_sender import MockSmsNotificationSender
 
 
@@ -148,6 +149,52 @@ def test_fastapi_app_setup_creates_sms_sender_through_factory_once(
         assert dependencies.sms_notification_sender is sender
     finally:
         sender_factory.create_sms_notification_sender = original_factory
+        for module_name in reversed(APP_SETUP_MODULES):
+            original_module = original_modules[module_name]
+            if original_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = original_module
+
+
+def test_fastapi_app_setup_creates_ai_service_through_factory_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.ai_service_factory as ai_service_factory
+
+    calls: list[str] = []
+    service = MockAiService()
+
+    def fake_create_ai_service(settings: Any) -> MockAiService:
+        calls.append(settings.ai_provider_normalized)
+        return service
+
+    original_factory = ai_service_factory.create_ai_service
+    original_modules: dict[str, ModuleType | None] = {
+        module_name: sys.modules.get(module_name)
+        for module_name in APP_SETUP_MODULES
+    }
+
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+    monkeypatch.setattr(
+        ai_service_factory,
+        "create_ai_service",
+        fake_create_ai_service,
+    )
+
+    try:
+        for module_name in APP_SETUP_MODULES:
+            sys.modules.pop(module_name, None)
+
+        importlib.import_module("src.app.main")
+        dependencies = sys.modules["src.app.dependencies"]
+        intake_route = sys.modules["src.app.routes.intake"]
+
+        assert calls == ["mock"]
+        assert dependencies.ai_service is service
+        assert intake_route.case_processing_service.ai_service is service
+    finally:
+        ai_service_factory.create_ai_service = original_factory
         for module_name in reversed(APP_SETUP_MODULES):
             original_module = original_modules[module_name]
             if original_module is None:

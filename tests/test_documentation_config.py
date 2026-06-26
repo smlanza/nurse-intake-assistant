@@ -8,6 +8,7 @@ def test_env_example_documents_acs_email_configuration() -> None:
     env_example = (PROJECT_ROOT / ".env.example").read_text()
 
     assert "EMAIL_PROVIDER=mock" in env_example
+    assert "AI_PROVIDER=mock" in env_example
     assert "ACS_EMAIL_CONNECTION_STRING=" in env_example
     assert "ACS_EMAIL_SENDER_ADDRESS=" in env_example
     assert "NURSE_NOTIFICATION_EMAIL=" in env_example
@@ -22,6 +23,7 @@ def test_env_example_documents_sms_configuration() -> None:
     assert "EMAIL_PROVIDER=mock" in env_example
     assert "ACS_EMAIL_CONNECTION_STRING=" in env_example
     assert "COSMOS_ENDPOINT=" in env_example
+    assert "AI_PROVIDER=mock" in env_example
     assert "COSMOS_DATABASE_NAME=nurse-intake" in env_example
     assert "SMS_PROVIDER=mock" in env_example
     assert "ACS_SMS_CONNECTION_STRING=" in env_example

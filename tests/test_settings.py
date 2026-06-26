@@ -218,6 +218,43 @@ def test_sms_provider_reads_environment_value(
     assert AppSettings().sms_provider_normalized == "acs"
 
 
+def test_ai_provider_defaults_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("AI_PROVIDER", raising=False)
+
+    settings = AppSettings()
+
+    assert settings.ai_provider == "mock"
+    assert settings.ai_provider_normalized == "mock"
+
+
+def test_ai_provider_reads_environment_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("AI_PROVIDER", "  MOCK  ")
+
+    settings = AppSettings()
+
+    assert settings.ai_provider == "  MOCK  "
+    assert settings.ai_provider_normalized == "mock"
+
+
+def test_blank_ai_provider_normalizes_to_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("AI_PROVIDER", "   ")
+
+    settings = AppSettings()
+
+    assert settings.ai_provider == "   "
+    assert settings.ai_provider_normalized == "mock"
+
+
 def test_acs_sms_settings_default_to_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

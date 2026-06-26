@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
 
 from src.app.dependencies import (
+    ai_service,
     case_repository,
     email_notification_sender,
     settings,
@@ -13,6 +14,7 @@ from src.app.services.case_processing_service import CaseProcessingService
 
 router = APIRouter(prefix="/intake", tags=["intake"])
 case_processing_service = CaseProcessingService(
+    ai_service=ai_service,
     case_repository=case_repository,
     email_notification_sender=email_notification_sender,
     sms_notification_sender=sms_notification_sender,
