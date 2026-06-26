@@ -12,6 +12,7 @@ Completed:
 - Structured missing intake field validation is complete
 - Case processing service
 - Human-in-the-loop nurse review workflow is complete
+- Mock nurse queue date filtering is complete
 - Text intake API route
 - In-memory case repository and shared app-level persistence
 - Case retrieval route: `GET /cases/{case_id}`
@@ -177,6 +178,30 @@ Completed:
   the system is an intake assistant, not an autonomous medical decision-maker.
 - No authentication, role-based access control, Azure service calls, or
   notification behavior changes were added for this slice.
+- Mock nurse queue date filtering is complete.
+- `GET /cases` supports `fromDate` and `toDate` filters in mock/default mode.
+- Date filters use date-only `YYYY-MM-DD` semantics and are based on
+  `CaseDocument.createdDate`.
+- Date filters are inclusive: `createdDate >= fromDate` and
+  `createdDate <= toDate`.
+- Queue filtering can now combine `reviewStatus`, `urgency`, `fromDate`, and
+  `toDate`.
+- Supported queue query examples include:
+  `GET /cases?fromDate=YYYY-MM-DD`,
+  `GET /cases?toDate=YYYY-MM-DD`,
+  `GET /cases?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD`,
+  `GET /cases?reviewStatus=PendingReview&fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD`,
+  and
+  `GET /cases?reviewStatus=PendingReview&urgency=Urgent&fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD`.
+- Invalid `fromDate` and `toDate` values return client errors.
+- A `fromDate` later than `toDate` returns a client error with a clear message.
+- This supports demo scenarios such as "show pending urgent cases from the last
+  3 days."
+- Cosmos multi-day queue querying remains a future enhancement because the
+  cases container is partitioned by `/createdDate`.
+- Cosmos case list behavior remains a clear not-implemented boundary for now.
+- No Azure service calls, infrastructure, authentication, Key Vault, hosting,
+  voice intake, retry logic, or live ACS SMS work was added for this slice.
 
 Current working local pipeline:
 
@@ -503,7 +528,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 176 passed
+- 199 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
