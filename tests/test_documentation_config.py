@@ -127,14 +127,24 @@ def test_manual_local_mock_demo_guide_exists() -> None:
     assert "Local Mock Demo" in guide
     assert "uvicorn" in guide
     assert "APP_MODE=mock" in guide
+    assert "AI_PROVIDER=mock" in guide
     assert "EMAIL_PROVIDER=mock" in guide
     assert "SMS_PROVIDER=mock" in guide
     assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in guide
+    assert "POST /demo/reset" in guide
     assert "POST /intake/text" in guide
+    assert "empty" in guide
+    assert "whitespace-only" in guide
+    assert "too-short" in guide
+    assert "does not create cases or notifications" in guide
     assert "Jane Doe" in guide
     assert "medication refill" in guide
     assert "`GET /cases`" in guide
     assert "GET /cases?reviewStatus=PendingReview" in guide
+    assert "GET /cases?urgency=Urgent" in guide
+    assert "GET /cases?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD" in guide
+    assert "GET /cases/summary" in guide
+    assert "GET /cases/summary?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD" in guide
     assert "GET /cases/{case_id}" in guide
     assert "POST /cases/{case_id}/review" in guide
     assert "GET /cases?reviewStatus=Reviewed" in guide
@@ -145,12 +155,15 @@ def test_manual_local_mock_demo_guide_exists() -> None:
     assert "Reviewed" in guide
     assert "notificationEmailSent=true" in guide
     assert "notificationSmsSent=true" in guide
-    assert "no real email or SMS is sent" in guide
+    assert "Mock mode sends no real email or SMS" in guide
     assert "Do not commit" in guide
     assert "connection strings" in guide
     assert "real phone numbers" in guide
     assert "Live ACS SMS" in guide
-    assert "not implemented" in guide
+    assert "toll-free verification" in guide
+    assert "Cosmos" in guide
+    assert "list/summary" in guide
+    assert "future enhancement" in guide
 
 
 def test_progress_links_manual_acs_email_smoke_test() -> None:

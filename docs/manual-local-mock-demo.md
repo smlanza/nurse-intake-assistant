@@ -5,24 +5,26 @@
 Use this guide to run the Nurse Intake Assistant locally in safe mock mode and
 demonstrate the current MVP nurse workflow without Azure resources.
 
-The flow covers text intake, the nurse case queue, case retrieval, human review,
-mock email notification inspection, and mock SMS notification inspection.
+The flow covers text intake validation, case creation, the nurse queue, queue
+summary counts, case retrieval, human review, mock email notification
+inspection, and mock SMS notification inspection.
 
-## Safe local configuration
+## Safe Local Configuration
 
 Use mock providers for the local demo:
 
 ```bash
 APP_MODE=mock
+AI_PROVIDER=mock
 EMAIL_PROVIDER=mock
 SMS_PROVIDER=mock
 DEMO_SUPPRESS_NOTIFICATIONS=false
 ```
 
-In mock mode, no real email or SMS is sent. Mock notifications are recorded in
-memory for local/demo inspection only.
+Mock mode sends no real email or SMS. Mock notifications are recorded in memory
+for local/demo inspection only.
 
-## Start the API
+## Start The API
 
 From the project root, start the FastAPI app with uvicorn:
 
@@ -36,7 +38,19 @@ The examples below use:
 BASE_URL=http://127.0.0.1:8000
 ```
 
-## Demo step 1: submit text intake
+## Demo Step 1: Reset Demo State
+
+Optionally clear in-memory cases and recorded mock notifications before a demo
+run with `POST /demo/reset`:
+
+```bash
+curl -X POST "$BASE_URL/demo/reset"
+```
+
+The response should confirm that cases, mock email notifications, and mock SMS
+notifications were cleared.
+
+## Demo Step 2: Submit A Valid Text Intake
 
 Submit a safe fictional sample intake with `POST /intake/text`:
 
@@ -58,7 +72,30 @@ notificationSmsSent=true
 
 Save the returned `id` as `case_id` for later steps.
 
-## Demo step 2: list the nurse queue
+## Demo Step 3: Check Intake Validation
+
+Requests with empty, blank, whitespace-only, and too-short intake text are
+rejected before case processing.
+Rejected intake text does not create cases or notifications.
+
+```bash
+curl -X POST "$BASE_URL/intake/text" \
+  -H "Content-Type: application/json" \
+  -d '{"text": ""}'
+
+curl -X POST "$BASE_URL/intake/text" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "   "}'
+
+curl -X POST "$BASE_URL/intake/text" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "hi"}'
+```
+
+These requests should return a validation error instead of creating a case or
+recording mock email/SMS notifications.
+
+## Demo Step 4: List The Nurse Queue
 
 List saved cases with `GET /cases`:
 
@@ -68,18 +105,55 @@ curl "$BASE_URL/cases"
 
 The response is a JSON array of case documents.
 
-## Demo step 3: filter pending-review cases
+## Demo Step 5: Filter The Nurse Queue
 
-Filter the nurse queue with `GET /cases?reviewStatus=PendingReview`:
+Filter pending-review cases with `GET /cases?reviewStatus=PendingReview`:
 
 ```bash
 curl "$BASE_URL/cases?reviewStatus=PendingReview"
 ```
 
-The case created in step 1 should appear with `reviewStatus` set to
-`PendingReview`.
+Filter reviewed cases later with `GET /cases?reviewStatus=Reviewed`:
 
-## Demo step 4: retrieve the saved case
+```bash
+curl "$BASE_URL/cases?reviewStatus=Reviewed"
+```
+
+Filter urgent cases with `GET /cases?urgency=Urgent`:
+
+```bash
+curl "$BASE_URL/cases?urgency=Urgent"
+```
+
+Filter by an inclusive created-date range with
+`GET /cases?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD`:
+
+```bash
+curl "$BASE_URL/cases?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD"
+```
+
+The case created in step 2 should appear in the pending queue with
+`reviewStatus` set to `PendingReview`.
+
+## Demo Step 6: View Queue Summary
+
+View dashboard-style queue counts with `GET /cases/summary`:
+
+```bash
+curl "$BASE_URL/cases/summary"
+```
+
+Date-filter summary counts with
+`GET /cases/summary?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD`:
+
+```bash
+curl "$BASE_URL/cases/summary?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD"
+```
+
+Summary counts include total cases, pending review cases, reviewed cases, urgent
+cases, routine cases, and pending urgent cases.
+
+## Demo Step 7: Retrieve The Saved Case
 
 Retrieve the saved case with `GET /cases/{case_id}`:
 
@@ -89,7 +163,7 @@ curl "$BASE_URL/cases/{case_id}"
 
 Replace `{case_id}` with the case id returned by `POST /intake/text`.
 
-## Demo step 5: review the case
+## Demo Step 8: Review The Case
 
 Mark the case reviewed with `POST /cases/{case_id}/review`:
 
@@ -114,7 +188,7 @@ reviewedAt=<UTC timestamp>
 This step reinforces that AI output requires nurse review and that the system is
 an intake assistant, not an autonomous medical decision-maker.
 
-## Demo step 6: filter reviewed cases
+## Demo Step 9: Confirm Reviewed Cases
 
 Confirm the case moved to the reviewed queue with
 `GET /cases?reviewStatus=Reviewed`:
@@ -125,7 +199,7 @@ curl "$BASE_URL/cases?reviewStatus=Reviewed"
 
 The reviewed case should appear with `reviewStatus` set to `Reviewed`.
 
-## Demo step 7: inspect mock email notifications
+## Demo Step 10: Inspect Mock Email Notifications
 
 Verify recorded mock email notifications with `GET /notifications/email`:
 
@@ -136,7 +210,7 @@ curl "$BASE_URL/notifications/email"
 The response should include an entry for the created case. In mock mode, no real
 email is sent.
 
-## Demo step 8: inspect mock SMS notifications
+## Demo Step 11: Inspect Mock SMS Notifications
 
 Verify recorded mock SMS notifications with `GET /notifications/sms`:
 
@@ -147,17 +221,21 @@ curl "$BASE_URL/notifications/sms"
 The response should include an entry for the created case. In mock mode, no real
 SMS is sent.
 
-## Safety notes
+## Safety Notes
 
 This guide is for local mock demo mode only. It does not require Azure
-resources, ACS connection strings, Cosmos keys, access keys, real contact
-details, or real provider credentials.
+resources, ACS connection strings, Cosmos keys, access keys, Azure AI keys,
+model deployment names, real contact details, or real provider credentials.
 
-Do not commit secrets, connection strings, real phone numbers, or provider
-credentials.
+Do not commit secrets, connection strings, real phone numbers, real email
+addresses, access keys, or provider credentials.
 
-## Current limitations
+## Current Limitations
 
 Live ACS SMS handset delivery remains pending external toll-free verification
-and is not required for this local demo. Live ACS SMS sending is not implemented
-as part of this local mock workflow.
+and is not required for this local mock demo.
+
+Cosmos list/summary multi-day queue querying remains a future enhancement. The
+local mock queue supports list and summary filtering for demo purposes, while
+Cosmos cross-partition queue and summary querying is intentionally out of scope
+for now.
