@@ -13,6 +13,7 @@ Completed:
 - Case processing service
 - Human-in-the-loop nurse review workflow is complete
 - Mock nurse queue date filtering is complete
+- Nurse queue summary endpoint is complete
 - Text intake API route
 - In-memory case repository and shared app-level persistence
 - Case retrieval route: `GET /cases/{case_id}`
@@ -202,6 +203,24 @@ Completed:
 - Cosmos case list behavior remains a clear not-implemented boundary for now.
 - No Azure service calls, infrastructure, authentication, Key Vault, hosting,
   voice intake, retry logic, or live ACS SMS work was added for this slice.
+- Nurse queue summary endpoint is complete.
+- `GET /cases/summary` provides dashboard-style counts for the mock nurse
+  queue.
+- Summary counts include total cases, pending review cases, reviewed cases,
+  urgent cases, routine cases, and pending urgent cases.
+- Summary counts support optional inclusive `fromDate` and `toDate` filtering
+  using date-only `YYYY-MM-DD` semantics based on `createdDate`.
+- The summary endpoint reuses existing queue/list filtering behavior where
+  appropriate.
+- `GET /cases/summary` route ordering is handled so it is not swallowed by
+  `GET /cases/{case_id}`.
+- This supports demo dashboard scenarios such as "how many urgent pending cases
+  are in the current queue?"
+- Cosmos summary querying remains a future enhancement because Cosmos
+  queue/list behavior is intentionally not implemented yet.
+- No Cosmos cross-partition summary query, Azure service calls, infrastructure,
+  authentication, Key Vault, hosting, voice intake, retry logic, or live ACS SMS
+  work was added for this slice.
 
 Current working local pipeline:
 
@@ -528,7 +547,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 199 passed
+- 208 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
