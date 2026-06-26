@@ -181,3 +181,17 @@ def test_progress_links_manual_acs_email_smoke_test() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
     assert "docs/manual-acs-email-smoke-test.md" in docs_text
+
+
+def test_progress_workflow_documents_future_tdd_guardrails() -> None:
+    docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
+
+    assert "Every future TDD slice must include a `docs/progress.md` update" in docs_text
+    assert "ChatGPT should recommend the Codex model and reasoning level" in docs_text
+    assert "Model: GPT-5.5" in docs_text
+    assert "Reasoning: Medium for normal TDD slices" in docs_text
+    assert (
+        "Reasoning: High for cross-cutting architecture, risky integration, "
+        "or multi-layer refactors"
+    ) in docs_text
+    assert "Reasoning: Light for docs-only or tiny single-file cleanup" in docs_text

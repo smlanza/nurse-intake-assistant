@@ -22,6 +22,7 @@ Completed:
 - Mock nurse queue ordering and pagination are complete
 - Nurse queue summary endpoint is complete
 - Nurse queue summary notification status counts are complete
+- Progress workflow guardrails are complete
 - Mock-only demo reset endpoint is complete
 - Notification status semantics are complete
 - Text intake API route
@@ -741,7 +742,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 273 passed
+- 274 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -767,8 +768,18 @@ extraction integration, voice intake, retry logic, or authentication yet.
 
 ## Workflow
 
-1. Run pytest.
-2. Run git status.
-3. Review output with ChatGPT.
-4. Commit and push.
-5. Ask ChatGPT for the next Codex prompt.
+1. Before each Codex task, ChatGPT should recommend the Codex model and
+   reasoning level. ChatGPT should recommend the Codex model and reasoning level
+   before each slice.
+2. Default recommendation:
+   - Model: GPT-5.5
+   - Reasoning: Medium for normal TDD slices
+   - Reasoning: High for cross-cutting architecture, risky integration, or multi-layer refactors
+   - Reasoning: Light for docs-only or tiny single-file cleanup
+3. Every future TDD slice must include a `docs/progress.md` update as part of
+   its acceptance criteria.
+4. Run pytest.
+5. Run git status.
+6. Review output with ChatGPT.
+7. Commit and push.
+8. Ask ChatGPT for the next Codex prompt.
