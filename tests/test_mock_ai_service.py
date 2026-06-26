@@ -36,6 +36,64 @@ def test_extracts_complete_routine_intake() -> None:
     assert urgency.advisory_disclaimer
 
 
+@pytest.mark.parametrize(
+    "text,expected_patient,expected_missing_fields",
+    [
+        (
+            "I need a refill",
+            {
+                "name": None,
+                "date_of_birth": None,
+                "callback_number": None,
+            },
+            [
+                "patient.name",
+                "patient.date_of_birth",
+                "patient.callback_number",
+            ],
+        ),
+        (
+            "My name is Jane Doe. I need a refill.",
+            {
+                "name": "Jane Doe",
+                "date_of_birth": None,
+                "callback_number": None,
+            },
+            [
+                "patient.date_of_birth",
+                "patient.callback_number",
+            ],
+        ),
+        (
+            "My callback number is +1 (555) 555-0123. I need a refill.",
+            {
+                "name": None,
+                "date_of_birth": None,
+                "callback_number": "+1 (555) 555-0123",
+            },
+            [
+                "patient.name",
+                "patient.date_of_birth",
+            ],
+        ),
+    ],
+)
+def test_reports_explicit_missing_required_fields(
+    text: str,
+    expected_patient: dict[str, str | None],
+    expected_missing_fields: list[str],
+) -> None:
+    service = MockAiService()
+
+    result = asyncio.run(service.extract_and_summarize(text))
+
+    assert result.patient.name == expected_patient["name"]
+    assert result.patient.date_of_birth == expected_patient["date_of_birth"]
+    assert result.patient.callback_number == expected_patient["callback_number"]
+    assert result.reason_for_calling == "medication refill"
+    assert result.missing_fields == expected_missing_fields
+
+
 @pytest.mark.parametrize("symptom", ["CHEST PAIN", "shortness of breath"])
 def test_classifies_urgent_keyword_text(symptom: str) -> None:
     service = MockAiService()
@@ -55,7 +113,11 @@ def test_reports_missing_patient_fields() -> None:
     assert result.patient.name is None
     assert result.patient.date_of_birth is None
     assert result.patient.callback_number is None
-    assert result.missing_fields == ["name", "date_of_birth", "callback_number"]
+    assert result.missing_fields == [
+        "patient.name",
+        "patient.date_of_birth",
+        "patient.callback_number",
+    ]
     assert result.reason_for_calling == "fever"
     assert result.symptoms == ["fever", "cough"]
     assert result.summary == "Patient reports fever, cough."

@@ -342,7 +342,11 @@ def test_missing_patient_fields_are_carried_into_case() -> None:
         CaseProcessingService().process("I have a cough and fever.", "text-intake")
     )
 
-    assert case.missingFields == ["name", "date_of_birth", "callback_number"]
+    assert case.missingFields == [
+        "patient.name",
+        "patient.date_of_birth",
+        "patient.callback_number",
+    ]
     assert case.uncertainFields == []
     assert case.intakeStatus == "NeedsFollowUp"
     assert case.patient.name is None
@@ -356,4 +360,9 @@ def test_empty_text_creates_completed_case_without_crashing(raw_text: str) -> No
     assert case.summary == "No reason for calling or symptoms were provided."
     assert case.urgency == "Routine"
     assert case.processingStatus == "Completed"
-    assert case.missingFields == ["name", "date_of_birth", "callback_number"]
+    assert case.missingFields == [
+        "patient.name",
+        "patient.date_of_birth",
+        "patient.callback_number",
+        "reason_for_calling",
+    ]

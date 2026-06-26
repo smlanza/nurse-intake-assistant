@@ -10,6 +10,12 @@ from src.app.models.ai_outputs import (
 class MockAiService:
     """Provide deterministic local behavior in place of a future Azure AI/LLM."""
 
+    _REQUIRED_FIELD_VALUES: tuple[tuple[str, str], ...] = (
+        ("patient.name", "name"),
+        ("patient.date_of_birth", "date_of_birth"),
+        ("patient.callback_number", "callback_number"),
+    )
+
     _SYMPTOM_TERMS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ("chest pain", ("chest pain", "chest pressure", "tightness in chest")),
         (
@@ -63,16 +69,7 @@ class MockAiService:
         )
         symptoms = self._extract_symptoms(text)
         reason = self._extract_reason(text, symptoms)
-
-        missing_fields = [
-            field_name
-            for field_name, value in (
-                ("name", patient.name),
-                ("date_of_birth", patient.date_of_birth),
-                ("callback_number", patient.callback_number),
-            )
-            if value is None
-        ]
+        missing_fields = self._missing_required_fields(patient, reason)
 
         if symptoms:
             summary = f"Patient reports {', '.join(symptoms)}."
@@ -162,8 +159,33 @@ class MockAiService:
             return symptoms[0]
 
         normalized_text = text.casefold()
-        for phrase in ("medication refill", "routine checkup", "annual checkup", "appointment"):
+        reason_phrases = (
+            ("medication refill", "medication refill"),
+            ("refill", "medication refill"),
+            ("routine checkup", "routine checkup"),
+            ("annual checkup", "annual checkup"),
+            ("appointment", "appointment"),
+        )
+        for phrase, reason in reason_phrases:
             if phrase in normalized_text:
-                return phrase
+                return reason
 
         return None
+
+    @classmethod
+    def _missing_required_fields(
+        cls,
+        patient: PatientInfo,
+        reason_for_calling: str | None,
+    ) -> list[str]:
+        patient_values = patient.model_dump()
+        missing_fields = [
+            field_path
+            for field_path, patient_key in cls._REQUIRED_FIELD_VALUES
+            if patient_values[patient_key] is None
+        ]
+
+        if reason_for_calling is None:
+            missing_fields.append("reason_for_calling")
+
+        return missing_fields
