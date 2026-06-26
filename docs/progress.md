@@ -13,6 +13,7 @@ Completed:
 - Azure AI Foundry extraction provider scaffold is complete
 - Intake text validation is complete
 - Structured missing intake field validation is complete
+- Intake missing-field review priority is complete
 - Case processing service
 - Human-in-the-loop nurse review workflow is complete
 - Nurse review request validation is complete
@@ -155,6 +156,10 @@ Completed:
   external NLP dependency.
 - Missing required intake fields are now surfaced clearly in the extraction and
   case result.
+- `CaseDocument` and intake responses now include `intakeComplete`.
+- `intakeComplete=true` means no required intake fields are missing.
+- `intakeComplete=false` means one or more required intake fields are missing
+  and the case should be prioritized for nurse follow-up.
 - The required intake fields for the current mock extraction path are
   `patient.name`, `patient.date_of_birth`, `patient.callback_number`, and
   `reason_for_calling`.
@@ -166,6 +171,14 @@ Completed:
   missing fields.
 - Text with callback number but no name or date of birth reports only the
   missing fields.
+- Cases with missing required intake fields are still saved.
+- Cases with missing required intake fields still default to
+  `reviewStatus=PendingReview`.
+- Cases with missing required intake fields remain eligible for
+  `POST /cases/{case_id}/review`.
+- Existing missing-field output remains preserved.
+- Existing notification behavior remains preserved, so notifications are not
+  suppressed merely because `intakeComplete=false`.
 - Structured missing-field validation remains deterministic and local. No Azure
   AI calls or external NLP dependencies were added.
 - Human-in-the-loop nurse review workflow is complete.
@@ -686,7 +699,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 258 passed
+- 261 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -699,11 +712,11 @@ into intake processing, ACS SMS fake-client behavior, ACS SMS production failure
 handling, mock SMS notification inspection, the local mock demo guide,
 `.env.example` SMS documentation alignment, the manual ACS SMS smoke-test guide
 placeholder, the ACS SMS client factory scaffold, ACS SMS SDK dependency
-alignment, notification status semantics, and mock nurse queue ordering and
-pagination, and nurse review request validation are complete. ACS SMS reached
-the SDK/send-request path, but handset delivery remains pending toll-free
-verification. Review and commit the current documentation/code/test changes
-before selecting the next TDD slice.
+alignment, notification status semantics, mock nurse queue ordering and
+pagination, nurse review request validation, and intake missing-field review
+priority are complete. ACS SMS reached the SDK/send-request path, but handset
+delivery remains pending toll-free verification. Review and commit the current
+documentation/code/test changes before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
 extraction integration, voice intake, retry logic, or authentication yet.

@@ -17,6 +17,7 @@ def test_case_document_defaults_to_pending_review() -> None:
     assert case.reviewedBy is None
     assert case.reviewNotes is None
     assert case.reviewedAt is None
+    assert case.intakeComplete is True
 
 
 def test_case_document_defaults_to_unattempted_notification_statuses() -> None:

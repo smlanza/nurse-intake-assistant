@@ -109,6 +109,8 @@ def test_routine_intake_creates_completed_case() -> None:
     assert case.urgencySource == "Unknown"
     assert case.processingStatus == "Completed"
     assert case.intakeStatus == "Complete"
+    assert case.intakeComplete is True
+    assert case.missingFields == []
     assert case.reviewStatus == "PendingReview"
     assert date.fromisoformat(case.createdDate) == case.createdUtc.date()
 
@@ -420,7 +422,37 @@ def test_missing_patient_fields_are_carried_into_case() -> None:
     ]
     assert case.uncertainFields == []
     assert case.intakeStatus == "NeedsFollowUp"
+    assert case.intakeComplete is False
+    assert case.reviewStatus == "PendingReview"
     assert case.patient.name is None
+
+
+def test_missing_field_case_is_saved_and_notifications_still_send() -> None:
+    repository = InMemoryCaseRepository()
+    email_sender = MockEmailNotificationSender()
+    sms_sender = MockSmsNotificationSender()
+    service = CaseProcessingService(
+        case_repository=repository,
+        email_notification_sender=email_sender,
+        sms_notification_sender=sms_sender,
+    )
+
+    case = asyncio.run(service.process("I need a refill.", "text-intake"))
+
+    assert case.intakeComplete is False
+    assert case.reviewStatus == "PendingReview"
+    assert case.missingFields == [
+        "patient.name",
+        "patient.date_of_birth",
+        "patient.callback_number",
+    ]
+    assert asyncio.run(repository.get_by_id(case.id)) == case
+    assert case.notificationEmailSent is True
+    assert case.notificationEmailStatus == "MockRecorded"
+    assert case.notificationSmsSent is True
+    assert case.notificationSmsStatus == "MockRecorded"
+    assert len(email_sender.sent_notifications) == 1
+    assert len(sms_sender.sent_notifications) == 1
 
 
 @pytest.mark.parametrize("raw_text", ["", "   "])
@@ -431,6 +463,8 @@ def test_empty_text_creates_completed_case_without_crashing(raw_text: str) -> No
     assert case.summary == "No reason for calling or symptoms were provided."
     assert case.urgency == "Routine"
     assert case.processingStatus == "Completed"
+    assert case.intakeComplete is False
+    assert case.reviewStatus == "PendingReview"
     assert case.missingFields == [
         "patient.name",
         "patient.date_of_birth",

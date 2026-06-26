@@ -83,6 +83,7 @@ class CaseProcessingService:
             ),
             missingFields=extraction.missing_fields,
             uncertainFields=extraction.uncertain_fields,
+            intakeComplete=not extraction.missing_fields,
             processingStatus="Completed",
             intakeStatus=(
                 "NeedsFollowUp" if extraction.missing_fields else "Complete"

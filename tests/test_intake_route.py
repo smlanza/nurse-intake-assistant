@@ -50,6 +50,8 @@ def test_text_intake_returns_completed_routine_case() -> None:
     assert case["caseType"] == "text-intake"
     assert case["processingStatus"] == "Completed"
     assert case["reviewStatus"] == "PendingReview"
+    assert case["intakeComplete"] is True
+    assert case["missingFields"] == []
     assert case["urgency"] == "Routine"
     assert case["sourceSystem"] == "local-test"
     assert case["sourceCallId"] == "test-call-123"
@@ -111,6 +113,26 @@ def test_text_intake_default_mock_mode_returns_successful_sms_notification() -> 
     assert case["notificationSmsDeliveryConfirmed"] is False
     assert len(email_notification_sender.sent_notifications) == 1
     assert email_notification_sender.sent_notifications[0].case_id == case["id"]
+
+
+def test_text_intake_with_missing_required_fields_returns_incomplete_case() -> None:
+    response = client.post(
+        "/intake/text",
+        json={"text": "I have a cough and fever."},
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["intakeComplete"] is False
+    assert case["intakeStatus"] == "NeedsFollowUp"
+    assert case["reviewStatus"] == "PendingReview"
+    assert case["missingFields"] == [
+        "patient.name",
+        "patient.date_of_birth",
+        "patient.callback_number",
+    ]
+    assert case["notificationEmailSent"] is True
+    assert case["notificationSmsSent"] is True
 
 
 def test_text_intake_persists_request_source_metadata(

@@ -62,6 +62,7 @@ class CaseDocument(BaseModel):
     missingFields: list[str] = Field(default_factory=list)
     uncertainFields: list[str] = Field(default_factory=list)
 
+    intakeComplete: bool = True
     processingStatus: ProcessingStatus = "Received"
     intakeStatus: IntakeStatus | None = None
     reviewStatus: ReviewStatus = "PendingReview"

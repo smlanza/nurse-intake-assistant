@@ -834,6 +834,38 @@ def test_review_case_marks_case_reviewed() -> None:
     assert saved_response.json()["reviewStatus"] == "Reviewed"
 
 
+def test_review_case_allows_incomplete_intake_case() -> None:
+    create_response = client.post(
+        "/intake/text",
+        json={"text": "I have a cough and fever."},
+    )
+    assert create_response.status_code == 200
+    created_case = create_response.json()
+    assert created_case["intakeComplete"] is False
+    assert created_case["reviewStatus"] == "PendingReview"
+
+    response = client.post(
+        f"/cases/{created_case['id']}/review",
+        json={
+            "reviewedBy": "nurse-demo",
+            "reviewNotes": "Called patient to collect missing fields.",
+        },
+    )
+
+    assert response.status_code == 200
+    reviewed_case = response.json()
+    assert reviewed_case["id"] == created_case["id"]
+    assert reviewed_case["intakeComplete"] is False
+    assert reviewed_case["missingFields"] == [
+        "patient.name",
+        "patient.date_of_birth",
+        "patient.callback_number",
+    ]
+    assert reviewed_case["reviewStatus"] == "Reviewed"
+    assert reviewed_case["reviewedBy"] == "nurse-demo"
+    assert reviewed_case["reviewedAt"] is not None
+
+
 def test_review_case_trims_reviewer_and_notes() -> None:
     created_case = create_case()
 
