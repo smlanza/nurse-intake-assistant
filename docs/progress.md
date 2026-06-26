@@ -10,6 +10,7 @@ Completed:
 - Negation-aware red-flag detection is complete
 - Mock AI service
 - AI extraction provider factory is complete
+- Azure AI Foundry extraction provider scaffold is complete
 - Intake text validation is complete
 - Structured missing intake field validation is complete
 - Case processing service
@@ -247,6 +248,21 @@ Completed:
 - AI provider matching is case-insensitive and whitespace-tolerant.
 - Unknown `AI_PROVIDER` values raise a clear configuration error.
 - Mock AI provider mode requires no Azure AI settings.
+- `AI_PROVIDER=foundry` now routes to a tested Azure AI Foundry provider
+  boundary.
+- Foundry provider matching is case-insensitive and whitespace-tolerant.
+- Required Foundry settings are validated when the Foundry provider is selected.
+- Foundry configuration placeholders were added:
+  `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and
+  `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`.
+- `.env.example` documents the safe Foundry placeholder settings for future
+  integration work.
+- The Foundry provider scaffold currently uses fake/injected behavior only and
+  does not make live Azure calls.
+- No Azure AI SDK dependency, Azure AI keys, model deployment secrets, real
+  deployment names, or real Azure resource credentials were added.
+- This creates the seam for a later live Azure AI Foundry extraction
+  integration slice.
 - FastAPI dependencies now create the shared app-level AI service through
   `create_ai_service(settings)`.
 - The app still uses `MockAiService` by default, and default mock intake
@@ -366,6 +382,13 @@ App settings:
 - ACS SMS environment values are trimmed; blank ACS SMS values become `None`.
 - AI provider matching ignores case and surrounding whitespace; blank
   `AI_PROVIDER` values normalize to `mock`.
+- `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and
+  `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME` default to `None`.
+- Azure AI Foundry environment values are trimmed; blank Foundry values become
+  `None`.
+- `AI_PROVIDER=foundry` requires the Foundry project endpoint and model
+  deployment name settings.
+- Mock AI provider mode requires no Azure AI Foundry settings.
 - The local mock demo guide documents safe default values:
   `APP_MODE=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and
   `DEMO_SUPPRESS_NOTIFICATIONS=false`.
@@ -551,7 +574,8 @@ Known issues and future enhancements:
 
 Not yet implemented:
 - Application hosting infrastructure
-- Azure AI Foundry, Speech/voice intake, Key Vault resources
+- Live Azure AI Foundry extraction integration, Speech/voice intake, Key Vault
+  resources
 - Confirmed live ACS SMS handset delivery
 - ACS SMS delivery report/status tracking
 - Retry logic
@@ -599,7 +623,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 224 passed
+- 237 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -616,8 +640,8 @@ SDK dependency alignment are complete. ACS SMS reached the SDK/send-request path
 but handset delivery remains pending toll-free verification. Review and commit
 the current documentation/code/test changes before selecting the next TDD slice.
 
-Do not start live ACS SMS sending, hosting, Key Vault, Azure AI Foundry, voice
-intake, retry logic, or authentication yet.
+Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
+extraction integration, voice intake, retry logic, or authentication yet.
 
 ## Workflow
 
