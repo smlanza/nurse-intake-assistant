@@ -36,6 +36,17 @@ def test_env_example_documents_sms_configuration() -> None:
     assert "555" not in env_example
 
 
+def test_env_example_documents_foundry_ai_placeholders() -> None:
+    env_example = (PROJECT_ROOT / ".env.example").read_text()
+
+    assert "AI_PROVIDER=mock" in env_example
+    assert "AI_PROVIDER=foundry" in env_example
+    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=" in env_example
+    assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME=" in env_example
+    assert "Do not commit" in env_example
+    assert "Azure AI keys" in env_example
+
+
 def test_project_docs_explain_acs_email_configuration() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 

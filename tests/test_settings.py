@@ -255,6 +255,57 @@ def test_blank_ai_provider_normalizes_to_mock(
     assert settings.ai_provider_normalized == "mock"
 
 
+def test_foundry_ai_settings_default_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", raising=False)
+
+    settings = AppSettings()
+
+    assert settings.azure_ai_foundry_project_endpoint is None
+    assert settings.azure_ai_foundry_model_deployment_name is None
+
+
+def test_foundry_ai_settings_trim_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT",
+        "  https://example.services.ai.azure.com/api/projects/demo  ",
+    )
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+        "  intake-extraction  ",
+    )
+
+    settings = AppSettings()
+
+    assert (
+        settings.azure_ai_foundry_project_endpoint
+        == "https://example.services.ai.azure.com/api/projects/demo"
+    )
+    assert settings.azure_ai_foundry_model_deployment_name == "intake-extraction"
+
+
+def test_blank_foundry_ai_settings_are_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT", "   ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", "   ")
+
+    settings = AppSettings()
+
+    assert settings.azure_ai_foundry_project_endpoint is None
+    assert settings.azure_ai_foundry_model_deployment_name is None
+
+
 def test_acs_sms_settings_default_to_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

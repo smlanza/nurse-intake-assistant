@@ -10,6 +10,8 @@ class AppSettings:
     email_provider_normalized: str
     ai_provider: str
     ai_provider_normalized: str
+    azure_ai_foundry_project_endpoint: str | None
+    azure_ai_foundry_model_deployment_name: str | None
     acs_email_connection_string: str | None
     acs_email_sender_address: str | None
     nurse_notification_email: str | None
@@ -32,6 +34,12 @@ class AppSettings:
         self.email_provider_normalized = self.email_provider.strip().lower()
         self.ai_provider = os.getenv("AI_PROVIDER", "mock")
         self.ai_provider_normalized = self.ai_provider.strip().lower() or "mock"
+        self.azure_ai_foundry_project_endpoint = self._optional_env(
+            "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
+        )
+        self.azure_ai_foundry_model_deployment_name = self._optional_env(
+            "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME"
+        )
         self.acs_email_connection_string = self._optional_env(
             "ACS_EMAIL_CONNECTION_STRING"
         )
