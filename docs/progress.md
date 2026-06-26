@@ -7,6 +7,7 @@ Completed:
 - Health route
 - Pydantic models
 - Red-flag urgency rules engine
+- Negation-aware red-flag detection is complete
 - Mock AI service
 - Case processing service
 - Text intake API route
@@ -129,6 +130,18 @@ Completed:
 - 2026-06-25: Live ACS SMS smoke attempt reached the app/provider send path, but
   handset delivery was not confirmed because toll-free SMS verification is still
   pending in the external Azure/carrier regulatory workflow
+- Negation-aware red-flag detection is complete. The deterministic urgency rules
+  now ignore common negated red-flag phrases when they appear by themselves.
+- Negated phrases such as "No chest pain", "Patient denies shortness of
+  breath", "No severe bleeding", and "No stroke symptoms" do not trigger urgent
+  classification by themselves.
+- True red flags still trigger urgent classification, including mixed cases such
+  as "No chest pain, but I am having trouble breathing" and "Patient denies
+  chest pain but reports severe bleeding".
+- `tests/test_red_flags.py` covers negated red-flag phrases and true red-flag
+  phrases.
+- Red-flag urgency rules remain deterministic and do not use an AI model or
+  external NLP dependency.
 
 Current working local pipeline:
 
@@ -404,16 +417,13 @@ Known issues and future enhancements:
   accepted or completed without raising; it does not prove carrier delivery to a
   handset. Future enhancement: capture ACS message id/status or delivery report
   semantics.
-- Current red-flag rules are keyword-based and not negation-aware. For example,
-  text containing "No chest pain" can still trigger urgent classification.
-  Future enhancement: add negation-aware red-flag detection.
 
 Not yet implemented:
 - Application hosting infrastructure
-- Azure AI Foundry, Speech, ACS Email, ACS SMS, and Key Vault resources
+- Azure AI Foundry, Speech/voice intake, Key Vault resources
 - Confirmed live ACS SMS handset delivery
 - ACS SMS delivery report/status tracking
-- Negation-aware red-flag detection
+- Retry logic
 - Authentication
 
 Infrastructure support:
@@ -458,7 +468,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 158 passed
+- 168 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
