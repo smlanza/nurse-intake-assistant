@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from src.app.models.case import CaseDocument
 
@@ -19,11 +19,12 @@ def build_case_with_queue_fields(
     case_id: str,
     review_status: str = "PendingReview",
     urgency: str = "Routine",
+    created_date: str | None = None,
 ) -> CaseDocument:
     now = datetime.now(timezone.utc)
     return CaseDocument(
         id=case_id,
-        createdDate=now.date().isoformat(),
+        createdDate=created_date or now.date().isoformat(),
         createdUtc=now,
         lastStatusUpdatedUtc=now,
         caseType="text-intake",
@@ -117,3 +118,174 @@ def test_in_memory_repository_filters_listed_cases() -> None:
     )
 
     assert [case.id for case in cases] == ["urgent-pending"]
+
+
+def test_in_memory_repository_filters_cases_from_date_inclusive() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("older", created_date="2026-06-23")
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("start", created_date="2026-06-24")
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("newer", created_date="2026-06-25")
+        )
+    )
+
+    cases = asyncio.run(repository.list_cases(from_date=date(2026, 6, 24)))
+
+    assert [case.id for case in cases] == ["start", "newer"]
+
+
+def test_in_memory_repository_filters_cases_to_date_inclusive() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("older", created_date="2026-06-23")
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("end", created_date="2026-06-24")
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("newer", created_date="2026-06-25")
+        )
+    )
+
+    cases = asyncio.run(repository.list_cases(to_date=date(2026, 6, 24)))
+
+    assert [case.id for case in cases] == ["older", "end"]
+
+
+def test_in_memory_repository_filters_cases_by_inclusive_date_range() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("older", created_date="2026-06-22")
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("start", created_date="2026-06-23")
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("end", created_date="2026-06-25")
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields("newer", created_date="2026-06-26")
+        )
+    )
+
+    cases = asyncio.run(
+        repository.list_cases(
+            from_date=date(2026, 6, 23),
+            to_date=date(2026, 6, 25),
+        )
+    )
+
+    assert [case.id for case in cases] == ["start", "end"]
+
+
+def test_in_memory_repository_combines_date_and_review_status_filters() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "pending-in-range",
+                review_status="PendingReview",
+                created_date="2026-06-24",
+            )
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "reviewed-in-range",
+                review_status="Reviewed",
+                created_date="2026-06-24",
+            )
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "pending-out-of-range",
+                review_status="PendingReview",
+                created_date="2026-06-26",
+            )
+        )
+    )
+
+    cases = asyncio.run(
+        repository.list_cases(
+            review_status="PendingReview",
+            from_date=date(2026, 6, 23),
+            to_date=date(2026, 6, 25),
+        )
+    )
+
+    assert [case.id for case in cases] == ["pending-in-range"]
+
+
+def test_in_memory_repository_combines_date_and_urgency_filters() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "urgent-in-range",
+                urgency="Urgent",
+                created_date="2026-06-24",
+            )
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "routine-in-range",
+                urgency="Routine",
+                created_date="2026-06-24",
+            )
+        )
+    )
+    asyncio.run(
+        repository.save(
+            build_case_with_queue_fields(
+                "urgent-out-of-range",
+                urgency="Urgent",
+                created_date="2026-06-26",
+            )
+        )
+    )
+
+    cases = asyncio.run(
+        repository.list_cases(
+            urgency="Urgent",
+            from_date=date(2026, 6, 23),
+            to_date=date(2026, 6, 25),
+        )
+    )
+
+    assert [case.id for case in cases] == ["urgent-in-range"]

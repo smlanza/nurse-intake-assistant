@@ -44,11 +44,12 @@ def build_queue_case(
     case_id: str,
     review_status: str = "PendingReview",
     urgency: str = "Routine",
+    created_date: str | None = None,
 ) -> CaseDocument:
     now = datetime.now(timezone.utc)
     return CaseDocument(
         id=case_id,
-        createdDate=now.date().isoformat(),
+        createdDate=created_date or now.date().isoformat(),
         createdUtc=now,
         lastStatusUpdatedUtc=now,
         caseType="text-intake",
@@ -222,6 +223,119 @@ def test_list_cases_combines_review_status_and_urgency_filters(
     assert [case["id"] for case in response.json()] == ["urgent-pending"]
 
 
+def test_list_cases_filters_from_date_inclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("older", created_date="2026-06-23"),
+                build_queue_case("start", created_date="2026-06-24"),
+                build_queue_case("newer", created_date="2026-06-25"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?fromDate=2026-06-24")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["start", "newer"]
+
+
+def test_list_cases_filters_to_date_inclusive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("older", created_date="2026-06-23"),
+                build_queue_case("end", created_date="2026-06-24"),
+                build_queue_case("newer", created_date="2026-06-25"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?toDate=2026-06-24")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["older", "end"]
+
+
+def test_list_cases_filters_by_inclusive_date_range(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("older", created_date="2026-06-22"),
+                build_queue_case("start", created_date="2026-06-23"),
+                build_queue_case("end", created_date="2026-06-25"),
+                build_queue_case("newer", created_date="2026-06-26"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?fromDate=2026-06-23&toDate=2026-06-25")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["start", "end"]
+
+
+def test_list_cases_combines_review_status_urgency_and_date_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "routine-pending-in-range",
+                    review_status="PendingReview",
+                    urgency="Routine",
+                    created_date="2026-06-24",
+                ),
+                build_queue_case(
+                    "urgent-pending-in-range",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-24",
+                ),
+                build_queue_case(
+                    "urgent-reviewed-in-range",
+                    review_status="Reviewed",
+                    urgency="Urgent",
+                    created_date="2026-06-24",
+                ),
+                build_queue_case(
+                    "urgent-pending-out-of-range",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-26",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?reviewStatus=PendingReview&urgency=Urgent"
+        "&fromDate=2026-06-23&toDate=2026-06-25"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["urgent-pending-in-range"]
+
+
 def test_list_cases_rejects_invalid_review_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -244,6 +358,40 @@ def test_list_cases_rejects_invalid_urgency(
     assert response.status_code == 422
 
 
+def test_list_cases_rejects_invalid_from_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?fromDate=not-a-date")
+
+    assert response.status_code == 422
+
+
+def test_list_cases_rejects_invalid_to_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?toDate=not-a-date")
+
+    assert response.status_code == 422
+
+
+def test_list_cases_rejects_date_range_when_from_date_is_after_to_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?fromDate=2026-06-26&toDate=2026-06-25")
+
+    assert response.status_code == 400
+    assert "fromDate must be on or before toDate" in response.json()["detail"]
+
+
 def test_list_cases_returns_clear_error_when_repository_does_not_support_listing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -252,6 +400,8 @@ def test_list_cases_returns_clear_error_when_repository_does_not_support_listing
             self,
             review_status: str | None = None,
             urgency: str | None = None,
+            from_date: str | None = None,
+            to_date: str | None = None,
         ) -> list[CaseDocument]:
             raise NotImplementedError("Case list queries are not implemented.")
 

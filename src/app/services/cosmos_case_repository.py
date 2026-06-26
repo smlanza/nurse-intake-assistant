@@ -1,4 +1,5 @@
 import inspect
+from datetime import date
 from typing import Any
 
 from src.app.models.case import CaseDocument, ReviewStatus, Urgency
@@ -57,6 +58,8 @@ class CosmosCaseRepository:
         self,
         review_status: ReviewStatus | None = None,
         urgency: Urgency | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
     ) -> list[CaseDocument]:
         raise CaseListNotSupportedError(
             "Case list queries are not implemented for Cosmos-backed storage yet."

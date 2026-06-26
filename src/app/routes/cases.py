@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
@@ -18,11 +18,21 @@ router = APIRouter(prefix="/cases", tags=["cases"])
 async def list_cases(
     reviewStatus: ReviewStatus | None = None,
     urgency: Urgency | None = None,
+    fromDate: date | None = None,
+    toDate: date | None = None,
 ) -> list[CaseDocument]:
+    if fromDate is not None and toDate is not None and fromDate > toDate:
+        raise HTTPException(
+            status_code=400,
+            detail="fromDate must be on or before toDate.",
+        )
+
     try:
         return await case_repository.list_cases(
             review_status=reviewStatus,
             urgency=urgency,
+            from_date=fromDate,
+            to_date=toDate,
         )
     except (CaseListNotSupportedError, NotImplementedError) as error:
         raise HTTPException(

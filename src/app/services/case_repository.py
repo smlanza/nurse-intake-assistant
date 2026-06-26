@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Protocol, runtime_checkable
 
 from src.app.models.case import CaseDocument, ReviewStatus, Urgency
@@ -21,6 +22,8 @@ class CaseRepository(Protocol):
         self,
         review_status: ReviewStatus | None = None,
         urgency: Urgency | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
     ) -> list[CaseDocument]:
         ...
 
@@ -46,6 +49,8 @@ class InMemoryCaseRepository:
         self,
         review_status: ReviewStatus | None = None,
         urgency: Urgency | None = None,
+        from_date: date | None = None,
+        to_date: date | None = None,
     ) -> list[CaseDocument]:
         cases = list(self._cases.values())
 
@@ -54,5 +59,19 @@ class InMemoryCaseRepository:
 
         if urgency is not None:
             cases = [case for case in cases if case.urgency == urgency]
+
+        if from_date is not None:
+            cases = [
+                case
+                for case in cases
+                if case.createdDate >= from_date.isoformat()
+            ]
+
+        if to_date is not None:
+            cases = [
+                case
+                for case in cases
+                if case.createdDate <= to_date.isoformat()
+            ]
 
         return cases
