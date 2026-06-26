@@ -81,7 +81,7 @@ class CaseProcessingService:
             intakeStatus=(
                 "NeedsFollowUp" if extraction.missing_fields else "Complete"
             ),
-            reviewStatus="New",
+            reviewStatus="PendingReview",
         )
 
         if self.case_repository is not None:

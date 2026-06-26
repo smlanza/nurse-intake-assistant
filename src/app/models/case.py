@@ -17,7 +17,7 @@ ProcessingStatus = Literal[
 ]
 
 IntakeStatus = Literal["Complete", "NeedsFollowUp", "ProcessingFailed"]
-ReviewStatus = Literal["New", "Reviewed"]
+ReviewStatus = Literal["PendingReview", "Reviewed"]
 Urgency = Literal["Routine", "Urgent", "Unknown"]
 
 CaseType = Literal["phone-intake", "text-intake", "audio-upload"]
@@ -57,11 +57,11 @@ class CaseDocument(BaseModel):
 
     processingStatus: ProcessingStatus = "Received"
     intakeStatus: IntakeStatus | None = None
-    reviewStatus: ReviewStatus = "New"
+    reviewStatus: ReviewStatus = "PendingReview"
 
-    nurseReviewedUtc: datetime | None = None
-    nurseReviewer: str | None = None
-    nurseNotes: str | None = None
+    reviewedBy: str | None = None
+    reviewNotes: str | None = None
+    reviewedAt: datetime | None = None
 
     notificationEmailSent: bool = False
     notificationSmsSent: bool = False

@@ -44,7 +44,7 @@ def test_text_intake_returns_completed_routine_case() -> None:
     case = response.json()
     assert case["caseType"] == "text-intake"
     assert case["processingStatus"] == "Completed"
-    assert case["reviewStatus"] == "New"
+    assert case["reviewStatus"] == "PendingReview"
     assert case["urgency"] == "Routine"
     assert case["sourceSystem"] == "local-test"
     assert case["sourceCallId"] == "test-call-123"

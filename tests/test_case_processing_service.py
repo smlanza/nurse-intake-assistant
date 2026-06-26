@@ -98,7 +98,7 @@ def test_routine_intake_creates_completed_case() -> None:
     assert case.urgencySource == "Unknown"
     assert case.processingStatus == "Completed"
     assert case.intakeStatus == "Complete"
-    assert case.reviewStatus == "New"
+    assert case.reviewStatus == "PendingReview"
     assert date.fromisoformat(case.createdDate) == case.createdUtc.date()
 
 

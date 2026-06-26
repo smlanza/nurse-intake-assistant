@@ -46,9 +46,47 @@ def test_get_case_returns_saved_case_document_shape() -> None:
     assert retrieved_case["id"]
     assert retrieved_case["processingStatus"] == "Completed"
     assert retrieved_case["urgency"] == "Routine"
+    assert retrieved_case["reviewStatus"] == "PendingReview"
     assert retrieved_case["summary"]
     assert retrieved_case["patient"]
     assert retrieved_case["createdUtc"]
+
+
+def test_review_case_marks_case_reviewed() -> None:
+    created_case = create_case()
+
+    response = client.post(
+        f"/cases/{created_case['id']}/review",
+        json={
+            "reviewedBy": "nurse-demo",
+            "reviewNotes": "Called patient back and routed to clinic.",
+        },
+    )
+
+    assert response.status_code == 200
+    reviewed_case = response.json()
+    assert reviewed_case["id"] == created_case["id"]
+    assert reviewed_case["reviewStatus"] == "Reviewed"
+    assert reviewed_case["reviewedBy"] == "nurse-demo"
+    assert reviewed_case["reviewNotes"] == "Called patient back and routed to clinic."
+    assert reviewed_case["reviewedAt"] is not None
+    datetime.fromisoformat(reviewed_case["reviewedAt"])
+
+    saved_response = client.get(f"/cases/{created_case['id']}")
+    assert saved_response.status_code == 200
+    assert saved_response.json()["reviewStatus"] == "Reviewed"
+
+
+def test_review_case_returns_404_when_case_does_not_exist() -> None:
+    response = client.post(
+        "/cases/nonexistent-case-id/review",
+        json={
+            "reviewedBy": "nurse-demo",
+            "reviewNotes": "No matching case exists.",
+        },
+    )
+
+    assert response.status_code == 404
 
 
 def test_get_case_passes_created_date_query_parameter_to_repository(
@@ -117,6 +155,99 @@ def test_get_case_returns_client_error_when_created_date_is_required(
 
     assert response.status_code == 400
     assert "createdDate" in response.json()["detail"]
+
+
+def test_review_case_returns_client_error_when_created_date_is_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.routes.cases as cases_route
+    from src.app.services.cosmos_case_repository import MissingCasePartitionKeyError
+
+    class CosmosStyleRepository:
+        async def get_by_id(
+            self,
+            case_id: str,
+            created_date: str | None = None,
+        ) -> CaseDocument | None:
+            raise MissingCasePartitionKeyError(
+                "created_date is required for Cosmos case lookup with the "
+                "/createdDate partition key"
+            )
+
+        async def save(self, case: CaseDocument) -> CaseDocument:
+            raise AssertionError("Review should not save when lookup fails")
+
+    monkeypatch.setattr(cases_route, "case_repository", CosmosStyleRepository())
+    test_app = FastAPI()
+    test_app.include_router(cases_route.router)
+    local_client = TestClient(test_app)
+
+    response = local_client.post(
+        "/cases/case-123/review",
+        json={
+            "reviewedBy": "nurse-demo",
+            "reviewNotes": "Called patient back and routed to clinic.",
+        },
+    )
+
+    assert response.status_code == 400
+    assert "createdDate" in response.json()["detail"]
+
+
+def test_review_case_passes_created_date_and_saves_updated_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.routes.cases as cases_route
+
+    class RecordingCaseRepository:
+        def __init__(self) -> None:
+            self.case_id: str | None = None
+            self.created_date: str | None = None
+            self.saved_case: CaseDocument | None = None
+
+        async def get_by_id(
+            self,
+            case_id: str,
+            created_date: str | None = None,
+        ) -> CaseDocument:
+            self.case_id = case_id
+            self.created_date = created_date
+            now = datetime.now(timezone.utc)
+            return CaseDocument(
+                id=case_id,
+                createdDate="2026-06-23",
+                createdUtc=now,
+                lastStatusUpdatedUtc=now,
+                caseType="text-intake",
+                processingStatus="Completed",
+            )
+
+        async def save(self, case: CaseDocument) -> CaseDocument:
+            self.saved_case = case
+            return case
+
+    repository = RecordingCaseRepository()
+    monkeypatch.setattr(cases_route, "case_repository", repository)
+    test_app = FastAPI()
+    test_app.include_router(cases_route.router)
+    local_client = TestClient(test_app)
+
+    response = local_client.post(
+        "/cases/case-123/review?createdDate=2026-06-23",
+        json={
+            "reviewedBy": "nurse-demo",
+            "reviewNotes": "Called patient back and routed to clinic.",
+        },
+    )
+
+    assert response.status_code == 200
+    assert repository.case_id == "case-123"
+    assert repository.created_date == "2026-06-23"
+    assert repository.saved_case is not None
+    assert repository.saved_case.reviewStatus == "Reviewed"
+    assert repository.saved_case.reviewedBy == "nurse-demo"
+    assert repository.saved_case.reviewNotes == "Called patient back and routed to clinic."
+    assert repository.saved_case.reviewedAt is not None
 
 
 def test_get_case_allows_missing_created_date_when_repository_does_not_require_it(
