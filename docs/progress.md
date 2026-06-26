@@ -14,6 +14,7 @@ Completed:
 - Human-in-the-loop nurse review workflow is complete
 - Mock nurse queue date filtering is complete
 - Nurse queue summary endpoint is complete
+- Mock-only demo reset endpoint is complete
 - Text intake API route
 - In-memory case repository and shared app-level persistence
 - Case retrieval route: `GET /cases/{case_id}`
@@ -221,6 +222,20 @@ Completed:
 - No Cosmos cross-partition summary query, Azure service calls, infrastructure,
   authentication, Key Vault, hosting, voice intake, retry logic, or live ACS SMS
   work was added for this slice.
+- Mock-only demo reset endpoint is complete.
+- `POST /demo/reset` clears in-memory cases, mock email notifications, and mock
+  SMS notifications for repeatable local demos.
+- The endpoint returns a simple success response confirming the reset.
+- The endpoint is intentionally mock-only and does not reset Cosmos or any Azure
+  resource.
+- Demo reset does not call ACS Email or ACS SMS.
+- After reset, subsequent `POST /intake/text` still creates a case and records
+  mock notifications normally.
+- This improves local demoability because the full workflow can be reset without
+  restarting `uvicorn`.
+- No authentication, role-based access control, Azure service calls,
+  infrastructure, Key Vault, hosting, Azure AI Foundry, voice intake, retry
+  logic, or live ACS SMS work was added for this slice.
 
 Current working local pipeline:
 
@@ -250,6 +265,9 @@ Available demo/read routes:
 - `GET /notifications/email` returns recorded mock email notifications in send order.
 - `GET /notifications/sms` returns recorded mock SMS notifications in send
   order for local/demo inspection.
+- `POST /demo/reset` clears mock in-memory cases, mock email notifications, and
+  mock SMS notifications for repeatable local demos without restarting
+  `uvicorn`.
 - `docs/manual-local-mock-demo.md` documents the local mock demo flow:
   start the app with `uvicorn`, submit `POST /intake/text`, verify
   `GET /cases/{case_id}`, inspect `GET /notifications/email`, and inspect
@@ -547,7 +565,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 208 passed
+- 213 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
