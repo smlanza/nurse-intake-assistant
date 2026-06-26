@@ -1,6 +1,7 @@
 from datetime import date, datetime, timezone
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from src.app.dependencies import case_repository
 from src.app.models.case import CaseDocument, CaseQueueSummary, ReviewStatus, Urgency
@@ -20,11 +21,13 @@ async def list_cases(
     urgency: Urgency | None = None,
     fromDate: date | None = None,
     toDate: date | None = None,
+    limit: Annotated[int | None, Query(gt=0, le=100)] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[CaseDocument]:
     _validate_date_range(fromDate, toDate)
 
     try:
-        return await case_repository.list_cases(
+        cases = await case_repository.list_cases(
             review_status=reviewStatus,
             urgency=urgency,
             from_date=fromDate,
@@ -35,6 +38,11 @@ async def list_cases(
             status_code=501,
             detail="Case list queries are not implemented for this repository.",
         ) from error
+
+    cases = cases[offset:]
+    if limit is not None:
+        cases = cases[:limit]
+    return cases
 
 
 @router.get("/summary", response_model=CaseQueueSummary)

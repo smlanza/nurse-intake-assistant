@@ -20,8 +20,14 @@ def build_case_with_queue_fields(
     review_status: str = "PendingReview",
     urgency: str = "Routine",
     created_date: str | None = None,
+    created_utc: datetime | None = None,
 ) -> CaseDocument:
-    now = datetime.now(timezone.utc)
+    if created_utc is not None:
+        now = created_utc
+    elif created_date is not None:
+        now = datetime.fromisoformat(f"{created_date}T00:00:00+00:00")
+    else:
+        now = datetime.now(timezone.utc)
     return CaseDocument(
         id=case_id,
         createdDate=created_date or now.date().isoformat(),
@@ -64,18 +70,44 @@ def test_in_memory_repository_returns_none_for_missing_case_id() -> None:
     assert asyncio.run(repository.get_by_id("missing-case")) is None
 
 
-def test_in_memory_repository_lists_saved_cases_in_save_order() -> None:
+def test_in_memory_repository_lists_saved_cases_newest_first() -> None:
     from src.app.services.case_repository import InMemoryCaseRepository
 
     repository = InMemoryCaseRepository()
-    first_case = build_case_with_queue_fields("case-1")
-    second_case = build_case_with_queue_fields("case-2")
+    oldest_case = build_case_with_queue_fields(
+        "oldest",
+        created_utc=datetime(2026, 6, 26, 9, 0, tzinfo=timezone.utc),
+    )
+    newest_case = build_case_with_queue_fields(
+        "newest",
+        created_utc=datetime(2026, 6, 26, 11, 0, tzinfo=timezone.utc),
+    )
+    middle_case = build_case_with_queue_fields(
+        "middle",
+        created_utc=datetime(2026, 6, 26, 10, 0, tzinfo=timezone.utc),
+    )
+    asyncio.run(repository.save(oldest_case))
+    asyncio.run(repository.save(newest_case))
+    asyncio.run(repository.save(middle_case))
+
+    cases = asyncio.run(repository.list_cases())
+
+    assert [case.id for case in cases] == ["newest", "middle", "oldest"]
+
+
+def test_in_memory_repository_uses_case_id_as_deterministic_order_tiebreaker() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    created_utc = datetime(2026, 6, 26, 9, 0, tzinfo=timezone.utc)
+    first_case = build_case_with_queue_fields("case-b", created_utc=created_utc)
+    second_case = build_case_with_queue_fields("case-a", created_utc=created_utc)
     asyncio.run(repository.save(first_case))
     asyncio.run(repository.save(second_case))
 
     cases = asyncio.run(repository.list_cases())
 
-    assert [case.id for case in cases] == ["case-1", "case-2"]
+    assert [case.id for case in cases] == ["case-a", "case-b"]
 
 
 def test_in_memory_repository_filters_listed_cases() -> None:
@@ -142,7 +174,7 @@ def test_in_memory_repository_filters_cases_from_date_inclusive() -> None:
 
     cases = asyncio.run(repository.list_cases(from_date=date(2026, 6, 24)))
 
-    assert [case.id for case in cases] == ["start", "newer"]
+    assert [case.id for case in cases] == ["newer", "start"]
 
 
 def test_in_memory_repository_filters_cases_to_date_inclusive() -> None:
@@ -167,7 +199,7 @@ def test_in_memory_repository_filters_cases_to_date_inclusive() -> None:
 
     cases = asyncio.run(repository.list_cases(to_date=date(2026, 6, 24)))
 
-    assert [case.id for case in cases] == ["older", "end"]
+    assert [case.id for case in cases] == ["end", "older"]
 
 
 def test_in_memory_repository_filters_cases_by_inclusive_date_range() -> None:
@@ -202,7 +234,7 @@ def test_in_memory_repository_filters_cases_by_inclusive_date_range() -> None:
         )
     )
 
-    assert [case.id for case in cases] == ["start", "end"]
+    assert [case.id for case in cases] == ["end", "start"]
 
 
 def test_in_memory_repository_combines_date_and_review_status_filters() -> None:

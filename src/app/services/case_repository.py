@@ -77,4 +77,7 @@ class InMemoryCaseRepository:
                 if case.createdDate <= to_date.isoformat()
             ]
 
+        cases.sort(key=lambda case: case.id)
+        cases.sort(key=lambda case: case.createdUtc, reverse=True)
+
         return cases

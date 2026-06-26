@@ -45,8 +45,14 @@ def build_queue_case(
     review_status: str = "PendingReview",
     urgency: str = "Routine",
     created_date: str | None = None,
+    created_utc: datetime | None = None,
 ) -> CaseDocument:
-    now = datetime.now(timezone.utc)
+    if created_utc is not None:
+        now = created_utc
+    elif created_date is not None:
+        now = datetime.fromisoformat(f"{created_date}T00:00:00+00:00")
+    else:
+        now = datetime.now(timezone.utc)
     return CaseDocument(
         id=case_id,
         createdDate=created_date or now.date().isoformat(),
@@ -105,7 +111,7 @@ def test_list_cases_returns_empty_list_when_no_cases_exist(
     assert response.json() == []
 
 
-def test_list_cases_returns_saved_cases_in_save_order(
+def test_list_cases_returns_saved_cases_newest_first(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = InMemoryCaseRepository()
@@ -113,8 +119,18 @@ def test_list_cases_returns_saved_cases_in_save_order(
         save_cases(
             repository,
             [
-                build_queue_case("case-1"),
-                build_queue_case("case-2"),
+                build_queue_case(
+                    "oldest",
+                    created_utc=datetime(2026, 6, 26, 9, 0, tzinfo=timezone.utc),
+                ),
+                build_queue_case(
+                    "newest",
+                    created_utc=datetime(2026, 6, 26, 11, 0, tzinfo=timezone.utc),
+                ),
+                build_queue_case(
+                    "middle",
+                    created_utc=datetime(2026, 6, 26, 10, 0, tzinfo=timezone.utc),
+                ),
             ],
         )
     )
@@ -123,7 +139,126 @@ def test_list_cases_returns_saved_cases_in_save_order(
     response = local_client.get("/cases")
 
     assert response.status_code == 200
-    assert [case["id"] for case in response.json()] == ["case-1", "case-2"]
+    assert [case["id"] for case in response.json()] == ["newest", "middle", "oldest"]
+
+
+def test_list_cases_applies_limit_after_sorting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("oldest", created_date="2026-06-24"),
+                build_queue_case("middle", created_date="2026-06-25"),
+                build_queue_case("newest", created_date="2026-06-26"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?limit=2")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["newest", "middle"]
+
+
+def test_list_cases_applies_offset_after_sorting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("oldest", created_date="2026-06-24"),
+                build_queue_case("middle", created_date="2026-06-25"),
+                build_queue_case("newest", created_date="2026-06-26"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?offset=1")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["middle", "oldest"]
+
+
+def test_list_cases_applies_limit_and_offset_together(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("oldest", created_date="2026-06-23"),
+                build_queue_case("older", created_date="2026-06-24"),
+                build_queue_case("middle", created_date="2026-06-25"),
+                build_queue_case("newest", created_date="2026-06-26"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?limit=2&offset=1")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["middle", "older"]
+
+
+def test_list_cases_applies_pagination_after_existing_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "routine-pending-newest",
+                    review_status="PendingReview",
+                    urgency="Routine",
+                    created_date="2026-06-27",
+                ),
+                build_queue_case(
+                    "urgent-pending-newest",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-26",
+                ),
+                build_queue_case(
+                    "urgent-pending-middle",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-25",
+                ),
+                build_queue_case(
+                    "urgent-pending-oldest",
+                    review_status="PendingReview",
+                    urgency="Urgent",
+                    created_date="2026-06-24",
+                ),
+                build_queue_case(
+                    "urgent-reviewed",
+                    review_status="Reviewed",
+                    urgency="Urgent",
+                    created_date="2026-06-23",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?reviewStatus=PendingReview&urgency=Urgent"
+        "&fromDate=2026-06-24&toDate=2026-06-26&limit=1&offset=1"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["urgent-pending-middle"]
 
 
 def test_list_cases_filters_by_pending_review_status(
@@ -242,7 +377,7 @@ def test_list_cases_filters_from_date_inclusive(
     response = local_client.get("/cases?fromDate=2026-06-24")
 
     assert response.status_code == 200
-    assert [case["id"] for case in response.json()] == ["start", "newer"]
+    assert [case["id"] for case in response.json()] == ["newer", "start"]
 
 
 def test_list_cases_filters_to_date_inclusive(
@@ -264,7 +399,7 @@ def test_list_cases_filters_to_date_inclusive(
     response = local_client.get("/cases?toDate=2026-06-24")
 
     assert response.status_code == 200
-    assert [case["id"] for case in response.json()] == ["older", "end"]
+    assert [case["id"] for case in response.json()] == ["end", "older"]
 
 
 def test_list_cases_filters_by_inclusive_date_range(
@@ -287,7 +422,7 @@ def test_list_cases_filters_by_inclusive_date_range(
     response = local_client.get("/cases?fromDate=2026-06-23&toDate=2026-06-25")
 
     assert response.status_code == 200
-    assert [case["id"] for case in response.json()] == ["start", "end"]
+    assert [case["id"] for case in response.json()] == ["end", "start"]
 
 
 def test_list_cases_combines_review_status_urgency_and_date_filters(
@@ -376,6 +511,43 @@ def test_list_cases_rejects_invalid_to_date(
     local_client = create_local_cases_client(monkeypatch, repository)
 
     response = local_client.get("/cases?toDate=not-a-date")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("limit", ["0", "-1", "101"])
+def test_list_cases_rejects_invalid_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    limit: str,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(f"/cases?limit={limit}")
+
+    assert response.status_code == 422
+
+
+def test_list_cases_rejects_non_integer_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?limit=two")
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("offset", ["-1", "one"])
+def test_list_cases_rejects_invalid_offset(
+    monkeypatch: pytest.MonkeyPatch,
+    offset: str,
+) -> None:
+    repository = InMemoryCaseRepository()
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(f"/cases?offset={offset}")
 
     assert response.status_code == 422
 
@@ -484,6 +656,28 @@ def test_case_summary_returns_queue_counts(
         "routine": 3,
         "pendingUrgent": 1,
     }
+
+
+def test_case_summary_is_not_paginated_by_limit_or_offset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("case-1"),
+                build_queue_case("case-2"),
+                build_queue_case("case-3"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?limit=1&offset=1")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 3
 
 
 def test_case_summary_filters_from_date_inclusive(

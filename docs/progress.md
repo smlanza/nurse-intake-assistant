@@ -16,6 +16,7 @@ Completed:
 - Case processing service
 - Human-in-the-loop nurse review workflow is complete
 - Mock nurse queue date filtering is complete
+- Mock nurse queue ordering and pagination are complete
 - Nurse queue summary endpoint is complete
 - Mock-only demo reset endpoint is complete
 - Notification status semantics are complete
@@ -208,6 +209,23 @@ Completed:
 - Cosmos case list behavior remains a clear not-implemented boundary for now.
 - No Azure service calls, infrastructure, authentication, Key Vault, hosting,
   voice intake, retry logic, or live ACS SMS work was added for this slice.
+- Mock nurse queue ordering and pagination are complete.
+- `GET /cases` returns mock/in-memory cases newest-first by `createdUtc`.
+- Case id is used as a deterministic tie-breaker when `createdUtc` values are
+  equal.
+- Existing queue filters are preserved: `reviewStatus`, `urgency`, `fromDate`,
+  and `toDate`.
+- Optional `limit` and `offset` query parameters apply after filtering and
+  sorting.
+- `limit` must be between 1 and 100, and `offset` must be zero or greater.
+- Invalid `limit` and `offset` values return client errors.
+- `GET /cases/{case_id}` and `GET /cases/summary` behavior remains preserved,
+  and summary counts are not affected by pagination.
+- Cosmos list/query behavior remains a clear not-implemented boundary.
+- No Cosmos cross-partition list/query work, Azure service calls,
+  infrastructure, authentication, Key Vault, hosting, voice intake, retry
+  logic, live Azure AI Foundry extraction, or ACS delivery-report work was added
+  for this slice.
 - Nurse queue summary endpoint is complete.
 - `GET /cases/summary` provides dashboard-style counts for the mock nurse
   queue.
@@ -299,6 +317,12 @@ POST /intake/text
 → CaseDocument response
 
 Available demo/read routes:
+- `GET /cases` returns mock/in-memory cases newest-first after applying any
+  `reviewStatus`, `urgency`, `fromDate`, and `toDate` filters.
+- `GET /cases` supports optional `limit` and `offset` pagination after
+  filtering and sorting.
+- `GET /cases/summary` remains unpaginated and continues to report counts for
+  the full filtered mock queue.
 - `GET /cases/{case_id}` returns a saved case in mock/default mode without
   requiring `createdDate`.
 - `GET /cases/{case_id}?createdDate=YYYY-MM-DD` passes `createdDate` to the
@@ -328,6 +352,9 @@ Repository support:
 - Case documents include a date-only `createdDate` field.
 - `InMemoryCaseRepository.get_by_id(case_id, created_date=None)` accepts the
   optional `created_date` parameter for interface compatibility and ignores it.
+- `InMemoryCaseRepository.list_cases(...)` applies queue filters and returns
+  cases newest-first by `createdUtc`, with case id as a deterministic
+  tie-breaker.
 - `CosmosCaseRepository` serializes and upserts case documents through an injected
   Cosmos-style container. It reads with `item=case_id` and
   `partition_key=createdDate` when `created_date` is supplied, and maps
@@ -649,7 +676,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 241 passed
+- 253 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -662,10 +689,10 @@ into intake processing, ACS SMS fake-client behavior, ACS SMS production failure
 handling, mock SMS notification inspection, the local mock demo guide,
 `.env.example` SMS documentation alignment, the manual ACS SMS smoke-test guide
 placeholder, the ACS SMS client factory scaffold, ACS SMS SDK dependency
-alignment, and notification status semantics are complete. ACS SMS reached the
-SDK/send-request path, but handset delivery remains pending toll-free
-verification. Review and commit the current documentation/code/test changes
-before selecting the next TDD slice.
+alignment, notification status semantics, and mock nurse queue ordering and
+pagination are complete. ACS SMS reached the SDK/send-request path, but handset
+delivery remains pending toll-free verification. Review and commit the current
+documentation/code/test changes before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
 extraction integration, voice intake, retry logic, or authentication yet.
