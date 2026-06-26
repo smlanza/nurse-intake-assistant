@@ -43,6 +43,9 @@ class MockEmailNotificationSender:
             )
         )
 
+    def clear(self) -> None:
+        self.sent_notifications.clear()
+
 
 class AcsEmailNotificationSender:
     """Build ACS Email messages through an injected client."""

@@ -40,6 +40,9 @@ class MockSmsNotificationSender:
         )
         return True
 
+    def clear(self) -> None:
+        self.sent_notifications.clear()
+
 
 class AcsSmsNotificationSender:
     """Placeholder ACS SMS sender with configuration only."""

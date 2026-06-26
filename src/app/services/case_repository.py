@@ -45,6 +45,9 @@ class InMemoryCaseRepository:
     ) -> CaseDocument | None:
         return self._cases.get(case_id)
 
+    def clear(self) -> None:
+        self._cases.clear()
+
     async def list_cases(
         self,
         review_status: ReviewStatus | None = None,

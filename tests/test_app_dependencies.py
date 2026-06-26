@@ -15,6 +15,7 @@ APP_SETUP_MODULES = (
     "src.app.routes.intake",
     "src.app.routes.cases",
     "src.app.routes.notifications",
+    "src.app.routes.demo",
     "src.app.dependencies",
 )
 
