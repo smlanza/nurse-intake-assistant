@@ -69,6 +69,18 @@ def build_queue_case(
     )
 
 
+def with_notification_statuses(
+    case: CaseDocument,
+    email_status: str = "NotAttempted",
+    sms_status: str = "NotAttempted",
+    sms_delivery_confirmed: bool = False,
+) -> CaseDocument:
+    case.notificationEmailStatus = email_status
+    case.notificationSmsStatus = sms_status
+    case.notificationSmsDeliveryConfirmed = sms_delivery_confirmed
+    return case
+
+
 async def save_cases(
     repository: InMemoryCaseRepository,
     cases: list[CaseDocument],
@@ -823,6 +835,15 @@ def test_case_summary_returns_zero_counts_when_no_cases_exist(
         "pendingUrgent": 0,
         "completeIntakes": 0,
         "needsFollowUpIntakes": 0,
+        "emailMockRecorded": 0,
+        "emailAccepted": 0,
+        "emailFailed": 0,
+        "emailSuppressed": 0,
+        "smsMockRecorded": 0,
+        "smsAccepted": 0,
+        "smsFailed": 0,
+        "smsSuppressed": 0,
+        "smsDeliveryConfirmed": 0,
     }
 
 
@@ -880,7 +901,65 @@ def test_case_summary_returns_queue_counts(
         "pendingUrgent": 1,
         "completeIntakes": 3,
         "needsFollowUpIntakes": 2,
+        "emailMockRecorded": 0,
+        "emailAccepted": 0,
+        "emailFailed": 0,
+        "emailSuppressed": 0,
+        "smsMockRecorded": 0,
+        "smsAccepted": 0,
+        "smsFailed": 0,
+        "smsSuppressed": 0,
+        "smsDeliveryConfirmed": 0,
     }
+
+
+def test_case_summary_returns_notification_status_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("email-mock-sms-mock"),
+                    email_status="MockRecorded",
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("email-accepted-sms-accepted"),
+                    email_status="Accepted",
+                    sms_status="Accepted",
+                    sms_delivery_confirmed=True,
+                ),
+                with_notification_statuses(
+                    build_queue_case("email-failed-sms-failed"),
+                    email_status="Failed",
+                    sms_status="Failed",
+                ),
+                with_notification_statuses(
+                    build_queue_case("email-suppressed-sms-suppressed"),
+                    email_status="Suppressed",
+                    sms_status="Suppressed",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary")
+
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["emailMockRecorded"] == 1
+    assert summary["emailAccepted"] == 1
+    assert summary["emailFailed"] == 1
+    assert summary["emailSuppressed"] == 1
+    assert summary["smsMockRecorded"] == 1
+    assert summary["smsAccepted"] == 1
+    assert summary["smsFailed"] == 1
+    assert summary["smsSuppressed"] == 1
+    assert summary["smsDeliveryConfirmed"] == 1
 
 
 def test_case_summary_is_not_paginated_by_limit_or_offset(
@@ -891,9 +970,22 @@ def test_case_summary_is_not_paginated_by_limit_or_offset(
         save_cases(
             repository,
             [
-                build_queue_case("case-1"),
-                build_queue_case("case-2"),
-                build_queue_case("case-3"),
+                with_notification_statuses(
+                    build_queue_case("case-1"),
+                    email_status="MockRecorded",
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("case-2"),
+                    email_status="Accepted",
+                    sms_status="Accepted",
+                    sms_delivery_confirmed=True,
+                ),
+                with_notification_statuses(
+                    build_queue_case("case-3"),
+                    email_status="Failed",
+                    sms_status="Failed",
+                ),
             ],
         )
     )
@@ -905,6 +997,13 @@ def test_case_summary_is_not_paginated_by_limit_or_offset(
     assert response.json()["total"] == 3
     assert response.json()["completeIntakes"] == 3
     assert response.json()["needsFollowUpIntakes"] == 0
+    assert response.json()["emailMockRecorded"] == 1
+    assert response.json()["emailAccepted"] == 1
+    assert response.json()["emailFailed"] == 1
+    assert response.json()["smsMockRecorded"] == 1
+    assert response.json()["smsAccepted"] == 1
+    assert response.json()["smsFailed"] == 1
+    assert response.json()["smsDeliveryConfirmed"] == 1
 
 
 def test_case_summary_filters_from_date_inclusive(
@@ -1021,6 +1120,59 @@ def test_case_summary_intake_completion_counts_respect_date_filters(
     assert response.json()["total"] == 2
     assert response.json()["completeIntakes"] == 1
     assert response.json()["needsFollowUpIntakes"] == 1
+
+
+def test_case_summary_notification_counts_respect_date_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("older-mock", created_date="2026-06-22"),
+                    email_status="MockRecorded",
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("start-accepted", created_date="2026-06-23"),
+                    email_status="Accepted",
+                    sms_status="Accepted",
+                    sms_delivery_confirmed=True,
+                ),
+                with_notification_statuses(
+                    build_queue_case("end-failed", created_date="2026-06-25"),
+                    email_status="Failed",
+                    sms_status="Failed",
+                ),
+                with_notification_statuses(
+                    build_queue_case("newer-suppressed", created_date="2026-06-26"),
+                    email_status="Suppressed",
+                    sms_status="Suppressed",
+                    sms_delivery_confirmed=True,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases/summary?fromDate=2026-06-23&toDate=2026-06-25"
+    )
+
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["total"] == 2
+    assert summary["emailMockRecorded"] == 0
+    assert summary["emailAccepted"] == 1
+    assert summary["emailFailed"] == 1
+    assert summary["emailSuppressed"] == 0
+    assert summary["smsMockRecorded"] == 0
+    assert summary["smsAccepted"] == 1
+    assert summary["smsFailed"] == 1
+    assert summary["smsSuppressed"] == 0
+    assert summary["smsDeliveryConfirmed"] == 1
 
 
 def test_case_summary_rejects_invalid_from_date(

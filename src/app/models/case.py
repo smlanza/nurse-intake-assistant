@@ -90,3 +90,12 @@ class CaseQueueSummary(BaseModel):
     pendingUrgent: int
     completeIntakes: int
     needsFollowUpIntakes: int
+    emailMockRecorded: int
+    emailAccepted: int
+    emailFailed: int
+    emailSuppressed: int
+    smsMockRecorded: int
+    smsAccepted: int
+    smsFailed: int
+    smsSuppressed: int
+    smsDeliveryConfirmed: int

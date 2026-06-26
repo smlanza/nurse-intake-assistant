@@ -21,6 +21,7 @@ Completed:
 - Mock nurse queue intake status filtering is complete
 - Mock nurse queue ordering and pagination are complete
 - Nurse queue summary endpoint is complete
+- Nurse queue summary notification status counts are complete
 - Mock-only demo reset endpoint is complete
 - Notification status semantics are complete
 - Text intake API route
@@ -276,19 +277,36 @@ Completed:
   queue.
 - Summary counts include total cases, pending review cases, reviewed cases,
   urgent cases, routine cases, and pending urgent cases.
+- Summary counts include intake completion counts:
+  `completeIntakes` and `needsFollowUpIntakes`.
+- Summary counts include email notification outcome counts:
+  `emailMockRecorded`, `emailAccepted`, `emailFailed`, and
+  `emailSuppressed`.
+- Summary counts include SMS notification outcome counts:
+  `smsMockRecorded`, `smsAccepted`, `smsFailed`, `smsSuppressed`, and
+  `smsDeliveryConfirmed`.
 - Summary counts support optional inclusive `fromDate` and `toDate` filtering
   using date-only `YYYY-MM-DD` semantics based on `createdDate`.
+- Summary date filters apply consistently to intake completion and notification
+  outcome counts.
+- Summary remains unpaginated when `limit` and `offset` are supplied.
 - The summary endpoint reuses existing queue/list filtering behavior where
   appropriate.
 - `GET /cases/summary` route ordering is handled so it is not swallowed by
   `GET /cases/{case_id}`.
 - This supports demo dashboard scenarios such as "how many urgent pending cases
   are in the current queue?"
+- This supports demo dashboard scenarios such as "how many notifications were
+  mock recorded, accepted, failed, or suppressed?"
 - Cosmos summary querying remains a future enhancement because Cosmos
   queue/list behavior is intentionally not implemented yet.
 - No Cosmos cross-partition summary query, Azure service calls, infrastructure,
   authentication, Key Vault, hosting, voice intake, retry logic, or live ACS SMS
   work was added for this slice.
+- No ACS delivery reports, ACS status polling, authentication, role-based access
+  control, hosting, Key Vault, retry logic, live Azure AI Foundry extraction,
+  voice intake, live Azure calls, or Cosmos cross-partition list/query work was
+  added for the notification summary counts slice.
 - Mock-only demo reset endpoint is complete.
 - `POST /demo/reset` clears in-memory cases, mock email notifications, and mock
   SMS notifications for repeatable local demos.
@@ -723,7 +741,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 271 passed
+- 273 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -738,10 +756,11 @@ handling, mock SMS notification inspection, the local mock demo guide,
 placeholder, the ACS SMS client factory scaffold, ACS SMS SDK dependency
 alignment, notification status semantics, mock nurse queue ordering and
 pagination, mock nurse queue intake status filtering, nurse review request
-validation, and intake missing-field review priority are complete. ACS SMS
-reached the SDK/send-request path, but handset delivery remains pending
-toll-free verification. Review and commit the current documentation/code/test
-changes before selecting the next TDD slice.
+validation, intake missing-field review priority, and nurse queue summary
+notification status counts are complete. ACS SMS reached the SDK/send-request
+path, but handset delivery remains pending toll-free verification. Review and
+commit the current documentation/code/test changes before selecting the next TDD
+slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
 extraction integration, voice intake, retry logic, or authentication yet.

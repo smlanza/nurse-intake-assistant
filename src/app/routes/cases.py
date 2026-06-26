@@ -85,6 +85,21 @@ async def get_case_summary(
         ),
         completeIntakes=sum(case.intakeComplete for case in cases),
         needsFollowUpIntakes=sum(not case.intakeComplete for case in cases),
+        emailMockRecorded=sum(
+            case.notificationEmailStatus == "MockRecorded" for case in cases
+        ),
+        emailAccepted=sum(case.notificationEmailStatus == "Accepted" for case in cases),
+        emailFailed=sum(case.notificationEmailStatus == "Failed" for case in cases),
+        emailSuppressed=sum(
+            case.notificationEmailStatus == "Suppressed" for case in cases
+        ),
+        smsMockRecorded=sum(
+            case.notificationSmsStatus == "MockRecorded" for case in cases
+        ),
+        smsAccepted=sum(case.notificationSmsStatus == "Accepted" for case in cases),
+        smsFailed=sum(case.notificationSmsStatus == "Failed" for case in cases),
+        smsSuppressed=sum(case.notificationSmsStatus == "Suppressed" for case in cases),
+        smsDeliveryConfirmed=sum(case.notificationSmsDeliveryConfirmed for case in cases),
     )
 
 
