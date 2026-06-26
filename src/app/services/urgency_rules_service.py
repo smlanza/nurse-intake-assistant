@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Annotated, Literal
 
@@ -37,6 +38,15 @@ class RuleEvaluationResult(BaseModel):
 class UrgencyRulesService:
     """Apply deterministic red-flag rules alongside advisory AI urgency."""
 
+    _hard_boundary_pattern = re.compile(r"[.!?;]")
+    _contrast_pattern = re.compile(
+        r"\b(?:but|however|though|although|yet|except)\b"
+    )
+    _negated_context_pattern = re.compile(
+        r"(?:^|\b)(?:no|denies|denied|without|negative\s+for)\b"
+        r"(?:[\s,:]+[\w']+){0,6}[\s,:]*$"
+    )
+
     def __init__(self, config_path: str | Path):
         self.config_path = Path(config_path)
         self.config = self._load_config()
@@ -58,7 +68,10 @@ class UrgencyRulesService:
             for term in rule.terms:
                 normalized_term = term.casefold()
 
-                if normalized_term in normalized_text:
+                if self._has_non_negated_term_match(
+                    normalized_text,
+                    normalized_term,
+                ):
                     matches.append(
                         MatchedRedFlag(
                             rule_id=rule.id,
@@ -77,3 +90,38 @@ class UrgencyRulesService:
             urgency="Routine",
             matched_red_flags=[],
         )
+
+    def _has_non_negated_term_match(
+        self,
+        normalized_text: str,
+        normalized_term: str,
+    ) -> bool:
+        for match in re.finditer(re.escape(normalized_term), normalized_text):
+            if not self._is_negated_match(normalized_text, match.start()):
+                return True
+
+        return False
+
+    def _is_negated_match(self, normalized_text: str, match_start: int) -> bool:
+        context = normalized_text[max(0, match_start - 80) : match_start]
+
+        hard_boundary = self._last_match_end(self._hard_boundary_pattern, context)
+        if hard_boundary is not None:
+            context = context[hard_boundary:]
+
+        contrast = self._last_match_end(self._contrast_pattern, context)
+        if contrast is not None:
+            context = context[contrast:]
+
+        return bool(self._negated_context_pattern.search(context))
+
+    @staticmethod
+    def _last_match_end(pattern: re.Pattern[str], text: str) -> int | None:
+        last_match = None
+        for match in pattern.finditer(text):
+            last_match = match
+
+        if last_match is None:
+            return None
+
+        return last_match.end()

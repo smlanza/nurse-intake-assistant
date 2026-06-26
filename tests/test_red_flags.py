@@ -50,3 +50,51 @@ def test_returns_routine_when_no_rules_match(
 
     assert result.urgency == "Routine"
     assert result.matched_red_flags == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "No chest pain.",
+        "Patient denies shortness of breath.",
+        "No severe bleeding.",
+        "No stroke symptoms.",
+    ],
+)
+def test_returns_routine_for_negated_red_flags(
+    rules_service: UrgencyRulesService,
+    text: str,
+) -> None:
+    result = rules_service.evaluate(text)
+
+    assert result.urgency == "Routine"
+    assert result.matched_red_flags == []
+
+
+@pytest.mark.parametrize(
+    "text,expected_rule_ids",
+    [
+        ("I have chest pain.", ["chest_pain"]),
+        (
+            "Chest pain and shortness of breath.",
+            ["chest_pain", "shortness_of_breath"],
+        ),
+        (
+            "No chest pain, but I am having trouble breathing.",
+            ["shortness_of_breath"],
+        ),
+        (
+            "Patient denies chest pain but reports severe bleeding.",
+            ["severe_bleeding"],
+        ),
+    ],
+)
+def test_returns_urgent_for_non_negated_red_flags(
+    rules_service: UrgencyRulesService,
+    text: str,
+    expected_rule_ids: list[str],
+) -> None:
+    result = rules_service.evaluate(text)
+
+    assert result.urgency == "Urgent"
+    assert [match.rule_id for match in result.matched_red_flags] == expected_rule_ids
