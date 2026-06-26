@@ -15,6 +15,7 @@ Completed:
 - Structured missing intake field validation is complete
 - Case processing service
 - Human-in-the-loop nurse review workflow is complete
+- Nurse review request validation is complete
 - Mock nurse queue date filtering is complete
 - Mock nurse queue ordering and pagination are complete
 - Nurse queue summary endpoint is complete
@@ -174,6 +175,11 @@ Completed:
 - Newly created cases default to `PendingReview`.
 - Review metadata is persisted with the case, including `reviewedBy`,
   `reviewNotes`, and `reviewedAt`.
+- Review requests now require a non-blank `reviewedBy` value.
+- `reviewedBy` is trimmed before persistence.
+- `reviewNotes` remains optional.
+- Blank or whitespace-only `reviewNotes` values are stored as `None`.
+- Non-blank `reviewNotes` values are trimmed before persistence.
 - Reviewing a missing case returns HTTP 404.
 - In mock/default mode, reviewing a case works without `createdDate`.
 - In Cosmos mode, review follows the existing lookup convention: missing
@@ -183,8 +189,12 @@ Completed:
   save/upsert behavior; no separate review repository was added.
 - The review workflow reinforces that AI output requires nurse review and that
   the system is an intake assistant, not an autonomous medical decision-maker.
-- No authentication, role-based access control, Azure service calls, or
-  notification behavior changes were added for this slice.
+- Existing case retrieval, queue filtering, queue summary, ordering,
+  pagination, and Cosmos review behavior remain preserved.
+- No authentication, role-based access control, audit tables, Azure service
+  calls, hosting, Key Vault, retry logic, live Azure AI Foundry extraction,
+  voice intake, ACS delivery tracking, or notification behavior changes were
+  added for this slice.
 - Mock nurse queue date filtering is complete.
 - `GET /cases` supports `fromDate` and `toDate` filters in mock/default mode.
 - Date filters use date-only `YYYY-MM-DD` semantics and are based on
@@ -676,7 +686,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 253 passed
+- 258 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
@@ -690,9 +700,10 @@ handling, mock SMS notification inspection, the local mock demo guide,
 `.env.example` SMS documentation alignment, the manual ACS SMS smoke-test guide
 placeholder, the ACS SMS client factory scaffold, ACS SMS SDK dependency
 alignment, notification status semantics, and mock nurse queue ordering and
-pagination are complete. ACS SMS reached the SDK/send-request path, but handset
-delivery remains pending toll-free verification. Review and commit the current
-documentation/code/test changes before selecting the next TDD slice.
+pagination, and nurse review request validation are complete. ACS SMS reached
+the SDK/send-request path, but handset delivery remains pending toll-free
+verification. Review and commit the current documentation/code/test changes
+before selecting the next TDD slice.
 
 Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
 extraction integration, voice intake, retry logic, or authentication yet.

@@ -834,6 +834,63 @@ def test_review_case_marks_case_reviewed() -> None:
     assert saved_response.json()["reviewStatus"] == "Reviewed"
 
 
+def test_review_case_trims_reviewer_and_notes() -> None:
+    created_case = create_case()
+
+    response = client.post(
+        f"/cases/{created_case['id']}/review",
+        json={
+            "reviewedBy": "  nurse-demo  ",
+            "reviewNotes": "  Called patient back.  ",
+        },
+    )
+
+    assert response.status_code == 200
+    reviewed_case = response.json()
+    assert reviewed_case["reviewStatus"] == "Reviewed"
+    assert reviewed_case["reviewedBy"] == "nurse-demo"
+    assert reviewed_case["reviewNotes"] == "Called patient back."
+    assert reviewed_case["reviewedAt"] is not None
+    datetime.fromisoformat(reviewed_case["reviewedAt"])
+
+
+@pytest.mark.parametrize("review_notes", ["", "   "])
+def test_review_case_stores_blank_review_notes_as_none(
+    review_notes: str,
+) -> None:
+    created_case = create_case()
+
+    response = client.post(
+        f"/cases/{created_case['id']}/review",
+        json={
+            "reviewedBy": "nurse-demo",
+            "reviewNotes": review_notes,
+        },
+    )
+
+    assert response.status_code == 200
+    reviewed_case = response.json()
+    assert reviewed_case["reviewStatus"] == "Reviewed"
+    assert reviewed_case["reviewedBy"] == "nurse-demo"
+    assert reviewed_case["reviewNotes"] is None
+    assert reviewed_case["reviewedAt"] is not None
+
+
+@pytest.mark.parametrize("reviewed_by", ["", "   "])
+def test_review_case_rejects_blank_reviewer(reviewed_by: str) -> None:
+    created_case = create_case()
+
+    response = client.post(
+        f"/cases/{created_case['id']}/review",
+        json={
+            "reviewedBy": reviewed_by,
+            "reviewNotes": "Called patient back.",
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_review_case_returns_404_when_case_does_not_exist() -> None:
     response = client.post(
         "/cases/nonexistent-case-id/review",
