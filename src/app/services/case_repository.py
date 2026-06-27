@@ -18,6 +18,12 @@ class CaseRepository(Protocol):
     ) -> CaseDocument | None:
         ...
 
+    async def get_by_idempotency_key(
+        self,
+        idempotency_key: str,
+    ) -> CaseDocument | None:
+        ...
+
     async def list_cases(
         self,
         review_status: ReviewStatus | None = None,
@@ -46,6 +52,15 @@ class InMemoryCaseRepository:
         created_date: str | None = None,
     ) -> CaseDocument | None:
         return self._cases.get(case_id)
+
+    async def get_by_idempotency_key(
+        self,
+        idempotency_key: str,
+    ) -> CaseDocument | None:
+        for case in self._cases.values():
+            if case.idempotencyKey == idempotency_key:
+                return case
+        return None
 
     def clear(self) -> None:
         self._cases.clear()

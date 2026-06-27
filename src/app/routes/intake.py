@@ -42,6 +42,7 @@ class VoicemailTranscriptIntakeRequest(BaseModel):
     callerPhoneNumber: str | None = None
     sourceRecordingId: str | None = None
     audioBlobName: str | None = None
+    idempotencyKey: str | None = None
 
     @field_validator("transcript")
     @classmethod
@@ -55,6 +56,7 @@ class VoicemailTranscriptIntakeRequest(BaseModel):
         "callerPhoneNumber",
         "sourceRecordingId",
         "audioBlobName",
+        "idempotencyKey",
     )
     @classmethod
     def optional_metadata_must_be_clean(cls, value: str | None) -> str | None:
@@ -74,11 +76,19 @@ async def create_text_intake(request: TextIntakeRequest) -> CaseDocument:
 async def create_voicemail_transcript_intake(
     request: VoicemailTranscriptIntakeRequest,
 ) -> CaseDocument:
+    if request.idempotencyKey is not None:
+        existing_case = await case_repository.get_by_idempotency_key(
+            request.idempotencyKey
+        )
+        if existing_case is not None:
+            return existing_case
+
     case = await case_processing_service.process(request.transcript, "phone-intake")
     case.sourceSystem = request.sourceSystem
     case.sourceCallId = request.sourceCallId
     case.sourceRecordingId = request.sourceRecordingId
     case.audioBlobName = request.audioBlobName
+    case.idempotencyKey = request.idempotencyKey
     await case_repository.save(case)
     return case
 

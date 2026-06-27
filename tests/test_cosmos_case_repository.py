@@ -182,6 +182,20 @@ def test_cosmos_repository_returns_none_when_case_is_missing() -> None:
     assert retrieved_case is None
 
 
+def test_cosmos_repository_idempotency_lookup_is_not_implemented() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    repository = CosmosCaseRepository(container=FakeCosmosContainer())
+
+    try:
+        asyncio.run(repository.get_by_idempotency_key("voicemail-key-123"))
+    except NotImplementedError as error:
+        assert "idempotencyKey" in str(error)
+        assert "cross-partition" in str(error)
+    else:
+        raise AssertionError("Expected Cosmos idempotency lookup to be explicit")
+
+
 def test_cosmos_repository_satisfies_case_repository_protocol() -> None:
     from src.app.services.case_repository import CaseRepository
     from src.app.services.cosmos_case_repository import CosmosCaseRepository

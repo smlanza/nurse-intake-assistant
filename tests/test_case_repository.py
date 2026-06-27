@@ -74,6 +74,32 @@ def test_in_memory_repository_returns_none_for_missing_case_id() -> None:
     assert asyncio.run(repository.get_by_id("missing-case")) is None
 
 
+def test_in_memory_repository_retrieves_case_by_idempotency_key() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    case = build_case()
+    case.idempotencyKey = "voicemail-key-123"
+    asyncio.run(repository.save(case))
+
+    saved_case = asyncio.run(
+        repository.get_by_idempotency_key("voicemail-key-123")
+    )
+
+    assert saved_case == case
+
+
+def test_in_memory_repository_returns_none_for_missing_idempotency_key() -> None:
+    from src.app.services.case_repository import InMemoryCaseRepository
+
+    repository = InMemoryCaseRepository()
+    case = build_case()
+    case.idempotencyKey = "voicemail-key-123"
+    asyncio.run(repository.save(case))
+
+    assert asyncio.run(repository.get_by_idempotency_key("missing-key")) is None
+
+
 def test_in_memory_repository_lists_saved_cases_newest_first() -> None:
     from src.app.services.case_repository import InMemoryCaseRepository
 

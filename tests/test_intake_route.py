@@ -368,6 +368,153 @@ def test_voicemail_transcript_source_metadata_is_trimmed_before_persistence() ->
     assert saved_case["audioBlobName"] == "voicemail/recording-123.wav"
 
 
+def test_voicemail_transcript_accepts_and_persists_idempotency_key() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            ),
+            "idempotencyKey": "voicemail-key-123",
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["idempotencyKey"] == "voicemail-key-123"
+    assert client.get("/cases").json()[0]["idempotencyKey"] == "voicemail-key-123"
+
+
+def test_voicemail_transcript_trims_idempotency_key_before_persistence() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            ),
+            "idempotencyKey": "  voicemail-key-123  ",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["idempotencyKey"] == "voicemail-key-123"
+
+
+@pytest.mark.parametrize("idempotency_key", ["", "   "])
+def test_voicemail_transcript_blank_idempotency_key_becomes_none_and_does_not_dedupe(
+    idempotency_key: str,
+) -> None:
+    reset_demo_state()
+    payload = {
+        "transcript": (
+            "My name is Jane Doe. DOB: 1980-04-15. "
+            "My callback number is +1 (555) 555-0123. "
+            "I need a medication refill."
+        ),
+        "idempotencyKey": idempotency_key,
+    }
+
+    first_response = client.post("/intake/voicemail-transcript", json=payload)
+    second_response = client.post("/intake/voicemail-transcript", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["idempotencyKey"] is None
+    assert second_response.json()["idempotencyKey"] is None
+    assert first_response.json()["id"] != second_response.json()["id"]
+    assert len(client.get("/cases").json()) == 2
+
+
+def test_voicemail_transcript_repeated_idempotency_key_returns_existing_case() -> None:
+    reset_demo_state()
+    payload = {
+        "transcript": (
+            "My name is Jane Doe. DOB: 1980-04-15. "
+            "My callback number is +1 (555) 555-0123. "
+            "I need a medication refill."
+        ),
+        "idempotencyKey": "voicemail-key-123",
+    }
+
+    first_response = client.post("/intake/voicemail-transcript", json=payload)
+    second_response = client.post("/intake/voicemail-transcript", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert second_response.json()["id"] == first_response.json()["id"]
+    assert len(client.get("/cases").json()) == 1
+
+
+def test_voicemail_transcript_repeated_idempotency_key_avoids_duplicate_notifications() -> None:
+    reset_demo_state()
+    payload = {
+        "transcript": (
+            "My name is Jane Doe. DOB: 1980-04-15. "
+            "My callback number is +1 (555) 555-0123. "
+            "I need a medication refill."
+        ),
+        "idempotencyKey": "voicemail-key-123",
+    }
+
+    first_response = client.post("/intake/voicemail-transcript", json=payload)
+    second_response = client.post("/intake/voicemail-transcript", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert len(client.get("/notifications/email").json()) == 1
+    assert len(client.get("/notifications/sms").json()) == 1
+
+
+def test_voicemail_transcript_different_idempotency_keys_create_different_cases() -> None:
+    reset_demo_state()
+    transcript = (
+        "My name is Jane Doe. DOB: 1980-04-15. "
+        "My callback number is +1 (555) 555-0123. "
+        "I need a medication refill."
+    )
+
+    first_response = client.post(
+        "/intake/voicemail-transcript",
+        json={"transcript": transcript, "idempotencyKey": "voicemail-key-1"},
+    )
+    second_response = client.post(
+        "/intake/voicemail-transcript",
+        json={"transcript": transcript, "idempotencyKey": "voicemail-key-2"},
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["id"] != second_response.json()["id"]
+    assert len(client.get("/cases").json()) == 2
+
+
+def test_voicemail_transcript_missing_idempotency_key_creates_new_case_each_time() -> None:
+    reset_demo_state()
+    payload = {
+        "transcript": (
+            "My name is Jane Doe. DOB: 1980-04-15. "
+            "My callback number is +1 (555) 555-0123. "
+            "I need a medication refill."
+        )
+    }
+
+    first_response = client.post("/intake/voicemail-transcript", json=payload)
+    second_response = client.post("/intake/voicemail-transcript", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["id"] != second_response.json()["id"]
+    assert len(client.get("/cases").json()) == 2
+
+
 def test_voicemail_transcript_accepts_caller_phone_number_as_request_metadata() -> None:
     reset_demo_state()
 

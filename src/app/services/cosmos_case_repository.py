@@ -54,6 +54,15 @@ class CosmosCaseRepository:
 
         return CaseDocument.model_validate(stored_case)
 
+    async def get_by_idempotency_key(
+        self,
+        idempotency_key: str,
+    ) -> CaseDocument | None:
+        raise NotImplementedError(
+            "Cosmos idempotencyKey lookup requires cross-partition query support "
+            "and is not implemented in this slice."
+        )
+
     async def list_cases(
         self,
         review_status: ReviewStatus | None = None,

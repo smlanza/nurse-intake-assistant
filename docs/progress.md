@@ -43,6 +43,16 @@ Completed:
 - No audio upload, Azure Speech, Blob Storage calls, live Azure AI Foundry,
   Twilio, ACS voice, hosting, Key Vault, auth, retry logic, or notification
   semantic changes were added for voicemail recording metadata
+- Voicemail transcript idempotency is complete for mock/in-memory mode
+- `POST /intake/voicemail-transcript` accepts optional `idempotencyKey`
+- Repeated valid voicemail transcript submissions with the same `idempotencyKey`
+  return the existing case instead of creating duplicates
+- Duplicate mock email/SMS notifications are avoided for idempotent repeats
+- Missing `idempotencyKey` preserves existing create-new-case behavior
+- Cosmos cross-partition idempotency lookup remains a future enhancement
+- No live Azure calls, retry logic, auth, hosting, Key Vault, Azure Speech,
+  Twilio, ACS voice, notification semantic changes, or Cosmos cross-partition
+  query work were added for voicemail idempotency
 - No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
   hosting, Key Vault, auth, retry logic, or notification semantic changes were
   added for voicemail transcript intake
@@ -764,7 +774,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 287 passed
+- 298 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
