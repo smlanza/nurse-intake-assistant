@@ -71,6 +71,9 @@ class CosmosCaseRepository:
         intake_complete: bool | None = None,
         source_system: str | None = None,
         case_type: str | None = None,
+        notification_email_status: str | None = None,
+        notification_sms_status: str | None = None,
+        notification_sms_delivery_confirmed: bool | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:

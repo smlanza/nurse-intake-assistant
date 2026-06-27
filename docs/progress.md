@@ -65,6 +65,17 @@ Completed:
 - No live Azure calls, Azure Speech, Twilio, ACS Voice, hosting, Key Vault,
   auth, retry logic, notification semantic changes, or Cosmos query work were
   added for nurse queue source/channel filtering
+- Nurse queue notification status filtering is complete
+- `GET /cases` now supports optional `notificationEmailStatus`,
+  `notificationSmsStatus`, and `notificationSmsDeliveryConfirmed` filters in
+  mock/in-memory mode
+- `GET /cases/summary` applies notification filters to summary counts
+- Notification filters combine with existing queue filters and pagination
+- Cosmos cross-partition notification-status queue filtering remains a future
+  enhancement
+- No live Azure calls, ACS delivery polling, retry logic, Azure Speech, Twilio,
+  ACS Voice, hosting, Key Vault, auth, notification semantic changes, or Cosmos
+  query work were added for nurse queue notification status filtering
 - No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
   hosting, Key Vault, auth, retry logic, or notification semantic changes were
   added for voicemail transcript intake
@@ -786,7 +797,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 311 passed
+- 326 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step

@@ -961,6 +961,341 @@ def test_list_cases_blank_source_system_and_case_type_are_absent_filters(
     assert [case["id"] for case in response.json()] == ["newest", "oldest"]
 
 
+def test_list_cases_filters_by_notification_email_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("mock-email"),
+                    email_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("failed-email"),
+                    email_status="Failed",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?notificationEmailStatus=MockRecorded")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["mock-email"]
+
+
+def test_list_cases_notification_email_status_filter_is_case_insensitive_and_trimmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("mock-email"),
+                    email_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("accepted-email"),
+                    email_status="Accepted",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?notificationEmailStatus=%20%20mockrecorded%20%20")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["mock-email"]
+
+
+def test_list_cases_filters_by_notification_sms_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("mock-sms"),
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("failed-sms"),
+                    sms_status="Failed",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?notificationSmsStatus=MockRecorded")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["mock-sms"]
+
+
+def test_list_cases_notification_sms_status_filter_is_case_insensitive_and_trimmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("mock-sms"),
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("accepted-sms"),
+                    sms_status="Accepted",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?notificationSmsStatus=%20%20MOCKRECORDED%20%20")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["mock-sms"]
+
+
+def test_list_cases_filters_by_notification_sms_delivery_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("delivery-confirmed"),
+                    sms_delivery_confirmed=True,
+                ),
+                with_notification_statuses(
+                    build_queue_case("delivery-not-confirmed"),
+                    sms_delivery_confirmed=False,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?notificationSmsDeliveryConfirmed=false")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["delivery-not-confirmed"]
+
+
+def test_list_cases_notification_email_status_combines_with_review_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case(
+                        "reviewed-mock-email",
+                        review_status="Reviewed",
+                    ),
+                    email_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case(
+                        "pending-mock-email",
+                        review_status="PendingReview",
+                    ),
+                    email_status="MockRecorded",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?notificationEmailStatus=MockRecorded&reviewStatus=Reviewed"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["reviewed-mock-email"]
+
+
+def test_list_cases_notification_sms_status_combines_with_urgency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("urgent-mock-sms", urgency="Urgent"),
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("routine-mock-sms", urgency="Routine"),
+                    sms_status="MockRecorded",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?notificationSmsStatus=MockRecorded&urgency=Urgent"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["urgent-mock-sms"]
+
+
+def test_list_cases_sms_delivery_confirmed_combines_with_source_and_case_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case(
+                        "voicemail-confirmed",
+                        source_system="voicemail-transcript",
+                        case_type="phone-intake",
+                    ),
+                    sms_delivery_confirmed=True,
+                ),
+                with_notification_statuses(
+                    build_queue_case(
+                        "text-confirmed",
+                        source_system="local",
+                        case_type="text-intake",
+                    ),
+                    sms_delivery_confirmed=True,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?notificationSmsDeliveryConfirmed=true"
+        "&sourceSystem=voicemail-transcript&caseType=phone-intake"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["voicemail-confirmed"]
+
+
+def test_list_cases_notification_filters_combine_with_intake_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case(
+                        "incomplete-mock",
+                        intake_status="NeedsFollowUp",
+                        intake_complete=False,
+                    ),
+                    email_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case(
+                        "complete-mock",
+                        intake_status="Complete",
+                        intake_complete=True,
+                    ),
+                    email_status="MockRecorded",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?notificationEmailStatus=MockRecorded"
+        "&intakeStatus=NeedsFollowUp&intakeComplete=false"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["incomplete-mock"]
+
+
+def test_list_cases_applies_pagination_after_notification_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("ignored-newest", created_date="2026-06-28"),
+                    email_status="Failed",
+                ),
+                with_notification_statuses(
+                    build_queue_case("mock-newest", created_date="2026-06-27"),
+                    email_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("mock-middle", created_date="2026-06-26"),
+                    email_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("mock-oldest", created_date="2026-06-25"),
+                    email_status="MockRecorded",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?notificationEmailStatus=MockRecorded&limit=1&offset=1"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["mock-middle"]
+
+
+def test_list_cases_blank_notification_statuses_are_absent_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("newest", created_date="2026-06-26"),
+                build_queue_case("oldest", created_date="2026-06-25"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?notificationEmailStatus=%20%20&notificationSmsStatus="
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["newest", "oldest"]
+
+
 def test_list_cases_rejects_invalid_review_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1088,6 +1423,9 @@ def test_list_cases_returns_clear_error_when_repository_does_not_support_listing
             intake_complete: bool | None = None,
             source_system: str | None = None,
             case_type: str | None = None,
+            notification_email_status: str | None = None,
+            notification_sms_status: str | None = None,
+            notification_sms_delivery_confirmed: bool | None = None,
             from_date: str | None = None,
             to_date: str | None = None,
         ) -> list[CaseDocument]:
@@ -1565,6 +1903,159 @@ def test_case_summary_blank_source_system_and_case_type_are_absent_filters(
     assert response.json()["total"] == 2
 
 
+def test_case_summary_applies_notification_email_status_filter_to_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case(
+                        "mock-urgent",
+                        urgency="Urgent",
+                    ),
+                    email_status="MockRecorded",
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case(
+                        "mock-incomplete",
+                        intake_status="NeedsFollowUp",
+                        intake_complete=False,
+                    ),
+                    email_status="MockRecorded",
+                    sms_status="Failed",
+                ),
+                with_notification_statuses(
+                    build_queue_case("failed-email"),
+                    email_status="Failed",
+                    sms_status="MockRecorded",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?notificationEmailStatus=MockRecorded")
+
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["total"] == 2
+    assert summary["urgent"] == 1
+    assert summary["routine"] == 1
+    assert summary["completeIntakes"] == 1
+    assert summary["needsFollowUpIntakes"] == 1
+    assert summary["emailMockRecorded"] == 2
+    assert summary["emailFailed"] == 0
+    assert summary["smsMockRecorded"] == 1
+    assert summary["smsFailed"] == 1
+
+
+def test_case_summary_applies_notification_sms_status_filter_to_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("mock-sms"),
+                    email_status="Accepted",
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("mock-sms-reviewed", review_status="Reviewed"),
+                    email_status="Failed",
+                    sms_status="MockRecorded",
+                ),
+                with_notification_statuses(
+                    build_queue_case("failed-sms"),
+                    email_status="Accepted",
+                    sms_status="Failed",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?notificationSmsStatus=MockRecorded")
+
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["total"] == 2
+    assert summary["pendingReview"] == 1
+    assert summary["reviewed"] == 1
+    assert summary["emailAccepted"] == 1
+    assert summary["emailFailed"] == 1
+    assert summary["smsMockRecorded"] == 2
+    assert summary["smsFailed"] == 0
+
+
+def test_case_summary_applies_sms_delivery_confirmed_filter_to_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                with_notification_statuses(
+                    build_queue_case("confirmed-urgent", urgency="Urgent"),
+                    sms_delivery_confirmed=True,
+                ),
+                with_notification_statuses(
+                    build_queue_case("confirmed-reviewed", review_status="Reviewed"),
+                    sms_delivery_confirmed=True,
+                ),
+                with_notification_statuses(
+                    build_queue_case("not-confirmed"),
+                    sms_delivery_confirmed=False,
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases/summary?notificationSmsDeliveryConfirmed=true"
+    )
+
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["total"] == 2
+    assert summary["pendingReview"] == 1
+    assert summary["reviewed"] == 1
+    assert summary["urgent"] == 1
+    assert summary["routine"] == 1
+    assert summary["smsDeliveryConfirmed"] == 2
+
+
+def test_case_summary_blank_notification_statuses_are_absent_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("case-1"),
+                build_queue_case("case-2"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases/summary?notificationEmailStatus=%20%20&notificationSmsStatus="
+    )
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
 def test_case_summary_without_source_or_case_type_filters_is_unchanged(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1642,6 +2133,9 @@ def test_case_summary_returns_clear_error_when_repository_does_not_support_listi
             intake_complete: bool | None = None,
             source_system: str | None = None,
             case_type: str | None = None,
+            notification_email_status: str | None = None,
+            notification_sms_status: str | None = None,
+            notification_sms_delivery_confirmed: bool | None = None,
             from_date: str | None = None,
             to_date: str | None = None,
         ) -> list[CaseDocument]:

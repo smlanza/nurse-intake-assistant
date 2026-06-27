@@ -32,6 +32,9 @@ class CaseRepository(Protocol):
         intake_complete: bool | None = None,
         source_system: str | None = None,
         case_type: str | None = None,
+        notification_email_status: str | None = None,
+        notification_sms_status: str | None = None,
+        notification_sms_delivery_confirmed: bool | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:
@@ -75,12 +78,17 @@ class InMemoryCaseRepository:
         intake_complete: bool | None = None,
         source_system: str | None = None,
         case_type: str | None = None,
+        notification_email_status: str | None = None,
+        notification_sms_status: str | None = None,
+        notification_sms_delivery_confirmed: bool | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:
         cases = list(self._cases.values())
         normalized_source_system = _normalize_optional_filter(source_system)
         normalized_case_type = _normalize_optional_filter(case_type)
+        normalized_email_status = _normalize_optional_filter(notification_email_status)
+        normalized_sms_status = _normalize_optional_filter(notification_sms_status)
 
         if review_status is not None:
             cases = [case for case in cases if case.reviewStatus == review_status]
@@ -109,6 +117,30 @@ class InMemoryCaseRepository:
                 case
                 for case in cases
                 if _normalize_optional_filter(case.caseType) == normalized_case_type
+            ]
+
+        if normalized_email_status is not None:
+            cases = [
+                case
+                for case in cases
+                if _normalize_optional_filter(case.notificationEmailStatus)
+                == normalized_email_status
+            ]
+
+        if normalized_sms_status is not None:
+            cases = [
+                case
+                for case in cases
+                if _normalize_optional_filter(case.notificationSmsStatus)
+                == normalized_sms_status
+            ]
+
+        if notification_sms_delivery_confirmed is not None:
+            cases = [
+                case
+                for case in cases
+                if case.notificationSmsDeliveryConfirmed
+                is notification_sms_delivery_confirmed
             ]
 
         if from_date is not None:

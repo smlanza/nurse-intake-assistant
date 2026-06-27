@@ -29,6 +29,9 @@ async def list_cases(
     intakeComplete: bool | None = None,
     sourceSystem: str | None = None,
     caseType: str | None = None,
+    notificationEmailStatus: str | None = None,
+    notificationSmsStatus: str | None = None,
+    notificationSmsDeliveryConfirmed: bool | None = None,
     fromDate: date | None = None,
     toDate: date | None = None,
     limit: Annotated[int | None, Query(gt=0, le=100)] = None,
@@ -44,6 +47,13 @@ async def list_cases(
             intake_complete=intakeComplete,
             source_system=_clean_optional_query_filter(sourceSystem),
             case_type=_clean_optional_query_filter(caseType),
+            notification_email_status=_clean_optional_query_filter(
+                notificationEmailStatus
+            ),
+            notification_sms_status=_clean_optional_query_filter(
+                notificationSmsStatus
+            ),
+            notification_sms_delivery_confirmed=notificationSmsDeliveryConfirmed,
             from_date=fromDate,
             to_date=toDate,
         )
@@ -63,6 +73,9 @@ async def list_cases(
 async def get_case_summary(
     sourceSystem: str | None = None,
     caseType: str | None = None,
+    notificationEmailStatus: str | None = None,
+    notificationSmsStatus: str | None = None,
+    notificationSmsDeliveryConfirmed: bool | None = None,
     fromDate: date | None = None,
     toDate: date | None = None,
 ) -> CaseQueueSummary:
@@ -72,6 +85,13 @@ async def get_case_summary(
         cases = await case_repository.list_cases(
             source_system=_clean_optional_query_filter(sourceSystem),
             case_type=_clean_optional_query_filter(caseType),
+            notification_email_status=_clean_optional_query_filter(
+                notificationEmailStatus
+            ),
+            notification_sms_status=_clean_optional_query_filter(
+                notificationSmsStatus
+            ),
+            notification_sms_delivery_confirmed=notificationSmsDeliveryConfirmed,
             from_date=fromDate,
             to_date=toDate,
         )
