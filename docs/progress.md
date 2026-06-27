@@ -29,6 +29,14 @@ Completed:
 - The demo page exercises existing mock/local endpoints only
 - No frontend framework or live Azure integration was added for the demo page
 - Demo UI shell is for local demoability only, not production clinical use
+- Voicemail transcript intake endpoint is complete
+- `POST /intake/voicemail-transcript` accepts already-transcribed voicemail text
+- Voicemail transcript intake reuses the existing `CaseProcessingService` and
+  notification/status pipeline
+- Voicemail transcript intake defaults `sourceSystem` to `voicemail-transcript`
+- No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
+  hosting, Key Vault, auth, retry logic, or notification semantic changes were
+  added for voicemail transcript intake
 - Notification status semantics are complete
 - Text intake API route
 - In-memory case repository and shared app-level persistence
@@ -747,7 +755,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 276 passed
+- 283 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step

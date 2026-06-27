@@ -215,6 +215,110 @@ def test_valid_text_intake_still_creates_case_after_validation() -> None:
     assert client.get("/notifications/sms").json()[0]["case_id"] == case["id"]
 
 
+def test_voicemail_transcript_intake_returns_completed_routine_case() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["id"]
+    assert case["caseType"] == "phone-intake"
+    assert case["processingStatus"] == "Completed"
+    assert case["urgency"] == "Routine"
+    assert case["intakeComplete"] is True
+    assert case["reviewStatus"] == "PendingReview"
+    assert case["notificationEmailStatus"] == "MockRecorded"
+    assert case["notificationSmsStatus"] == "MockRecorded"
+    assert case["notificationSmsDeliveryConfirmed"] is False
+    assert case["sourceSystem"] == "voicemail-transcript"
+    assert case["summary"] == "Patient is calling about medication refill."
+
+
+def test_voicemail_transcript_persists_supplied_source_metadata() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            ),
+            "sourceSystem": "manual-voicemail-smoke-test",
+            "sourceCallId": "voicemail-call-001",
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["sourceSystem"] == "manual-voicemail-smoke-test"
+    assert case["sourceCallId"] == "voicemail-call-001"
+    assert client.get("/cases").json()[0]["sourceCallId"] == "voicemail-call-001"
+
+
+def test_voicemail_transcript_accepts_caller_phone_number_as_request_metadata() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": "I have a cough and fever.",
+            "callerPhoneNumber": "+1 555 555 9999",
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["id"]
+    assert case["patient"]["callback_number"] is None
+    assert "callerPhoneNumber" not in case
+
+
+@pytest.mark.parametrize("transcript", ["", "   ", "hi"])
+def test_voicemail_transcript_rejects_unusable_transcript_without_side_effects(
+    transcript: str,
+) -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={"transcript": transcript},
+    )
+
+    assert response.status_code == 422
+    response_text = response.text
+    assert "transcript" in response_text
+    assert client.get("/cases").json() == []
+    assert client.get("/notifications/email").json() == []
+    assert client.get("/notifications/sms").json() == []
+
+
+def test_text_intake_behavior_remains_unchanged_after_voicemail_endpoint() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/text",
+        json={"text": "I need a medication refill for tomorrow."},
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["caseType"] == "text-intake"
+    assert case["sourceSystem"] == "local"
+    assert case["reviewStatus"] == "PendingReview"
+
+
 def test_health_endpoint_still_works() -> None:
     response = client.get("/health")
 

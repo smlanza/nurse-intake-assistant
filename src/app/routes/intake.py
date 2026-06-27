@@ -31,13 +31,20 @@ class TextIntakeRequest(BaseModel):
     @field_validator("text")
     @classmethod
     def text_must_be_usable(cls, value: str) -> str:
-        non_whitespace_count = sum(
-            1 for character in value.strip() if not character.isspace()
-        )
-        if non_whitespace_count < TEXT_INTAKE_MIN_NON_WHITESPACE_CHARS:
-            raise ValueError(
-                "text must contain at least 10 non-whitespace characters"
-            )
+        _validate_minimum_non_whitespace_text(value, "text")
+        return value
+
+
+class VoicemailTranscriptIntakeRequest(BaseModel):
+    transcript: str
+    sourceSystem: str | None = "voicemail-transcript"
+    sourceCallId: str | None = None
+    callerPhoneNumber: str | None = None
+
+    @field_validator("transcript")
+    @classmethod
+    def transcript_must_be_usable(cls, value: str) -> str:
+        _validate_minimum_non_whitespace_text(value, "transcript")
         return value
 
 
@@ -48,3 +55,24 @@ async def create_text_intake(request: TextIntakeRequest) -> CaseDocument:
     case.sourceCallId = request.sourceCallId
     await case_repository.save(case)
     return case
+
+
+@router.post("/voicemail-transcript", response_model=CaseDocument)
+async def create_voicemail_transcript_intake(
+    request: VoicemailTranscriptIntakeRequest,
+) -> CaseDocument:
+    case = await case_processing_service.process(request.transcript, "phone-intake")
+    case.sourceSystem = request.sourceSystem
+    case.sourceCallId = request.sourceCallId
+    await case_repository.save(case)
+    return case
+
+
+def _validate_minimum_non_whitespace_text(value: str, field_name: str) -> None:
+    non_whitespace_count = sum(
+        1 for character in value.strip() if not character.isspace()
+    )
+    if non_whitespace_count < TEXT_INTAKE_MIN_NON_WHITESPACE_CHARS:
+        raise ValueError(
+            f"{field_name} must contain at least 10 non-whitespace characters"
+        )
