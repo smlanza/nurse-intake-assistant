@@ -23,19 +23,85 @@ router = APIRouter(prefix="/cases", tags=["cases"])
 
 @router.get("", response_model=list[CaseDocument])
 async def list_cases(
-    reviewStatus: ReviewStatus | None = None,
-    urgency: Urgency | None = None,
-    intakeStatus: IntakeStatus | None = None,
-    intakeComplete: bool | None = None,
-    sourceSystem: str | None = None,
-    caseType: str | None = None,
-    notificationEmailStatus: str | None = None,
-    notificationSmsStatus: str | None = None,
-    notificationSmsDeliveryConfirmed: bool | None = None,
-    fromDate: date | None = None,
-    toDate: date | None = None,
-    limit: Annotated[int | None, Query(gt=0, le=100)] = None,
-    offset: Annotated[int, Query(ge=0)] = 0,
+    reviewStatus: Annotated[
+        ReviewStatus | None,
+        Query(description="Filter by nurse review status, such as PendingReview."),
+    ] = None,
+    urgency: Annotated[
+        Urgency | None,
+        Query(description="Filter by urgency classification, such as Urgent."),
+    ] = None,
+    intakeStatus: Annotated[
+        IntakeStatus | None,
+        Query(description="Filter by intake completion status, such as NeedsFollowUp."),
+    ] = None,
+    intakeComplete: Annotated[
+        bool | None,
+        Query(description="Filter by whether all required intake fields are present."),
+    ] = None,
+    sourceSystem: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter by source system metadata, for example local or "
+                "voicemail-transcript. Blank values are ignored."
+            )
+        ),
+    ] = None,
+    caseType: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter by case type, for example text-intake or phone-intake. "
+                "Blank values are ignored."
+            )
+        ),
+    ] = None,
+    notificationEmailStatus: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter by email notification status, such as MockRecorded, "
+                "Accepted, Failed, or Suppressed. Blank values are ignored."
+            )
+        ),
+    ] = None,
+    notificationSmsStatus: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter by SMS notification status, such as MockRecorded, "
+                "Accepted, Failed, or Suppressed. Blank values are ignored."
+            )
+        ),
+    ] = None,
+    notificationSmsDeliveryConfirmed: Annotated[
+        bool | None,
+        Query(description="Filter by whether SMS delivery has been confirmed."),
+    ] = None,
+    fromDate: Annotated[
+        date | None,
+        Query(description="Include cases created on or after this date."),
+    ] = None,
+    toDate: Annotated[
+        date | None,
+        Query(description="Include cases created on or before this date."),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Query(
+            gt=0,
+            le=100,
+            description="Maximum number of cases to return after filtering.",
+        ),
+    ] = None,
+    offset: Annotated[
+        int,
+        Query(
+            ge=0,
+            description="Number of filtered, sorted cases to skip before returning.",
+        ),
+    ] = 0,
 ) -> list[CaseDocument]:
     _validate_date_range(fromDate, toDate)
 
@@ -71,13 +137,54 @@ async def list_cases(
 
 @router.get("/summary", response_model=CaseQueueSummary)
 async def get_case_summary(
-    sourceSystem: str | None = None,
-    caseType: str | None = None,
-    notificationEmailStatus: str | None = None,
-    notificationSmsStatus: str | None = None,
-    notificationSmsDeliveryConfirmed: bool | None = None,
-    fromDate: date | None = None,
-    toDate: date | None = None,
+    sourceSystem: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter summary counts by source system metadata, for example "
+                "local or voicemail-transcript. Blank values are ignored."
+            )
+        ),
+    ] = None,
+    caseType: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter summary counts by case type, for example text-intake or "
+                "phone-intake. Blank values are ignored."
+            )
+        ),
+    ] = None,
+    notificationEmailStatus: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter summary counts by email notification status, such as "
+                "MockRecorded, Accepted, Failed, or Suppressed."
+            )
+        ),
+    ] = None,
+    notificationSmsStatus: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter summary counts by SMS notification status, such as "
+                "MockRecorded, Accepted, Failed, or Suppressed."
+            )
+        ),
+    ] = None,
+    notificationSmsDeliveryConfirmed: Annotated[
+        bool | None,
+        Query(description="Filter summary counts by SMS delivery confirmation."),
+    ] = None,
+    fromDate: Annotated[
+        date | None,
+        Query(description="Include cases created on or after this date in counts."),
+    ] = None,
+    toDate: Annotated[
+        date | None,
+        Query(description="Include cases created on or before this date in counts."),
+    ] = None,
 ) -> CaseQueueSummary:
     _validate_date_range(fromDate, toDate)
 

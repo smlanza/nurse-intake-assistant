@@ -76,6 +76,14 @@ Completed:
 - No live Azure calls, ACS delivery polling, retry logic, Azure Speech, Twilio,
   ACS Voice, hosting, Key Vault, auth, notification semantic changes, or Cosmos
   query work were added for nurse queue notification status filtering
+- Swagger/OpenAPI demo examples are complete
+- `POST /intake/text` includes routine, urgent, and incomplete demo examples
+- `POST /intake/voicemail-transcript` includes routine, urgent, incomplete,
+  idempotency, and recording metadata examples
+- Queue and summary filter parameters are easier to discover in Swagger
+- No runtime behavior, notification semantics, repository behavior, live Azure
+  calls, Azure Speech, Twilio, ACS Voice, hosting, Key Vault, auth, retry logic,
+  or ACS delivery polling were added for Swagger/OpenAPI demo examples
 - No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
   hosting, Key Vault, auth, retry logic, or notification semantic changes were
   added for voicemail transcript intake
@@ -797,7 +805,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 326 passed
+- 332 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
