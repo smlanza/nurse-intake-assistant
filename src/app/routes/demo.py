@@ -1,6 +1,8 @@
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from src.app.dependencies import (
@@ -12,6 +14,7 @@ from src.app.dependencies import (
 
 
 router = APIRouter(prefix="/demo", tags=["demo"])
+demo_page_path = Path(__file__).resolve().parent.parent / "static" / "demo.html"
 
 
 class DemoResetCleared(BaseModel):
@@ -23,6 +26,11 @@ class DemoResetCleared(BaseModel):
 class DemoResetResponse(BaseModel):
     reset: bool
     cleared: DemoResetCleared
+
+
+@router.get("", response_class=FileResponse)
+async def get_demo_page() -> FileResponse:
+    return FileResponse(demo_page_path, media_type="text/html")
 
 
 @router.post("/reset", response_model=DemoResetResponse)

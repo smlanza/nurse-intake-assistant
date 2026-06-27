@@ -24,6 +24,11 @@ Completed:
 - Nurse queue summary notification status counts are complete
 - Progress workflow guardrails are complete
 - Mock-only demo reset endpoint is complete
+- Local mobile-friendly demo UI shell is complete
+- `GET /demo` serves the demo page
+- The demo page exercises existing mock/local endpoints only
+- No frontend framework or live Azure integration was added for the demo page
+- Demo UI shell is for local demoability only, not production clinical use
 - Notification status semantics are complete
 - Text intake API route
 - In-memory case repository and shared app-level persistence
@@ -742,7 +747,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 274 passed
+- 276 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
