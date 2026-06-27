@@ -27,6 +27,8 @@ async def list_cases(
     urgency: Urgency | None = None,
     intakeStatus: IntakeStatus | None = None,
     intakeComplete: bool | None = None,
+    sourceSystem: str | None = None,
+    caseType: str | None = None,
     fromDate: date | None = None,
     toDate: date | None = None,
     limit: Annotated[int | None, Query(gt=0, le=100)] = None,
@@ -40,6 +42,8 @@ async def list_cases(
             urgency=urgency,
             intake_status=intakeStatus,
             intake_complete=intakeComplete,
+            source_system=_clean_optional_query_filter(sourceSystem),
+            case_type=_clean_optional_query_filter(caseType),
             from_date=fromDate,
             to_date=toDate,
         )
@@ -57,6 +61,8 @@ async def list_cases(
 
 @router.get("/summary", response_model=CaseQueueSummary)
 async def get_case_summary(
+    sourceSystem: str | None = None,
+    caseType: str | None = None,
     fromDate: date | None = None,
     toDate: date | None = None,
 ) -> CaseQueueSummary:
@@ -64,6 +70,8 @@ async def get_case_summary(
 
     try:
         cases = await case_repository.list_cases(
+            source_system=_clean_optional_query_filter(sourceSystem),
+            case_type=_clean_optional_query_filter(caseType),
             from_date=fromDate,
             to_date=toDate,
         )
@@ -153,3 +161,11 @@ def _validate_date_range(
             status_code=400,
             detail="fromDate must be on or before toDate.",
         )
+
+
+def _clean_optional_query_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    cleaned_value = value.strip()
+    return cleaned_value or None

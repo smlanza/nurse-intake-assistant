@@ -2,7 +2,7 @@ import inspect
 from datetime import date
 from typing import Any
 
-from src.app.models.case import CaseDocument, ReviewStatus, Urgency
+from src.app.models.case import CaseDocument, IntakeStatus, ReviewStatus, Urgency
 
 
 class MissingCasePartitionKeyError(ValueError):
@@ -67,6 +67,10 @@ class CosmosCaseRepository:
         self,
         review_status: ReviewStatus | None = None,
         urgency: Urgency | None = None,
+        intake_status: IntakeStatus | None = None,
+        intake_complete: bool | None = None,
+        source_system: str | None = None,
+        case_type: str | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:

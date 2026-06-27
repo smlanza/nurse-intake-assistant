@@ -48,6 +48,8 @@ def build_queue_case(
     created_utc: datetime | None = None,
     intake_status: IntakeStatus = "Complete",
     intake_complete: bool = True,
+    source_system: str | None = None,
+    case_type: str = "text-intake",
 ) -> CaseDocument:
     if created_utc is not None:
         now = created_utc
@@ -60,7 +62,8 @@ def build_queue_case(
         createdDate=created_date or now.date().isoformat(),
         createdUtc=now,
         lastStatusUpdatedUtc=now,
-        caseType="text-intake",
+        caseType=case_type,
+        sourceSystem=source_system,
         reviewStatus=review_status,
         urgency=urgency,
         intakeStatus=intake_status,
@@ -676,6 +679,288 @@ def test_list_cases_combines_intake_status_with_existing_filters_and_pagination(
     ]
 
 
+def test_list_cases_filters_by_source_system(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "text",
+                    source_system="local",
+                    case_type="text-intake",
+                ),
+                build_queue_case(
+                    "voicemail",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?sourceSystem=voicemail-transcript")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["voicemail"]
+
+
+def test_list_cases_source_system_filter_is_case_insensitive_and_trimmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("text", source_system="local"),
+                build_queue_case(
+                    "voicemail",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?sourceSystem=%20%20VOICEMAIL-TRANSCRIPT%20%20")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["voicemail"]
+
+
+def test_list_cases_filters_by_case_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("text", case_type="text-intake"),
+                build_queue_case("phone", case_type="phone-intake"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?caseType=phone-intake")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["phone"]
+
+
+def test_list_cases_combines_source_system_and_case_type_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "voicemail-phone",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "voicemail-text",
+                    source_system="voicemail-transcript",
+                    case_type="text-intake",
+                ),
+                build_queue_case(
+                    "local-phone",
+                    source_system="local",
+                    case_type="phone-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?sourceSystem=voicemail-transcript&caseType=phone-intake"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["voicemail-phone"]
+
+
+def test_list_cases_source_and_case_type_filters_combine_with_review_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "pending-voicemail",
+                    review_status="PendingReview",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "reviewed-voicemail",
+                    review_status="Reviewed",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?sourceSystem=voicemail-transcript"
+        "&caseType=phone-intake&reviewStatus=Reviewed"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["reviewed-voicemail"]
+
+
+def test_list_cases_source_and_case_type_filters_combine_with_urgency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "routine-voicemail",
+                    urgency="Routine",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "urgent-voicemail",
+                    urgency="Urgent",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?sourceSystem=voicemail-transcript"
+        "&caseType=phone-intake&urgency=Urgent"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["urgent-voicemail"]
+
+
+def test_list_cases_source_and_case_type_filters_combine_with_intake_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "complete-voicemail",
+                    intake_status="Complete",
+                    intake_complete=True,
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "incomplete-voicemail",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?sourceSystem=voicemail-transcript&caseType=phone-intake"
+        "&intakeStatus=NeedsFollowUp&intakeComplete=false"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["incomplete-voicemail"]
+
+
+def test_list_cases_applies_pagination_after_source_and_case_type_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "ignored-newest",
+                    created_date="2026-06-28",
+                    source_system="local",
+                    case_type="text-intake",
+                ),
+                build_queue_case(
+                    "voicemail-newest",
+                    created_date="2026-06-27",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "voicemail-middle",
+                    created_date="2026-06-26",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "voicemail-oldest",
+                    created_date="2026-06-25",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?sourceSystem=voicemail-transcript&caseType=phone-intake"
+        "&limit=1&offset=1"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["voicemail-middle"]
+
+
+def test_list_cases_blank_source_system_and_case_type_are_absent_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("newest", created_date="2026-06-26"),
+                build_queue_case("oldest", created_date="2026-06-25"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?sourceSystem=%20%20&caseType=")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["newest", "oldest"]
+
+
 def test_list_cases_rejects_invalid_review_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -801,6 +1086,8 @@ def test_list_cases_returns_clear_error_when_repository_does_not_support_listing
             urgency: str | None = None,
             intake_status: str | None = None,
             intake_complete: bool | None = None,
+            source_system: str | None = None,
+            case_type: str | None = None,
             from_date: str | None = None,
             to_date: str | None = None,
         ) -> list[CaseDocument]:
@@ -1175,6 +1462,138 @@ def test_case_summary_notification_counts_respect_date_filters(
     assert summary["smsDeliveryConfirmed"] == 1
 
 
+def test_case_summary_applies_source_system_filter_to_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "voicemail-urgent",
+                    urgency="Urgent",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "voicemail-incomplete",
+                    intake_status="NeedsFollowUp",
+                    intake_complete=False,
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "text-routine",
+                    urgency="Routine",
+                    source_system="local",
+                    case_type="text-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?sourceSystem=voicemail-transcript")
+
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["total"] == 2
+    assert summary["urgent"] == 1
+    assert summary["routine"] == 1
+    assert summary["completeIntakes"] == 1
+    assert summary["needsFollowUpIntakes"] == 1
+
+
+def test_case_summary_applies_case_type_filter_to_counts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "phone-urgent",
+                    urgency="Urgent",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "phone-reviewed",
+                    review_status="Reviewed",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "text-pending",
+                    review_status="PendingReview",
+                    case_type="text-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?caseType=phone-intake")
+
+    assert response.status_code == 200
+    summary = response.json()
+    assert summary["total"] == 2
+    assert summary["pendingReview"] == 1
+    assert summary["reviewed"] == 1
+    assert summary["urgent"] == 1
+    assert summary["routine"] == 1
+
+
+def test_case_summary_blank_source_system_and_case_type_are_absent_filters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case("case-1", case_type="phone-intake"),
+                build_queue_case("case-2", case_type="text-intake"),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary?sourceSystem=%20%20&caseType=")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
+def test_case_summary_without_source_or_case_type_filters_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = InMemoryCaseRepository()
+    asyncio.run(
+        save_cases(
+            repository,
+            [
+                build_queue_case(
+                    "phone",
+                    source_system="voicemail-transcript",
+                    case_type="phone-intake",
+                ),
+                build_queue_case(
+                    "text",
+                    source_system="local",
+                    case_type="text-intake",
+                ),
+            ],
+        )
+    )
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases/summary")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 2
+
+
 def test_case_summary_rejects_invalid_from_date(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1219,6 +1638,10 @@ def test_case_summary_returns_clear_error_when_repository_does_not_support_listi
             self,
             review_status: str | None = None,
             urgency: str | None = None,
+            intake_status: str | None = None,
+            intake_complete: bool | None = None,
+            source_system: str | None = None,
+            case_type: str | None = None,
             from_date: str | None = None,
             to_date: str | None = None,
         ) -> list[CaseDocument]:

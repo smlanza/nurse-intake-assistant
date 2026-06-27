@@ -30,6 +30,8 @@ class CaseRepository(Protocol):
         urgency: Urgency | None = None,
         intake_status: IntakeStatus | None = None,
         intake_complete: bool | None = None,
+        source_system: str | None = None,
+        case_type: str | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:
@@ -71,10 +73,14 @@ class InMemoryCaseRepository:
         urgency: Urgency | None = None,
         intake_status: IntakeStatus | None = None,
         intake_complete: bool | None = None,
+        source_system: str | None = None,
+        case_type: str | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:
         cases = list(self._cases.values())
+        normalized_source_system = _normalize_optional_filter(source_system)
+        normalized_case_type = _normalize_optional_filter(case_type)
 
         if review_status is not None:
             cases = [case for case in cases if case.reviewStatus == review_status]
@@ -88,6 +94,21 @@ class InMemoryCaseRepository:
         if intake_complete is not None:
             cases = [
                 case for case in cases if case.intakeComplete is intake_complete
+            ]
+
+        if normalized_source_system is not None:
+            cases = [
+                case
+                for case in cases
+                if _normalize_optional_filter(case.sourceSystem)
+                == normalized_source_system
+            ]
+
+        if normalized_case_type is not None:
+            cases = [
+                case
+                for case in cases
+                if _normalize_optional_filter(case.caseType) == normalized_case_type
             ]
 
         if from_date is not None:
@@ -108,3 +129,11 @@ class InMemoryCaseRepository:
         cases.sort(key=lambda case: case.createdUtc, reverse=True)
 
         return cases
+
+
+def _normalize_optional_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized_value = value.strip().casefold()
+    return normalized_value or None

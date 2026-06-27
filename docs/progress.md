@@ -53,6 +53,18 @@ Completed:
 - No live Azure calls, retry logic, auth, hosting, Key Vault, Azure Speech,
   Twilio, ACS voice, notification semantic changes, or Cosmos cross-partition
   query work were added for voicemail idempotency
+- Nurse queue source/channel filtering is complete
+- `GET /cases` now supports optional `sourceSystem` and `caseType` filters in
+  mock/in-memory mode
+- `GET /cases/summary` applies `sourceSystem` and `caseType` filters to summary
+  counts
+- Queue source/channel filters combine with existing queue filters and
+  pagination
+- Cosmos cross-partition source/channel queue filtering remains a future
+  enhancement
+- No live Azure calls, Azure Speech, Twilio, ACS Voice, hosting, Key Vault,
+  auth, retry logic, notification semantic changes, or Cosmos query work were
+  added for nurse queue source/channel filtering
 - No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
   hosting, Key Vault, auth, retry logic, or notification semantic changes were
   added for voicemail transcript intake
@@ -774,7 +786,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 298 passed
+- 311 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
