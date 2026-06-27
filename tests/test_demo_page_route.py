@@ -24,7 +24,58 @@ def test_demo_page_includes_title_disclaimer_and_existing_endpoints() -> None:
     assert "not for emergencies" in html
     assert "AI output requires nurse review" in html
     assert "/intake/text" in html
+    assert "/intake/voicemail-transcript" in html
     assert "/cases/summary" in html
     assert "/cases?limit=10" in html
     assert "/demo/reset" in html
     assert "/review" in html
+
+
+def test_demo_page_includes_guided_workflow_and_sections() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Demo Workflow" in html
+    assert "Leave all filters set to Any" in html
+    for heading in [
+        "Submit Intake",
+        "Last Created Case",
+        "Nurse Queue",
+        "Recent Cases",
+        "Queue Summary",
+        "Nurse Review",
+        "Demo Reset",
+    ]:
+        assert heading in html
+
+
+def test_demo_page_includes_voicemail_transcript_fields() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Voicemail Transcript Intake" in html
+    assert "transcript" in html
+    assert "sourceCallId" in html
+    assert "sourceRecordingId" in html
+    assert "audioBlobName" in html
+    assert "callerPhoneNumber" in html
+    assert "idempotencyKey" in html
+
+
+def test_demo_page_includes_queue_filter_controls() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Nurse Queue Filters" in html
+    assert "sourceSystem" in html
+    assert "caseType" in html
+    assert "urgency" in html
+    assert "reviewStatus" in html
+    assert "intakeComplete" in html
+    assert "notificationEmailStatus" in html
+    assert "notificationSmsStatus" in html
+    assert "notificationSmsDeliveryConfirmed" in html
+    assert "URLSearchParams" in html

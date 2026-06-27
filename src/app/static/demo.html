@@ -14,6 +14,7 @@
         --accent: #0f766e;
         --accent-dark: #115e59;
         --line: #d8e4e1;
+        --soft: #eef6f4;
         --warn: #7c2d12;
         --warn-bg: #fff7ed;
       }
@@ -36,33 +37,46 @@
       }
 
       main {
-        width: min(1100px, 100%);
+        width: min(1120px, 100%);
         margin: 0 auto;
         padding: 20px;
       }
 
-      header {
+      header,
+      section,
+      .panel,
+      .stack {
         display: grid;
         gap: 12px;
+      }
+
+      header {
         padding: 10px 0 18px;
       }
 
+      section {
+        margin: 0 0 20px;
+      }
+
       h1,
-      h2 {
+      h2,
+      h3,
+      p,
+      ol {
         margin: 0;
-        line-height: 1.15;
       }
 
       h1 {
         font-size: clamp(2rem, 7vw, 4rem);
+        line-height: 1.08;
       }
 
       h2 {
-        font-size: 1.05rem;
+        font-size: 1.2rem;
       }
 
-      p {
-        margin: 0;
+      h3 {
+        font-size: 1rem;
       }
 
       .disclaimer {
@@ -74,23 +88,44 @@
         font-weight: 650;
       }
 
-      .grid {
-        display: grid;
-        grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
-        gap: 16px;
-      }
-
-      section {
-        display: grid;
-        gap: 12px;
-        min-width: 0;
-      }
-
+      .section-card,
       .panel {
         border: 1px solid var(--line);
         border-radius: 8px;
         background: var(--panel);
-        padding: 14px;
+        padding: 16px;
+        min-width: 0;
+      }
+
+      .section-heading {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+      }
+
+      .section-number {
+        display: inline-grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 999px;
+        background: var(--accent);
+        color: #ffffff;
+        font-size: 0.9rem;
+        font-weight: 800;
+        flex: 0 0 auto;
+      }
+
+      .two-column {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .compact-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
       }
 
       label {
@@ -100,22 +135,24 @@
       }
 
       textarea,
-      input {
+      input,
+      select {
         width: 100%;
         border: 1px solid var(--line);
         border-radius: 6px;
         padding: 10px;
         color: var(--ink);
+        background: #ffffff;
         font: inherit;
       }
 
       textarea {
-        min-height: 150px;
+        min-height: 128px;
         resize: vertical;
       }
 
       button {
-        min-height: 42px;
+        min-height: 44px;
         border: 0;
         border-radius: 6px;
         background: var(--accent);
@@ -141,17 +178,28 @@
         opacity: 0.7;
       }
 
+      .primary-actions,
       .actions {
         display: flex;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 10px;
+      }
+
+      .primary-actions button {
+        min-width: 180px;
+      }
+
+      .filters {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
       }
 
       .result,
       .case-list,
       .summary {
         display: grid;
-        gap: 8px;
+        gap: 10px;
       }
 
       .facts {
@@ -160,10 +208,20 @@
         gap: 8px;
       }
 
+      .metadata {
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      .metadata .facts {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
       .fact {
         border: 1px solid var(--line);
         border-radius: 6px;
-        padding: 10px;
+        padding: 9px;
+        min-width: 0;
       }
 
       .fact span,
@@ -175,11 +233,18 @@
       .case-row {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
-        gap: 8px;
+        gap: 10px;
         align-items: center;
         border: 1px solid var(--line);
-        border-radius: 6px;
-        padding: 10px;
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 12px;
+      }
+
+      .case-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px 12px;
       }
 
       code {
@@ -195,13 +260,45 @@
         white-space: pre-wrap;
       }
 
-      @media (max-width: 760px) {
+      .workflow {
+        background: var(--soft);
+      }
+
+      .workflow-steps {
+        display: grid;
+        gap: 8px;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .workflow-steps li {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+      }
+
+      .step-label {
+        color: var(--accent-dark);
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      @media (max-width: 900px) {
         main {
           padding: 14px;
         }
 
-        .grid,
-        .facts {
+        .two-column,
+        .compact-grid,
+        .filters,
+        .facts,
+        .metadata .facts,
+        .case-detail-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .case-row {
           grid-template-columns: 1fr;
         }
       }
@@ -213,51 +310,215 @@
         <h1>Nurse Intake Assistant</h1>
         <p class="muted">Local demo intake assistant using mock-safe backend services.</p>
         <p class="disclaimer">
-          This demo intake assistant is not medical advice, not for emergencies,
-          and AI output requires nurse review before clinical use.
+          This demo is for educational use only, is not medical advice, not for emergencies, and AI output requires nurse review before clinical use.
         </p>
       </header>
 
-      <div class="grid">
-        <section class="panel" aria-labelledby="intake-heading">
-          <h2 id="intake-heading">Text Intake</h2>
-          <label>
-            Intake text
-            <textarea id="intakeText">My name is Jane Doe. DOB: 1980-04-15. My callback number is +1 (555) 555-0123. I need a medication refill.</textarea>
-          </label>
-          <div class="actions">
-            <button id="submitIntake" type="button">Submit Intake</button>
-            <button id="loadSummary" type="button" class="secondary">Load Summary</button>
-            <button id="loadCases" type="button" class="secondary">Load Recent Cases</button>
-            <button id="resetDemo" type="button" class="danger">Reset Demo</button>
-          </div>
-          <p id="status" class="muted" role="status"></p>
-          <div id="createdCase" class="result"></div>
-        </section>
+      <section class="section-card workflow" aria-labelledby="workflow-heading">
+        <div class="section-heading">
+          <span class="section-number">1</span>
+          <h2 id="workflow-heading">Demo Workflow</h2>
+        </div>
+        <ul class="workflow-steps">
+          <li><span class="step-label">Step 1</span>Submit a text or voicemail intake.</li>
+          <li><span class="step-label">Step 2</span>Click Load Recent Cases.</li>
+          <li><span class="step-label">Step 3</span>Optionally apply filters.</li>
+          <li><span class="step-label">Step 4</span>Select or copy a case id.</li>
+          <li><span class="step-label">Step 5</span>Mark the case reviewed.</li>
+          <li><span class="step-label">Step 6</span>Reset demo when done.</li>
+        </ul>
+      </section>
 
-        <section class="panel" aria-labelledby="review-heading">
-          <h2 id="review-heading">Nurse Review</h2>
+      <section class="section-card" aria-labelledby="submit-heading">
+        <div class="section-heading">
+          <span class="section-number">2</span>
+          <h2 id="submit-heading">Submit Intake</h2>
+        </div>
+        <div class="two-column">
+          <div class="panel" aria-labelledby="text-intake-heading">
+            <h3 id="text-intake-heading">Text Intake</h3>
+            <label>
+              Intake text
+              <textarea id="intakeText">My name is Jane Doe. DOB: 1980-04-15. My callback number is +1 (555) 555-0123. I need a medication refill.</textarea>
+            </label>
+            <button id="submitTextIntake" type="button">Submit Text Intake</button>
+          </div>
+
+          <div class="panel" aria-labelledby="voicemail-heading">
+            <h3 id="voicemail-heading">Voicemail Transcript Intake</h3>
+            <label>
+              transcript
+              <textarea id="voicemailTranscript">My name is Alex Lee. DOB: 1975-03-20. My callback number is +1 (555) 555-0199. I need a medication refill.</textarea>
+            </label>
+            <div class="compact-grid">
+              <label>
+                sourceCallId
+                <input id="voicemailSourceCallId" value="call-demo-001" />
+              </label>
+              <label>
+                sourceRecordingId
+                <input id="voicemailSourceRecordingId" value="recording-demo-001" />
+              </label>
+              <label>
+                audioBlobName
+                <input id="voicemailAudioBlobName" value="demo/recording-demo-001.wav" />
+              </label>
+              <label>
+                callerPhoneNumber
+                <input id="voicemailCallerPhoneNumber" value="+1 (555) 555-0199" />
+              </label>
+              <label>
+                idempotencyKey
+                <input id="voicemailIdempotencyKey" value="voicemail-demo-001" />
+              </label>
+            </div>
+            <button id="submitVoicemailIntake" type="button">Submit Voicemail Transcript</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-card" aria-labelledby="created-heading">
+        <div class="section-heading">
+          <span class="section-number">3</span>
+          <h2 id="created-heading">Last Created Case</h2>
+        </div>
+        <p id="status" class="muted" role="status"></p>
+        <div id="createdCase" class="result"></div>
+      </section>
+
+      <section class="section-card" aria-labelledby="queue-heading">
+        <div class="section-heading">
+          <span class="section-number">4</span>
+          <h2 id="queue-heading">Nurse Queue</h2>
+        </div>
+        <p class="muted">
+          Leave all filters set to Any and click Load Recent Cases to show the latest cases.
+          Recent cases use GET /cases?limit=10 with the selected filters.
+        </p>
+        <div class="primary-actions">
+          <button id="loadCases" type="button">Load Recent Cases</button>
+          <button id="loadSummary" type="button" class="secondary">Load Queue Summary</button>
+          <button id="clearFilters" type="button" class="secondary">Clear Filters</button>
+        </div>
+        <div class="filters" aria-label="Nurse Queue Filters">
           <label>
-            Selected case id
+            sourceSystem
+            <select id="filterSourceSystem">
+              <option value="">Any</option>
+              <option value="local-demo-ui">local-demo-ui</option>
+              <option value="voicemail-transcript">voicemail-transcript</option>
+            </select>
+          </label>
+          <label>
+            caseType
+            <select id="filterCaseType">
+              <option value="">Any</option>
+              <option value="text-intake">text-intake</option>
+              <option value="phone-intake">phone-intake</option>
+            </select>
+          </label>
+          <label>
+            urgency
+            <select id="filterUrgency">
+              <option value="">Any</option>
+              <option value="Routine">Routine</option>
+              <option value="Urgent">Urgent</option>
+              <option value="Unknown">Unknown</option>
+            </select>
+          </label>
+          <label>
+            reviewStatus
+            <select id="filterReviewStatus">
+              <option value="">Any</option>
+              <option value="PendingReview">PendingReview</option>
+              <option value="Reviewed">Reviewed</option>
+            </select>
+          </label>
+          <label>
+            intakeComplete
+            <select id="filterIntakeComplete">
+              <option value="">Any</option>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <label>
+            notificationEmailStatus
+            <select id="filterNotificationEmailStatus">
+              <option value="">Any</option>
+              <option value="MockRecorded">MockRecorded</option>
+              <option value="Accepted">Accepted</option>
+              <option value="Failed">Failed</option>
+              <option value="Suppressed">Suppressed</option>
+            </select>
+          </label>
+          <label>
+            notificationSmsStatus
+            <select id="filterNotificationSmsStatus">
+              <option value="">Any</option>
+              <option value="MockRecorded">MockRecorded</option>
+              <option value="Accepted">Accepted</option>
+              <option value="Failed">Failed</option>
+              <option value="Suppressed">Suppressed</option>
+            </select>
+          </label>
+          <label>
+            notificationSmsDeliveryConfirmed
+            <select id="filterNotificationSmsDeliveryConfirmed">
+              <option value="">Any</option>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="section-card" aria-labelledby="cases-heading">
+        <div class="section-heading">
+          <span class="section-number">5</span>
+          <h2 id="cases-heading">Recent Cases</h2>
+        </div>
+        <div id="cases" class="case-list"></div>
+      </section>
+
+      <section class="section-card" aria-labelledby="summary-heading">
+        <div class="section-heading">
+          <span class="section-number">6</span>
+          <h2 id="summary-heading">Queue Summary</h2>
+        </div>
+        <div id="summary" class="summary"></div>
+      </section>
+
+      <section class="section-card" aria-labelledby="review-heading">
+        <div class="section-heading">
+          <span class="section-number">7</span>
+          <h2 id="review-heading">Nurse Review</h2>
+        </div>
+        <div class="compact-grid">
+          <label>
+            selected case id
             <input id="selectedCaseId" autocomplete="off" />
           </label>
           <label>
-            Reviewed by
+            reviewedBy
             <input id="reviewedBy" value="Demo Nurse" autocomplete="name" />
           </label>
-          <label>
-            Review notes
-            <textarea id="reviewNotes" placeholder="Optional notes"></textarea>
-          </label>
-          <button id="reviewCase" type="button">Mark Reviewed</button>
-          <div id="reviewResult" class="result"></div>
-        </section>
-      </div>
+        </div>
+        <label>
+          reviewNotes
+          <textarea id="reviewNotes" placeholder="Optional notes"></textarea>
+        </label>
+        <button id="reviewCase" type="button">Mark Reviewed</button>
+        <div id="reviewResult" class="result"></div>
+      </section>
 
-      <section class="panel" aria-labelledby="queue-heading">
-        <h2 id="queue-heading">Queue</h2>
-        <div id="summary" class="summary"></div>
-        <div id="cases" class="case-list"></div>
+      <section class="section-card" aria-labelledby="reset-heading">
+        <div class="section-heading">
+          <span class="section-number">8</span>
+          <h2 id="reset-heading">Demo Reset</h2>
+        </div>
+        <p class="muted">Warning: Reset Demo clears local mock/demo cases and mock email/SMS notifications only.</p>
+        <button id="resetDemo" type="button" class="danger">Reset Demo</button>
       </section>
     </main>
 
@@ -268,6 +529,16 @@
       const cases = document.querySelector("#cases");
       const reviewResult = document.querySelector("#reviewResult");
       const selectedCaseId = document.querySelector("#selectedCaseId");
+      const filterIds = [
+        "filterSourceSystem",
+        "filterCaseType",
+        "filterUrgency",
+        "filterReviewStatus",
+        "filterIntakeComplete",
+        "filterNotificationEmailStatus",
+        "filterNotificationSmsStatus",
+        "filterNotificationSmsDeliveryConfirmed",
+      ];
 
       async function requestJson(url, options = {}) {
         const response = await fetch(url, {
@@ -285,25 +556,66 @@
         button.disabled = busy;
       }
 
+      function optionalValue(selector) {
+        const value = document.querySelector(selector).value.trim();
+        return value || null;
+      }
+
       function showCase(target, item) {
         selectedCaseId.value = item.id;
         target.innerHTML = `
           <div class="facts">
-            <div class="fact"><span>Case id</span><br /><code>${item.id}</code></div>
-            <div class="fact"><span>Urgency</span><br />${item.urgency}</div>
+            <div class="fact"><span>id</span><br /><code>${item.id}</code></div>
+            <div class="fact"><span>caseType</span><br />${item.caseType}</div>
+            <div class="fact"><span>sourceSystem</span><br />${item.sourceSystem || ""}</div>
+            <div class="fact"><span>urgency</span><br />${item.urgency}</div>
             <div class="fact"><span>intakeComplete</span><br />${item.intakeComplete}</div>
+            <div class="fact"><span>intakeStatus</span><br />${item.intakeStatus || ""}</div>
             <div class="fact"><span>reviewStatus</span><br />${item.reviewStatus}</div>
             <div class="fact"><span>notificationEmailStatus</span><br />${item.notificationEmailStatus}</div>
             <div class="fact"><span>notificationSmsStatus</span><br />${item.notificationSmsStatus}</div>
           </div>
-          <p><strong>Summary:</strong> ${item.summary || "No summary returned."}</p>
+          <p><strong>summary:</strong> ${item.summary || "No summary returned."}</p>
+          <div class="metadata">
+            <h3>metadata</h3>
+            <div class="facts">
+              <div class="fact"><span>sourceCallId</span><br />${item.sourceCallId || ""}</div>
+              <div class="fact"><span>sourceRecordingId</span><br />${item.sourceRecordingId || ""}</div>
+              <div class="fact"><span>audioBlobName</span><br />${item.audioBlobName || ""}</div>
+              <div class="fact"><span>idempotencyKey</span><br />${item.idempotencyKey || ""}</div>
+            </div>
+          </div>
         `;
       }
 
-      document.querySelector("#submitIntake").addEventListener("click", async (event) => {
-        const button = event.currentTarget;
+      function buildQueueParams(includeLimit = false) {
+        const params = new URLSearchParams();
+        const mappings = [
+          ["sourceSystem", "#filterSourceSystem"],
+          ["caseType", "#filterCaseType"],
+          ["urgency", "#filterUrgency"],
+          ["reviewStatus", "#filterReviewStatus"],
+          ["intakeComplete", "#filterIntakeComplete"],
+          ["notificationEmailStatus", "#filterNotificationEmailStatus"],
+          ["notificationSmsStatus", "#filterNotificationSmsStatus"],
+          ["notificationSmsDeliveryConfirmed", "#filterNotificationSmsDeliveryConfirmed"],
+        ];
+
+        mappings.forEach(([name, selector]) => {
+          const value = document.querySelector(selector).value;
+          if (value) {
+            params.set(name, value);
+          }
+        });
+        if (includeLimit) {
+          params.set("limit", "10");
+        }
+        return params.toString();
+      }
+
+      async function submitTextIntake(button) {
         setBusy(button, true);
-        status.textContent = "Submitting intake...";
+        status.textContent = "Submitting text intake...";
         try {
           const item = await requestJson("/intake/text", {
             method: "POST",
@@ -312,7 +624,7 @@
               sourceSystem: "local-demo-ui",
             }),
           });
-          status.textContent = "Created case.";
+          status.textContent = "Created text intake case.";
           showCase(createdCase, item);
           await loadSummary();
           await loadCases();
@@ -321,30 +633,74 @@
         } finally {
           setBusy(button, false);
         }
-      });
+      }
+
+      async function submitVoicemailIntake(button) {
+        setBusy(button, true);
+        status.textContent = "Submitting voicemail transcript...";
+        try {
+          const item = await requestJson("/intake/voicemail-transcript", {
+            method: "POST",
+            body: JSON.stringify({
+              transcript: document.querySelector("#voicemailTranscript").value,
+              sourceSystem: "voicemail-transcript",
+              sourceCallId: optionalValue("#voicemailSourceCallId"),
+              sourceRecordingId: optionalValue("#voicemailSourceRecordingId"),
+              audioBlobName: optionalValue("#voicemailAudioBlobName"),
+              callerPhoneNumber: optionalValue("#voicemailCallerPhoneNumber"),
+              idempotencyKey: optionalValue("#voicemailIdempotencyKey"),
+            }),
+          });
+          status.textContent = "Created or returned voicemail transcript case.";
+          showCase(createdCase, item);
+          await loadSummary();
+          await loadCases();
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          setBusy(button, false);
+        }
+      }
 
       async function loadSummary() {
-        const data = await requestJson("/cases/summary");
+        const query = buildQueueParams(false);
+        const data = await requestJson(`/cases/summary${query ? `?${query}` : ""}`);
         summary.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
       }
 
       async function loadCases() {
-        const data = await requestJson("/cases?limit=10");
+        const query = buildQueueParams(true);
+        const data = await requestJson(`/cases${query ? `?${query}` : "?limit=10"}`);
         cases.innerHTML = data
           .map(
             (item) => `
               <div class="case-row">
                 <div>
-                  <strong>${item.urgency}</strong> · ${item.reviewStatus}<br />
-                  <span class="muted"><code>${item.id}</code></span><br />
-                  ${item.summary || "No summary returned."}
+                  <strong>case id:</strong> <code>${item.id}</code>
+                  <div class="case-detail-grid">
+                    <span><strong>sourceSystem:</strong> ${item.sourceSystem || ""}</span>
+                    <span><strong>caseType:</strong> ${item.caseType}</span>
+                    <span><strong>urgency:</strong> ${item.urgency}</span>
+                    <span><strong>intakeStatus:</strong> ${item.intakeStatus || ""}</span>
+                    <span><strong>reviewStatus:</strong> ${item.reviewStatus}</span>
+                    <span><strong>notification statuses:</strong> ${item.notificationEmailStatus} / ${item.notificationSmsStatus}</span>
+                  </div>
+                  <p class="muted">${item.summary || "No summary returned."}</p>
                 </div>
-                <button type="button" class="secondary" data-case-id="${item.id}">Select</button>
+                <button type="button" class="secondary" data-case-id="${item.id}">Select for Review</button>
               </div>
             `,
           )
           .join("") || '<p class="muted">No cases yet.</p>';
       }
+
+      document.querySelector("#submitTextIntake").addEventListener("click", (event) => {
+        submitTextIntake(event.currentTarget);
+      });
+
+      document.querySelector("#submitVoicemailIntake").addEventListener("click", (event) => {
+        submitVoicemailIntake(event.currentTarget);
+      });
 
       document.querySelector("#loadSummary").addEventListener("click", async () => {
         status.textContent = "Loading queue summary...";
@@ -364,6 +720,14 @@
         } catch (error) {
           status.textContent = error.message;
         }
+      });
+
+      document.querySelector("#clearFilters").addEventListener("click", async () => {
+        filterIds.forEach((id) => {
+          document.querySelector(`#${id}`).value = "";
+        });
+        await loadSummary();
+        await loadCases();
       });
 
       cases.addEventListener("click", (event) => {

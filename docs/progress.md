@@ -84,6 +84,24 @@ Completed:
 - No runtime behavior, notification semantics, repository behavior, live Azure
   calls, Azure Speech, Twilio, ACS Voice, hosting, Key Vault, auth, retry logic,
   or ACS delivery polling were added for Swagger/OpenAPI demo examples
+- Local demo page voicemail/filter enhancement is complete
+- `GET /demo` now demonstrates both text intake and voicemail transcript intake
+- The demo page includes voicemail metadata/idempotency fields
+- The demo page includes nurse queue filter controls for source, case type,
+  urgency, review status, intake completion, and notification status
+- The page still uses existing backend endpoints only
+- No frontend framework, new backend endpoint, runtime behavior change, live
+  Azure call, Azure Speech, Twilio, ACS Voice, hosting, Key Vault, auth, retry
+  logic, or ACS delivery polling was added for the local demo enhancement
+- Local demo page usability cleanup is complete
+- The demo page now uses a clearer guided workflow and separated sections
+- Load Recent Cases and Load Queue Summary are easier to find
+- The demo page still demonstrates text intake, voicemail transcript intake,
+  filters, review, and reset
+- No backend behavior, API contract, repository behavior, notification
+  semantics, live Azure calls, Azure Speech, Twilio, ACS Voice, hosting, Key
+  Vault, auth, retry logic, frontend framework, or ACS delivery polling was
+  added for the demo usability cleanup
 - No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
   hosting, Key Vault, auth, retry logic, or notification semantic changes were
   added for voicemail transcript intake
@@ -805,7 +823,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 332 passed
+- 335 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
