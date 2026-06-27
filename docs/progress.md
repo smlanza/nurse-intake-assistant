@@ -102,6 +102,9 @@ Completed:
   semantics, live Azure calls, Azure Speech, Twilio, ACS Voice, hosting, Key
   Vault, auth, retry logic, frontend framework, or ACS delivery polling was
   added for the demo usability cleanup
+- `docs/demo-smoke-test.md` documents the manual local demo page smoke-test
+  workflow, including app startup, `/demo`, intake, queue refresh, nurse review,
+  reset, and expected HTTP 200 API calls
 - No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
   hosting, Key Vault, auth, retry logic, or notification semantic changes were
   added for voicemail transcript intake
@@ -823,7 +826,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 335 passed
+- 336 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step

@@ -177,6 +177,29 @@ def test_manual_local_mock_demo_guide_exists() -> None:
     assert "future enhancement" in guide
 
 
+def test_demo_page_smoke_test_guide_exists() -> None:
+    guide_path = PROJECT_ROOT / "docs" / "demo-smoke-test.md"
+
+    assert guide_path.exists()
+
+    guide = guide_path.read_text()
+    assert "Demo Page Smoke Test" in guide
+    assert "uvicorn src.app.main:app --reload" in guide
+    assert "http://127.0.0.1:8000/demo" in guide
+    assert "submit a text intake" in guide
+    assert "confirm recent cases refresh" in guide
+    assert "mark a case reviewed" in guide
+    assert "confirm the reviewed state is visible" in guide
+    assert "reset the demo" in guide
+    assert "clean state" in guide
+    assert "POST /intake/text" in guide
+    assert "GET /cases/summary" in guide
+    assert "GET /cases?limit=10" in guide
+    assert "POST /cases/{case_id}/review" in guide
+    assert "POST /demo/reset" in guide
+    assert "returns 200" in guide
+
+
 def test_progress_links_manual_acs_email_smoke_test() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
