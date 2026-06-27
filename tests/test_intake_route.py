@@ -267,6 +267,107 @@ def test_voicemail_transcript_persists_supplied_source_metadata() -> None:
     assert client.get("/cases").json()[0]["sourceCallId"] == "voicemail-call-001"
 
 
+def test_voicemail_transcript_persists_recording_metadata() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            ),
+            "sourceRecordingId": "recording-123",
+            "audioBlobName": "voicemail/recording-123.wav",
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["sourceRecordingId"] == "recording-123"
+    assert case["audioBlobName"] == "voicemail/recording-123.wav"
+    assert case["audioDeleted"] is False
+    saved_case = client.get("/cases").json()[0]
+    assert saved_case["sourceRecordingId"] == "recording-123"
+    assert saved_case["audioBlobName"] == "voicemail/recording-123.wav"
+
+
+def test_voicemail_transcript_recording_metadata_is_optional() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["sourceRecordingId"] is None
+    assert case["audioBlobName"] is None
+    assert case["audioDeleted"] is False
+
+
+def test_voicemail_transcript_blank_recording_metadata_becomes_none() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            ),
+            "sourceRecordingId": "   ",
+            "audioBlobName": "",
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["sourceRecordingId"] is None
+    assert case["audioBlobName"] is None
+
+
+def test_voicemail_transcript_source_metadata_is_trimmed_before_persistence() -> None:
+    reset_demo_state()
+
+    response = client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": (
+                "My name is Jane Doe. DOB: 1980-04-15. "
+                "My callback number is +1 (555) 555-0123. "
+                "I need a medication refill."
+            ),
+            "sourceSystem": "  voicemail-system  ",
+            "sourceCallId": "  call-123  ",
+            "callerPhoneNumber": "  +1 555 555 9999  ",
+            "sourceRecordingId": "  recording-123  ",
+            "audioBlobName": "  voicemail/recording-123.wav  ",
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert case["sourceSystem"] == "voicemail-system"
+    assert case["sourceCallId"] == "call-123"
+    assert case["sourceRecordingId"] == "recording-123"
+    assert case["audioBlobName"] == "voicemail/recording-123.wav"
+    saved_case = client.get("/cases").json()[0]
+    assert saved_case["sourceSystem"] == "voicemail-system"
+    assert saved_case["sourceCallId"] == "call-123"
+    assert saved_case["sourceRecordingId"] == "recording-123"
+    assert saved_case["audioBlobName"] == "voicemail/recording-123.wav"
+
+
 def test_voicemail_transcript_accepts_caller_phone_number_as_request_metadata() -> None:
     reset_demo_state()
 

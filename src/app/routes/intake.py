@@ -40,12 +40,25 @@ class VoicemailTranscriptIntakeRequest(BaseModel):
     sourceSystem: str | None = "voicemail-transcript"
     sourceCallId: str | None = None
     callerPhoneNumber: str | None = None
+    sourceRecordingId: str | None = None
+    audioBlobName: str | None = None
 
     @field_validator("transcript")
     @classmethod
     def transcript_must_be_usable(cls, value: str) -> str:
         _validate_minimum_non_whitespace_text(value, "transcript")
         return value
+
+    @field_validator(
+        "sourceSystem",
+        "sourceCallId",
+        "callerPhoneNumber",
+        "sourceRecordingId",
+        "audioBlobName",
+    )
+    @classmethod
+    def optional_metadata_must_be_clean(cls, value: str | None) -> str | None:
+        return _clean_optional_metadata(value)
 
 
 @router.post("/text", response_model=CaseDocument)
@@ -64,8 +77,18 @@ async def create_voicemail_transcript_intake(
     case = await case_processing_service.process(request.transcript, "phone-intake")
     case.sourceSystem = request.sourceSystem
     case.sourceCallId = request.sourceCallId
+    case.sourceRecordingId = request.sourceRecordingId
+    case.audioBlobName = request.audioBlobName
     await case_repository.save(case)
     return case
+
+
+def _clean_optional_metadata(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    cleaned_value = value.strip()
+    return cleaned_value or None
 
 
 def _validate_minimum_non_whitespace_text(value: str, field_name: str) -> None:

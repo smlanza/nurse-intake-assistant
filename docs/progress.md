@@ -34,6 +34,15 @@ Completed:
 - Voicemail transcript intake reuses the existing `CaseProcessingService` and
   notification/status pipeline
 - Voicemail transcript intake defaults `sourceSystem` to `voicemail-transcript`
+- Voicemail recording metadata support is complete
+- `POST /intake/voicemail-transcript` now accepts optional
+  `sourceRecordingId` and `audioBlobName`
+- Voicemail `sourceRecordingId` and `audioBlobName` are persisted on the
+  returned/saved case when supplied
+- Voicemail `audioDeleted` remains false by default
+- No audio upload, Azure Speech, Blob Storage calls, live Azure AI Foundry,
+  Twilio, ACS voice, hosting, Key Vault, auth, retry logic, or notification
+  semantic changes were added for voicemail recording metadata
 - No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
   hosting, Key Vault, auth, retry logic, or notification semantic changes were
   added for voicemail transcript intake
@@ -755,7 +764,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 283 passed
+- 287 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step
