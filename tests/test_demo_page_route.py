@@ -248,6 +248,31 @@ def test_demo_page_select_for_review_renders_selected_case_context() -> None:
         assert f"${{escapeHtml({field})}}" in html
 
 
+def test_demo_page_selected_case_context_renders_review_metadata_when_present() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    context_renderer = html[
+        html.index("function renderSelectedCaseContext(item)") : html.index(
+            "function showCase"
+        )
+    ]
+    assert "item.reviewedBy || item.reviewedAt || item.reviewNotes" in context_renderer
+    assert (
+        "<strong>reviewedBy:</strong> ${escapeHtml(item.reviewedBy)}"
+        in context_renderer
+    )
+    assert (
+        "<strong>reviewedAt:</strong> ${escapeHtml(item.reviewedAt)}"
+        in context_renderer
+    )
+    assert (
+        "<strong>reviewNotes:</strong> ${escapeHtml(item.reviewNotes)}"
+        in context_renderer
+    )
+
+
 def test_demo_page_reset_clears_selected_case_context() -> None:
     response = client.get("/demo")
 
@@ -263,6 +288,8 @@ def test_demo_page_select_for_review_clears_stale_review_notes() -> None:
     html = response.text
     assert 'const reviewNotes = document.querySelector("#reviewNotes");' in html
     assert 'reviewNotes.value = "";' in html
+    assert "reviewNotes.value = selectedCase.reviewNotes" not in html
+    assert "reviewNotes.value = item.reviewNotes" not in html
 
 
 def test_demo_page_select_for_review_jumps_to_nurse_review_and_focuses_input() -> None:

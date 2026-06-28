@@ -670,6 +670,20 @@
             <span><strong>sourceSystem:</strong> ${escapeHtml(item.sourceSystem)}</span>
           </div>
           <p class="muted">${escapeHtml(item.summary || "No summary returned.")}</p>
+          ${
+            item.reviewedBy || item.reviewedAt || item.reviewNotes
+              ? `
+                <div class="metadata">
+                  <h3>review metadata</h3>
+                  <div class="case-detail-grid">
+                    ${item.reviewedBy ? `<span><strong>reviewedBy:</strong> ${escapeHtml(item.reviewedBy)}</span>` : ""}
+                    ${item.reviewedAt ? `<span><strong>reviewedAt:</strong> ${escapeHtml(item.reviewedAt)}</span>` : ""}
+                    ${item.reviewNotes ? `<span><strong>reviewNotes:</strong> ${escapeHtml(item.reviewNotes)}</span>` : ""}
+                  </div>
+                </div>
+              `
+              : ""
+          }
         `;
       }
 
