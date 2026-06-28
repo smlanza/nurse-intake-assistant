@@ -39,6 +39,9 @@ Completed:
 - `GET /demo` serves the demo page
 - The demo page includes a Seed Demo Data button that calls `POST /demo/seed`
   and refreshes recent cases and queue summary
+- Recent Cases now includes a Select for Review workflow that fills the
+  existing Nurse Review case id field and shows a selected-case status message
+  without calling a backend endpoint
 - The demo page exercises existing mock/local endpoints only
 - No frontend framework or live Azure integration was added for the demo page
 - Demo UI shell is for local demoability only, not production clinical use

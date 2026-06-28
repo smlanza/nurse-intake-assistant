@@ -754,6 +754,7 @@
         const button = event.target.closest("[data-case-id]");
         if (button) {
           selectedCaseId.value = button.dataset.caseId;
+          status.textContent = `Selected case ${button.dataset.caseId} for review.`;
         }
       });
 

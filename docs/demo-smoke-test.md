@@ -27,7 +27,9 @@ http://127.0.0.1:8000/demo
 3. Click Load Queue Summary.
    - Expected: `GET /cases/summary` returns 200.
    - Confirm summary counts reflect the seeded demo cases.
-4. Select or copy a seeded case id from Recent Cases.
+4. Click Select for Review on a seeded case from Recent Cases.
+   - Expected: the Nurse Review case id field is populated.
+   - Confirm the page shows a selected-case status message.
 5. In Nurse Review, mark a case reviewed.
    - Expected: `POST /cases/{case_id}/review` returns 200.
    - confirm the reviewed state is visible in the returned case and recent cases after refresh.
