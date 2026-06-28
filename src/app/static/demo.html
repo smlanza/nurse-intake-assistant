@@ -338,7 +338,8 @@
           <li><a href="#nurse-review-section"><span class="step-label">Step 4</span>Mark a selected case reviewed.</a></li>
           <li><a href="#text-intake-section"><span class="step-label">Step 5</span>Submit a text intake.</a></li>
           <li><a href="#voicemail-intake-section"><span class="step-label">Step 6</span>Submit a voicemail transcript intake.</a></li>
-          <li><a href="#reset-section"><span class="step-label">Step 7</span>Reset demo when done.</a></li>
+          <li><a href="#mock-notifications-section"><span class="step-label">Step 7</span>Inspect mock notifications.</a></li>
+          <li><a href="#reset-section"><span class="step-label">Step 8</span>Reset demo when done.</a></li>
         </ul>
       </section>
 
@@ -524,9 +525,31 @@
         <button id="submitVoicemailIntake" type="button">Submit Voicemail Transcript</button>
       </section>
 
-      <section id="reset-section" class="section-card" aria-labelledby="reset-heading">
+      <section id="mock-notifications-section" class="section-card" aria-labelledby="mock-notifications-heading">
         <div class="section-heading">
           <span class="section-number">7</span>
+          <h2 id="mock-notifications-heading">Mock Notifications</h2>
+        </div>
+        <p class="muted">Mock mode sends no real email or SMS.</p>
+        <div class="primary-actions">
+          <button id="loadEmailNotifications" type="button">Load Mock Email Notifications</button>
+          <button id="loadSmsNotifications" type="button" class="secondary">Load Mock SMS Notifications</button>
+        </div>
+        <div class="two-column">
+          <div class="panel" aria-labelledby="email-notifications-heading">
+            <h3 id="email-notifications-heading">Mock Email Notifications</h3>
+            <div id="emailNotifications" class="result"></div>
+          </div>
+          <div class="panel" aria-labelledby="sms-notifications-heading">
+            <h3 id="sms-notifications-heading">Mock SMS Notifications</h3>
+            <div id="smsNotifications" class="result"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="reset-section" class="section-card" aria-labelledby="reset-heading">
+        <div class="section-heading">
+          <span class="section-number">8</span>
           <h2 id="reset-heading">Demo Reset</h2>
         </div>
         <p class="muted">Warning: Reset Demo clears local mock/demo cases and mock email/SMS notifications only.</p>
@@ -542,6 +565,8 @@
       const reviewResult = document.querySelector("#reviewResult");
       const selectedCaseId = document.querySelector("#selectedCaseId");
       const reviewNotes = document.querySelector("#reviewNotes");
+      const emailNotifications = document.querySelector("#emailNotifications");
+      const smsNotifications = document.querySelector("#smsNotifications");
       const filterIds = [
         "filterSourceSystem",
         "filterCaseType",
@@ -581,6 +606,26 @@
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#39;");
+      }
+
+      function renderNotifications(target, notifications, emptyMessage) {
+        target.innerHTML = notifications.length
+          ? notifications
+              .map(
+                (notification) => `
+                  <div class="fact">
+                    ${Object.entries(notification)
+                      .map(
+                        ([key, value]) => `
+                          <div><strong>${escapeHtml(key)}:</strong> ${escapeHtml(value)}</div>
+                        `,
+                      )
+                      .join("")}
+                  </div>
+                `,
+              )
+              .join("")
+          : `<p class="muted">${emptyMessage}</p>`;
       }
 
       function showCase(target, item) {
@@ -785,6 +830,36 @@
         await loadCases();
       });
 
+      document.querySelector("#loadEmailNotifications").addEventListener("click", async () => {
+        status.textContent = "Loading mock email notifications...";
+        try {
+          const data = await requestJson("/notifications/email");
+          renderNotifications(
+            emailNotifications,
+            data,
+            "No mock email notifications recorded.",
+          );
+          status.textContent = "Loaded mock email notifications.";
+        } catch (error) {
+          status.textContent = error.message;
+        }
+      });
+
+      document.querySelector("#loadSmsNotifications").addEventListener("click", async () => {
+        status.textContent = "Loading mock SMS notifications...";
+        try {
+          const data = await requestJson("/notifications/sms");
+          renderNotifications(
+            smsNotifications,
+            data,
+            "No mock SMS notifications recorded.",
+          );
+          status.textContent = "Loaded mock SMS notifications.";
+        } catch (error) {
+          status.textContent = error.message;
+        }
+      });
+
       cases.addEventListener("click", (event) => {
         const button = event.target.closest("[data-case-id]");
         if (button) {
@@ -834,6 +909,8 @@
           await requestJson("/demo/reset", { method: "POST" });
           createdCase.innerHTML = "";
           reviewResult.innerHTML = "";
+          emailNotifications.innerHTML = "";
+          smsNotifications.innerHTML = "";
           selectedCaseId.value = "";
           await loadSummary();
           await loadCases();

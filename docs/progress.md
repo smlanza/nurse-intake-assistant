@@ -53,6 +53,9 @@ Completed:
   focuses the populated case id field
 - Selecting a recent case for review now clears stale review notes while keeping
   the reviewedBy field unchanged
+- The demo page includes a Mock Notifications section that loads existing
+  `GET /notifications/email` and `GET /notifications/sms` mock inspection
+  records with friendly empty states
 - The demo page exercises existing mock/local endpoints only
 - No frontend framework or live Azure integration was added for the demo page
 - Demo UI shell is for local demoability only, not production clinical use

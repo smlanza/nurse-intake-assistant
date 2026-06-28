@@ -47,6 +47,7 @@ def test_demo_page_includes_guided_workflow_and_sections() -> None:
         "Queue Summary",
         "Nurse Review",
         "Demo Reset",
+        "Mock Notifications",
     ]:
         assert heading in html
 
@@ -68,6 +69,7 @@ def test_demo_page_workflow_is_unnumbered_clickable_navigation() -> None:
     assert 'href="#nurse-review-section"' in workflow_html
     assert 'href="#text-intake-section"' in workflow_html
     assert 'href="#voicemail-intake-section"' in workflow_html
+    assert 'href="#mock-notifications-section"' in workflow_html
     assert 'href="#reset-section"' in workflow_html
 
 
@@ -83,7 +85,8 @@ def test_demo_page_section_numbers_match_workflow_targets() -> None:
         ('id="nurse-review-section"', '<span class="section-number">4</span>'),
         ('id="text-intake-section"', '<span class="section-number">5</span>'),
         ('id="voicemail-intake-section"', '<span class="section-number">6</span>'),
-        ('id="reset-section"', '<span class="section-number">7</span>'),
+        ('id="mock-notifications-section"', '<span class="section-number">7</span>'),
+        ('id="reset-section"', '<span class="section-number">8</span>'),
     ]
     for section_id, section_number in expected_sections:
         section_start = html.index(section_id)
@@ -129,6 +132,34 @@ def test_demo_page_includes_queue_filter_controls() -> None:
     assert "notificationSmsStatus" in html
     assert "notificationSmsDeliveryConfirmed" in html
     assert "URLSearchParams" in html
+
+
+def test_demo_page_includes_mock_notification_inspection_controls() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'id="mock-notifications-section"' in html
+    assert "Mock mode sends no real email or SMS." in html
+    assert "Load Mock Email Notifications" in html
+    assert "Load Mock SMS Notifications" in html
+    assert 'id="loadEmailNotifications"' in html
+    assert 'id="loadSmsNotifications"' in html
+    assert 'id="emailNotifications"' in html
+    assert 'id="smsNotifications"' in html
+
+
+def test_demo_page_loads_existing_mock_notification_inspection_endpoints() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'requestJson("/notifications/email")' in html
+    assert 'requestJson("/notifications/sms")' in html
+    assert "No mock email notifications recorded." in html
+    assert "No mock SMS notifications recorded." in html
+    assert "renderNotifications" in html
+    assert "escapeHtml" in html
 
 
 def test_demo_page_recent_cases_include_select_for_review_affordance() -> None:

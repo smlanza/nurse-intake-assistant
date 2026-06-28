@@ -42,9 +42,13 @@ visible section numbers on the page.
 6. Optionally submit a text intake from the Text Intake panel.
    - Expected: `POST /intake/text` returns 200.
    - The Last Created Case section shows a case id and pending review state.
-7. reset the demo.
+7. Click Load Mock Email Notifications and Load Mock SMS Notifications.
+   - Expected: `GET /notifications/email` and `GET /notifications/sms` return 200.
+   - Confirm recorded mock notifications are shown, or friendly empty states appear when none are recorded.
+   - Confirm mock mode sends no real email or SMS.
+8. reset the demo.
    - Expected: `POST /demo/reset` returns 200.
-   - Confirm the demo returns to the expected clean state: recent cases are empty and summary counts return to zero.
+   - Confirm the demo returns to the expected clean state: recent cases are empty, summary counts return to zero, and mock notification records are cleared.
 
 ## Notes
 

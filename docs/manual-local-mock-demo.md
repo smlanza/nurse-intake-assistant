@@ -80,7 +80,9 @@ Select for Review on a case, confirm the page jumps to Nurse Review and focuses
 the populated case id field, confirm review notes are cleared for the selected
 case, submit the review, confirm Recent Cases and Queue Summary refresh
 automatically, confirm Recent Cases shows persisted review metadata for the
-reviewed case, and reset demo state when done.
+reviewed case, load mock email and SMS notifications, confirm mock mode sends no
+real email or SMS, and reset demo state when done. Reset clears mock
+notification records along with local demo cases.
 
 ## Demo Step 4: Submit A Valid Text Intake
 
