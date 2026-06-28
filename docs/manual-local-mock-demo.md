@@ -74,9 +74,11 @@ Open the local demo page:
 http://127.0.0.1:8000/demo
 ```
 
-Use the Seed Demo Data button, then Load Recent Cases, Load Queue Summary, click
-Select for Review on a case, confirm the Nurse Review case id field is
-populated, submit the review, confirm Recent Cases and Queue Summary refresh
+Use the clickable Demo Workflow navigation to move through matching numbered
+sections. Seed Demo Data, then Load Recent Cases, Load Queue Summary, click
+Select for Review on a case, confirm the page jumps to Nurse Review and focuses
+the populated case id field, confirm review notes are cleared for the selected
+case, submit the review, confirm Recent Cases and Queue Summary refresh
 automatically, and reset demo state when done.
 
 ## Demo Step 4: Submit A Valid Text Intake

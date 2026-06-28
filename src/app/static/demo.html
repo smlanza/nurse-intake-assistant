@@ -278,6 +278,19 @@
         align-items: baseline;
       }
 
+      .workflow-steps a {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .workflow-steps a:hover {
+        color: var(--accent-dark);
+        text-decoration: underline;
+      }
+
       .step-label {
         color: var(--accent-dark);
         font-weight: 800;
@@ -316,83 +329,27 @@
 
       <section class="section-card workflow" aria-labelledby="workflow-heading">
         <div class="section-heading">
-          <span class="section-number">1</span>
           <h2 id="workflow-heading">Demo Workflow</h2>
         </div>
         <ul class="workflow-steps">
-          <li><span class="step-label">Step 1</span>Seed demo data or submit a text or voicemail intake.</li>
-          <li><span class="step-label">Step 2</span>Click Load Recent Cases.</li>
-          <li><span class="step-label">Step 3</span>Optionally apply filters.</li>
-          <li><span class="step-label">Step 4</span>Select or copy a case id.</li>
-          <li><span class="step-label">Step 5</span>Mark the case reviewed.</li>
-          <li><span class="step-label">Step 6</span>Reset demo when done.</li>
+          <li><a href="#demo-controls-section"><span class="step-label">Step 1</span>Seed, load, and filter the nurse queue.</a></li>
+          <li><a href="#queue-summary-section"><span class="step-label">Step 2</span>Review Queue Summary.</a></li>
+          <li><a href="#recent-cases-section"><span class="step-label">Step 3</span>Review Recent Cases.</a></li>
+          <li><a href="#nurse-review-section"><span class="step-label">Step 4</span>Mark a selected case reviewed.</a></li>
+          <li><a href="#text-intake-section"><span class="step-label">Step 5</span>Submit a text intake.</a></li>
+          <li><a href="#voicemail-intake-section"><span class="step-label">Step 6</span>Submit a voicemail transcript intake.</a></li>
+          <li><a href="#reset-section"><span class="step-label">Step 7</span>Reset demo when done.</a></li>
         </ul>
       </section>
 
-      <section class="section-card" aria-labelledby="submit-heading">
+      <section id="demo-controls-section" class="section-card" aria-labelledby="demo-controls-heading">
         <div class="section-heading">
-          <span class="section-number">2</span>
-          <h2 id="submit-heading">Submit Intake</h2>
-        </div>
-        <div class="two-column">
-          <div class="panel" aria-labelledby="text-intake-heading">
-            <h3 id="text-intake-heading">Text Intake</h3>
-            <label>
-              Intake text
-              <textarea id="intakeText">My name is Jane Doe. DOB: 1980-04-15. My callback number is +1 (555) 555-0123. I need a medication refill.</textarea>
-            </label>
-            <button id="submitTextIntake" type="button">Submit Text Intake</button>
-          </div>
-
-          <div class="panel" aria-labelledby="voicemail-heading">
-            <h3 id="voicemail-heading">Voicemail Transcript Intake</h3>
-            <label>
-              transcript
-              <textarea id="voicemailTranscript">My name is Alex Lee. DOB: 1975-03-20. My callback number is +1 (555) 555-0199. I need a medication refill.</textarea>
-            </label>
-            <div class="compact-grid">
-              <label>
-                sourceCallId
-                <input id="voicemailSourceCallId" value="call-demo-001" />
-              </label>
-              <label>
-                sourceRecordingId
-                <input id="voicemailSourceRecordingId" value="recording-demo-001" />
-              </label>
-              <label>
-                audioBlobName
-                <input id="voicemailAudioBlobName" value="demo/recording-demo-001.wav" />
-              </label>
-              <label>
-                callerPhoneNumber
-                <input id="voicemailCallerPhoneNumber" value="+1 (555) 555-0199" />
-              </label>
-              <label>
-                idempotencyKey
-                <input id="voicemailIdempotencyKey" value="voicemail-demo-001" />
-              </label>
-            </div>
-            <button id="submitVoicemailIntake" type="button">Submit Voicemail Transcript</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="section-card" aria-labelledby="created-heading">
-        <div class="section-heading">
-          <span class="section-number">3</span>
-          <h2 id="created-heading">Last Created Case</h2>
-        </div>
-        <p id="status" class="muted" role="status"></p>
-        <div id="createdCase" class="result"></div>
-      </section>
-
-      <section class="section-card" aria-labelledby="queue-heading">
-        <div class="section-heading">
-          <span class="section-number">4</span>
-          <h2 id="queue-heading">Nurse Queue</h2>
+          <span class="section-number">1</span>
+          <h2 id="demo-controls-heading">Demo Controls</h2>
         </div>
         <p class="muted">
-          Leave all filters set to Any and click Load Recent Cases to show the latest cases.
+          Nurse Queue controls for seeding, loading, and filtering local mock cases.
+          Leave all filters set to Any to show the latest cases.
           Recent cases use GET /cases?limit=10 with the selected filters.
         </p>
         <div class="primary-actions">
@@ -472,27 +429,32 @@
             </select>
           </label>
         </div>
-      </section>
-
-      <section class="section-card" aria-labelledby="cases-heading">
-        <div class="section-heading">
-          <span class="section-number">5</span>
-          <h2 id="cases-heading">Recent Cases</h2>
+        <div class="panel" aria-labelledby="created-heading">
+          <h3 id="created-heading">Last Created Case</h3>
+          <p id="status" class="muted" role="status"></p>
+          <div id="createdCase" class="result"></div>
         </div>
-        <div id="cases" class="case-list"></div>
       </section>
 
-      <section class="section-card" aria-labelledby="summary-heading">
+      <section id="queue-summary-section" class="section-card" aria-labelledby="summary-heading">
         <div class="section-heading">
-          <span class="section-number">6</span>
+          <span class="section-number">2</span>
           <h2 id="summary-heading">Queue Summary</h2>
         </div>
         <div id="summary" class="summary"></div>
       </section>
 
-      <section class="section-card" aria-labelledby="review-heading">
+      <section id="recent-cases-section" class="section-card" aria-labelledby="cases-heading">
         <div class="section-heading">
-          <span class="section-number">7</span>
+          <span class="section-number">3</span>
+          <h2 id="cases-heading">Recent Cases</h2>
+        </div>
+        <div id="cases" class="case-list"></div>
+      </section>
+
+      <section id="nurse-review-section" class="section-card" aria-labelledby="review-heading">
+        <div class="section-heading">
+          <span class="section-number">4</span>
           <h2 id="review-heading">Nurse Review</h2>
         </div>
         <div class="compact-grid">
@@ -513,9 +475,58 @@
         <div id="reviewResult" class="result"></div>
       </section>
 
-      <section class="section-card" aria-labelledby="reset-heading">
+      <section id="text-intake-section" class="section-card" aria-labelledby="submit-heading">
         <div class="section-heading">
-          <span class="section-number">8</span>
+          <span class="section-number">5</span>
+          <h2 id="submit-heading">Submit Intake</h2>
+        </div>
+        <div class="panel" aria-labelledby="text-intake-heading">
+          <h3 id="text-intake-heading">Text Intake</h3>
+          <label>
+            Intake text
+            <textarea id="intakeText">My name is Jane Doe. DOB: 1980-04-15. My callback number is +1 (555) 555-0123. I need a medication refill.</textarea>
+          </label>
+          <button id="submitTextIntake" type="button">Submit Text Intake</button>
+        </div>
+      </section>
+
+      <section id="voicemail-intake-section" class="section-card" aria-labelledby="voicemail-heading">
+        <div class="section-heading">
+          <span class="section-number">6</span>
+          <h2 id="voicemail-heading">Voicemail Transcript Intake</h2>
+        </div>
+        <label>
+          transcript
+          <textarea id="voicemailTranscript">My name is Alex Lee. DOB: 1975-03-20. My callback number is +1 (555) 555-0199. I need a medication refill.</textarea>
+        </label>
+        <div class="compact-grid">
+          <label>
+            sourceCallId
+            <input id="voicemailSourceCallId" value="call-demo-001" />
+          </label>
+          <label>
+            sourceRecordingId
+            <input id="voicemailSourceRecordingId" value="recording-demo-001" />
+          </label>
+          <label>
+            audioBlobName
+            <input id="voicemailAudioBlobName" value="demo/recording-demo-001.wav" />
+          </label>
+          <label>
+            callerPhoneNumber
+            <input id="voicemailCallerPhoneNumber" value="+1 (555) 555-0199" />
+          </label>
+          <label>
+            idempotencyKey
+            <input id="voicemailIdempotencyKey" value="voicemail-demo-001" />
+          </label>
+        </div>
+        <button id="submitVoicemailIntake" type="button">Submit Voicemail Transcript</button>
+      </section>
+
+      <section id="reset-section" class="section-card" aria-labelledby="reset-heading">
+        <div class="section-heading">
+          <span class="section-number">7</span>
           <h2 id="reset-heading">Demo Reset</h2>
         </div>
         <p class="muted">Warning: Reset Demo clears local mock/demo cases and mock email/SMS notifications only.</p>
@@ -530,6 +541,7 @@
       const cases = document.querySelector("#cases");
       const reviewResult = document.querySelector("#reviewResult");
       const selectedCaseId = document.querySelector("#selectedCaseId");
+      const reviewNotes = document.querySelector("#reviewNotes");
       const filterIds = [
         "filterSourceSystem",
         "filterCaseType",
@@ -754,6 +766,12 @@
         const button = event.target.closest("[data-case-id]");
         if (button) {
           selectedCaseId.value = button.dataset.caseId;
+          reviewNotes.value = "";
+          document.querySelector("#nurse-review-section").scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+          selectedCaseId.focus();
           status.textContent = `Selected case ${button.dataset.caseId} for review.`;
         }
       });
@@ -773,7 +791,7 @@
             method: "POST",
             body: JSON.stringify({
               reviewedBy: document.querySelector("#reviewedBy").value,
-              reviewNotes: document.querySelector("#reviewNotes").value || null,
+              reviewNotes: reviewNotes.value || null,
             }),
           });
           showCase(reviewResult, item);

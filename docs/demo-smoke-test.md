@@ -18,6 +18,9 @@ http://127.0.0.1:8000/demo
 
 ## Demo Workflow
 
+The Demo Workflow list is clickable navigation. Its step numbers match the
+visible section numbers on the page.
+
 1. Click Seed Demo Data.
    - Expected: `POST /demo/seed` returns 200.
    - Confirm recent cases and queue summary refresh with representative pending, reviewed, urgent, routine, and needs-follow-up cases.
@@ -29,7 +32,8 @@ http://127.0.0.1:8000/demo
    - Confirm summary counts reflect the seeded demo cases.
 4. Click Select for Review on a seeded case from Recent Cases.
    - Expected: the Nurse Review case id field is populated.
-   - Confirm the page shows a selected-case status message.
+   - Confirm the page jumps to Nurse Review, focuses the case id field, and shows a selected-case status message.
+   - Confirm the reviewNotes field is clear before entering notes for the selected case.
 5. In Nurse Review, mark a case reviewed.
    - Expected: `POST /cases/{case_id}/review` returns 200.
    - confirm the reviewed state is visible in the returned case.

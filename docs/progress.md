@@ -45,6 +45,12 @@ Completed:
 - Successful nurse reviews on the demo page now display the review response,
   refresh Recent Cases, refresh Queue Summary, and show a saved/refreshed status
   message
+- Demo Workflow is now unnumbered clickable navigation, with workflow step
+  links aligned to visible numbered demo sections
+- Selecting a recent case for review now jumps to the Nurse Review section and
+  focuses the populated case id field
+- Selecting a recent case for review now clears stale review notes while keeping
+  the reviewedBy field unchanged
 - The demo page exercises existing mock/local endpoints only
 - No frontend framework or live Azure integration was added for the demo page
 - Demo UI shell is for local demoability only, not production clinical use

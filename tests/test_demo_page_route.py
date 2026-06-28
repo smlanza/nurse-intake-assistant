@@ -51,6 +51,46 @@ def test_demo_page_includes_guided_workflow_and_sections() -> None:
         assert heading in html
 
 
+def test_demo_page_workflow_is_unnumbered_clickable_navigation() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    workflow_html = html[
+        html.index('aria-labelledby="workflow-heading"') : html.index(
+            'id="demo-controls-section"'
+        )
+    ]
+    assert 'class="section-number"' not in workflow_html
+    assert 'href="#demo-controls-section"' in workflow_html
+    assert 'href="#queue-summary-section"' in workflow_html
+    assert 'href="#recent-cases-section"' in workflow_html
+    assert 'href="#nurse-review-section"' in workflow_html
+    assert 'href="#text-intake-section"' in workflow_html
+    assert 'href="#voicemail-intake-section"' in workflow_html
+    assert 'href="#reset-section"' in workflow_html
+
+
+def test_demo_page_section_numbers_match_workflow_targets() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    expected_sections = [
+        ('id="demo-controls-section"', '<span class="section-number">1</span>'),
+        ('id="queue-summary-section"', '<span class="section-number">2</span>'),
+        ('id="recent-cases-section"', '<span class="section-number">3</span>'),
+        ('id="nurse-review-section"', '<span class="section-number">4</span>'),
+        ('id="text-intake-section"', '<span class="section-number">5</span>'),
+        ('id="voicemail-intake-section"', '<span class="section-number">6</span>'),
+        ('id="reset-section"', '<span class="section-number">7</span>'),
+    ]
+    for section_id, section_number in expected_sections:
+        section_start = html.index(section_id)
+        section_html = html[section_start : section_start + 260]
+        assert section_number in section_html
+
+
 def test_demo_page_includes_seed_demo_data_button() -> None:
     response = client.get("/demo")
 
@@ -107,6 +147,24 @@ def test_demo_page_select_for_review_populates_review_case_id() -> None:
     html = response.text
     assert 'const button = event.target.closest("[data-case-id]");' in html
     assert "selectedCaseId.value = button.dataset.caseId;" in html
+
+
+def test_demo_page_select_for_review_clears_stale_review_notes() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'const reviewNotes = document.querySelector("#reviewNotes");' in html
+    assert 'reviewNotes.value = "";' in html
+
+
+def test_demo_page_select_for_review_jumps_to_nurse_review_and_focuses_input() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'document.querySelector("#nurse-review-section").scrollIntoView' in html
+    assert 'selectedCaseId.focus();' in html
 
 
 def test_demo_page_select_for_review_shows_selected_case_status() -> None:
