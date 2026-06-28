@@ -32,6 +32,20 @@ def test_demo_page_includes_title_disclaimer_and_existing_endpoints() -> None:
     assert "/review" in html
 
 
+def test_demo_page_includes_local_mock_demo_safety_banner() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'class="demo-banner"' in html
+    assert 'aria-label="Demo status"' in html
+    assert "Local mock demo" in html
+    assert "Not for production clinical use" in html
+    assert "Mock mode sends no real email or SMS" in html
+    assert "AI output requires human review" in html
+    assert "HIPAA" not in html
+
+
 def test_demo_page_includes_guided_workflow_and_sections() -> None:
     response = client.get("/demo")
 

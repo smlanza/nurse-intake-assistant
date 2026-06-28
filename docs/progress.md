@@ -2,6 +2,48 @@
 
 ## Current Status
 
+## Resume Point
+
+Latest known local test baseline:
+- 362 passed
+- 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
+
+Local mock demo console is complete for the current capstone demo flow:
+- Seed demo data
+- Queue summary
+- Recent cases, filters, and persisted review metadata display
+- Select for Review
+- Selected Case Context
+- Nurse review submit with Recent Cases and Queue Summary auto-refresh
+- Text intake
+- Voicemail transcript intake
+- Mock email/SMS notification inspection
+- Demo reset
+- Local mock demo safety banner
+
+Important constraints:
+- Local mock/demo only
+- Not a production clinical UI
+- No live Azure integration in the demo page
+- Mock mode sends no real email or SMS
+- AI output requires human review
+
+Recommended next slices:
+- Manual smoke-test pass and screenshot cleanup
+- README demo walkthrough polish
+- Architecture documentation refresh
+- AI-103 mapping refresh
+- Optional favicon/static polish
+
+Deferred scope:
+- Authentication
+- Hosting
+- Key Vault
+- Live Azure AI Foundry extraction
+- Azure Speech/voice intake
+- Live SMS delivery tracking
+- Production frontend
+
 Completed:
 - FastAPI app skeleton
 - Health route
@@ -62,6 +104,9 @@ Completed:
 - The demo page includes a Mock Notifications section that loads existing
   `GET /notifications/email` and `GET /notifications/sms` mock inspection
   records with friendly empty states
+- The demo page now includes a concise local mock demo safety banner stating
+  mock/demo status, no production clinical use, no real email/SMS in mock mode,
+  and human review requirement
 - The demo page exercises existing mock/local endpoints only
 - No frontend framework or live Azure integration was added for the demo page
 - Demo UI shell is for local demoability only, not production clinical use
