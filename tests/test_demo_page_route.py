@@ -27,6 +27,7 @@ def test_demo_page_includes_title_disclaimer_and_existing_endpoints() -> None:
     assert "/intake/voicemail-transcript" in html
     assert "/cases/summary" in html
     assert "/cases?limit=10" in html
+    assert "/demo/seed" in html
     assert "/demo/reset" in html
     assert "/review" in html
 
@@ -48,6 +49,15 @@ def test_demo_page_includes_guided_workflow_and_sections() -> None:
         "Demo Reset",
     ]:
         assert heading in html
+
+
+def test_demo_page_includes_seed_demo_data_button() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Seed Demo Data" in html
+    assert "seedDemo" in html
 
 
 def test_demo_page_includes_voicemail_transcript_fields() -> None:

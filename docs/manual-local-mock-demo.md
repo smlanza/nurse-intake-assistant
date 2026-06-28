@@ -50,7 +50,34 @@ curl -X POST "$BASE_URL/demo/reset"
 The response should confirm that cases, mock email notifications, and mock SMS
 notifications were cleared.
 
-## Demo Step 2: Submit A Valid Text Intake
+## Demo Step 2: Seed Representative Demo Cases
+
+For a repeatable local demo, seed a deterministic nurse queue with
+`POST /demo/seed`:
+
+```bash
+curl -X POST "$BASE_URL/demo/seed"
+```
+
+The response should include `success=true`, `seededCaseCount`, and deterministic
+`caseIds`. Seeded cases appear in `GET /cases` and `GET /cases/summary` and
+include urgent, routine, pending-review, reviewed, needs-follow-up, text-intake,
+voicemail-transcript, and mock notification status examples.
+
+Calling the seed endpoint repeatedly does not create duplicate seed cases.
+
+## Demo Step 3: Open The Demo Page
+
+Open the local demo page:
+
+```text
+http://127.0.0.1:8000/demo
+```
+
+Use the Seed Demo Data button, then Load Recent Cases, Load Queue Summary,
+select a seeded case, mark it reviewed, and reset demo state when done.
+
+## Demo Step 4: Submit A Valid Text Intake
 
 Submit a safe fictional sample intake with `POST /intake/text`:
 
@@ -72,7 +99,7 @@ notificationSmsSent=true
 
 Save the returned `id` as `case_id` for later steps.
 
-## Demo Step 3: Check Intake Validation
+## Demo Step 5: Check Intake Validation
 
 Requests with empty, blank, whitespace-only, and too-short intake text are
 rejected before case processing.
@@ -95,7 +122,7 @@ curl -X POST "$BASE_URL/intake/text" \
 These requests should return a validation error instead of creating a case or
 recording mock email/SMS notifications.
 
-## Demo Step 4: List The Nurse Queue
+## Demo Step 6: List The Nurse Queue
 
 List saved cases with `GET /cases`:
 
@@ -105,7 +132,7 @@ curl "$BASE_URL/cases"
 
 The response is a JSON array of case documents.
 
-## Demo Step 5: Filter The Nurse Queue
+## Demo Step 7: Filter The Nurse Queue
 
 Filter pending-review cases with `GET /cases?reviewStatus=PendingReview`:
 
@@ -135,7 +162,7 @@ curl "$BASE_URL/cases?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD"
 The case created in step 2 should appear in the pending queue with
 `reviewStatus` set to `PendingReview`.
 
-## Demo Step 6: View Queue Summary
+## Demo Step 8: View Queue Summary
 
 View dashboard-style queue counts with `GET /cases/summary`:
 
@@ -153,7 +180,7 @@ curl "$BASE_URL/cases/summary?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD"
 Summary counts include total cases, pending review cases, reviewed cases, urgent
 cases, routine cases, and pending urgent cases.
 
-## Demo Step 7: Retrieve The Saved Case
+## Demo Step 9: Retrieve The Saved Case
 
 Retrieve the saved case with `GET /cases/{case_id}`:
 
@@ -163,7 +190,7 @@ curl "$BASE_URL/cases/{case_id}"
 
 Replace `{case_id}` with the case id returned by `POST /intake/text`.
 
-## Demo Step 8: Review The Case
+## Demo Step 10: Review The Case
 
 Mark the case reviewed with `POST /cases/{case_id}/review`:
 
@@ -188,7 +215,7 @@ reviewedAt=<UTC timestamp>
 This step reinforces that AI output requires nurse review and that the system is
 an intake assistant, not an autonomous medical decision-maker.
 
-## Demo Step 9: Confirm Reviewed Cases
+## Demo Step 11: Confirm Reviewed Cases
 
 Confirm the case moved to the reviewed queue with
 `GET /cases?reviewStatus=Reviewed`:
@@ -199,7 +226,7 @@ curl "$BASE_URL/cases?reviewStatus=Reviewed"
 
 The reviewed case should appear with `reviewStatus` set to `Reviewed`.
 
-## Demo Step 10: Inspect Mock Email Notifications
+## Demo Step 12: Inspect Mock Email Notifications
 
 Verify recorded mock email notifications with `GET /notifications/email`:
 
@@ -210,7 +237,7 @@ curl "$BASE_URL/notifications/email"
 The response should include an entry for the created case. In mock mode, no real
 email is sent.
 
-## Demo Step 11: Inspect Mock SMS Notifications
+## Demo Step 13: Inspect Mock SMS Notifications
 
 Verify recorded mock SMS notifications with `GET /notifications/sms`:
 
@@ -220,6 +247,18 @@ curl "$BASE_URL/notifications/sms"
 
 The response should include an entry for the created case. In mock mode, no real
 SMS is sent.
+
+## Demo Step 14: Reset Demo State
+
+Clear seeded cases, manually submitted local cases, and mock notification
+records with `POST /demo/reset`:
+
+```bash
+curl -X POST "$BASE_URL/demo/reset"
+```
+
+After reset, `GET /cases` should return an empty array and
+`GET /cases/summary` should return zero counts.
 
 ## Safety Notes
 

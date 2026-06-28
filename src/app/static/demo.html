@@ -320,7 +320,7 @@
           <h2 id="workflow-heading">Demo Workflow</h2>
         </div>
         <ul class="workflow-steps">
-          <li><span class="step-label">Step 1</span>Submit a text or voicemail intake.</li>
+          <li><span class="step-label">Step 1</span>Seed demo data or submit a text or voicemail intake.</li>
           <li><span class="step-label">Step 2</span>Click Load Recent Cases.</li>
           <li><span class="step-label">Step 3</span>Optionally apply filters.</li>
           <li><span class="step-label">Step 4</span>Select or copy a case id.</li>
@@ -396,6 +396,7 @@
           Recent cases use GET /cases?limit=10 with the selected filters.
         </p>
         <div class="primary-actions">
+          <button id="seedDemo" type="button">Seed Demo Data</button>
           <button id="loadCases" type="button">Load Recent Cases</button>
           <button id="loadSummary" type="button" class="secondary">Load Queue Summary</button>
           <button id="clearFilters" type="button" class="secondary">Clear Filters</button>
@@ -694,12 +695,31 @@
           .join("") || '<p class="muted">No cases yet.</p>';
       }
 
+      async function seedDemo(button) {
+        setBusy(button, true);
+        status.textContent = "Seeding local mock demo data...";
+        try {
+          const data = await requestJson("/demo/seed", { method: "POST" });
+          status.textContent = `Seeded ${data.seededCaseCount} demo cases.`;
+          await loadSummary();
+          await loadCases();
+        } catch (error) {
+          status.textContent = error.message;
+        } finally {
+          setBusy(button, false);
+        }
+      }
+
       document.querySelector("#submitTextIntake").addEventListener("click", (event) => {
         submitTextIntake(event.currentTarget);
       });
 
       document.querySelector("#submitVoicemailIntake").addEventListener("click", (event) => {
         submitVoicemailIntake(event.currentTarget);
+      });
+
+      document.querySelector("#seedDemo").addEventListener("click", (event) => {
+        seedDemo(event.currentTarget);
       });
 
       document.querySelector("#loadSummary").addEventListener("click", async () => {

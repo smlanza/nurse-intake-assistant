@@ -24,8 +24,21 @@ Completed:
 - Nurse queue summary notification status counts are complete
 - Progress workflow guardrails are complete
 - Mock-only demo reset endpoint is complete
+- Mock-only demo seed endpoint is complete
+- `POST /demo/seed` creates deterministic in-memory demo cases for repeatable
+  local demos
+- Seeded demo cases cover urgent, routine, pending-review, reviewed,
+  needs-follow-up, text-intake, voicemail-transcript, and mock notification
+  status examples
+- Repeated `POST /demo/seed` calls overwrite the same deterministic seed case
+  ids and do not create duplicate seed cases
+- `POST /demo/seed` is intentionally unavailable outside mock mode and does not
+  write to Cosmos or call live providers
+- `POST /demo/reset` clears seeded cases along with other in-memory demo state
 - Local mobile-friendly demo UI shell is complete
 - `GET /demo` serves the demo page
+- The demo page includes a Seed Demo Data button that calls `POST /demo/seed`
+  and refreshes recent cases and queue summary
 - The demo page exercises existing mock/local endpoints only
 - No frontend framework or live Azure integration was added for the demo page
 - Demo UI shell is for local demoability only, not production clinical use
@@ -103,8 +116,8 @@ Completed:
   Vault, auth, retry logic, frontend framework, or ACS delivery polling was
   added for the demo usability cleanup
 - `docs/demo-smoke-test.md` documents the manual local demo page smoke-test
-  workflow, including app startup, `/demo`, intake, queue refresh, nurse review,
-  reset, and expected HTTP 200 API calls
+  workflow, including app startup, `/demo`, demo seed data, queue refresh,
+  queue summary, nurse review, reset, and expected HTTP 200 API calls
 - No audio upload, Azure Speech, live Azure AI Foundry, Twilio, ACS voice,
   hosting, Key Vault, auth, retry logic, or notification semantic changes were
   added for voicemail transcript intake
@@ -487,10 +500,15 @@ Available demo/read routes:
 - `POST /demo/reset` clears mock in-memory cases, mock email notifications, and
   mock SMS notifications for repeatable local demos without restarting
   `uvicorn`.
+- `POST /demo/seed` seeds deterministic mock/in-memory demo cases for
+  repeatable local demos without manual intake submission.
+- `POST /demo/seed` is mock-only, idempotent for the known seed case ids, and
+  returns `success`, `seededCaseCount`, and `caseIds`.
 - `docs/manual-local-mock-demo.md` documents the local mock demo flow:
-  start the app with `uvicorn`, submit `POST /intake/text`, verify
-  `GET /cases/{case_id}`, inspect `GET /notifications/email`, and inspect
-  `GET /notifications/sms`.
+  start the app with `uvicorn`, open `/demo`, seed demo data, load recent cases,
+  load queue summary, review a case, reset demo state, optionally submit
+  `POST /intake/text`, verify `GET /cases/{case_id}`, inspect
+  `GET /notifications/email`, and inspect `GET /notifications/sms`.
 - `docs/manual-acs-sms-smoke-test.md` documents a future live ACS SMS
   smoke-test checklist, including a planned `uvicorn` run step and planned
   `POST /intake/text` verification.
