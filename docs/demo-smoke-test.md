@@ -38,6 +38,7 @@ visible section numbers on the page.
    - Expected: `POST /cases/{case_id}/review` returns 200.
    - confirm the reviewed state is visible in the returned case.
    - Confirm Recent Cases and Queue Summary refresh automatically after the review is saved.
+   - Confirm Recent Cases shows reviewedBy, reviewedAt, and reviewNotes for the reviewed case when present.
 6. Optionally submit a text intake from the Text Intake panel.
    - Expected: `POST /intake/text` returns 200.
    - The Last Created Case section shows a case id and pending review state.

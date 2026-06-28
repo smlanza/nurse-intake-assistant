@@ -140,6 +140,26 @@ def test_demo_page_recent_cases_include_select_for_review_affordance() -> None:
     assert "Select for Review" in html
 
 
+def test_demo_page_recent_cases_render_review_metadata_when_present() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "item.reviewedBy || item.reviewedAt || item.reviewNotes" in html
+    assert "<strong>reviewedBy:</strong> ${escapeHtml(item.reviewedBy)}" in html
+    assert "<strong>reviewedAt:</strong> ${escapeHtml(item.reviewedAt)}" in html
+    assert "<strong>reviewNotes:</strong> ${escapeHtml(item.reviewNotes)}" in html
+
+
+def test_demo_page_recent_cases_escape_user_controlled_review_text() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "function escapeHtml(value)" in html
+    assert '${escapeHtml(item.summary || "No summary returned.")}' in html
+
+
 def test_demo_page_select_for_review_populates_review_case_id() -> None:
     response = client.get("/demo")
 

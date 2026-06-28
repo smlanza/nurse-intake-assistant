@@ -79,7 +79,8 @@ sections. Seed Demo Data, then Load Recent Cases, Load Queue Summary, click
 Select for Review on a case, confirm the page jumps to Nurse Review and focuses
 the populated case id field, confirm review notes are cleared for the selected
 case, submit the review, confirm Recent Cases and Queue Summary refresh
-automatically, and reset demo state when done.
+automatically, confirm Recent Cases shows persisted review metadata for the
+reviewed case, and reset demo state when done.
 
 ## Demo Step 4: Submit A Valid Text Intake
 

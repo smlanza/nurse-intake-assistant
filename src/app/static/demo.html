@@ -574,6 +574,15 @@
         return value || null;
       }
 
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
       function showCase(target, item) {
         selectedCaseId.value = item.id;
         target.innerHTML = `
@@ -698,7 +707,21 @@
                     <span><strong>reviewStatus:</strong> ${item.reviewStatus}</span>
                     <span><strong>notification statuses:</strong> ${item.notificationEmailStatus} / ${item.notificationSmsStatus}</span>
                   </div>
-                  <p class="muted">${item.summary || "No summary returned."}</p>
+                  <p class="muted">${escapeHtml(item.summary || "No summary returned.")}</p>
+                  ${
+                    item.reviewedBy || item.reviewedAt || item.reviewNotes
+                      ? `
+                        <div class="metadata">
+                          <h3>review metadata</h3>
+                          <div class="case-detail-grid">
+                            ${item.reviewedBy ? `<span><strong>reviewedBy:</strong> ${escapeHtml(item.reviewedBy)}</span>` : ""}
+                            ${item.reviewedAt ? `<span><strong>reviewedAt:</strong> ${escapeHtml(item.reviewedAt)}</span>` : ""}
+                            ${item.reviewNotes ? `<span><strong>reviewNotes:</strong> ${escapeHtml(item.reviewNotes)}</span>` : ""}
+                          </div>
+                        </div>
+                      `
+                      : ""
+                  }
                 </div>
                 <button type="button" class="secondary" data-case-id="${item.id}">Select for Review</button>
               </div>

@@ -45,6 +45,8 @@ Completed:
 - Successful nurse reviews on the demo page now display the review response,
   refresh Recent Cases, refresh Queue Summary, and show a saved/refreshed status
   message
+- Recent Cases now displays per-case persisted review metadata when present:
+  reviewedBy, reviewedAt, and reviewNotes
 - Demo Workflow is now unnumbered clickable navigation, with workflow step
   links aligned to visible numbered demo sections
 - Selecting a recent case for review now jumps to the Nurse Review section and
