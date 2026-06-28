@@ -42,6 +42,9 @@ Completed:
 - Recent Cases now includes a Select for Review workflow that fills the
   existing Nurse Review case id field and shows a selected-case status message
   without calling a backend endpoint
+- Successful nurse reviews on the demo page now display the review response,
+  refresh Recent Cases, refresh Queue Summary, and show a saved/refreshed status
+  message
 - The demo page exercises existing mock/local endpoints only
 - No frontend framework or live Azure integration was added for the demo page
 - Demo UI shell is for local demoability only, not production clinical use

@@ -32,7 +32,8 @@ http://127.0.0.1:8000/demo
    - Confirm the page shows a selected-case status message.
 5. In Nurse Review, mark a case reviewed.
    - Expected: `POST /cases/{case_id}/review` returns 200.
-   - confirm the reviewed state is visible in the returned case and recent cases after refresh.
+   - confirm the reviewed state is visible in the returned case.
+   - Confirm Recent Cases and Queue Summary refresh automatically after the review is saved.
 6. Optionally submit a text intake from the Text Intake panel.
    - Expected: `POST /intake/text` returns 200.
    - The Last Created Case section shows a case id and pending review state.

@@ -116,3 +116,21 @@ def test_demo_page_select_for_review_shows_selected_case_status() -> None:
     html = response.text
     assert "Selected case" in html
     assert "for review." in html
+
+
+def test_demo_page_successful_review_refreshes_cases_and_summary() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "showCase(reviewResult, item);" in html
+    assert "await loadSummary();" in html
+    assert "await loadCases();" in html
+
+
+def test_demo_page_successful_review_shows_refreshed_queue_status() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Review saved and queue refreshed." in html

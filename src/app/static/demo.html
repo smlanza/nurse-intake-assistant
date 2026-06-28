@@ -779,6 +779,7 @@
           showCase(reviewResult, item);
           await loadSummary();
           await loadCases();
+          status.textContent = "Review saved and queue refreshed.";
         } catch (error) {
           reviewResult.textContent = error.message;
         } finally {
