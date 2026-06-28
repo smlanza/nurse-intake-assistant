@@ -485,6 +485,12 @@
           reviewNotes
           <textarea id="reviewNotes" placeholder="Optional notes"></textarea>
         </label>
+        <div class="panel" aria-labelledby="selected-case-context-heading">
+          <h3 id="selected-case-context-heading">Selected Case Context</h3>
+          <div id="selectedCaseContext" class="result">
+            <p class="muted">No case selected for review.</p>
+          </div>
+        </div>
         <button id="reviewCase" type="button">Mark Reviewed</button>
         <div id="reviewResult" class="result"></div>
         <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
@@ -583,8 +589,10 @@
       const reviewResult = document.querySelector("#reviewResult");
       const selectedCaseId = document.querySelector("#selectedCaseId");
       const reviewNotes = document.querySelector("#reviewNotes");
+      const selectedCaseContext = document.querySelector("#selectedCaseContext");
       const emailNotifications = document.querySelector("#emailNotifications");
       const smsNotifications = document.querySelector("#smsNotifications");
+      let recentCases = [];
       const filterIds = [
         "filterSourceSystem",
         "filterCaseType",
@@ -644,6 +652,25 @@
               )
               .join("")
           : `<p class="muted">${emptyMessage}</p>`;
+      }
+
+      function renderSelectedCaseContext(item) {
+        if (!item) {
+          selectedCaseContext.innerHTML = '<p class="muted">No case selected for review.</p>';
+          return;
+        }
+
+        selectedCaseContext.innerHTML = `
+          <div class="case-detail-grid">
+            <span><strong>case id:</strong> ${escapeHtml(item.id)}</span>
+            <span><strong>caseType:</strong> ${escapeHtml(item.caseType)}</span>
+            <span><strong>urgency:</strong> ${escapeHtml(item.urgency)}</span>
+            <span><strong>intakeStatus:</strong> ${escapeHtml(item.intakeStatus)}</span>
+            <span><strong>reviewStatus:</strong> ${escapeHtml(item.reviewStatus)}</span>
+            <span><strong>sourceSystem:</strong> ${escapeHtml(item.sourceSystem)}</span>
+          </div>
+          <p class="muted">${escapeHtml(item.summary || "No summary returned.")}</p>
+        `;
       }
 
       function showCase(target, item) {
@@ -756,6 +783,7 @@
       async function loadCases() {
         const query = buildQueueParams(true);
         const data = await requestJson(`/cases${query ? `?${query}` : "?limit=10"}`);
+        recentCases = data;
         cases.innerHTML = data
           .map(
             (item) => `
@@ -883,6 +911,8 @@
         if (button) {
           selectedCaseId.value = button.dataset.caseId;
           reviewNotes.value = "";
+          const selectedCase = recentCases.find((item) => item.id === button.dataset.caseId);
+          renderSelectedCaseContext(selectedCase);
           document.querySelector("#nurse-review-section").scrollIntoView({
             behavior: "smooth",
             block: "start",
@@ -930,6 +960,7 @@
           emailNotifications.innerHTML = "";
           smsNotifications.innerHTML = "";
           selectedCaseId.value = "";
+          renderSelectedCaseContext(null);
           await loadSummary();
           await loadCases();
           status.textContent = "Local mock demo reset.";

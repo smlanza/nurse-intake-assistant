@@ -53,6 +53,8 @@ Completed:
   single-page navigation
 - Selecting a recent case for review now jumps to the Nurse Review section and
   focuses the populated case id field
+- Nurse Review now shows a compact Selected Case Context panel populated from
+  the already-loaded Recent Cases item when Select for Review is clicked
 - Selecting a recent case for review now clears stale review notes while keeping
   the reviewedBy field unchanged
 - The demo page includes a Mock Notifications section that loads existing

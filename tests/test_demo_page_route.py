@@ -216,6 +216,46 @@ def test_demo_page_select_for_review_populates_review_case_id() -> None:
     assert "selectedCaseId.value = button.dataset.caseId;" in html
 
 
+def test_demo_page_includes_selected_case_context_panel() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Selected Case Context" in html
+    assert 'id="selectedCaseContext"' in html
+    assert "No case selected for review." in html
+
+
+def test_demo_page_select_for_review_renders_selected_case_context() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "let recentCases = [];" in html
+    assert "recentCases = data;" in html
+    assert "const selectedCase = recentCases.find((item) => item.id === button.dataset.caseId);" in html
+    assert "renderSelectedCaseContext(selectedCase);" in html
+    assert "function renderSelectedCaseContext(item)" in html
+    for field in [
+        "item.id",
+        "item.caseType",
+        "item.urgency",
+        "item.intakeStatus",
+        "item.reviewStatus",
+        "item.sourceSystem",
+        'item.summary || "No summary returned."',
+    ]:
+        assert f"${{escapeHtml({field})}}" in html
+
+
+def test_demo_page_reset_clears_selected_case_context() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "renderSelectedCaseContext(null);" in html
+
+
 def test_demo_page_select_for_review_clears_stale_review_notes() -> None:
     response = client.get("/demo")
 
