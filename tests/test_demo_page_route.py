@@ -57,6 +57,7 @@ def test_demo_page_workflow_is_unnumbered_clickable_navigation() -> None:
 
     assert response.status_code == 200
     html = response.text
+    assert 'id="demo-workflow-section"' in html
     workflow_html = html[
         html.index('aria-labelledby="workflow-heading"') : html.index(
             'id="demo-controls-section"'
@@ -71,6 +72,21 @@ def test_demo_page_workflow_is_unnumbered_clickable_navigation() -> None:
     assert 'href="#voicemail-intake-section"' in workflow_html
     assert 'href="#mock-notifications-section"' in workflow_html
     assert 'href="#reset-section"' in workflow_html
+
+
+def test_demo_page_numbered_sections_link_back_to_workflow() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert html.count('href="#demo-workflow-section"') == 8
+    assert html.count("Back to Demo Workflow") == 8
+    workflow_html = html[
+        html.index('id="demo-workflow-section"') : html.index(
+            'id="demo-controls-section"'
+        )
+    ]
+    assert "Back to Demo Workflow" not in workflow_html
 
 
 def test_demo_page_section_numbers_match_workflow_targets() -> None:

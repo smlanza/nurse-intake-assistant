@@ -297,6 +297,16 @@
         white-space: nowrap;
       }
 
+      .section-nav {
+        margin-top: 4px;
+        font-size: 0.9rem;
+      }
+
+      .section-nav a {
+        color: var(--accent-dark);
+        font-weight: 700;
+      }
+
       @media (max-width: 900px) {
         main {
           padding: 14px;
@@ -327,7 +337,7 @@
         </p>
       </header>
 
-      <section class="section-card workflow" aria-labelledby="workflow-heading">
+      <section id="demo-workflow-section" class="section-card workflow" aria-labelledby="workflow-heading">
         <div class="section-heading">
           <h2 id="workflow-heading">Demo Workflow</h2>
         </div>
@@ -435,6 +445,7 @@
           <p id="status" class="muted" role="status"></p>
           <div id="createdCase" class="result"></div>
         </div>
+        <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
 
       <section id="queue-summary-section" class="section-card" aria-labelledby="summary-heading">
@@ -443,6 +454,7 @@
           <h2 id="summary-heading">Queue Summary</h2>
         </div>
         <div id="summary" class="summary"></div>
+        <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
 
       <section id="recent-cases-section" class="section-card" aria-labelledby="cases-heading">
@@ -451,6 +463,7 @@
           <h2 id="cases-heading">Recent Cases</h2>
         </div>
         <div id="cases" class="case-list"></div>
+        <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
 
       <section id="nurse-review-section" class="section-card" aria-labelledby="review-heading">
@@ -474,6 +487,7 @@
         </label>
         <button id="reviewCase" type="button">Mark Reviewed</button>
         <div id="reviewResult" class="result"></div>
+        <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
 
       <section id="text-intake-section" class="section-card" aria-labelledby="submit-heading">
@@ -489,6 +503,7 @@
           </label>
           <button id="submitTextIntake" type="button">Submit Text Intake</button>
         </div>
+        <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
 
       <section id="voicemail-intake-section" class="section-card" aria-labelledby="voicemail-heading">
@@ -523,6 +538,7 @@
           </label>
         </div>
         <button id="submitVoicemailIntake" type="button">Submit Voicemail Transcript</button>
+        <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
 
       <section id="mock-notifications-section" class="section-card" aria-labelledby="mock-notifications-heading">
@@ -545,6 +561,7 @@
             <div id="smsNotifications" class="result"></div>
           </div>
         </div>
+        <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
 
       <section id="reset-section" class="section-card" aria-labelledby="reset-heading">
@@ -554,6 +571,7 @@
         </div>
         <p class="muted">Warning: Reset Demo clears local mock/demo cases and mock email/SMS notifications only.</p>
         <button id="resetDemo" type="button" class="danger">Reset Demo</button>
+        <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
     </main>
 

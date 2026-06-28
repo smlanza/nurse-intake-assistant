@@ -49,6 +49,8 @@ Completed:
   reviewedBy, reviewedAt, and reviewNotes
 - Demo Workflow is now unnumbered clickable navigation, with workflow step
   links aligned to visible numbered demo sections
+- Numbered demo sections now include Back to Demo Workflow links for easier
+  single-page navigation
 - Selecting a recent case for review now jumps to the Nurse Review section and
   focuses the populated case id field
 - Selecting a recent case for review now clears stale review notes while keeping
