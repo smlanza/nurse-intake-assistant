@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 379 passed
+- 382 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -104,8 +104,8 @@ Provider settings:
 - `AI_PROVIDER=foundry` is a tested provider boundary and requires
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and
   `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`. The offline Foundry structured
-  extraction prompt/schema/parser contract is implemented, but live extraction
-  is deferred.
+  extraction prompt/schema/parser contract and injected fake-client seam are
+  implemented, but live extraction is deferred.
 - Mock email remains the default local mode.
 - `EMAIL_PROVIDER=acs` selects ACS Email and requires
   `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
@@ -146,7 +146,8 @@ Completed work by feature area:
   processing service
 - Text intake validation for empty, whitespace-only, and too-short requests
 - Mock AI extraction, AI provider factory, Foundry provider boundary, and
-  offline Foundry structured extraction prompt/schema/parser contract
+  offline Foundry structured extraction prompt/schema/parser contract with an
+  injected fake-client seam
 - Deterministic urgency rules with negation-aware red-flag handling
 - Structured missing-field validation, intake completion status, and follow-up
   prioritization
@@ -216,6 +217,15 @@ changes.
 
 ## Current Slice Completed
 
+- Foundry fake-client adapter seam is complete.
+- `FoundryAiService` can use the offline prompt/parser contract through an
+  injected client in tests.
+- This prepares the future live Azure AI Foundry SDK integration while keeping
+  SDK client construction and live Foundry calls deferred.
+- No live Azure calls, API contract changes, notification semantic changes,
+  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
+  tracking, retry logic, or frontend framework was added for the Foundry
+  fake-client seam slice.
 - Foundry structured extraction contract slice is complete.
 - Prompt/schema/parser behavior is tested offline and maps future model JSON
   responses into the current extraction and urgency output models.
