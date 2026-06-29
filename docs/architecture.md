@@ -45,7 +45,7 @@ Browser or API client
 | `CaseProcessingService` | Orchestrates extraction, urgency merge, persistence, and notifications |
 | `create_ai_service(settings)` | Selects mock AI by default or the Foundry provider boundary when configured |
 | `MockAiService` | Deterministic local extraction, summary, and urgency classification for demo/testing |
-| `FoundryAiService` | Azure AI Foundry provider boundary/scaffold with offline structured extraction prompt/schema/parser contract and injected fake-client seam; live extraction is deferred |
+| `FoundryAiService` | Azure AI Foundry provider boundary/scaffold with offline structured extraction prompt/schema/parser contract, injected fake-client seam, and opt-in live adapter scaffold; live extraction is deferred |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
 | `InMemoryCaseRepository` | Default mock persistence for local demo, filtering, summary, idempotency, and reset |
@@ -101,9 +101,11 @@ The Foundry provider boundary includes an offline structured extraction
 contract: deterministic prompt instructions, expected JSON fields, and parser
 validation that maps a future model response into the current extraction and
 urgency output models. `FoundryAiService` can use that contract through an
-injected fake/live-client seam in tests, without constructing an Azure SDK
-client. It prepares the next live Azure AI Foundry slice but does not call Azure
-yet.
+injected fake/live-client seam in tests. A thin live adapter scaffold implements
+the same `complete_structured_extraction(prompt, model_deployment_name)` seam
+without constructing Azure SDK clients at import time. It prepares a future
+manual live Azure AI Foundry smoke test, but automated tests remain offline and
+the app does not call Azure yet.
 
 The service also evaluates local red-flag rules from
 `src/app/config/red_flags.yaml`. Rule detection is deterministic and includes

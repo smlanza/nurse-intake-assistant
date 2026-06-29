@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 382 passed
+- 388 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -105,7 +105,8 @@ Provider settings:
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and
   `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`. The offline Foundry structured
   extraction prompt/schema/parser contract and injected fake-client seam are
-  implemented, but live extraction is deferred.
+  implemented. A thin opt-in live adapter scaffold matches the same seam, but
+  live extraction is deferred.
 - Mock email remains the default local mode.
 - `EMAIL_PROVIDER=acs` selects ACS Email and requires
   `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
@@ -147,7 +148,7 @@ Completed work by feature area:
 - Text intake validation for empty, whitespace-only, and too-short requests
 - Mock AI extraction, AI provider factory, Foundry provider boundary, and
   offline Foundry structured extraction prompt/schema/parser contract with an
-  injected fake-client seam
+  injected fake-client seam and opt-in live adapter scaffold
 - Deterministic urgency rules with negation-aware red-flag handling
 - Structured missing-field validation, intake completion status, and follow-up
   prioritization
@@ -217,6 +218,15 @@ changes.
 
 ## Current Slice Completed
 
+- Foundry live SDK adapter scaffold slice is complete.
+- The live adapter seam matches the fake-client contract and remains opt-in.
+- Automated tests remain offline and deterministic.
+- This prepares a future manual/live Azure AI Foundry smoke test while keeping
+  live SDK support deferred.
+- No live Azure calls, API contract changes, notification semantic changes,
+  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
+  tracking, retry logic, or frontend framework was added for the Foundry live
+  adapter scaffold slice.
 - Foundry fake-client adapter seam is complete.
 - `FoundryAiService` can use the offline prompt/parser contract through an
   injected client in tests.

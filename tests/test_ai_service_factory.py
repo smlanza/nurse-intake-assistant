@@ -67,6 +67,22 @@ def test_mock_provider_does_not_require_azure_ai_settings(
     assert isinstance(service, MockAiService)
 
 
+def test_mock_provider_does_not_create_foundry_live_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.ai_service_factory as factory
+
+    def fail_if_called(project_endpoint: str) -> object:
+        raise AssertionError("Foundry live client factory should not be called")
+
+    monkeypatch.setattr(factory, "create_foundry_live_client", fail_if_called)
+    monkeypatch.setenv("AI_PROVIDER", "mock")
+
+    service = factory.create_ai_service(AppSettings())
+
+    assert isinstance(service, MockAiService)
+
+
 def test_foundry_provider_creates_foundry_ai_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -91,6 +107,8 @@ def test_foundry_provider_creates_foundry_ai_service(
         == "https://example.services.ai.azure.com/api/projects/demo"
     )
     assert service.model_deployment_name == "intake-extraction"
+    assert service.client is None
+    assert service.client_factory is not None
 
 
 def test_foundry_provider_matching_ignores_case_and_whitespace(
@@ -112,6 +130,29 @@ def test_foundry_provider_matching_ignores_case_and_whitespace(
     service = create_ai_service(AppSettings())
 
     assert isinstance(service, FoundryAiService)
+
+
+def test_foundry_provider_wires_live_client_factory_without_network_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services.ai_service_factory import create_ai_service
+    from src.app.services.foundry_ai_service import FoundryAiService
+
+    monkeypatch.setenv("AI_PROVIDER", "foundry")
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT",
+        "https://example.services.ai.azure.com/api/projects/demo",
+    )
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+        "intake-extraction",
+    )
+
+    service = create_ai_service(AppSettings())
+
+    assert isinstance(service, FoundryAiService)
+    assert service.client is None
+    assert service.client_factory is not None
 
 
 def test_foundry_provider_requires_project_endpoint(
