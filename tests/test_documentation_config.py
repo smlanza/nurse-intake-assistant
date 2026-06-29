@@ -231,6 +231,28 @@ def test_demo_page_smoke_test_guide_exists() -> None:
     assert "returns 200" in guide
 
 
+def test_manual_foundry_smoke_test_guide_exists() -> None:
+    guide_path = PROJECT_ROOT / "docs" / "manual-foundry-smoke-test.md"
+
+    assert guide_path.exists()
+
+    guide = guide_path.read_text()
+    normalized_guide = " ".join(guide.split())
+    assert "Manual Foundry Smoke Test" in guide
+    assert "automated test suite must remain offline" in normalized_guide
+    assert "must not call Azure" in normalized_guide
+    assert "AI_PROVIDER=mock" in guide
+    assert "AI_PROVIDER=foundry" in guide
+    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in guide
+    assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME" in guide
+    assert "real Azure AI Foundry SDK call is still deferred" in guide
+    assert "Do not use real patient data" in guide
+    assert "medication refill" in guide
+    assert "chest pain" in guide
+    assert "missing_fields" in guide
+    assert "Restore `AI_PROVIDER=mock`" in guide
+
+
 def test_architecture_documents_current_mvp_boundaries() -> None:
     architecture = (PROJECT_ROOT / "docs" / "architecture.md").read_text()
     normalized_architecture = " ".join(architecture.split())
@@ -305,7 +327,7 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert progress_line_count < archive_line_count
     assert "docs/archive/progress-2026-06.md" in progress
     assert "Latest verified test baseline" in progress
-    assert "388 passed" in progress
+    assert "389 passed" in progress
     assert "StarletteDeprecationWarning" in progress
     assert "Local mock/demo only" in progress
     assert "No production clinical use" in progress

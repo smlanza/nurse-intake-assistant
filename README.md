@@ -64,7 +64,9 @@ Azure Speech, live Azure AI Foundry extraction, ACS SMS delivery tracking, retry
 logic, or a frontend framework.
 
 For the fuller manual checklist, see `docs/demo-smoke-test.md`. For API-level
-local demo commands, see `docs/manual-local-mock-demo.md`.
+local demo commands, see `docs/manual-local-mock-demo.md`. For the future
+manual Azure AI Foundry smoke-test checklist, see
+`docs/manual-foundry-smoke-test.md`.
 
 ## Static Legal Pages
 

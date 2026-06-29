@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 388 passed
+- 389 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -87,6 +87,7 @@ Primary demo documentation:
 - `README.md`
 - `docs/manual-local-mock-demo.md`
 - `docs/demo-smoke-test.md`
+- `docs/manual-foundry-smoke-test.md`
 
 ## App Settings Summary
 
@@ -218,6 +219,13 @@ changes.
 
 ## Current Slice Completed
 
+- Manual Foundry smoke-test guide slice is complete.
+- `docs/manual-foundry-smoke-test.md` documents prerequisites, safe fictional
+  inputs, validation expectations, non-goals, and rollback to `AI_PROVIDER=mock`.
+- No live Azure calls, API contract changes, notification semantic changes,
+  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
+  tracking, retry logic, or frontend framework was added for the manual Foundry
+  smoke-test guide slice.
 - Foundry live SDK adapter scaffold slice is complete.
 - The live adapter seam matches the fake-client contract and remains opt-in.
 - Automated tests remain offline and deterministic.
@@ -293,6 +301,7 @@ changes.
 - `docs/archive/progress-2026-06.md`
 - `docs/manual-local-mock-demo.md`
 - `docs/demo-smoke-test.md`
+- `docs/manual-foundry-smoke-test.md`
 - `docs/manual-cosmos-smoke-test.md`
 - `docs/manual-acs-email-smoke-test.md`
 - `docs/manual-acs-sms-smoke-test.md`
