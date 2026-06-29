@@ -306,6 +306,77 @@ def test_blank_foundry_ai_settings_are_none(
     assert settings.azure_ai_foundry_model_deployment_name is None
 
 
+def test_speech_provider_defaults_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("SPEECH_PROVIDER", raising=False)
+
+    settings = AppSettings()
+
+    assert settings.speech_provider == "mock"
+    assert settings.speech_provider_normalized == "mock"
+
+
+def test_blank_speech_provider_normalizes_to_mock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("SPEECH_PROVIDER", "   ")
+
+    settings = AppSettings()
+
+    assert settings.speech_provider == "   "
+    assert settings.speech_provider_normalized == "mock"
+
+
+def test_azure_speech_settings_default_to_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.delenv("AZURE_SPEECH_ENDPOINT", raising=False)
+    monkeypatch.delenv("AZURE_SPEECH_REGION", raising=False)
+
+    settings = AppSettings()
+
+    assert settings.azure_speech_endpoint is None
+    assert settings.azure_speech_region is None
+
+
+def test_azure_speech_settings_trim_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv(
+        "AZURE_SPEECH_ENDPOINT",
+        "  https://example.cognitiveservices.azure.com  ",
+    )
+    monkeypatch.setenv("AZURE_SPEECH_REGION", "  eastus  ")
+
+    settings = AppSettings()
+
+    assert settings.azure_speech_endpoint == (
+        "https://example.cognitiveservices.azure.com"
+    )
+    assert settings.azure_speech_region == "eastus"
+
+
+def test_blank_azure_speech_settings_are_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.config.settings import AppSettings
+
+    monkeypatch.setenv("AZURE_SPEECH_ENDPOINT", "   ")
+    monkeypatch.setenv("AZURE_SPEECH_REGION", "   ")
+
+    settings = AppSettings()
+
+    assert settings.azure_speech_endpoint is None
+    assert settings.azure_speech_region is None
+
+
 def test_acs_sms_settings_default_to_none(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -47,6 +47,18 @@ def test_env_example_documents_foundry_ai_placeholders() -> None:
     assert "Azure AI keys" in env_example
 
 
+def test_env_example_documents_speech_placeholders() -> None:
+    env_example = (PROJECT_ROOT / ".env.example").read_text()
+
+    assert "SPEECH_PROVIDER=mock" in env_example
+    assert "SPEECH_PROVIDER=azure" in env_example
+    assert "AZURE_SPEECH_ENDPOINT=" in env_example
+    assert "AZURE_SPEECH_REGION=" in env_example
+    assert "already-transcribed text" in env_example
+    assert "Live Azure Speech transcription/audio processing is deferred" in env_example
+    assert "keys" in env_example
+
+
 def test_project_docs_explain_acs_email_configuration() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
@@ -276,6 +288,9 @@ def test_architecture_documents_current_mvp_boundaries() -> None:
     assert "requires human nurse review" in normalized_architecture
     assert "MockAiService" in architecture
     assert "FoundryAiService" in architecture
+    assert "Speech transcription services" in architecture
+    assert "already-transcribed text only" in normalized_architecture
+    assert "live Azure Speech transcription/audio processing" in normalized_architecture
     assert "live extraction is deferred" in normalized_architecture
     assert "InMemoryCaseRepository" in architecture
     assert "CosmosCaseRepository" in architecture
@@ -337,7 +352,7 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert progress_line_count < archive_line_count
     assert "docs/archive/progress-2026-06.md" in progress
     assert "Latest verified test baseline" in progress
-    assert "406 passed" in progress
+    assert "420 passed" in progress
     assert "StarletteDeprecationWarning" in progress
     assert "Local mock/demo only" in progress
     assert "No production clinical use" in progress

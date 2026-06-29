@@ -12,6 +12,10 @@ class AppSettings:
     ai_provider_normalized: str
     azure_ai_foundry_project_endpoint: str | None
     azure_ai_foundry_model_deployment_name: str | None
+    speech_provider: str
+    speech_provider_normalized: str
+    azure_speech_endpoint: str | None
+    azure_speech_region: str | None
     acs_email_connection_string: str | None
     acs_email_sender_address: str | None
     nurse_notification_email: str | None
@@ -40,6 +44,12 @@ class AppSettings:
         self.azure_ai_foundry_model_deployment_name = self._optional_env(
             "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME"
         )
+        self.speech_provider = os.getenv("SPEECH_PROVIDER", "mock")
+        self.speech_provider_normalized = (
+            self.speech_provider.strip().lower() or "mock"
+        )
+        self.azure_speech_endpoint = self._optional_env("AZURE_SPEECH_ENDPOINT")
+        self.azure_speech_region = self._optional_env("AZURE_SPEECH_REGION")
         self.acs_email_connection_string = self._optional_env(
             "ACS_EMAIL_CONNECTION_STRING"
         )

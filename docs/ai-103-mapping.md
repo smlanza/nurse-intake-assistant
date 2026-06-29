@@ -31,7 +31,7 @@ or SMS.
 | Generative AI app design | `CaseProcessingService` orchestrates extraction, urgency merge, persistence, and notifications; AI provider factory selects the configured provider; `MockAiService` returns structured extraction, summary, and advisory classification; Pydantic models define API and output contracts | `src/app/services/case_processing_service.py`, `src/app/services/ai_service_factory.py`, `src/app/services/mock_ai_service.py`, `src/app/models/ai_outputs.py`, `src/app/models/case.py` | Implemented locally with mock AI |
 | Azure AI Foundry readiness | `FoundryAiService` and `AI_PROVIDER=foundry` provide a tested provider boundary; an offline structured extraction prompt/schema/parser contract defines future model instructions and JSON validation; an injected fake-client seam exercises the contract without Azure SDK calls; a thin opt-in live adapter uses lazy SDK imports/client construction and matches the same seam for future manual smoke testing; settings placeholders capture required Foundry endpoint and deployment name | `src/app/services/foundry_ai_service.py`, `src/app/services/foundry_extraction_contract.py`, `src/app/services/foundry_live_client.py`, `src/app/services/ai_service_factory.py`, `src/app/config/settings.py`, `.env.example`, `tests/test_foundry_ai_service.py`, `tests/test_foundry_extraction_contract.py`, `tests/test_foundry_live_client.py`, `tests/test_ai_service_factory.py` | Boundary/scaffold, offline contract, fake-client seam, and lazy live adapter implemented; live Foundry extraction deferred |
 | Responsible AI / human oversight | Urgency is advisory only; deterministic red-flag rules supplement AI; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_cases_route.py`, `docs/architecture.md` | Implemented safety boundary |
-| Natural language processing | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency | `src/app/routes/intake.py`, `src/app/services/mock_ai_service.py`, `tests/test_intake_route.py`, `tests/test_mock_ai_service.py` | Implemented for text/transcripts; Azure Speech deferred |
+| Natural language processing and Speech readiness | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency; Speech transcription provider boundary has mock/offline and Azure scaffold implementations | `src/app/routes/intake.py`, `src/app/services/mock_ai_service.py`, `src/app/services/speech_transcription_service.py`, `src/app/services/speech_transcription_factory.py`, `tests/test_intake_route.py`, `tests/test_mock_ai_service.py`, `tests/test_speech_transcription_service.py`, `tests/test_speech_transcription_factory.py` | Implemented for text/transcripts and offline Speech boundary; live Azure Speech deferred |
 | Azure service integration boundaries | Cosmos repository and container factory, ACS Email/SMS sender boundaries, and Bicep baseline for Cosmos, storage, Log Analytics, and Application Insights | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/README.md` | Boundaries and baseline implemented; production hosting/secret/auth hardening deferred |
 | Application architecture | FastAPI routes support intake, case list, filtering, summary, lookup, nurse review, demo seed/reset, notification inspection, health, and static demo/legal pages | `src/app/routes/`, `src/app/main.py`, `src/app/static/demo.html`, `tests/test_cases_route.py`, `tests/test_demo_page_route.py`, `tests/test_demo_reset_route.py`, `tests/test_notifications_route.py` | Implemented local MVP |
 | Notification status semantics | Legacy booleans remain backward-compatible while explicit email/SMS status fields distinguish `MockRecorded`, `Accepted`, `Failed`, `Suppressed`, and `NotAttempted`; SMS delivery confirmation remains false until future tracking exists | `src/app/models/case.py`, `src/app/services/case_processing_service.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented semantics |
@@ -93,17 +93,19 @@ Implemented natural language inputs:
 
 Both routes process existing text. The voicemail route accepts an
 already-transcribed voicemail transcript plus optional call, recording, audio
-blob, caller phone, and idempotency metadata.
+blob, caller phone, and idempotency metadata. A Speech transcription provider
+boundary now exists with an offline mock provider and Azure Speech scaffold, but
+the route remains text-only.
 
 Deferred speech work:
 
-- Azure Speech transcription service
+- Live Azure Speech transcription service
 - Audio upload or ACS recording transcription
 - Voice intake or call automation workflow
 - Audio retention and cleanup workflow
 
-This keeps the current app honest: it demonstrates transcript processing and
-the future Speech boundary, not live Azure Speech.
+This keeps the current app honest: it demonstrates transcript processing and an
+offline Speech provider boundary, not live Azure Speech.
 
 ## 6. Azure Integration Readiness
 

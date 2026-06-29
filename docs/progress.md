@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 406 passed
+- 420 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -108,6 +108,10 @@ Provider settings:
   extraction prompt/schema/parser contract and injected fake-client seam are
   implemented. A thin opt-in live adapter matches the same seam with lazy SDK
   imports/client construction, but live extraction is deferred.
+- `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
+  already-transcribed text.
+- `SPEECH_PROVIDER=azure` wires an Azure Speech scaffold/factory, but live
+  Azure Speech transcription and audio processing are deferred.
 - Mock email remains the default local mode.
 - `EMAIL_PROVIDER=acs` selects ACS Email and requires
   `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
@@ -150,6 +154,8 @@ Completed work by feature area:
 - Mock AI extraction, AI provider factory, Foundry provider boundary, and
   offline Foundry structured extraction prompt/schema/parser contract with an
   injected fake-client seam and opt-in lazy live adapter
+- Offline Speech transcription provider boundary, mock provider, Azure Speech
+  scaffold, and speech provider factory
 - Deterministic urgency rules with negation-aware red-flag handling
 - Structured missing-field validation, intake completion status, and follow-up
   prioritization
@@ -219,6 +225,13 @@ changes.
 
 ## Current Slice Completed
 
+- Azure Speech transcription boundary slice is complete.
+- Mock/offline speech provider and Azure Speech scaffold/factory are tested.
+- Current `POST /intake/voicemail-transcript` behavior remains text-only for
+  already-transcribed voicemail transcripts.
+- No live Azure Speech calls, audio upload endpoint, phone intake, API contract
+  changes, notification semantic changes, hosting, auth, Key Vault, retry logic,
+  or frontend framework was added for the Speech boundary slice.
 - Foundry smoke CLI preflight/check mode slice is complete.
 - `python scripts/smoke_foundry_extraction.py --check` validates Foundry
   provider configuration and optional SDK availability without creating the AI

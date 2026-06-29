@@ -46,6 +46,7 @@ Browser or API client
 | `create_ai_service(settings)` | Selects mock AI by default or the Foundry provider boundary when configured |
 | `MockAiService` | Deterministic local extraction, summary, and urgency classification for demo/testing |
 | `FoundryAiService` | Azure AI Foundry provider boundary/scaffold with offline structured extraction prompt/schema/parser contract, injected fake-client seam, and opt-in lazy live adapter; live extraction is deferred |
+| Speech transcription services | Offline mock transcription boundary and Azure Speech scaffold/factory; live audio transcription is deferred |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
 | `InMemoryCaseRepository` | Default mock persistence for local demo, filtering, summary, idempotency, and reset |
@@ -75,8 +76,9 @@ POST /intake/text or POST /intake/voicemail-transcript
 `POST /intake/text` stores `caseType="text-intake"`. `POST
 /intake/voicemail-transcript` stores `caseType="phone-intake"` with optional
 source call, recording, audio blob, caller phone, and idempotency metadata. The
-voicemail route expects a transcript that already exists; Azure Speech and live
-voice intake are not implemented in this MVP.
+voicemail route expects already-transcribed text only. The Speech transcription
+provider boundary exists for future work, but Azure Speech, audio upload, and
+live voice intake are not implemented in this MVP.
 
 The default local settings are:
 
@@ -293,6 +295,8 @@ implementation:
 
 - Azure AI Foundry provider boundary through `FoundryAiService` and
   `create_ai_service(settings)`
+- Azure Speech readiness through an offline transcription provider boundary and
+  Azure Speech scaffold
 - Natural language extraction, summarization, and advisory classification
   concept through the deterministic mock provider
 - Responsible AI boundary through explicit human nurse review and no autonomous
@@ -302,5 +306,6 @@ implementation:
 - Infrastructure-as-code baseline through Bicep
 - Monitoring baseline concepts through Application Insights and Log Analytics
 
-Live Azure AI Foundry extraction, Azure Speech transcription, production
-hosting, authentication, Key Vault, and SMS delivery tracking remain deferred.
+Live Azure AI Foundry extraction, live Azure Speech transcription/audio
+processing, production hosting, authentication, Key Vault, and SMS delivery
+tracking remain deferred.
