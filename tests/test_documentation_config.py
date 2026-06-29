@@ -237,6 +237,45 @@ def test_progress_links_manual_acs_email_smoke_test() -> None:
     assert "docs/manual-acs-email-smoke-test.md" in docs_text
 
 
+def test_progress_active_resume_links_archived_history() -> None:
+    progress_path = PROJECT_ROOT / "docs" / "progress.md"
+    archive_path = PROJECT_ROOT / "docs" / "archive" / "progress-2026-06.md"
+
+    assert progress_path.exists()
+    assert archive_path.exists()
+
+    progress = progress_path.read_text()
+    archive = archive_path.read_text()
+    progress_line_count = len(progress.splitlines())
+    archive_line_count = len(archive.splitlines())
+
+    assert progress_line_count <= 400
+    assert progress_line_count < archive_line_count
+    assert "docs/archive/progress-2026-06.md" in progress
+    assert "Latest verified test baseline" in progress
+    assert "364 passed" in progress
+    assert "StarletteDeprecationWarning" in progress
+    assert "Local mock/demo only" in progress
+    assert "No production clinical use" in progress
+    assert "Mock mode sends no real email or SMS" in progress
+    assert "AI output requires human nurse review" in progress
+    assert "Authentication" in progress
+    assert "Hosting" in progress
+    assert "Key Vault" in progress
+    assert "Azure Speech" in progress
+    assert "live Azure AI Foundry" in progress
+    assert "ACS SMS delivery tracking" in progress
+    assert "Retry logic" in progress
+    assert "Every future TDD slice must include a `docs/progress.md` update" in progress
+    assert "Progress documentation compaction/archive split is complete" in progress
+    assert "No backend behavior, API contract, notification semantics" in progress
+
+    assert "Detailed historical progress through June 2026" in archive
+    assert "README local mock demo walkthrough polish is complete" in archive
+    assert "Live ACS Email smoke testing is complete" in archive
+    assert "Manual Cosmos smoke test" in archive
+
+
 def test_progress_workflow_documents_future_tdd_guardrails() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
