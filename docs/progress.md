@@ -5,7 +5,7 @@
 ## Resume Point
 
 Latest known local test baseline:
-- 362 passed
+- 363 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 Local mock demo console is complete for the current capstone demo flow:
@@ -110,6 +110,14 @@ Completed:
 - The demo page exercises existing mock/local endpoints only
 - No frontend framework or live Azure integration was added for the demo page
 - Demo UI shell is for local demoability only, not production clinical use
+- README local mock demo walkthrough polish is complete
+- Documentation guardrail tests verify the README/demo docs cover local startup,
+  `/demo`, safe mock defaults, demo safety boundaries, and the core demo
+  workflow
+- No backend behavior, API contract, notification semantics, live Azure calls,
+  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
+  tracking, retry logic, or frontend framework was added for the README/demo
+  documentation polish
 - Voicemail transcript intake endpoint is complete
 - `POST /intake/voicemail-transcript` accepts already-transcribed voicemail text
 - Voicemail transcript intake reuses the existing `CaseProcessingService` and
@@ -912,7 +920,7 @@ Infrastructure support:
   `az group exists --name rg-nurse-intake-dev` returned `false`.
 
 Latest test result:
-- 336 passed
+- 363 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 ## Next Step

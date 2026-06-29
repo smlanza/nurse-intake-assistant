@@ -177,6 +177,36 @@ def test_manual_local_mock_demo_guide_exists() -> None:
     assert "future enhancement" in guide
 
 
+def test_readme_documents_local_mock_demo_walkthrough() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+
+    assert "Local Mock Demo Walkthrough" in readme
+    assert "local mock/demo only" in readme
+    assert "no production clinical use" in readme
+    assert "AI output requires human nurse review" in readme
+    assert "uvicorn src.app.main:app --reload" in readme
+    assert "http://127.0.0.1:8000/demo" in readme
+    assert "APP_MODE=mock" in readme
+    assert "AI_PROVIDER=mock" in readme
+    assert "EMAIL_PROVIDER=mock" in readme
+    assert "SMS_PROVIDER=mock" in readme
+    assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in readme
+    assert "no real email or SMS" in readme
+    assert "Seed Demo Data" in readme
+    assert "Load Recent Cases" in readme
+    assert "Load Queue Summary" in readme
+    assert "Select for Review" in readme
+    assert "submit the nurse review" in readme
+    assert "submit a text intake" in readme
+    assert "submit a voicemail transcript intake" in readme
+    assert "mock email/SMS notifications" in readme
+    assert "reset demo state" in readme
+    assert "docs/demo-smoke-test.md" in readme
+    assert "Azure Speech" in readme
+    assert "live Azure AI Foundry" in readme
+    assert "ACS SMS delivery tracking" in readme
+
+
 def test_demo_page_smoke_test_guide_exists() -> None:
     guide_path = PROJECT_ROOT / "docs" / "demo-smoke-test.md"
 
@@ -187,6 +217,7 @@ def test_demo_page_smoke_test_guide_exists() -> None:
     assert "uvicorn src.app.main:app --reload" in guide
     assert "http://127.0.0.1:8000/demo" in guide
     assert "submit a text intake" in guide
+    assert "submit a voicemail transcript intake" in guide
     assert "confirm recent cases refresh" in guide
     assert "mark a case reviewed" in guide
     assert "confirm the reviewed state is visible" in guide
