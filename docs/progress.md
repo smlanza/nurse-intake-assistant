@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 395 passed
+- 401 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -219,6 +219,16 @@ changes.
 
 ## Current Slice Completed
 
+- Foundry smoke-test CLI scaffold slice is complete.
+- `scripts/smoke_foundry_extraction.py` is opt-in, uses fictional input, and
+  exercises the configured Foundry AI provider without persistence,
+  notifications, or FastAPI route calls.
+- Automated tests remain offline and deterministic.
+- No live Azure Foundry smoke test has been performed.
+- No API contract changes, route changes, notification semantic changes,
+  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
+  tracking, retry logic, or frontend framework was added for the Foundry
+  smoke-test CLI scaffold slice.
 - Foundry live client lazy adapter implementation slice is complete.
 - The live adapter can be unit-tested with fake SDK/client objects and returns
   raw model content from fake chat completion responses.

@@ -12,6 +12,8 @@ Current status:
   `complete_structured_extraction(prompt, model_deployment_name)`.
 - The Foundry live client adapter is opt-in, matches the fake-client seam, and
   uses lazy SDK imports/client construction.
+- `scripts/smoke_foundry_extraction.py` provides an opt-in manual CLI scaffold
+  that exercises the configured Foundry provider with fictional input only.
 - Automated tests use fake SDK/client objects only.
 - A real Azure AI Foundry smoke test has not been performed yet.
 
@@ -43,6 +45,16 @@ combined with a separate ACS notification test:
 EMAIL_PROVIDER=mock
 SMS_PROVIDER=mock
 ```
+
+After a future live environment is configured, run the opt-in script manually:
+
+```bash
+python scripts/smoke_foundry_extraction.py
+```
+
+The script does not persist cases, does not send notifications, and does not
+call FastAPI routes. It prints a small safe result summary for fictional input
+only.
 
 ## Safe Fictional Inputs
 
@@ -109,11 +121,13 @@ are configured locally.
 4. Set `AI_PROVIDER=foundry`.
 5. Keep `EMAIL_PROVIDER=mock` and `SMS_PROVIDER=mock` unless separately testing
    ACS notifications.
-6. Start the app locally.
-7. Submit a fictional `POST /intake/text` medication refill intake.
-8. Submit a fictional urgent symptom intake.
-9. Submit a fictional incomplete intake missing callback number.
-10. Verify each case response includes expected extraction, summary, advisory
+6. Run `python scripts/smoke_foundry_extraction.py`.
+7. Optionally start the app locally for a separate manual API check.
+8. Submit a fictional `POST /intake/text` medication refill intake only if the
+   separate API check is in scope.
+9. Submit a fictional urgent symptom or incomplete intake only if explicitly
+   extending the manual smoke pass.
+10. Verify each result includes expected extraction, summary, advisory
     urgency, and missing-field behavior.
 11. Verify notification behavior remains controlled/mock unless ACS is being
     tested separately.
