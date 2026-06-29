@@ -10,22 +10,24 @@ Current status:
 - The Foundry prompt/schema/parser contract is implemented and tested offline.
 - `FoundryAiService` can use an injected fake client through
   `complete_structured_extraction(prompt, model_deployment_name)`.
-- The Foundry live client scaffold is opt-in and matches the fake-client seam.
-- A real Azure AI Foundry SDK call is still deferred until a future live
-  implementation slice.
+- The Foundry live client adapter is opt-in, matches the fake-client seam, and
+  uses lazy SDK imports/client construction.
+- Automated tests use fake SDK/client objects only.
+- A real Azure AI Foundry smoke test has not been performed yet.
 
 Do not use real patient data, real phone numbers, real email addresses,
 connection strings, secrets, provider credentials, or PHI in this smoke test.
 
 ## Prerequisites
 
-Future live smoke testing will require:
+Future live smoke testing still requires:
 
 - Azure AI Foundry project
 - Compatible deployed model
 - Project endpoint
 - Model deployment name
-- Future Azure authentication method selected by the live implementation slice
+- Azure authentication method and SDK package setup appropriate for the live
+  environment
 - Local environment variables:
 
 ```bash
@@ -98,8 +100,8 @@ This smoke test does not cover:
 
 ## Future Live Checklist
 
-Run this only after a future slice implements the live Azure AI Foundry SDK
-adapter.
+Run this only after the live Azure AI Foundry SDK package and authentication
+are configured locally.
 
 1. Confirm `git status` is clean.
 2. Confirm the full test suite passes in mock/offline mode.

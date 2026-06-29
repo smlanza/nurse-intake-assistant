@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 389 passed
+- 395 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -106,8 +106,8 @@ Provider settings:
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and
   `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`. The offline Foundry structured
   extraction prompt/schema/parser contract and injected fake-client seam are
-  implemented. A thin opt-in live adapter scaffold matches the same seam, but
-  live extraction is deferred.
+  implemented. A thin opt-in live adapter matches the same seam with lazy SDK
+  imports/client construction, but live extraction is deferred.
 - Mock email remains the default local mode.
 - `EMAIL_PROVIDER=acs` selects ACS Email and requires
   `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
@@ -149,7 +149,7 @@ Completed work by feature area:
 - Text intake validation for empty, whitespace-only, and too-short requests
 - Mock AI extraction, AI provider factory, Foundry provider boundary, and
   offline Foundry structured extraction prompt/schema/parser contract with an
-  injected fake-client seam and opt-in live adapter scaffold
+  injected fake-client seam and opt-in lazy live adapter
 - Deterministic urgency rules with negation-aware red-flag handling
 - Structured missing-field validation, intake completion status, and follow-up
   prioritization
@@ -219,6 +219,15 @@ changes.
 
 ## Current Slice Completed
 
+- Foundry live client lazy adapter implementation slice is complete.
+- The live adapter can be unit-tested with fake SDK/client objects and returns
+  raw model content from fake chat completion responses.
+- Automated tests remain offline and deterministic.
+- No live Azure Foundry smoke test has been performed.
+- No API contract changes, notification semantic changes, hosting, auth, Key
+  Vault, Azure Speech, ACS phone intake, ACS delivery tracking, retry logic, or
+  frontend framework was added for the Foundry live adapter implementation
+  slice.
 - Manual Foundry smoke-test guide slice is complete.
 - `docs/manual-foundry-smoke-test.md` documents prerequisites, safe fictional
   inputs, validation expectations, non-goals, and rollback to `AI_PROVIDER=mock`.
