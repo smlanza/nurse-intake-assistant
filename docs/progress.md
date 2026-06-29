@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 366 passed
+- 367 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -204,7 +204,6 @@ Recommended next slice:
 - Manual smoke-test pass and screenshot cleanup
 
 Other good follow-up slices:
-- AI-103 mapping refresh
 - Optional favicon/static polish
 
 Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
@@ -214,6 +213,16 @@ changes.
 
 ## Current Slice Completed
 
+- AI-103 mapping refresh is complete.
+- `docs/ai-103-mapping.md` now distinguishes implemented local MVP
+  capabilities from deferred Azure/AI-103 integration work.
+- It identifies the highest-ROI next Azure slices: live Foundry structured
+  extraction, Foundry prompt/schema/evaluation notes, and Azure Speech
+  transcription boundary.
+- No backend behavior, API contract, notification semantics, live Azure calls,
+  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
+  tracking, retry logic, or frontend framework was added for the AI-103 mapping
+  refresh.
 - Architecture documentation refresh is complete.
 - `docs/architecture.md` now reflects the current local mock MVP architecture,
   provider boundaries, notification semantics, infrastructure baseline, AI-103

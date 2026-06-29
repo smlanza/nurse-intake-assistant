@@ -1,351 +1,210 @@
-# Nurse Intake Assistant - AI-103 Mapping
+# Nurse Intake Assistant AI-103 Mapping
 
-## 1. Purpose
+## 1. Current Purpose
 
-This document maps the Nurse Intake Assistant Phase 1 capstone MVP to Azure AI-103 exam-relevant skills. The project is not just an app build; it is designed to demonstrate Azure AI application development patterns using Azure AI Foundry, Azure AI Agents, Azure AI Speech, prompt engineering, structured output validation, responsible AI boundaries, monitoring, and deployment.
+The Nurse Intake Assistant is an AI-103 capstone/demo project. The current
+implementation is a local mock/demo FastAPI app that demonstrates AI solution
+architecture, provider seams, responsible AI boundaries, testable service
+design, and Azure integration readiness.
 
-## 2. High-Level Exam Alignment
+It is not production clinical software. It does not diagnose, prescribe,
+dispatch care, or make autonomous medical decisions. AI-generated extraction,
+summary, and advisory urgency output requires human nurse review before any
+clinical action. AI output requires human nurse review.
 
-| AI-103 Area | Project Evidence |
-|---|---|
-| Develop generative AI apps in Azure | AI-assisted extraction, summarization, advisory urgency classification, structured JSON output, prompt validation |
-| Develop AI agents on Azure | Azure AI Agent used for reasoning-only extraction/classification workflow |
-| Develop natural language solutions | Intake transcript/text understanding, summarization, field extraction, classification |
-| Develop speech-enabled solutions | Azure AI Speech transcription of recorded patient intake audio |
-| Responsible AI and safety | Advisory-only urgency, nurse review required, no diagnosis, minimal PHI in notifications/logs |
-| Monitoring and deployment | Application Insights, structured logs, Key Vault, managed identity, Bicep deployment |
-
-## 3. Azure AI Foundry / Generative AI App Concepts
-
-The project demonstrates a practical generative AI application pattern:
+The current app runs safely with mock defaults:
 
 ```text
-Input text/transcript
-→ prompt to model/agent
-→ structured JSON output
-→ Pydantic validation
-→ retry if invalid
-→ deterministic backend side effects
+APP_MODE=mock
+AI_PROVIDER=mock
+EMAIL_PROVIDER=mock
+SMS_PROVIDER=mock
 ```
 
-### Demonstrated Skills
+With those defaults, the demo makes no live Azure calls and sends no real email
+or SMS.
 
-- Selecting a model deployment for cost-conscious MVP development.
-- Calling an Azure-hosted generative AI model or Azure AI Agent.
-- Designing prompts for structured extraction.
-- Designing prompts for summarization.
-- Designing prompts for classification.
-- Validating model output with a schema.
-- Retrying invalid structured output once.
-- Keeping business-critical side effects outside the model.
+## 2. Implemented AI-103-Aligned Capabilities
 
-### Project Artifacts
+| AI-103 area | Current implementation | Evidence in repo | Status |
+|---|---|---|---|
+| Generative AI app design | `CaseProcessingService` orchestrates extraction, urgency merge, persistence, and notifications; AI provider factory selects the configured provider; `MockAiService` returns structured extraction, summary, and advisory classification; Pydantic models define API and output contracts | `src/app/services/case_processing_service.py`, `src/app/services/ai_service_factory.py`, `src/app/services/mock_ai_service.py`, `src/app/models/ai_outputs.py`, `src/app/models/case.py` | Implemented locally with mock AI |
+| Azure AI Foundry readiness | `FoundryAiService` and `AI_PROVIDER=foundry` provide a tested provider boundary; settings placeholders capture required Foundry endpoint and deployment name | `src/app/services/foundry_ai_service.py`, `src/app/services/ai_service_factory.py`, `src/app/config/settings.py`, `.env.example`, `tests/test_foundry_ai_service.py`, `tests/test_ai_service_factory.py` | Boundary/scaffold implemented; live Foundry extraction deferred |
+| Responsible AI / human oversight | Urgency is advisory only; deterministic red-flag rules supplement AI; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_cases_route.py`, `docs/architecture.md` | Implemented safety boundary |
+| Natural language processing | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency | `src/app/routes/intake.py`, `src/app/services/mock_ai_service.py`, `tests/test_intake_route.py`, `tests/test_mock_ai_service.py` | Implemented for text/transcripts; Azure Speech deferred |
+| Azure service integration boundaries | Cosmos repository and container factory, ACS Email/SMS sender boundaries, and Bicep baseline for Cosmos, storage, Log Analytics, and Application Insights | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/README.md` | Boundaries and baseline implemented; production hosting/secret/auth hardening deferred |
+| Application architecture | FastAPI routes support intake, case list, filtering, summary, lookup, nurse review, demo seed/reset, notification inspection, health, and static demo/legal pages | `src/app/routes/`, `src/app/main.py`, `src/app/static/demo.html`, `tests/test_cases_route.py`, `tests/test_demo_page_route.py`, `tests/test_demo_reset_route.py`, `tests/test_notifications_route.py` | Implemented local MVP |
+| Notification status semantics | Legacy booleans remain backward-compatible while explicit email/SMS status fields distinguish `MockRecorded`, `Accepted`, `Failed`, `Suppressed`, and `NotAttempted`; SMS delivery confirmation remains false until future tracking exists | `src/app/models/case.py`, `src/app/services/case_processing_service.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented semantics |
+| Testing and reliability | Pytest suite covers provider factories, repositories, routes, red-flag rules, notification behavior, OpenAPI examples, static pages, and documentation guardrails; demo smoke-test guide supports manual validation | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/manual-local-mock-demo.md` | Implemented project discipline |
 
-- `ai_agent_service.py`
-- `models/ai_outputs.py`
-- `case_processing_service.py`
-- Pydantic output models
-- Prompt templates for extraction and urgency classification
+## 3. Generative AI And Foundry Relevance
 
-## 4. Azure AI Agents Mapping
-
-Phase 1 uses an Azure AI Agent for reasoning only. The agent receives transcript or typed intake content and returns structured results.
-
-```mermaid
-flowchart TD
-    App[FastAPI Backend] --> Agent[Azure AI Agent]
-    Agent --> Extract[Extraction + Summary Result]
-    Agent --> Classify[Urgency Classification Result]
-    Extract --> App
-    Classify --> App
-    App --> Cosmos[Cosmos DB]
-    App --> Notify[Notifications]
-```
-
-### Why This Is AI-103 Relevant
-
-The project demonstrates agent integration without overusing agents for side effects. This is architecturally important because it separates:
-
-| Agent Responsibility | Backend Responsibility |
-|---|---|
-| Reason over transcript/text | Persist case document |
-| Extract structured fields | Send SMS/email |
-| Summarize patient message | Delete temporary audio |
-| Classify advisory urgency | Mark reviewed/retry |
-
-This is a clean agent boundary for an MVP and avoids unsafe autonomous behavior.
-
-## 5. Natural Language Processing Mapping
-
-The patient intake message is natural language. The system must transform unstructured language into structured case data.
-
-### NLP Tasks Demonstrated
-
-| Task | Project Implementation |
-|---|---|
-| Field extraction | Extract patient name, DOB, callback number, reason, symptoms |
-| Summarization | Generate brief nurse-facing case summary |
-| Classification | Classify advisory urgency as Routine/Urgent |
-| Missing data detection | Identify missing or uncertain required fields |
-| Normalization | Map output to consistent case document shape |
-
-### Example Output
-
-```json
-{
-  "patient": {
-    "name": "Jane Doe",
-    "date_of_birth": "1980-04-15",
-    "callback_number": "+15555550123"
-  },
-  "reason_for_calling": "Chest discomfort",
-  "symptoms": ["chest discomfort", "shortness of breath"],
-  "summary": "Patient reports chest discomfort and shortness of breath beginning this morning.",
-  "missing_fields": [],
-  "uncertain_fields": []
-}
-```
-
-## 6. Azure AI Speech Mapping
-
-The phone and demo audio paths demonstrate speech-enabled AI application development.
-
-```mermaid
-sequenceDiagram
-    participant Audio as Recorded Audio
-    participant Blob as Blob Storage
-    participant Speech as Azure AI Speech
-    participant App as FastAPI App
-
-    Audio->>Blob: Store temporary audio
-    App->>Speech: Submit audio transcription request
-    Speech-->>App: Return transcript
-    App->>App: Continue AI processing pipeline
-```
-
-### Demonstrated Skills
-
-- Taking recorded audio as an input source.
-- Storing audio temporarily in Blob Storage.
-- Calling Azure AI Speech for transcription.
-- Handling transcription failures.
-- Passing transcript into downstream generative AI pipeline.
-- Deleting audio after successful processing.
-
-### Phase 1 Boundary
-
-Real-time speech and live voice bot behavior are out of scope. The project uses batch/file transcription because the intake model is a recorded message, not a live multi-turn conversation.
-
-## 7. Responsible AI Mapping
-
-Responsible AI is central to the architecture because the system touches healthcare-like intake data.
-
-### Safety Decisions
-
-| Concern | Design Response |
-|---|---|
-| AI could be mistaken | Urgency is advisory only; nurse review required |
-| AI should not diagnose | Prompts and UI avoid diagnosis/medical advice language |
-| Urgent symptoms could be missed | Combine red-flag rules with AI classification |
-| Patient may describe emergency | Intake prompt says to call 911 for emergencies |
-| PHI exposure | Minimal SMS, limited email, no PHI in logs, temporary audio deletion |
-| Missing data | Create case anyway and mark `NeedsFollowUp` |
-
-### Required UI Wording
-
-Use wording like:
+The implemented local pipeline mirrors the shape of a production generative AI
+application while keeping the demo deterministic:
 
 ```text
-Advisory urgency: Urgent. Nurse review required. This system does not provide diagnosis or medical advice.
+POST /intake/text or POST /intake/voicemail-transcript
+-> CaseProcessingService
+-> create_ai_service(settings)
+-> MockAiService for AI_PROVIDER=mock
+-> structured extraction, summary, and advisory urgency
+-> Pydantic CaseDocument
+-> rules merge, persistence, notifications, nurse review queue
 ```
 
-Avoid wording like:
+For AI-103 discussion, the important design point is the provider seam:
+`MockAiService` supports safe local demonstration today, while
+`FoundryAiService` is the boundary where live Azure AI Foundry structured
+extraction can be added later. The backend owns side effects such as
+persistence, notifications, and review state; the AI provider should only return
+structured reasoning output.
+
+Live Azure AI Foundry extraction is not currently implemented.
+
+## 4. Responsible AI And Human Review
+
+The project is deliberately human-in-the-loop:
+
+- Advisory urgency is used for nurse queue prioritization, not diagnosis
+- Red-flag rules provide deterministic safety support
+- Negation-aware detection reduces false positives for denied symptoms
+- Missing intake fields create a case marked `NeedsFollowUp`
+- Nurse review changes `reviewStatus` from `PendingReview` to `Reviewed`
+- The system does not provide treatment instructions or autonomous medical
+  decisions
+
+Interview framing:
 
 ```text
-Diagnosis: urgent condition
-The patient requires emergency treatment
-The AI determined the medical outcome
+The AI helps structure and summarize intake information, but the nurse remains
+responsible for clinical judgment and follow-up.
 ```
 
-## 8. Prompt Engineering Mapping
+## 5. Natural Language And Speech Scope
 
-The project requires at least two prompt categories.
+Implemented natural language inputs:
 
-### Extraction and Summary Prompt
+- `POST /intake/text`
+- `POST /intake/voicemail-transcript`
 
-Goal:
+Both routes process existing text. The voicemail route accepts an
+already-transcribed voicemail transcript plus optional call, recording, audio
+blob, caller phone, and idempotency metadata.
+
+Deferred speech work:
+
+- Azure Speech transcription service
+- Audio upload or ACS recording transcription
+- Voice intake or call automation workflow
+- Audio retention and cleanup workflow
+
+This keeps the current app honest: it demonstrates transcript processing and
+the future Speech boundary, not live Azure Speech.
+
+## 6. Azure Integration Readiness
+
+The current codebase includes Azure-ready boundaries without requiring live
+Azure services for the local demo:
+
+- Cosmos repository boundary with point reads and upserts
+- Cosmos container factory using `/createdDate` partitioning
+- Bicep baseline for Cosmos DB, storage account, Log Analytics, and
+  Application Insights
+- ACS Email sender boundary and completed ACS Email smoke-test documentation
+- ACS SMS sender boundary that reaches SDK/send-request path
+- Mock providers as the safe local default
+
+Scope boundaries:
+
+- Cosmos cross-partition list/summary queries are deferred
+- Application Insights runtime logging/telemetry hardening is deferred
+- App Service or Azure Container Apps hosting is deferred
+- Key Vault and managed identity are deferred
+- App Service Authentication / Entra ID protection is deferred
+- Confirmed ACS SMS handset delivery is not implemented and remains pending
+  external toll-free verification and future delivery tracking
+
+## 7. Explicitly Deferred AI-103 / Azure Work
+
+The following are future work, not current implementation:
+
+- Live Azure AI Foundry structured extraction
+- Azure AI Foundry Agent/tool orchestration, if still useful after the simpler
+  Foundry provider path
+- Azure Speech transcription service
+- App Service or Azure Container Apps hosting
+- Key Vault and managed identity
+- App Service Authentication / Entra ID protection
+- Application Insights runtime logging/telemetry hardening
+- ACS phone intake/call automation
+- ACS SMS delivery reports/status tracking
+- Retry/durable processing
+- Production security, compliance, audit, and clinical workflow hardening
+
+## 8. Exam ROI For Future Slices
+
+Highest AI-103 ROI:
+
+- Live Azure AI Foundry structured extraction
+- Foundry prompt/schema/evaluation documentation
+- Azure Speech transcription boundary
+- Responsible AI and human-review documentation
+
+Medium AI-103 ROI:
+
+- Key Vault and managed identity
+- App Service or Azure Container Apps hosting
+- App Service Authentication / Entra ID route protection
+- Application Insights telemetry hardening
+
+Lower direct exam ROI but strong portfolio value:
+
+- ACS phone intake
+- Full phone-recording/callback workflow
+- Production dashboard polish
+
+## 9. Recommended Azure Implementation Order
+
+1. Live Azure AI Foundry structured extraction
+2. Foundry prompt/schema/evaluation notes
+3. Azure Speech transcription service boundary
+4. Key Vault / managed identity
+5. Azure hosting
+6. App Service auth/protected routes
+7. Application Insights telemetry hardening
+8. ACS phone intake
+9. Retry/durable processing
+10. Advanced Foundry Agent/tool orchestration only if useful
+
+This order prioritizes AI-103 learning value before lower-exam-value telephony
+workflow work.
+
+## 10. Scope Honesty Checklist
+
+When presenting the capstone, do not imply that the current MVP already has:
+
+- Live Azure AI Foundry extraction
+- Azure Speech transcription
+- ACS phone intake
+- App Service authentication
+- Key Vault
+- Confirmed SMS handset delivery
+- Production clinical readiness
+
+Accurate portfolio framing:
 
 ```text
-Convert unstructured transcript or typed intake into structured patient intake fields and a brief nurse-facing summary.
+Built a local mock/demo Nurse Intake Assistant in FastAPI with structured
+intake processing, deterministic mock AI extraction and summarization,
+advisory urgency classification with red-flag rules, nurse review workflow,
+mock notification inspection, and Azure-ready provider boundaries for Foundry,
+Cosmos DB, ACS Email/SMS, and infrastructure.
 ```
 
-Expected behavior:
-
-- Return only JSON matching schema.
-- Mark missing fields explicitly.
-- Do not invent unknown details.
-- Preserve uncertainty.
-- Avoid clinical diagnosis.
-
-### Urgency Classification Prompt
-
-Goal:
+Future-facing framing:
 
 ```text
-Classify the request as Routine or Urgent for nurse review, using advisory language only.
+The next highest-value Azure slice is to replace the mock AI provider with live
+Azure AI Foundry structured extraction while preserving the same Pydantic output
+contracts and human-review boundary.
 ```
-
-Expected behavior:
-
-- Return only JSON matching schema.
-- Include rationale.
-- Include advisory disclaimer.
-- Do not provide diagnosis or treatment advice.
-
-## 9. Structured Output and Validation Mapping
-
-AI-103-relevant applications should not blindly trust model text. This project validates AI output using Pydantic.
-
-```mermaid
-flowchart TD
-    AI[AI JSON Output] --> Validate[Pydantic Validation]
-    Validate --> Valid{Valid?}
-    Valid -- Yes --> Use[Map to Case Document]
-    Valid -- No --> Retry[Retry Once]
-    Retry --> Validate2[Pydantic Validation]
-    Validate2 --> Valid2{Valid?}
-    Valid2 -- Yes --> Use
-    Valid2 -- No --> Failed[ProcessingFailed]
-```
-
-### Demonstrated Skills
-
-- Schema-first AI output design.
-- Runtime validation of generated output.
-- Retry handling.
-- Failure status handling.
-- Human-review fallback.
-
-## 10. Azure Storage and Data Mapping
-
-Although AI-103 is AI-focused, the capstone also demonstrates practical Azure application architecture.
-
-| Data Type | Storage |
-|---|---|
-| Temporary audio | Azure Blob Storage |
-| Case document | Cosmos DB serverless |
-| Secrets/configuration | Azure Key Vault |
-| Operational telemetry | Application Insights |
-
-This supports AI-103-adjacent skills around building deployable Azure AI applications rather than isolated model demos.
-
-## 11. Monitoring and Observability Mapping
-
-The project uses structured Application Insights logs.
-
-### Log Events
-
-```json
-{
-  "event": "IntakeReceived",
-  "correlationId": "acs-recording-abc123",
-  "sourceCallId": "acs-call-xyz789"
-}
-```
-
-```json
-{
-  "event": "AiClassificationCompleted",
-  "correlationId": "acs-recording-abc123",
-  "ruleUrgency": "Urgent",
-  "aiUrgency": "Routine",
-  "finalUrgency": "Urgent"
-}
-```
-
-```json
-{
-  "event": "NotificationFailed",
-  "correlationId": "acs-recording-abc123",
-  "channel": "sms",
-  "failureReason": "ProviderError"
-}
-```
-
-### Exam-Relevant Concepts
-
-- Application telemetry.
-- Correlation IDs.
-- Failure tracking.
-- Retry tracking.
-- Avoiding sensitive content in logs.
-
-## 12. Security and Deployment Mapping
-
-The system demonstrates secure Azure app deployment patterns.
-
-| Concept | Project Implementation |
-|---|---|
-| Managed identity | App Service uses managed identity to access Azure resources where practical |
-| Secret management | Key Vault stores secrets and provider keys |
-| App authentication | App Service Authentication with Microsoft Entra ID protects dashboard and demo forms |
-| Infrastructure as code | Bicep provisions disposable dev resource group |
-| Cost control | Cosmos DB serverless and delete/recreate resource group strategy |
-
-## 13. AI-103 Study Value by Module Area
-
-| Learning Objective | Covered by Project? | Evidence |
-|---|---:|---|
-| Build generative AI solutions | Yes | AI extraction, summary, classification |
-| Use Azure AI Foundry | Yes | Project/model/agent integration |
-| Build with Azure AI Agents | Yes | Reasoning-only agent boundary |
-| Use prompt engineering | Yes | Two prompt types with structured output |
-| Validate generated output | Yes | Pydantic schemas and retry |
-| Use speech services | Yes | Azure AI Speech transcription |
-| Apply responsible AI | Yes | Advisory-only, no diagnosis, nurse review |
-| Deploy Azure AI app | Yes | FastAPI on App Service with Bicep |
-| Monitor AI app | Yes | Application Insights structured logs |
-| Visual data insights | No, not Phase 1 | Can be covered by separate mini-labs or Phase 2 document upload feature |
-
-## 14. Gaps Not Fully Covered by Phase 1
-
-Phase 1 does not deeply cover visual data extraction or Document Intelligence. This is intentional because the MVP is voice/text intake focused.
-
-Recommended ways to cover the gap:
-
-- Separate AI-103 mini-lab for image analysis.
-- Separate AI-103 mini-lab for Document Intelligence.
-- Phase 2 enhancement: nurse document upload with OCR/extraction/summarization.
-
-## 15. Resume / Portfolio Framing
-
-The project can be described as:
-
-```text
-Designed and built an Azure AI nurse intake assistant using FastAPI, Azure Communication Services, Azure AI Speech, Azure AI Foundry Agents, Cosmos DB, and Azure App Service. The system transcribes recorded patient calls, extracts structured intake fields, generates nurse-facing summaries, classifies advisory urgency using rules plus AI, stores case records, sends nurse notifications, and provides a protected dashboard for review and retry.
-```
-
-## 16. Interview Talking Points
-
-Strong talking points:
-
-- Why the agent is reasoning-only and does not perform side effects.
-- Why urgency is advisory and backed by deterministic red-flag rules.
-- Why structured output is validated with Pydantic before persistence.
-- Why audio is temporary and deleted after successful processing.
-- Why SMS content is minimized.
-- Why FastAPI background tasks are acceptable for MVP but queues are better for production.
-- Why Cosmos DB serverless fits low-volume capstone/demo usage.
-- How the project maps to AI-103 objectives.
-
-## 17. Future AI-103-Aligned Enhancements
-
-Potential future enhancements:
-
-- Queue-based durable processing with Azure Storage Queue or Service Bus.
-- Azure Function worker for processing pipeline.
-- Document upload processing with Azure AI Document Intelligence.
-- Image/document analysis mini-lab integration.
-- Multi-agent architecture with specialized intake, triage, document, and notification agents.
-- Role-based dashboard authorization.
-- More advanced monitoring and evaluation of AI outputs.

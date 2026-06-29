@@ -258,6 +258,28 @@ def test_architecture_documents_current_mvp_boundaries() -> None:
     assert "Key Vault" in architecture
 
 
+def test_ai_103_mapping_documents_current_scope_and_roi_order() -> None:
+    mapping = (PROJECT_ROOT / "docs" / "ai-103-mapping.md").read_text()
+    normalized_mapping = " ".join(mapping.split())
+
+    assert "local mock/demo FastAPI app" in normalized_mapping
+    assert "not production clinical software" in mapping
+    assert "AI_PROVIDER=mock" in mapping
+    assert "MockAiService" in mapping
+    assert "FoundryAiService" in mapping
+    assert "Boundary/scaffold implemented; live Foundry extraction deferred" in mapping
+    assert "AI output requires human nurse review" in mapping
+    assert "Azure Speech transcription service" in mapping
+    assert "ACS phone intake/call automation" in mapping
+    assert "Confirmed ACS SMS handset delivery is not implemented" in normalized_mapping
+    assert "Live Azure AI Foundry structured extraction" in mapping
+    assert "Foundry prompt/schema/evaluation notes" in mapping
+    assert "Azure Speech transcription service boundary" in mapping
+    assert mapping.index("1. Live Azure AI Foundry structured extraction") < mapping.index(
+        "8. ACS phone intake"
+    )
+
+
 def test_progress_links_manual_acs_email_smoke_test() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
@@ -280,7 +302,7 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert progress_line_count < archive_line_count
     assert "docs/archive/progress-2026-06.md" in progress
     assert "Latest verified test baseline" in progress
-    assert "366 passed" in progress
+    assert "367 passed" in progress
     assert "StarletteDeprecationWarning" in progress
     assert "Local mock/demo only" in progress
     assert "No production clinical use" in progress
