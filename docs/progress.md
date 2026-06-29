@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 365 passed
+- 366 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -204,7 +204,6 @@ Recommended next slice:
 - Manual smoke-test pass and screenshot cleanup
 
 Other good follow-up slices:
-- Architecture documentation refresh
 - AI-103 mapping refresh
 - Optional favicon/static polish
 
@@ -215,6 +214,14 @@ changes.
 
 ## Current Slice Completed
 
+- Architecture documentation refresh is complete.
+- `docs/architecture.md` now reflects the current local mock MVP architecture,
+  provider boundaries, notification semantics, infrastructure baseline, AI-103
+  alignment, and deferred production/Azure scope.
+- No backend behavior, API contract, notification semantics, live Azure calls,
+  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
+  tracking, retry logic, or frontend framework was added for the architecture
+  documentation refresh.
 - Progress workflow testing guidance now warns against over-testing docs/UI
   polish.
 - No runtime behavior, API contract, notification semantics, live Azure calls,

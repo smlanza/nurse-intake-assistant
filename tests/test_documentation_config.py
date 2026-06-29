@@ -231,6 +231,33 @@ def test_demo_page_smoke_test_guide_exists() -> None:
     assert "returns 200" in guide
 
 
+def test_architecture_documents_current_mvp_boundaries() -> None:
+    architecture = (PROJECT_ROOT / "docs" / "architecture.md").read_text()
+    normalized_architecture = " ".join(architecture.split())
+
+    assert "local mock/demo FastAPI application" in normalized_architecture
+    assert "AI-generated" in architecture
+    assert "extraction" in architecture
+    assert "summary" in architecture
+    assert "urgency output" in normalized_architecture
+    assert "advisory only" in architecture
+    assert "requires human nurse review" in normalized_architecture
+    assert "MockAiService" in architecture
+    assert "FoundryAiService" in architecture
+    assert "live extraction is deferred" in normalized_architecture
+    assert "InMemoryCaseRepository" in architecture
+    assert "CosmosCaseRepository" in architecture
+    assert "partition key `/createdDate`" in normalized_architecture
+    assert "notificationEmailSent" in architecture
+    assert "notificationSmsDeliveryConfirmed" in architecture
+    assert "does not prove final SMS handset delivery" in normalized_architecture
+    assert "Live Azure AI Foundry extraction" in normalized_architecture
+    assert "Azure Speech / voice intake" in normalized_architecture
+    assert "Hosting" in architecture
+    assert "Authentication / RBAC" in architecture
+    assert "Key Vault" in architecture
+
+
 def test_progress_links_manual_acs_email_smoke_test() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
@@ -253,7 +280,7 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert progress_line_count < archive_line_count
     assert "docs/archive/progress-2026-06.md" in progress
     assert "Latest verified test baseline" in progress
-    assert "365 passed" in progress
+    assert "366 passed" in progress
     assert "StarletteDeprecationWarning" in progress
     assert "Local mock/demo only" in progress
     assert "No production clinical use" in progress
