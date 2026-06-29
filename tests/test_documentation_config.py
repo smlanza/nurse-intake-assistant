@@ -267,7 +267,7 @@ def test_ai_103_mapping_documents_current_scope_and_roi_order() -> None:
     assert "AI_PROVIDER=mock" in mapping
     assert "MockAiService" in mapping
     assert "FoundryAiService" in mapping
-    assert "Boundary/scaffold implemented; live Foundry extraction deferred" in mapping
+    assert "offline contract implemented; live Foundry extraction deferred" in mapping
     assert "AI output requires human nurse review" in mapping
     assert "Azure Speech transcription service" in mapping
     assert "ACS phone intake/call automation" in mapping
@@ -302,7 +302,7 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert progress_line_count < archive_line_count
     assert "docs/archive/progress-2026-06.md" in progress
     assert "Latest verified test baseline" in progress
-    assert "367 passed" in progress
+    assert "379 passed" in progress
     assert "StarletteDeprecationWarning" in progress
     assert "Local mock/demo only" in progress
     assert "No production clinical use" in progress

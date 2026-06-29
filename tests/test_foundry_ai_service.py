@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -156,3 +157,30 @@ def test_foundry_service_without_client_does_not_create_live_client() -> None:
 
     with pytest.raises(RuntimeError, match="client creation is not implemented"):
         asyncio.run(service.extract_and_summarize("I need a refill."))
+
+
+def test_foundry_service_exposes_offline_structured_contract_helpers() -> None:
+    service = create_service(client=None)
+
+    prompt = service.build_structured_extraction_prompt("I need a refill.")
+    extraction, urgency = service.parse_structured_extraction_response(
+        json.dumps(
+            {
+                "patient": {
+                    "name": "Jane Doe",
+                    "date_of_birth": "1980-04-15",
+                    "callback_number": None,
+                },
+                "reason_for_calling": "medication refill",
+                "summary": "Patient is calling about a medication refill.",
+                "urgency": "Routine",
+                "urgency_rationale": "No urgent symptoms were described.",
+            }
+        )
+    )
+
+    assert "Return JSON only" in prompt
+    assert extraction.patient.name == "Jane Doe"
+    assert extraction.symptoms == []
+    assert urgency.urgency == "Routine"
+    assert "nurse review" in urgency.advisory_disclaimer

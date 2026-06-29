@@ -6,6 +6,10 @@ from src.app.models.ai_outputs import (
     PatientInfo,
     UrgencyClassificationResult,
 )
+from src.app.services.foundry_extraction_contract import (
+    build_foundry_structured_extraction_prompt,
+    parse_foundry_structured_extraction_response,
+)
 
 
 class FoundryAiClientNotImplementedError(RuntimeError):
@@ -26,6 +30,19 @@ class FoundryAiService:
         self.model_deployment_name = model_deployment_name
         self.client = client
         self.client_factory = client_factory
+
+    def build_structured_extraction_prompt(self, raw_text: str) -> str:
+        """Return offline prompt instructions for future live Foundry calls."""
+
+        return build_foundry_structured_extraction_prompt(raw_text)
+
+    def parse_structured_extraction_response(
+        self,
+        model_response: str,
+    ) -> tuple[ExtractionSummaryResult, UrgencyClassificationResult]:
+        """Parse future live Foundry JSON into current app output models."""
+
+        return parse_foundry_structured_extraction_response(model_response)
 
     async def extract_and_summarize(self, raw_text: str) -> ExtractionSummaryResult:
         try:

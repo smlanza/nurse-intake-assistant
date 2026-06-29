@@ -29,7 +29,7 @@ or SMS.
 | AI-103 area | Current implementation | Evidence in repo | Status |
 |---|---|---|---|
 | Generative AI app design | `CaseProcessingService` orchestrates extraction, urgency merge, persistence, and notifications; AI provider factory selects the configured provider; `MockAiService` returns structured extraction, summary, and advisory classification; Pydantic models define API and output contracts | `src/app/services/case_processing_service.py`, `src/app/services/ai_service_factory.py`, `src/app/services/mock_ai_service.py`, `src/app/models/ai_outputs.py`, `src/app/models/case.py` | Implemented locally with mock AI |
-| Azure AI Foundry readiness | `FoundryAiService` and `AI_PROVIDER=foundry` provide a tested provider boundary; settings placeholders capture required Foundry endpoint and deployment name | `src/app/services/foundry_ai_service.py`, `src/app/services/ai_service_factory.py`, `src/app/config/settings.py`, `.env.example`, `tests/test_foundry_ai_service.py`, `tests/test_ai_service_factory.py` | Boundary/scaffold implemented; live Foundry extraction deferred |
+| Azure AI Foundry readiness | `FoundryAiService` and `AI_PROVIDER=foundry` provide a tested provider boundary; an offline structured extraction prompt/schema/parser contract defines future model instructions and JSON validation; settings placeholders capture required Foundry endpoint and deployment name | `src/app/services/foundry_ai_service.py`, `src/app/services/foundry_extraction_contract.py`, `src/app/services/ai_service_factory.py`, `src/app/config/settings.py`, `.env.example`, `tests/test_foundry_ai_service.py`, `tests/test_foundry_extraction_contract.py`, `tests/test_ai_service_factory.py` | Boundary/scaffold and offline contract implemented; live Foundry extraction deferred |
 | Responsible AI / human oversight | Urgency is advisory only; deterministic red-flag rules supplement AI; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_cases_route.py`, `docs/architecture.md` | Implemented safety boundary |
 | Natural language processing | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency | `src/app/routes/intake.py`, `src/app/services/mock_ai_service.py`, `tests/test_intake_route.py`, `tests/test_mock_ai_service.py` | Implemented for text/transcripts; Azure Speech deferred |
 | Azure service integration boundaries | Cosmos repository and container factory, ACS Email/SMS sender boundaries, and Bicep baseline for Cosmos, storage, Log Analytics, and Application Insights | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/README.md` | Boundaries and baseline implemented; production hosting/secret/auth hardening deferred |
@@ -55,9 +55,11 @@ POST /intake/text or POST /intake/voicemail-transcript
 For AI-103 discussion, the important design point is the provider seam:
 `MockAiService` supports safe local demonstration today, while
 `FoundryAiService` is the boundary where live Azure AI Foundry structured
-extraction can be added later. The backend owns side effects such as
-persistence, notifications, and review state; the AI provider should only return
-structured reasoning output.
+extraction can be added later. The offline Foundry contract already defines the
+prompt guardrails, expected JSON shape, parser validation, and mapping into the
+current extraction and urgency output models. The backend owns side effects such
+as persistence, notifications, and review state; the AI provider should only
+return structured reasoning output.
 
 Live Azure AI Foundry extraction is not currently implemented.
 

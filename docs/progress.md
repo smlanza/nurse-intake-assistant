@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 367 passed
+- 379 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -103,7 +103,9 @@ Provider settings:
 - `AI_PROVIDER=mock` uses deterministic local mock extraction.
 - `AI_PROVIDER=foundry` is a tested provider boundary and requires
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and
-  `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`, but live extraction is deferred.
+  `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`. The offline Foundry structured
+  extraction prompt/schema/parser contract is implemented, but live extraction
+  is deferred.
 - Mock email remains the default local mode.
 - `EMAIL_PROVIDER=acs` selects ACS Email and requires
   `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
@@ -144,7 +146,8 @@ Completed work by feature area:
   processing service
 - Text intake validation for empty, whitespace-only, and too-short requests
 - Mock AI extraction, AI provider factory, Foundry provider boundary, and
-  deterministic urgency rules with negation-aware red-flag handling
+  offline Foundry structured extraction prompt/schema/parser contract
+- Deterministic urgency rules with negation-aware red-flag handling
 - Structured missing-field validation, intake completion status, and follow-up
   prioritization
 - Human-in-the-loop nurse review with persisted review metadata
@@ -213,6 +216,15 @@ changes.
 
 ## Current Slice Completed
 
+- Foundry structured extraction contract slice is complete.
+- Prompt/schema/parser behavior is tested offline and maps future model JSON
+  responses into the current extraction and urgency output models.
+- This prepares the future live Azure AI Foundry provider integration while
+  keeping live Foundry calls deferred.
+- No live Azure calls, API contract changes, notification semantic changes,
+  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
+  tracking, retry logic, or frontend framework was added for the Foundry
+  contract slice.
 - AI-103 mapping refresh is complete.
 - `docs/ai-103-mapping.md` now distinguishes implemented local MVP
   capabilities from deferred Azure/AI-103 integration work.
