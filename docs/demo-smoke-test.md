@@ -33,6 +33,7 @@ visible section numbers on the page.
 4. Click Select for Review on a seeded case from Recent Cases.
    - Expected: the Nurse Review case id field is populated.
    - Confirm the page jumps to Nurse Review, focuses the case id field, and shows a selected-case status message.
+   - Confirm Selected Case Context is readable and is presented as read-only context for comparing the mock AI summary with nurse review notes.
    - Confirm the reviewNotes field is clear before entering notes for the selected case.
 5. In Nurse Review, mark a case reviewed.
    - Expected: `POST /cases/{case_id}/review` returns 200.
@@ -58,4 +59,5 @@ visible section numbers on the page.
 - This is for local mock/demo only, with no production clinical use.
 - Mock mode sends no real email or SMS.
 - AI output requires human nurse review.
+- Use only fictional demo sample data; do not enter real patient details or real contact information.
 - Do not use this demo for medical advice or emergencies.

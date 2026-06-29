@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 364 passed
+- 365 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -215,6 +215,21 @@ changes.
 
 ## Current Slice Completed
 
+- Progress workflow testing guidance now warns against over-testing docs/UI
+  polish.
+- No runtime behavior, API contract, notification semantics, live Azure calls,
+  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
+  tracking, retry logic, or frontend framework was added for the testing
+  guidance update.
+- Manual local mock demo smoke-test cleanup pass is complete.
+- Demo page remains local mock/demo only.
+- UI changes were limited to screenshot/demo-readiness polish: clearer
+  read-only selected-case context guidance and screenshot-safe fictional sample
+  intake data.
+- No backend behavior, API contract, notification semantics, live Azure calls,
+  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
+  tracking, retry logic, or frontend framework was added for the demo cleanup
+  pass.
 - Progress documentation compaction/archive split is complete.
 - Detailed historical progress was moved to
   `docs/archive/progress-2026-06.md`.
@@ -258,3 +273,17 @@ deferred until external toll-free verification is complete.
 6. Review output with ChatGPT.
 7. Commit and push.
 8. Ask ChatGPT for the next Codex prompt.
+
+## Testing Guidance
+
+- Continue using TDD for backend behavior, business rules, provider selection,
+  notification semantics, safety boundaries, idempotency, and error handling.
+- For docs-only slices, avoid adding many brittle string-matching tests.
+- Documentation tests should verify important project guardrails, not exact
+  prose everywhere.
+- For UI polish slices, test stable workflow controls, section headings, and
+  safety/human-review boundaries only when useful.
+- Avoid tests that lock in incidental wording, CSS/layout details, or
+  formatting.
+- Prefer a small number of high-value guardrail tests over many low-value
+  documentation tests.

@@ -501,6 +501,7 @@
         </label>
         <div class="panel" aria-labelledby="selected-case-context-heading">
           <h3 id="selected-case-context-heading">Selected Case Context</h3>
+          <p class="muted">Use this read-only context to compare the mock AI summary with nurse review notes.</p>
           <div id="selectedCaseContext" class="result">
             <p class="muted">No case selected for review.</p>
           </div>
@@ -519,7 +520,7 @@
           <h3 id="text-intake-heading">Text Intake</h3>
           <label>
             Intake text
-            <textarea id="intakeText">My name is Jane Doe. DOB: 1980-04-15. My callback number is +1 (555) 555-0123. I need a medication refill.</textarea>
+            <textarea id="intakeText">My name is Demo Patient. DOB: 1980-04-15. My callback number is 000-000-0000. I need a medication refill.</textarea>
           </label>
           <button id="submitTextIntake" type="button">Submit Text Intake</button>
         </div>
@@ -533,7 +534,7 @@
         </div>
         <label>
           transcript
-          <textarea id="voicemailTranscript">My name is Alex Lee. DOB: 1975-03-20. My callback number is +1 (555) 555-0199. I need a medication refill.</textarea>
+          <textarea id="voicemailTranscript">My name is Voicemail Demo Patient. DOB: 1975-03-20. My callback number is 000-000-0001. I need a medication refill.</textarea>
         </label>
         <div class="compact-grid">
           <label>
@@ -550,7 +551,7 @@
           </label>
           <label>
             callerPhoneNumber
-            <input id="voicemailCallerPhoneNumber" value="+1 (555) 555-0199" />
+            <input id="voicemailCallerPhoneNumber" value="000-000-0001" />
           </label>
           <label>
             idempotencyKey

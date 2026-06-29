@@ -147,6 +147,20 @@ def test_demo_page_includes_voicemail_transcript_fields() -> None:
     assert "idempotencyKey" in html
 
 
+def test_demo_page_uses_screenshot_safe_fictional_sample_data() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Demo Patient" in html
+    assert "Voicemail Demo Patient" in html
+    assert "000-000-0000" in html
+    assert "000-000-0001" in html
+    assert "Jane Doe" not in html
+    assert "Alex Lee" not in html
+    assert "555" not in html
+
+
 def test_demo_page_includes_queue_filter_controls() -> None:
     response = client.get("/demo")
 
@@ -236,6 +250,7 @@ def test_demo_page_includes_selected_case_context_panel() -> None:
     assert response.status_code == 200
     html = response.text
     assert "Selected Case Context" in html
+    assert "Use this read-only context to compare the mock AI summary with nurse review notes." in html
     assert 'id="selectedCaseContext"' in html
     assert "No case selected for review." in html
 
