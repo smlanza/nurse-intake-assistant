@@ -24,25 +24,35 @@ Important constraints:
 - Do not commit secrets, connection strings, real phone numbers, real email
   addresses, provider credentials, or real patient data
 
-## Resume Point
+## Current Resume Point
 
-The local mock demo console is complete for the current capstone demo flow:
-- Seed demo data
-- Load recent cases
-- Load queue summary
-- Select for Review
-- Selected Case Context
-- Nurse review submit with Recent Cases and Queue Summary auto-refresh
-- Text intake
-- Voicemail transcript intake
+Safe to demo today:
+- Local text intake and already-transcribed voicemail transcript intake
+- Nurse review workflow, recent cases, queue summary, and demo seed/reset
 - Mock email/SMS notification inspection
-- Demo reset
-- Local mock demo safety banner
+- Local mock demo safety banner and human nurse review boundary
 
-README and demo walkthrough polish is complete. The active docs now describe
-how to run the local mock demo with `uvicorn`, open `/demo`, use safe mock
-defaults, follow the core demo workflow, and keep the demo framed as local
-mock/demo only with required human nurse review.
+Implemented but not live-confirmed:
+- Cosmos repository boundary and previously verified manual Cosmos point-read
+  path
+- ACS Email/SMS provider boundaries, with ACS Email smoke testing complete and
+  ACS SMS delivery tracking deferred
+- Foundry provider boundary, structured extraction contract, fake-client seam,
+  lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
+- Speech transcription provider boundary with mock provider and Azure scaffold
+
+Do not claim as complete:
+- Live Azure AI Foundry smoke testing or live Foundry extraction
+- Live Azure Speech transcription, audio upload, or audio processing
+- ACS phone intake/call automation, Key Vault, App Service hosting/auth,
+  retry/durable processing, SMS delivery tracking, production frontend, or
+  production clinical readiness
+
+Recommended next move:
+- If Azure credentials and a model deployment are ready, run or prepare the
+  manual Foundry smoke test in `docs/manual-foundry-smoke-test.md`.
+- If staying offline, add a manual Speech smoke-test guide or speech CLI
+  scaffold while keeping the default demo mock/offline.
 
 ## Current Working Local Pipeline
 
@@ -213,15 +223,15 @@ Completed work by feature area:
 ## Recommended Next Slice
 
 Recommended next slice:
-- Manual smoke-test pass and screenshot cleanup
+- Run or prepare the manual Azure AI Foundry smoke test if Azure credentials,
+  SDK package, and model deployment are ready.
+- Or, if staying offline, add a manual Speech smoke-test guide / speech CLI
+  scaffold without implementing live Azure Speech calls.
 
-Other good follow-up slices:
-- Optional favicon/static polish
-
-Do not start live ACS SMS sending, hosting, Key Vault, live Azure AI Foundry
-extraction integration, Azure Speech/voice intake, retry logic, authentication,
-or a frontend framework in the next slice unless the project scope explicitly
-changes.
+Do not start live ACS SMS sending, hosting, Key Vault, App Service
+authentication, ACS phone intake, ACS delivery tracking, retry/durable
+processing, production frontend work, or live Azure Speech transcription/audio
+processing in the next slice unless the project scope explicitly changes.
 
 ## Current Slice Completed
 

@@ -63,6 +63,11 @@ This MVP intentionally does not include hosting, authentication, Key Vault,
 Azure Speech, live Azure AI Foundry extraction, ACS SMS delivery tracking, retry
 logic, or a frontend framework.
 
+The current default demo remains local mock/offline. Azure AI Foundry and Azure
+Speech have provider boundaries/scaffolds for future work, but live Azure
+validation is manual/future; see `docs/progress.md` for the current resume
+point and `docs/manual-foundry-smoke-test.md` for the Foundry checklist.
+
 For the fuller manual checklist, see `docs/demo-smoke-test.md`. For API-level
 local demo commands, see `docs/manual-local-mock-demo.md`. For the future
 manual Azure AI Foundry smoke-test checklist, see

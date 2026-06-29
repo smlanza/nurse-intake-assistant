@@ -375,6 +375,16 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert "Manual Cosmos smoke test" in archive
 
 
+def test_progress_current_resume_point_keeps_live_azure_scope_honest() -> None:
+    progress = (PROJECT_ROOT / "docs" / "progress.md").read_text()
+
+    assert "## Current Resume Point" in progress
+    assert "Safe to demo today" in progress
+    assert "default demo mock/offline" in progress
+    assert "Live Azure AI Foundry smoke testing or live Foundry extraction" in progress
+    assert "Live Azure Speech transcription, audio upload, or audio processing" in progress
+
+
 def test_progress_workflow_documents_future_tdd_guardrails() -> None:
     docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
 
