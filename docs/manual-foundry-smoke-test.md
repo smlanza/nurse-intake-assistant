@@ -49,12 +49,17 @@ SMS_PROVIDER=mock
 After a future live environment is configured, run the opt-in script manually:
 
 ```bash
+python scripts/smoke_foundry_extraction.py --check
 python scripts/smoke_foundry_extraction.py
 ```
 
-The script does not persist cases, does not send notifications, and does not
-call FastAPI routes. It prints a small safe result summary for fictional input
-only.
+The `--check` command validates local Foundry configuration and optional SDK
+availability without creating the AI service, making a model call, persisting
+cases, sending notifications, or calling FastAPI routes.
+
+The default command runs the opt-in smoke test. It does not persist cases, does
+not send notifications, and does not call FastAPI routes. It prints a small
+safe result summary for fictional input only.
 
 ## Safe Fictional Inputs
 
@@ -121,16 +126,17 @@ are configured locally.
 4. Set `AI_PROVIDER=foundry`.
 5. Keep `EMAIL_PROVIDER=mock` and `SMS_PROVIDER=mock` unless separately testing
    ACS notifications.
-6. Run `python scripts/smoke_foundry_extraction.py`.
-7. Optionally start the app locally for a separate manual API check.
-8. Submit a fictional `POST /intake/text` medication refill intake only if the
+6. Run `python scripts/smoke_foundry_extraction.py --check`.
+7. Run `python scripts/smoke_foundry_extraction.py`.
+8. Optionally start the app locally for a separate manual API check.
+9. Submit a fictional `POST /intake/text` medication refill intake only if the
    separate API check is in scope.
-9. Submit a fictional urgent symptom or incomplete intake only if explicitly
+10. Submit a fictional urgent symptom or incomplete intake only if explicitly
    extending the manual smoke pass.
-10. Verify each result includes expected extraction, summary, advisory
+11. Verify each result includes expected extraction, summary, advisory
     urgency, and missing-field behavior.
-11. Verify notification behavior remains controlled/mock unless ACS is being
+12. Verify notification behavior remains controlled/mock unless ACS is being
     tested separately.
-12. Restore `AI_PROVIDER=mock`.
-13. Rerun the full test suite.
-14. Document the result in `docs/progress.md`.
+13. Restore `AI_PROVIDER=mock`.
+14. Rerun the full test suite.
+15. Document the result in `docs/progress.md`.

@@ -1,3 +1,6 @@
+from importlib.util import find_spec
+
+
 FOUNDRY_LIVE_CLIENT_UNAVAILABLE_MESSAGE = (
     "Azure AI Foundry live client is not configured or SDK support is not available."
 )
@@ -57,6 +60,18 @@ def create_foundry_live_client(project_endpoint: str) -> AzureAiFoundryLiveClien
     """Create the opt-in Foundry live adapter without constructing SDK clients."""
 
     return AzureAiFoundryLiveClient(project_endpoint=project_endpoint)
+
+
+def foundry_live_sdk_available() -> bool:
+    """Return whether optional live Foundry SDK imports appear available."""
+
+    try:
+        return (
+            find_spec("azure.ai.inference") is not None
+            and find_spec("azure.identity") is not None
+        )
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
 
 
 def _create_chat_client(project_endpoint: str):

@@ -35,7 +35,7 @@ def test_foundry_smoke_script_refuses_mock_provider(
 
     _patch_settings(monkeypatch, _settings(ai_provider="mock"))
 
-    exit_code = script.main()
+    exit_code = script.main([])
 
     captured = capsys.readouterr()
     assert exit_code == 2
@@ -66,7 +66,7 @@ def test_foundry_smoke_script_refuses_missing_foundry_configuration(
 
     _patch_settings(monkeypatch, settings)
 
-    exit_code = script.main()
+    exit_code = script.main([])
 
     captured = capsys.readouterr()
     assert exit_code == 2
@@ -85,7 +85,7 @@ def test_foundry_smoke_script_calls_fake_ai_service_and_prints_safe_result(
     _patch_settings(monkeypatch, _settings())
     monkeypatch.setattr(script, "create_ai_service", lambda settings: fake_service)
 
-    exit_code = script.main()
+    exit_code = script.main([])
 
     captured = capsys.readouterr()
     assert exit_code == 0
@@ -126,12 +126,123 @@ def test_foundry_smoke_script_failure_uses_safe_message(
         lambda settings: FailingAiService(),
     )
 
-    exit_code = script.main()
+    exit_code = script.main([])
 
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "Foundry smoke test failed" in captured.err
     assert "private failure marker" not in captured.err
+    assert "secret-endpoint" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "Return JSON only" not in captured.err
+    assert captured.out == ""
+
+
+def test_foundry_smoke_script_check_refuses_mock_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, _settings(ai_provider="mock"))
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: pytest.fail("create_ai_service should not be called"),
+    )
+
+    exit_code = script.main(["--check"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "AI_PROVIDER=foundry" in captured.err
+    assert "AI_PROVIDER=mock" in captured.err
+
+
+@pytest.mark.parametrize(
+    "settings,expected_message",
+    [
+        (
+            _settings(endpoint=None),
+            "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT",
+        ),
+        (
+            _settings(deployment=None),
+            "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+        ),
+    ],
+)
+def test_foundry_smoke_script_check_refuses_missing_foundry_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    settings: SimpleNamespace,
+    expected_message: str,
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, settings)
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: pytest.fail("create_ai_service should not be called"),
+    )
+
+    exit_code = script.main(["--check"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert expected_message in captured.err
+    assert "secret-endpoint" not in captured.err
+    assert "secret-deployment" not in captured.err
+
+
+def test_foundry_smoke_script_check_succeeds_without_model_call(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: pytest.fail("create_ai_service should not be called"),
+    )
+
+    exit_code = script.main(["--check"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "preflight passed" in captured.out
+    assert "No model call was made" in captured.out
+    assert "AI_PROVIDER=mock" in captured.out
+    assert captured.err == ""
+    assert "secret-endpoint" not in captured.out
+    assert "secret-deployment" not in captured.out
+    assert "Return JSON only" not in captured.out
+
+
+def test_foundry_smoke_script_check_fails_safely_when_sdk_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: False)
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: pytest.fail("create_ai_service should not be called"),
+    )
+
+    exit_code = script.main(["--check"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "Optional Foundry SDK support is unavailable" in captured.err
+    assert "AI_PROVIDER=mock" in captured.err
     assert "secret-endpoint" not in captured.err
     assert "secret-deployment" not in captured.err
     assert "Return JSON only" not in captured.err

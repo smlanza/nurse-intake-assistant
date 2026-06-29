@@ -244,9 +244,13 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "AI_PROVIDER=mock" in guide
     assert "AI_PROVIDER=foundry" in guide
     assert "scripts/smoke_foundry_extraction.py" in guide
+    assert "python scripts/smoke_foundry_extraction.py --check" in guide
     assert "python scripts/smoke_foundry_extraction.py" in guide
-    assert "does not persist cases" in guide
-    assert "does not send notifications" in guide
+    assert "validates local Foundry configuration and optional SDK" in normalized_guide
+    assert "without creating the AI service" in normalized_guide
+    assert "making a model call" in normalized_guide
+    assert "does not persist cases" in normalized_guide
+    assert "does not send notifications" in normalized_guide
     assert "does not call FastAPI routes" in normalized_guide
     assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in guide
     assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME" in guide
@@ -333,7 +337,7 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert progress_line_count < archive_line_count
     assert "docs/archive/progress-2026-06.md" in progress
     assert "Latest verified test baseline" in progress
-    assert "401 passed" in progress
+    assert "406 passed" in progress
     assert "StarletteDeprecationWarning" in progress
     assert "Local mock/demo only" in progress
     assert "No production clinical use" in progress
