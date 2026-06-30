@@ -258,8 +258,9 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "AI_PROVIDER=foundry" in guide
     assert "scripts/smoke_foundry_extraction.py" in guide
     assert "python scripts/smoke_foundry_extraction.py --check" in guide
-    assert "python scripts/smoke_foundry_extraction.py" in guide
-    assert "validates local Foundry configuration and optional SDK" in normalized_guide
+    assert "python scripts/smoke_foundry_extraction.py --live" in guide
+    assert "validates local Foundry configuration" in normalized_guide
+    assert "reports optional SDK visibility" in normalized_guide
     assert "without creating the AI service" in normalized_guide
     assert "making a model call" in normalized_guide
     assert "does not persist cases" in normalized_guide

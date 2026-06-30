@@ -35,7 +35,7 @@ def test_foundry_smoke_script_refuses_mock_provider(
 
     _patch_settings(monkeypatch, _settings(ai_provider="mock"))
 
-    exit_code = script.main([])
+    exit_code = script.main(["--check"])
 
     captured = capsys.readouterr()
     assert exit_code == 2
@@ -66,7 +66,7 @@ def test_foundry_smoke_script_refuses_missing_foundry_configuration(
 
     _patch_settings(monkeypatch, settings)
 
-    exit_code = script.main([])
+    exit_code = script.main(["--check"])
 
     captured = capsys.readouterr()
     assert exit_code == 2
@@ -83,18 +83,20 @@ def test_foundry_smoke_script_calls_fake_ai_service_and_prints_safe_result(
 
     fake_service = FakeAiService()
     _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
     monkeypatch.setattr(script, "create_ai_service", lambda settings: fake_service)
 
-    exit_code = script.main([])
+    exit_code = script.main(["--live"])
 
     captured = capsys.readouterr()
     assert exit_code == 0
     assert fake_service.extraction_texts == [script.FICTIONAL_INTAKE_TEXT]
     assert fake_service.urgency_texts == [script.FICTIONAL_INTAKE_TEXT]
-    assert "Demo Patient" in captured.out
+    assert "manual Azure AI Foundry smoke test" in captured.out
+    assert "Alex Morgan" in captured.out
     assert "medication refill" in captured.out
     assert "fatigue" in captured.out
-    assert "patient.callback_number" in captured.out
+    assert "patient.date_of_birth" in captured.out
     assert "Routine" in captured.out
     assert "nurse review" in captured.out
     assert "secret-endpoint" not in captured.out
@@ -106,7 +108,7 @@ def test_foundry_smoke_script_calls_fake_ai_service_and_prints_safe_result(
 def test_foundry_smoke_script_uses_fictional_input_only() -> None:
     import scripts.smoke_foundry_extraction as script
 
-    assert "Demo Patient" in script.FICTIONAL_INTAKE_TEXT
+    assert "Alex Morgan" in script.FICTIONAL_INTAKE_TEXT
     assert "demo-callback-001" in script.FICTIONAL_INTAKE_TEXT
     assert "+1" not in script.FICTIONAL_INTAKE_TEXT
     assert "555" not in script.FICTIONAL_INTAKE_TEXT
@@ -120,13 +122,14 @@ def test_foundry_smoke_script_failure_uses_safe_message(
     import scripts.smoke_foundry_extraction as script
 
     _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
     monkeypatch.setattr(
         script,
         "create_ai_service",
         lambda settings: FailingAiService(),
     )
 
-    exit_code = script.main([])
+    exit_code = script.main(["--live"])
 
     captured = capsys.readouterr()
     assert exit_code == 1
@@ -135,7 +138,7 @@ def test_foundry_smoke_script_failure_uses_safe_message(
     assert "secret-endpoint" not in captured.err
     assert "secret-deployment" not in captured.err
     assert "Return JSON only" not in captured.err
-    assert captured.out == ""
+    assert "not part of automated pytest" in captured.out
 
 
 def test_foundry_smoke_script_check_refuses_mock_provider(
@@ -215,6 +218,7 @@ def test_foundry_smoke_script_check_succeeds_without_model_call(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "preflight passed" in captured.out
+    assert "No AI service was created" in captured.out
     assert "No model call was made" in captured.out
     assert "AI_PROVIDER=mock" in captured.out
     assert captured.err == ""
@@ -223,7 +227,7 @@ def test_foundry_smoke_script_check_succeeds_without_model_call(
     assert "Return JSON only" not in captured.out
 
 
-def test_foundry_smoke_script_check_fails_safely_when_sdk_unavailable(
+def test_foundry_smoke_script_check_reports_sdk_unavailable_without_model_call(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -240,12 +244,38 @@ def test_foundry_smoke_script_check_fails_safely_when_sdk_unavailable(
     exit_code = script.main(["--check"])
 
     captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Optional Foundry SDK imports are unavailable" in captured.out
+    assert "No model call was made" in captured.out
+    assert "AI_PROVIDER=mock" in captured.out
+    assert "secret-endpoint" not in captured.out
+    assert "secret-deployment" not in captured.out
+    assert "Return JSON only" not in captured.out
+    assert captured.err == ""
+
+
+def test_foundry_smoke_script_live_fails_safely_when_sdk_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: False)
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: pytest.fail("create_ai_service should not be called"),
+    )
+
+    exit_code = script.main(["--live"])
+
+    captured = capsys.readouterr()
     assert exit_code == 2
-    assert "Optional Foundry SDK support is unavailable" in captured.err
+    assert "Optional Foundry SDK support is unavailable for --live" in captured.err
     assert "AI_PROVIDER=mock" in captured.err
     assert "secret-endpoint" not in captured.err
     assert "secret-deployment" not in captured.err
-    assert "Return JSON only" not in captured.err
     assert captured.out == ""
 
 
@@ -258,14 +288,14 @@ class FakeAiService:
         self.extraction_texts.append(raw_text)
         return ExtractionSummaryResult(
             patient=PatientInfo(
-                name="Demo Patient",
-                date_of_birth="1980-04-15",
-                callback_number=None,
+                name="Alex Morgan",
+                date_of_birth=None,
+                callback_number="demo-callback-001",
             ),
             reason_for_calling="medication refill",
             symptoms=["fatigue"],
             summary="Demo patient requests a medication refill.",
-            missing_fields=["patient.callback_number"],
+            missing_fields=["patient.date_of_birth"],
             uncertain_fields=[],
         )
 

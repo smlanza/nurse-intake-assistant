@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 440 passed
+- 441 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -238,6 +238,17 @@ deferred unless scope explicitly changes.
 
 ## Current Slice Completed
 
+- Foundry manual smoke hardening slice is complete.
+- `scripts/smoke_foundry_extraction.py --check` validates Foundry config and
+  reports optional SDK visibility without creating services or making model
+  calls; `--live` is now the explicit manual live smoke mode.
+- The smoke path uses fictional Alex Morgan refill text, prints safe terminal
+  output, and avoids printing endpoints, deployments, prompts, tokens, or
+  exception details on failure.
+- Default mock demo behavior is unchanged; automated tests remain offline with
+  fake services/settings and no production deployment, notifications, Cosmos
+  writes, Speech/phone intake, hosting/auth/Key Vault work, or provider default
+  changes were added.
 - Handoff note OpenAPI documentation slice is complete.
 - `/docs` now describes `GET /cases/{case_id}/handoff-note` with summary,
   description, response description, and a safe fictional 200 response example

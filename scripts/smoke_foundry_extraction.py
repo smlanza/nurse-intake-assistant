@@ -15,8 +15,9 @@ from src.app.services.foundry_live_client import foundry_live_sdk_available
 
 
 FICTIONAL_INTAKE_TEXT = (
-    "My name is Demo Patient. DOB: 1980-04-15. "
-    "My callback number is demo-callback-001. I need a medication refill."
+    "Demo patient Alex Morgan requests a callback about a routine medication "
+    "refill. Callback number is demo-callback-001. No chest pain, shortness "
+    "of breath, or severe symptoms reported."
 )
 
 
@@ -37,29 +38,38 @@ def main(argv: list[str] | None = None) -> int:
         return configuration_exit_code
 
     if args.check:
-        if not foundry_live_sdk_available():
-            _print_configuration_error(
-                "Optional Foundry SDK support is unavailable."
-            )
-            return 2
-
+        sdk_message = (
+            "Optional Foundry SDK imports appear available."
+            if foundry_live_sdk_available()
+            else "Optional Foundry SDK imports are unavailable."
+        )
         print(
-            "Foundry smoke-test preflight passed. Configuration is present and "
-            "optional SDK imports are available. No model call was made."
+            "Foundry smoke-test preflight passed. Configuration is present. "
+            f"{sdk_message} No AI service was created. No model call was made."
         )
         print("Restore AI_PROVIDER=mock after any manual smoke test.")
         return 0
 
+    if not foundry_live_sdk_available():
+        _print_configuration_error(
+            "Optional Foundry SDK support is unavailable for --live smoke mode."
+        )
+        return 2
+
     try:
         ai_service = create_ai_service(settings)
+        print(
+            "Running manual Azure AI Foundry smoke test with fictional demo "
+            "input only. This command is not part of automated pytest."
+        )
         extraction, urgency = asyncio.run(
             _run_foundry_smoke(ai_service, FICTIONAL_INTAKE_TEXT)
         )
     except Exception:
         print(
             "Foundry smoke test failed. Review local configuration and provider "
-            "setup; no endpoint, deployment, prompt, or exception details were "
-            "printed.",
+            "setup; no endpoint, deployment, prompt, token, or exception "
+            "details were printed.",
             file=sys.stderr,
         )
         return 1
@@ -75,12 +85,21 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "smoke test using fictional data only."
         )
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument(
         "--check",
         action="store_true",
         help=(
-            "Validate local Foundry configuration and optional SDK availability "
+            "Validate local Foundry configuration and optional SDK visibility "
             "without creating the AI service or making a model call."
+        ),
+    )
+    mode.add_argument(
+        "--live",
+        action="store_true",
+        help=(
+            "Run the explicit manual live smoke test using fictional input. "
+            "This may create a Foundry client and call Azure."
         ),
     )
     return parser.parse_args(argv)
@@ -124,7 +143,10 @@ def _print_safe_result(
 ) -> None:
     patient = extraction.patient
     print("Foundry structured extraction smoke test completed.", file=output)
-    print("Input: fictional medication refill intake only.", file=output)
+    print(
+        "Input: fictional routine medication refill callback request only.",
+        file=output,
+    )
     print(f"Patient name: {patient.name}", file=output)
     print(f"Reason: {extraction.reason_for_calling}", file=output)
     print(f"Symptoms: {_format_list(extraction.symptoms)}", file=output)

@@ -13,7 +13,7 @@ Current status:
 - The Foundry live client adapter is opt-in, matches the fake-client seam, and
   uses lazy SDK imports/client construction.
 - `scripts/smoke_foundry_extraction.py` provides an opt-in manual CLI scaffold
-  that exercises the configured Foundry provider with fictional input only.
+  with separate preflight and explicit live smoke modes.
 - Automated tests use fake SDK/client objects only.
 - A real Azure AI Foundry smoke test has not been performed yet.
 
@@ -50,24 +50,35 @@ After a future live environment is configured, run the opt-in script manually:
 
 ```bash
 python scripts/smoke_foundry_extraction.py --check
-python scripts/smoke_foundry_extraction.py
+python scripts/smoke_foundry_extraction.py --live
 ```
 
-The `--check` command validates local Foundry configuration and optional SDK
-availability without creating the AI service, making a model call, persisting
-cases, sending notifications, or calling FastAPI routes.
+The `--check` command validates local Foundry configuration and reports
+optional SDK visibility without creating the AI service, making a model call,
+persisting cases, sending notifications, writing to Cosmos, or calling FastAPI
+routes.
 
-The default command runs the opt-in smoke test. It does not persist cases, does
-not send notifications, and does not call FastAPI routes. It prints a small
-safe result summary for fictional input only.
+The `--live` command is the only mode intended to make a live Foundry call. It
+does not persist cases, does not send notifications, does not write to Cosmos,
+does not call FastAPI routes, and does not require the FastAPI server to be
+running. It prints a small safe result summary for fictional input only.
+
+Restore mock defaults afterward:
+
+```bash
+AI_PROVIDER=mock
+EMAIL_PROVIDER=mock
+SMS_PROVIDER=mock
+```
 
 ## Safe Fictional Inputs
 
 Medication refill:
 
 ```text
-My name is Jane Doe. DOB: 1980-04-15. My callback number is demo-callback-001.
-I need a medication refill.
+Demo patient Alex Morgan requests a callback about a routine medication refill.
+Callback number is demo-callback-001. No chest pain, shortness of breath, or
+severe symptoms reported.
 ```
 
 Urgent symptom example:
@@ -127,7 +138,7 @@ are configured locally.
 5. Keep `EMAIL_PROVIDER=mock` and `SMS_PROVIDER=mock` unless separately testing
    ACS notifications.
 6. Run `python scripts/smoke_foundry_extraction.py --check`.
-7. Run `python scripts/smoke_foundry_extraction.py`.
+7. Run `python scripts/smoke_foundry_extraction.py --live`.
 8. Optionally start the app locally for a separate manual API check.
 9. Submit a fictional `POST /intake/text` medication refill intake only if the
    separate API check is in scope.
