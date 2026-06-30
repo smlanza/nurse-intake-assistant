@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 420 passed
+- 430 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -51,8 +51,8 @@ Do not claim as complete:
 Recommended next move:
 - If Azure credentials and a model deployment are ready, run or prepare the
   manual Foundry smoke test in `docs/manual-foundry-smoke-test.md`.
-- If staying offline, add a manual Speech smoke-test guide or speech CLI
-  scaffold while keeping the default demo mock/offline.
+- If staying offline, prefer concise orientation docs, manual smoke guides, or
+  provider preflight checks while keeping the default demo mock/offline.
 
 ## Current Working Local Pipeline
 
@@ -95,9 +95,11 @@ pipeline through `POST /intake/voicemail-transcript`.
 
 Primary demo documentation:
 - `README.md`
+- `docs/system-overview.md`
 - `docs/manual-local-mock-demo.md`
 - `docs/demo-smoke-test.md`
 - `docs/manual-foundry-smoke-test.md`
+- `docs/manual-speech-smoke-test.md`
 
 ## App Settings Summary
 
@@ -214,7 +216,7 @@ Completed work by feature area:
 - Hosting
 - Key Vault
 - Azure Speech/voice intake
-- Live Azure AI Foundry extraction
+- live Azure AI Foundry extraction
 - ACS SMS delivery tracking
 - Retry logic
 - Production frontend
@@ -222,131 +224,48 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Recommended next slice:
-- Run or prepare the manual Azure AI Foundry smoke test if Azure credentials,
-  SDK package, and model deployment are ready.
-- Or, if staying offline, add a manual Speech smoke-test guide / speech CLI
-  scaffold without implementing live Azure Speech calls.
-
-Do not start live ACS SMS sending, hosting, Key Vault, App Service
-authentication, ACS phone intake, ACS delivery tracking, retry/durable
-processing, production frontend work, or live Azure Speech transcription/audio
-processing in the next slice unless the project scope explicitly changes.
+Prefer small manual smoke guides, provider preflight checks, offline
+deterministic tests, and incremental Azure validation while keeping the default
+demo mock/offline. Keep ACS phone intake, live Azure Speech processing,
+hosting, auth, Key Vault, retry/durable processing, and production frontend
+deferred unless scope explicitly changes.
 
 ## Current Slice Completed
 
-- Azure Speech transcription boundary slice is complete.
-- Mock/offline speech provider and Azure Speech scaffold/factory are tested.
-- Current `POST /intake/voicemail-transcript` behavior remains text-only for
-  already-transcribed voicemail transcripts.
-- No live Azure Speech calls, audio upload endpoint, phone intake, API contract
-  changes, notification semantic changes, hosting, auth, Key Vault, retry logic,
-  or frontend framework was added for the Speech boundary slice.
-- Foundry smoke CLI preflight/check mode slice is complete.
-- `python scripts/smoke_foundry_extraction.py --check` validates Foundry
-  provider configuration and optional SDK availability without creating the AI
-  service, running extraction/classification, or making model calls.
+- System overview documentation slice is complete.
+- `docs/system-overview.md` maps purpose, flow, boundaries, status, docs, demo claims, testing guidance, and next-slice guidance.
+- README links to the system overview from the local documentation section.
+- No runtime behavior, API contract, notification semantics, provider behavior,
+  infrastructure, demo UI, or live Azure claims were changed.
+- Azure Speech smoke-test guide / CLI preflight scaffold slice is complete.
+- `docs/manual-speech-smoke-test.md` documents prerequisites, safe placeholder
+  settings, `--check` usage, preflight meaning, non-goals, rollback to
+  `SPEECH_PROVIDER=mock`, and fictional-data-only safety notes.
+- `python scripts/smoke_speech_transcription.py --check` validates
+  `SPEECH_PROVIDER=azure`, `AZURE_SPEECH_ENDPOINT`, and `AZURE_SPEECH_REGION`
+  without creating a Speech client, processing audio, or making Azure calls.
+- Optional Azure Speech SDK package visibility is reported gracefully and is not
+  required for normal local tests.
 - Automated tests remain offline and deterministic.
-- No live Azure Foundry smoke test has been performed.
-- No API contract changes, route changes, notification semantic changes,
-  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
-  tracking, retry logic, or frontend framework was added for the Foundry
-  smoke-test preflight slice.
-- Foundry smoke-test CLI scaffold slice is complete.
-- `scripts/smoke_foundry_extraction.py` is opt-in, uses fictional input, and
-  exercises the configured Foundry AI provider without persistence,
-  notifications, or FastAPI route calls.
-- Automated tests remain offline and deterministic.
-- No live Azure Foundry smoke test has been performed.
-- No API contract changes, route changes, notification semantic changes,
-  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
-  tracking, retry logic, or frontend framework was added for the Foundry
-  smoke-test CLI scaffold slice.
-- Foundry live client lazy adapter implementation slice is complete.
-- The live adapter can be unit-tested with fake SDK/client objects and returns
-  raw model content from fake chat completion responses.
-- Automated tests remain offline and deterministic.
-- No live Azure Foundry smoke test has been performed.
-- No API contract changes, notification semantic changes, hosting, auth, Key
-  Vault, Azure Speech, ACS phone intake, ACS delivery tracking, retry logic, or
-  frontend framework was added for the Foundry live adapter implementation
-  slice.
-- Manual Foundry smoke-test guide slice is complete.
-- `docs/manual-foundry-smoke-test.md` documents prerequisites, safe fictional
-  inputs, validation expectations, non-goals, and rollback to `AI_PROVIDER=mock`.
-- No live Azure calls, API contract changes, notification semantic changes,
-  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
-  tracking, retry logic, or frontend framework was added for the manual Foundry
-  smoke-test guide slice.
-- Foundry live SDK adapter scaffold slice is complete.
-- The live adapter seam matches the fake-client contract and remains opt-in.
-- Automated tests remain offline and deterministic.
-- This prepares a future manual/live Azure AI Foundry smoke test while keeping
-  live SDK support deferred.
-- No live Azure calls, API contract changes, notification semantic changes,
-  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
-  tracking, retry logic, or frontend framework was added for the Foundry live
-  adapter scaffold slice.
-- Foundry fake-client adapter seam is complete.
-- `FoundryAiService` can use the offline prompt/parser contract through an
-  injected client in tests.
-- This prepares the future live Azure AI Foundry SDK integration while keeping
-  SDK client construction and live Foundry calls deferred.
-- No live Azure calls, API contract changes, notification semantic changes,
-  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
-  tracking, retry logic, or frontend framework was added for the Foundry
-  fake-client seam slice.
-- Foundry structured extraction contract slice is complete.
-- Prompt/schema/parser behavior is tested offline and maps future model JSON
-  responses into the current extraction and urgency output models.
-- This prepares the future live Azure AI Foundry provider integration while
-  keeping live Foundry calls deferred.
-- No live Azure calls, API contract changes, notification semantic changes,
-  hosting, auth, Key Vault, Azure Speech, ACS phone intake, ACS delivery
-  tracking, retry logic, or frontend framework was added for the Foundry
-  contract slice.
-- AI-103 mapping refresh is complete.
-- `docs/ai-103-mapping.md` now distinguishes implemented local MVP
-  capabilities from deferred Azure/AI-103 integration work.
-- It identifies the highest-ROI next Azure slices: live Foundry structured
-  extraction, Foundry prompt/schema/evaluation notes, and Azure Speech
-  transcription boundary.
-- No backend behavior, API contract, notification semantics, live Azure calls,
-  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
-  tracking, retry logic, or frontend framework was added for the AI-103 mapping
-  refresh.
-- Architecture documentation refresh is complete.
-- `docs/architecture.md` now reflects the current local mock MVP architecture,
-  provider boundaries, notification semantics, infrastructure baseline, AI-103
-  alignment, and deferred production/Azure scope.
-- No backend behavior, API contract, notification semantics, live Azure calls,
-  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
-  tracking, retry logic, or frontend framework was added for the architecture
-  documentation refresh.
-- Progress workflow testing guidance now warns against over-testing docs/UI
-  polish.
-- No runtime behavior, API contract, notification semantics, live Azure calls,
-  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
-  tracking, retry logic, or frontend framework was added for the testing
-  guidance update.
-- Manual local mock demo smoke-test cleanup pass is complete.
-- Demo page remains local mock/demo only.
-- UI changes were limited to screenshot/demo-readiness polish: clearer
-  read-only selected-case context guidance and screenshot-safe fictional sample
-  intake data.
-- No backend behavior, API contract, notification semantics, live Azure calls,
-  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
-  tracking, retry logic, or frontend framework was added for the demo cleanup
-  pass.
-- Progress documentation compaction/archive split is complete.
-- Detailed historical progress was moved to
+- No live Azure Speech transcription, audio upload endpoint, phone intake, API
+  contract changes, notification semantic changes, hosting, auth, Key Vault,
+  retry logic, or frontend framework was added for the Speech smoke-test
+  preflight slice.
+- Earlier completed slice details are archived in
   `docs/archive/progress-2026-06.md`.
-- Active `docs/progress.md` now serves as a concise current-status/resume point.
-- Documentation guardrail tests verify the archive link and required
-  current-status content.
-- No backend behavior, API contract, notification semantics, live Azure calls,
-  hosting, auth, Key Vault, Azure Speech, live Azure AI Foundry, ACS delivery
-  tracking, retry logic, or frontend framework was added.
+- Recent completed milestones include:
+  - Azure Speech transcription provider boundary
+  - Foundry structured extraction contract, fake-client seam, lazy live adapter,
+    manual smoke guide, smoke CLI, and preflight/check mode
+  - AI-103 mapping refresh
+  - Architecture documentation refresh
+  - Progress workflow testing guidance
+  - Manual local mock demo cleanup
+  - Progress documentation compaction/archive split
+- These earlier slices preserved the same safety boundary: no production
+  clinical use, no live Azure claims unless manually verified, no API contract
+  changes unless explicitly scoped, and no hosting/auth/Key Vault/phone intake
+  expansion.
 
 ## Reference Docs
 

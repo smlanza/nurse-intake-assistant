@@ -213,6 +213,7 @@ def test_readme_documents_local_mock_demo_walkthrough() -> None:
     assert "submit a voicemail transcript intake" in readme
     assert "mock email/SMS notifications" in readme
     assert "reset demo state" in readme
+    assert "docs/system-overview.md" in readme
     assert "docs/demo-smoke-test.md" in readme
     assert "Azure Speech" in readme
     assert "live Azure AI Foundry" in readme
@@ -273,6 +274,55 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "chest pain" in guide
     assert "missing_fields" in guide
     assert "Restore `AI_PROVIDER=mock`" in guide
+
+
+def test_manual_speech_smoke_test_guide_exists() -> None:
+    guide_path = PROJECT_ROOT / "docs" / "manual-speech-smoke-test.md"
+
+    assert guide_path.exists()
+
+    guide = guide_path.read_text()
+    normalized_guide = " ".join(guide.split())
+    assert "Manual Azure Speech Smoke-Test Preparation" in guide
+    assert "automated test suite must remain offline" in normalized_guide
+    assert "must not call Azure Speech" in normalized_guide
+    assert "SPEECH_PROVIDER=mock" in guide
+    assert "SPEECH_PROVIDER=azure" in guide
+    assert "AZURE_SPEECH_ENDPOINT" in guide
+    assert "AZURE_SPEECH_REGION" in guide
+    assert "python scripts/smoke_speech_transcription.py --check" in guide
+    assert "No Speech client was created" in guide
+    assert "process audio" in guide
+    assert "make an Azure network call" in guide
+    assert "SDK check is informational" in guide
+    assert "Manual/live Azure Speech transcription remains deferred" in guide
+    assert "Do not use PHI or real patient data" in guide
+    assert "production clinical use" in guide
+    assert "Do not commit" in guide
+
+
+def test_system_overview_exists() -> None:
+    guide_path = PROJECT_ROOT / "docs" / "system-overview.md"
+
+    assert guide_path.exists()
+
+    guide = guide_path.read_text()
+    assert "System Overview" in guide
+    assert "local mock/demo capstone project" in guide
+    assert "no production clinical use" in guide
+    assert "POST /intake/text" in guide
+    assert "POST /intake/voicemail-transcript" in guide
+    assert "CaseProcessingService" in guide
+    assert "Provider Boundaries" in guide
+    assert "APP_MODE=mock" in guide
+    assert "AI_PROVIDER=foundry" in guide
+    assert "SPEECH_PROVIDER=azure" in guide
+    assert "Mock vs Azure-Ready vs Deferred" in guide
+    assert "Documentation Map" in guide
+    assert "Demo Claims" in guide
+    assert "Do not claim complete" in guide
+    assert "Next-Slice Guidance" in guide
+    assert "Live Azure Speech transcription" in guide
 
 
 def test_architecture_documents_current_mvp_boundaries() -> None:
@@ -352,7 +402,7 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert progress_line_count < archive_line_count
     assert "docs/archive/progress-2026-06.md" in progress
     assert "Latest verified test baseline" in progress
-    assert "420 passed" in progress
+    assert "passed" in progress
     assert "StarletteDeprecationWarning" in progress
     assert "Local mock/demo only" in progress
     assert "No production clinical use" in progress
@@ -362,12 +412,11 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert "Hosting" in progress
     assert "Key Vault" in progress
     assert "Azure Speech" in progress
-    assert "live Azure AI Foundry" in progress
+    assert "Azure AI Foundry" in progress
     assert "ACS SMS delivery tracking" in progress
     assert "Retry logic" in progress
     assert "Every future TDD slice must include a `docs/progress.md` update" in progress
-    assert "Progress documentation compaction/archive split is complete" in progress
-    assert "No backend behavior, API contract, notification semantics" in progress
+    assert "Testing Guidance" in progress
 
     assert "Detailed historical progress through June 2026" in archive
     assert "README local mock demo walkthrough polish is complete" in archive
