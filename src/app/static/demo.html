@@ -508,6 +508,12 @@
         </div>
         <button id="reviewCase" type="button">Mark Reviewed</button>
         <div id="reviewResult" class="result"></div>
+        <div class="panel" aria-labelledby="handoff-note-heading">
+          <h3 id="handoff-note-heading">Nurse Handoff Note</h3>
+          <p class="muted">Load a copy-friendly note for the selected saved case.</p>
+          <button id="loadHandoffNote" type="button" class="secondary">Load Handoff Note</button>
+          <pre id="handoffNoteDisplay" aria-live="polite">No handoff note loaded.</pre>
+        </div>
         <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
       </section>
 
@@ -605,6 +611,7 @@
       const selectedCaseId = document.querySelector("#selectedCaseId");
       const reviewNotes = document.querySelector("#reviewNotes");
       const selectedCaseContext = document.querySelector("#selectedCaseContext");
+      const handoffNoteDisplay = document.querySelector("#handoffNoteDisplay");
       const emailNotifications = document.querySelector("#emailNotifications");
       const smsNotifications = document.querySelector("#smsNotifications");
       let recentCases = [];
@@ -670,6 +677,7 @@
       }
 
       function renderSelectedCaseContext(item) {
+        handoffNoteDisplay.textContent = "No handoff note loaded.";
         if (!item) {
           selectedCaseContext.innerHTML = '<p class="muted">No case selected for review.</p>';
           return;
@@ -948,6 +956,26 @@
           });
           selectedCaseId.focus();
           status.textContent = `Selected case ${button.dataset.caseId} for review.`;
+        }
+      });
+
+      document.querySelector("#loadHandoffNote").addEventListener("click", async (event) => {
+        const button = event.currentTarget;
+        const caseId = selectedCaseId.value.trim();
+        if (!caseId) {
+          handoffNoteDisplay.textContent = "Select a saved case before loading a handoff note.";
+          return;
+        }
+
+        setBusy(button, true);
+        handoffNoteDisplay.textContent = "Loading handoff note...";
+        try {
+          const data = await requestJson(`/cases/${encodeURIComponent(caseId)}/handoff-note`);
+          handoffNoteDisplay.textContent = data.handoffNote;
+        } catch (error) {
+          handoffNoteDisplay.textContent = `Could not load handoff note: ${error.message}`;
+        } finally {
+          setBusy(button, false);
         }
       });
 

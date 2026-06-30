@@ -53,11 +53,12 @@ Expected demo workflow:
 2. Click Load Recent Cases.
 3. Click Load Queue Summary.
 4. Click Select for Review on a case.
-5. submit the nurse review.
-6. submit a text intake.
-7. submit a voicemail transcript intake.
-8. Inspect mock email/SMS notifications.
-9. reset demo state.
+5. Load the nurse handoff note for the selected case.
+6. submit the nurse review.
+7. submit a text intake.
+8. submit a voicemail transcript intake.
+9. Inspect mock email/SMS notifications.
+10. reset demo state.
 
 This MVP intentionally does not include hosting, authentication, Key Vault,
 Azure Speech, live Azure AI Foundry extraction, ACS SMS delivery tracking, retry

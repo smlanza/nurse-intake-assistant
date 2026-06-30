@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 437 passed
+- 439 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -29,6 +29,7 @@ Important constraints:
 Safe to demo today:
 - Local text intake and already-transcribed voicemail transcript intake
 - Nurse review workflow, recent cases, queue summary, and demo seed/reset
+- Copy-friendly nurse handoff note display for selected saved cases
 - Mock email/SMS notification inspection
 - Local mock demo safety banner and human nurse review boundary
 
@@ -181,7 +182,7 @@ Completed work by feature area:
 - Notification status semantics and queue summary notification counts
 - Mock queue filtering, ordering, summary, and pagination
 - Deterministic copy-friendly nurse handoff notes for saved cases
-- Demo seed/reset endpoints and local demo UI
+- Demo seed/reset endpoints and local demo UI with handoff note display
 - Voicemail transcript intake with optional recording metadata and mock-mode
   idempotency
 - Swagger/OpenAPI examples for text and voicemail transcript intake
@@ -236,6 +237,15 @@ deferred unless scope explicitly changes.
 
 ## Current Slice Completed
 
+- Local demo handoff note display slice is complete.
+- The demo page exposes a Nurse Handoff Note panel that loads
+  `GET /cases/{case_id}/handoff-note` for the selected saved case and displays
+  the returned plain text in a preformatted copy-friendly area.
+- The demo shows a clear local message when no case is selected and a clear
+  local error message if the handoff note request fails.
+- No backend endpoint contract changes, Azure calls, AI/model calls,
+  notification sends, notification semantic changes, hosting/auth/Key
+  Vault/phone intake/retry/frontend framework work were added.
 - Nurse handoff note feature slice is complete.
 - `GET /cases/{case_id}/handoff-note` returns `caseId`, `createdDate`,
   `noteFormat=plainText`, and a deterministic copy-friendly handoff note with

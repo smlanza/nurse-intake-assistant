@@ -255,6 +255,30 @@ def test_demo_page_includes_selected_case_context_panel() -> None:
     assert "No case selected for review." in html
 
 
+def test_demo_page_includes_nurse_handoff_note_controls() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Nurse Handoff Note" in html
+    assert "Load Handoff Note" in html
+    assert 'id="loadHandoffNote"' in html
+    assert 'id="handoffNoteDisplay"' in html
+    assert "<pre" in html
+    assert "/handoff-note" in html
+
+
+def test_demo_page_handoff_note_workflow_has_stable_messages() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Select a saved case before loading a handoff note." in html
+    assert "Could not load handoff note" in html
+    assert "No handoff note loaded." in html
+    assert "handoffNoteDisplay.textContent = data.handoffNote;" in html
+
+
 def test_demo_page_select_for_review_renders_selected_case_context() -> None:
     response = client.get("/demo")
 
