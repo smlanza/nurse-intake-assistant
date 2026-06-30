@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 430 passed
+- 437 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -90,6 +90,9 @@ pipeline through `POST /intake/voicemail-transcript`.
 - `GET /cases/{case_id}` returns a saved case in mock/default mode.
 - `GET /cases/{case_id}?createdDate=YYYY-MM-DD` supports Cosmos point-read
   lookup when the client knows the case date.
+- `GET /cases/{case_id}/handoff-note` returns a deterministic plain-text nurse
+  handoff note for a saved case and supports the same `createdDate` point-read
+  lookup pattern when needed.
 - `GET /notifications/email` returns recorded mock email notifications.
 - `GET /notifications/sms` returns recorded mock SMS notifications.
 
@@ -177,6 +180,7 @@ Completed work by feature area:
   smoke-test documentation, and ACS SMS SDK/send-request boundary
 - Notification status semantics and queue summary notification counts
 - Mock queue filtering, ordering, summary, and pagination
+- Deterministic copy-friendly nurse handoff notes for saved cases
 - Demo seed/reset endpoints and local demo UI
 - Voicemail transcript intake with optional recording metadata and mock-mode
   idempotency
@@ -232,6 +236,17 @@ deferred unless scope explicitly changes.
 
 ## Current Slice Completed
 
+- Nurse handoff note feature slice is complete.
+- `GET /cases/{case_id}/handoff-note` returns `caseId`, `createdDate`,
+  `noteFormat=plainText`, and a deterministic copy-friendly handoff note with
+  the demo safety/human-review boundary.
+- The route reuses saved-case repository lookup, including the existing
+  `createdDate` point-read pattern for Cosmos-style repositories.
+- Formatter tests cover deterministic output, expected sections, and missing
+  optional fields; route tests cover 200, 404, and createdDate guardrails.
+- No live Azure calls, AI/model calls, notification sends, existing route
+  contract changes, notification semantic changes, hosting/auth/Key Vault/phone
+  intake/retry/frontend framework work were added.
 - System overview documentation slice is complete.
 - `docs/system-overview.md` maps purpose, flow, boundaries, status, docs, demo claims, testing guidance, and next-slice guidance.
 - README links to the system overview from the local documentation section.

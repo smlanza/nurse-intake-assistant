@@ -118,6 +118,27 @@ def test_get_case_returns_saved_case_document_shape() -> None:
     assert retrieved_case["createdUtc"]
 
 
+def test_get_case_handoff_note_returns_saved_case_note() -> None:
+    created_case = create_case()
+
+    response = client.get(f"/cases/{created_case['id']}/handoff-note")
+
+    assert response.status_code == 200
+    handoff_response = response.json()
+    handoff_note = handoff_response["handoffNote"]
+    assert handoff_response["caseId"] == created_case["id"]
+    assert handoff_response["createdDate"] == created_case["createdDate"]
+    assert handoff_response["noteFormat"] == "plainText"
+    assert "DEMO ONLY - Not for production clinical use" in handoff_note
+    assert "AI-assisted output requires nurse review" in handoff_note
+    assert "Case metadata" in handoff_note
+    assert "Patient summary" in handoff_note
+    assert "Urgency" in handoff_note
+    assert "Missing information / follow-up" in handoff_note
+    assert "Notification status" in handoff_note
+    assert "Nurse review" in handoff_note
+
+
 def test_list_cases_returns_empty_list_when_no_cases_exist(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2318,6 +2339,49 @@ def test_get_case_passes_created_date_query_parameter_to_repository(
     assert repository.created_date == "2026-06-23"
 
 
+def test_get_case_handoff_note_passes_created_date_query_parameter_to_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.routes.cases as cases_route
+
+    class RecordingCaseRepository:
+        def __init__(self) -> None:
+            self.case_id: str | None = None
+            self.created_date: str | None = None
+
+        async def get_by_id(
+            self,
+            case_id: str,
+            created_date: str | None = None,
+        ) -> CaseDocument:
+            self.case_id = case_id
+            self.created_date = created_date
+            now = datetime.now(timezone.utc)
+            return CaseDocument(
+                id=case_id,
+                createdDate="2026-06-23",
+                createdUtc=now,
+                lastStatusUpdatedUtc=now,
+                caseType="text-intake",
+                processingStatus="Completed",
+            )
+
+    repository = RecordingCaseRepository()
+    monkeypatch.setattr(cases_route, "case_repository", repository)
+    test_app = FastAPI()
+    test_app.include_router(cases_route.router)
+    local_client = TestClient(test_app)
+
+    response = local_client.get(
+        "/cases/case-123/handoff-note?createdDate=2026-06-23"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["caseId"] == "case-123"
+    assert repository.case_id == "case-123"
+    assert repository.created_date == "2026-06-23"
+
+
 def test_get_case_returns_client_error_when_created_date_is_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2341,6 +2405,34 @@ def test_get_case_returns_client_error_when_created_date_is_required(
     local_client = TestClient(test_app)
 
     response = local_client.get("/cases/case-123")
+
+    assert response.status_code == 400
+    assert "createdDate" in response.json()["detail"]
+
+
+def test_get_case_handoff_note_returns_client_error_when_created_date_is_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.routes.cases as cases_route
+    from src.app.services.cosmos_case_repository import MissingCasePartitionKeyError
+
+    class CosmosStyleRepository:
+        async def get_by_id(
+            self,
+            case_id: str,
+            created_date: str | None = None,
+        ) -> CaseDocument | None:
+            raise MissingCasePartitionKeyError(
+                "created_date is required for Cosmos case lookup with the "
+                "/createdDate partition key"
+            )
+
+    monkeypatch.setattr(cases_route, "case_repository", CosmosStyleRepository())
+    test_app = FastAPI()
+    test_app.include_router(cases_route.router)
+    local_client = TestClient(test_app)
+
+    response = local_client.get("/cases/case-123/handoff-note")
 
     assert response.status_code == 400
     assert "createdDate" in response.json()["detail"]
@@ -2473,5 +2565,11 @@ def test_get_case_allows_missing_created_date_when_repository_does_not_require_i
 
 def test_get_case_returns_404_when_case_does_not_exist() -> None:
     response = client.get("/cases/nonexistent-case-id")
+
+    assert response.status_code == 404
+
+
+def test_get_case_handoff_note_returns_404_when_case_does_not_exist() -> None:
+    response = client.get("/cases/nonexistent-case-id/handoff-note")
 
     assert response.status_code == 404

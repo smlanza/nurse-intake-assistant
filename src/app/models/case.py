@@ -99,3 +99,10 @@ class CaseQueueSummary(BaseModel):
     smsFailed: int
     smsSuppressed: int
     smsDeliveryConfirmed: int
+
+
+class CaseHandoffNoteResponse(BaseModel):
+    caseId: str
+    createdDate: str
+    noteFormat: Literal["plainText"] = "plainText"
+    handoffNote: str

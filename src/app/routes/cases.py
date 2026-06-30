@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from src.app.dependencies import case_repository
 from src.app.models.case import (
     CaseDocument,
+    CaseHandoffNoteResponse,
     CaseQueueSummary,
     IntakeStatus,
     ReviewStatus,
@@ -16,9 +17,11 @@ from src.app.services.cosmos_case_repository import (
     CaseListNotSupportedError,
     MissingCasePartitionKeyError,
 )
+from src.app.services.nurse_handoff_note_formatter import NurseHandoffNoteFormatter
 
 
 router = APIRouter(prefix="/cases", tags=["cases"])
+handoff_note_formatter = NurseHandoffNoteFormatter()
 
 
 @router.get("", response_model=list[CaseDocument])
@@ -250,6 +253,29 @@ async def get_case(case_id: str, createdDate: str | None = None) -> CaseDocument
     if case is None:
         raise HTTPException(status_code=404, detail="Case not found")
     return case
+
+
+@router.get("/{case_id}/handoff-note", response_model=CaseHandoffNoteResponse)
+async def get_case_handoff_note(
+    case_id: str,
+    createdDate: str | None = None,
+) -> CaseHandoffNoteResponse:
+    try:
+        case = await case_repository.get_by_id(case_id, created_date=createdDate)
+    except MissingCasePartitionKeyError as error:
+        raise HTTPException(
+            status_code=400,
+            detail="createdDate is required for Cosmos-backed case lookup.",
+        ) from error
+
+    if case is None:
+        raise HTTPException(status_code=404, detail="Case not found")
+
+    return CaseHandoffNoteResponse(
+        caseId=case.id,
+        createdDate=case.createdDate,
+        handoffNote=handoff_note_formatter.format(case),
+    )
 
 
 @router.post("/{case_id}/review", response_model=CaseDocument)
