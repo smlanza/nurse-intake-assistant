@@ -98,6 +98,25 @@ def test_case_summary_openapi_includes_queue_filter_query_parameters() -> None:
         assert parameters[parameter_name].get("description")
 
 
+def test_handoff_note_openapi_documents_response_example() -> None:
+    schema = get_openapi_schema()
+
+    operation = schema["paths"]["/cases/{case_id}/handoff-note"]["get"]
+    response_200 = operation["responses"]["200"]
+    response_schema = response_200["content"]["application/json"]["schema"]
+    response_example = response_200["content"]["application/json"]["example"]
+    operation_text = str(operation)
+
+    assert "handoff note" in operation["summary"].lower()
+    assert "deterministic plain-text nurse handoff note" in operation["description"]
+    assert response_schema["$ref"].endswith("/CaseHandoffNoteResponse")
+    assert response_example["caseId"] == "demo-case-001"
+    assert response_example["createdDate"] == "2026-06-30"
+    assert response_example["noteFormat"] == "plainText"
+    assert "DEMO ONLY - Not for production clinical use" in operation_text
+    assert "AI-assisted output requires nurse review" in operation_text
+
+
 def test_runtime_behavior_remains_unchanged_for_intake_and_queue() -> None:
     client.post("/demo/reset")
 

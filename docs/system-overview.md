@@ -19,8 +19,8 @@ AI output is advisory only and requires human nurse review.
 - Deterministic urgency rules
 - In-memory repository in mock mode
 - Mock email/SMS notification records
-- Nurse review queue, copy-friendly handoff note route/display, read routes,
-  and local demo UI
+- Nurse review queue, copy-friendly handoff note route/display, Swagger
+  documentation, read routes, and local demo UI
 
 ## Main Local Flow
 

@@ -22,6 +22,31 @@ from src.app.services.nurse_handoff_note_formatter import NurseHandoffNoteFormat
 
 router = APIRouter(prefix="/cases", tags=["cases"])
 handoff_note_formatter = NurseHandoffNoteFormatter()
+HANDOFF_NOTE_OPENAPI_EXAMPLE = {
+    "caseId": "demo-case-001",
+    "createdDate": "2026-06-30",
+    "noteFormat": "plainText",
+    "handoffNote": (
+        "DEMO ONLY - Not for production clinical use. AI-assisted output "
+        "requires nurse review.\n\n"
+        "Case metadata\n"
+        "- Case ID: demo-case-001\n"
+        "- Created date: 2026-06-30\n"
+        "- Source/channel: local-demo-ui / text-intake\n"
+        "- Intake status: Complete\n"
+        "- Review status: PendingReview\n\n"
+        "Patient summary\n"
+        "- Patient name: Demo Patient\n"
+        "- Callback number: demo-callback-001\n"
+        "- Main concern: medication refill\n"
+        "- Symptoms: None recorded\n\n"
+        "Urgency\n"
+        "- Urgency level: Routine\n"
+        "- Red flags / rationale: None recorded\n\n"
+        "Nurse review\n"
+        "- Not yet reviewed"
+    ),
+}
 
 
 @router.get("", response_model=list[CaseDocument])
@@ -255,7 +280,28 @@ async def get_case(case_id: str, createdDate: str | None = None) -> CaseDocument
     return case
 
 
-@router.get("/{case_id}/handoff-note", response_model=CaseHandoffNoteResponse)
+@router.get(
+    "/{case_id}/handoff-note",
+    response_model=CaseHandoffNoteResponse,
+    summary="Get nurse handoff note",
+    description=(
+        "Return a deterministic plain-text nurse handoff note for a saved case. "
+        "This local demo helper does not call AI, does not call Azure, and does "
+        "not send notifications. Cosmos-backed lookups may require the existing "
+        "createdDate query parameter."
+    ),
+    response_description="Copy-friendly nurse handoff note for the saved case.",
+    responses={
+        200: {
+            "description": "Copy-friendly nurse handoff note for the saved case.",
+            "content": {
+                "application/json": {
+                    "example": HANDOFF_NOTE_OPENAPI_EXAMPLE,
+                },
+            },
+        },
+    },
+)
 async def get_case_handoff_note(
     case_id: str,
     createdDate: str | None = None,

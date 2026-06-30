@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 439 passed
+- 440 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -186,6 +186,7 @@ Completed work by feature area:
 - Voicemail transcript intake with optional recording metadata and mock-mode
   idempotency
 - Swagger/OpenAPI examples for text and voicemail transcript intake
+- Swagger/OpenAPI metadata and safe example for the handoff note route
 - README local mock demo walkthrough and manual demo/smoke-test docs
 - Minimal Bicep infrastructure baseline and manual Cosmos smoke test
 
@@ -237,6 +238,14 @@ deferred unless scope explicitly changes.
 
 ## Current Slice Completed
 
+- Handoff note OpenAPI documentation slice is complete.
+- `/docs` now describes `GET /cases/{case_id}/handoff-note` with summary,
+  description, response description, and a safe fictional 200 response example
+  containing `caseId`, `createdDate`, `noteFormat=plainText`, and the demo
+  safety/human-review boundary in `handoffNote`.
+- No runtime behavior changes, endpoint contract changes, Azure calls,
+  AI/model calls, notification sends, demo UI changes, hosting/auth/Key
+  Vault/phone intake/retry/frontend framework work were added.
 - Local demo handoff note display slice is complete.
 - The demo page exposes a Nurse Handoff Note panel that loads
   `GET /cases/{case_id}/handoff-note` for the selected saved case and displays
