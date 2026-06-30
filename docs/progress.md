@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 441 passed
+- 455 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -238,6 +238,26 @@ deferred unless scope explicitly changes.
 
 ## Current Slice Completed
 
+- Foundry env-file smoke isolation slice is complete.
+- `scripts/smoke_foundry_extraction.py --env-file .env.foundry.local` loads
+  missing Foundry smoke settings for the script process only; shell environment
+  variables still win, and missing env-file paths fail safely without Azure
+  calls or secret printing.
+- `.env.foundry.local.example` documents safe placeholders while the real local
+  `.env.foundry.local` remains ignored.
+- Default mock demo behavior is unchanged; automated tests remain offline with
+  no default provider change, production deployment, notifications, Cosmos
+  writes, Speech/phone intake, hosting/auth/Key Vault work, or real PHI added.
+- Foundry live smoke safe diagnostics slice is complete.
+- `scripts/smoke_foundry_extraction.py --live` now prints a safe failure
+  category and next-step hint without printing endpoints, deployment names,
+  prompts, tokens, connection strings, raw exception details, or stack traces.
+- Diagnostic tests cover fake credential/auth/RBAC/not-found/bad-request,
+  parsing, nested-status, and unknown failures without Azure calls.
+- No Azure calls in automated tests, default provider change, production
+  deployment, notifications, Cosmos writes, Speech/phone intake,
+  hosting/auth/Key Vault work, frontend changes, or raw exception printing were
+  added.
 - Foundry manual smoke hardening slice is complete.
 - `scripts/smoke_foundry_extraction.py --check` validates Foundry config and
   reports optional SDK visibility without creating services or making model

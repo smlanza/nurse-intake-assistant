@@ -257,8 +257,12 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "AI_PROVIDER=mock" in guide
     assert "AI_PROVIDER=foundry" in guide
     assert "scripts/smoke_foundry_extraction.py" in guide
-    assert "python scripts/smoke_foundry_extraction.py --check" in guide
-    assert "python scripts/smoke_foundry_extraction.py --live" in guide
+    assert "--check" in guide
+    assert "--live" in guide
+    assert "--env-file .env.foundry.local --check" in guide
+    assert "--env-file .env.foundry.local --live" in guide
+    assert ".env.foundry.local.example" in guide
+    assert "existing shell environment variables still win" in guide
     assert "validates local Foundry configuration" in normalized_guide
     assert "reports optional SDK visibility" in normalized_guide
     assert "without creating the AI service" in normalized_guide
@@ -274,7 +278,8 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "medication refill" in guide
     assert "chest pain" in guide
     assert "missing_fields" in guide
-    assert "Restore `AI_PROVIDER=mock`" in guide
+    assert "Restore mock defaults" in guide
+    assert "Restore or verify `AI_PROVIDER=mock`" in guide
 
 
 def test_manual_speech_smoke_test_guide_exists() -> None:

@@ -11,3 +11,5 @@ python-multipart
 azure-cosmos
 azure-communication-email
 azure-communication-sms
+azure-ai-inference
+azure-identity

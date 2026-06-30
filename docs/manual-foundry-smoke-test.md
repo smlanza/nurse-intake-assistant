@@ -14,6 +14,8 @@ Current status:
   uses lazy SDK imports/client construction.
 - `scripts/smoke_foundry_extraction.py` provides an opt-in manual CLI scaffold
   with separate preflight and explicit live smoke modes.
+- The script can load a local `.env.foundry.local` file for its own process
+  with `--env-file`; existing shell environment variables still win.
 - Automated tests use fake SDK/client objects only.
 - A real Azure AI Foundry smoke test has not been performed yet.
 
@@ -30,7 +32,8 @@ Future live smoke testing still requires:
 - Model deployment name
 - Azure authentication method and SDK package setup appropriate for the live
   environment
-- Local environment variables:
+- Local environment variables, either exported in the shell or stored in a
+  local `.env.foundry.local` copied from `.env.foundry.local.example`:
 
 ```bash
 AI_PROVIDER=foundry
@@ -46,11 +49,21 @@ EMAIL_PROVIDER=mock
 SMS_PROVIDER=mock
 ```
 
-After a future live environment is configured, run the opt-in script manually:
+Prefer the env-file form so Foundry settings do not leak into normal pytest or
+local demo shells:
 
 ```bash
+python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --check
+python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live
+```
+
+Inline shell environment variables still work for a short manual session:
+
+```bash
+AI_PROVIDER=foundry \
+AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=https://your-foundry-project-endpoint.example.invalid \
+AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME=your-model-deployment-name \
 python scripts/smoke_foundry_extraction.py --check
-python scripts/smoke_foundry_extraction.py --live
 ```
 
 The `--check` command validates local Foundry configuration and reports
@@ -63,6 +76,30 @@ does not persist cases, does not send notifications, does not write to Cosmos,
 does not call FastAPI routes, and does not require the FastAPI server to be
 running. It prints a small safe result summary for fictional input only.
 
+If `--live` fails, the script prints the existing generic safe failure message,
+then a safe diagnostic category. It intentionally does not print raw exception
+details, stack traces, endpoints, deployment names, prompts, tokens, connection
+strings, or secrets.
+
+Safe diagnostic categories include:
+
+- client construction failed
+- Azure credential unavailable
+- authentication failed
+- authorization/RBAC failed
+- deployment or model not found
+- endpoint rejected request
+- model response parsing failed
+- unknown live smoke failure
+
+Common next checks are endpoint type, deployment name, Azure login/RBAC, SDK
+compatibility, and whether the model response still matches the structured JSON
+contract.
+
+One known manual failure pattern is a 401 authentication/token/audience failure.
+Treat that as an Azure login, endpoint type, token audience, or RBAC check; do
+not paste raw exception details or credentials into project files.
+
 Restore mock defaults afterward:
 
 ```bash
@@ -70,6 +107,16 @@ AI_PROVIDER=mock
 EMAIL_PROVIDER=mock
 SMS_PROVIDER=mock
 ```
+
+If `.env.foundry.local` was used, no shell restore should be needed. Verify
+normal mock mode before running the full suite:
+
+```bash
+python scripts/smoke_foundry_extraction.py --check
+```
+
+That command should fail safely unless Foundry settings are intentionally still
+present in the shell.
 
 ## Safe Fictional Inputs
 
@@ -133,12 +180,13 @@ are configured locally.
 
 1. Confirm `git status` is clean.
 2. Confirm the full test suite passes in mock/offline mode.
-3. Set the Foundry environment variables locally.
-4. Set `AI_PROVIDER=foundry`.
+3. Copy `.env.foundry.local.example` to `.env.foundry.local` and fill in local
+   Foundry placeholders, or set temporary shell variables for this session.
+4. Set `AI_PROVIDER=foundry` only for the manual smoke command.
 5. Keep `EMAIL_PROVIDER=mock` and `SMS_PROVIDER=mock` unless separately testing
    ACS notifications.
-6. Run `python scripts/smoke_foundry_extraction.py --check`.
-7. Run `python scripts/smoke_foundry_extraction.py --live`.
+6. Run `python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --check`.
+7. Run `python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live`.
 8. Optionally start the app locally for a separate manual API check.
 9. Submit a fictional `POST /intake/text` medication refill intake only if the
    separate API check is in scope.
@@ -148,6 +196,6 @@ are configured locally.
     urgency, and missing-field behavior.
 12. Verify notification behavior remains controlled/mock unless ACS is being
     tested separately.
-13. Restore `AI_PROVIDER=mock`.
+13. Restore or verify `AI_PROVIDER=mock`.
 14. Rerun the full test suite.
 15. Document the result in `docs/progress.md`.

@@ -21,8 +21,22 @@ def test_foundry_live_client_exposes_structured_extraction_seam() -> None:
     assert callable(client.complete_structured_extraction)
 
 
-def test_foundry_live_client_fails_clearly_without_sdk_support() -> None:
+def test_foundry_live_client_fails_clearly_without_sdk_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_live_client
     from src.app.services.foundry_live_client import AzureAiFoundryLiveClient
+
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_create_chat_client",
+        lambda project_endpoint: (_ for _ in ()).throw(
+            RuntimeError(
+                "Azure AI Foundry live client is not configured or SDK support "
+                "is not available."
+            )
+        ),
+    )
 
     client = AzureAiFoundryLiveClient(
         project_endpoint="https://secret-endpoint.example.invalid/api/projects/demo"
