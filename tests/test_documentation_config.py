@@ -95,11 +95,16 @@ def test_manual_acs_email_smoke_test_checklist_exists() -> None:
     assert checklist_path.exists()
 
     checklist = checklist_path.read_text()
+    normalized_checklist = " ".join(checklist.split())
     assert "Manual ACS Email Smoke Test" in checklist
     assert "EMAIL_PROVIDER=acs" in checklist
     assert "ACS_EMAIL_CONNECTION_STRING" in checklist
     assert "ACS_EMAIL_SENDER_ADDRESS" in checklist
     assert "NURSE_NOTIFICATION_EMAIL" in checklist
+    assert "python scripts/smoke_acs_email.py --check" in checklist
+    assert "creates no ACS Email client" in normalized_checklist
+    assert "makes no Azure calls" in normalized_checklist
+    assert "sends no email" in normalized_checklist
     assert "uvicorn" in checklist
     assert "POST /intake/text" in checklist
     assert "EMAIL_PROVIDER=mock" in checklist

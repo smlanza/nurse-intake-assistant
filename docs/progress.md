@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 455 passed
+- 464 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -24,6 +24,16 @@ Important constraints:
 - Do not commit secrets, connection strings, real phone numbers, real email
   addresses, provider credentials, or real patient data
 
+Latest completed slice:
+- ACS Email smoke-test CLI preflight scaffold is complete.
+- `python scripts/smoke_acs_email.py --check` validates ACS Email config
+  without creating clients, making Azure calls, or sending email.
+- Optional Azure Communication Email SDK visibility is reported safely.
+- Automated tests remain offline and deterministic.
+- No provider default changes, notification sends, production deployment,
+  hosting/auth/Key Vault/retry/phone intake/frontend framework work, real PHI,
+  or secrets were added.
+
 ## Current Resume Point
 
 Safe to demo today:
@@ -36,8 +46,9 @@ Safe to demo today:
 Implemented but not live-confirmed:
 - Cosmos repository boundary and previously verified manual Cosmos point-read
   path
-- ACS Email/SMS provider boundaries, with ACS Email smoke testing complete and
-  ACS SMS delivery tracking deferred
+- ACS Email/SMS provider boundaries, with ACS Email smoke testing and
+  offline-safe ACS Email `--check` preflight complete, and ACS SMS delivery
+  tracking deferred
 - Foundry provider boundary, structured extraction contract, fake-client seam,
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
 - Speech transcription provider boundary with mock provider and Azure scaffold
