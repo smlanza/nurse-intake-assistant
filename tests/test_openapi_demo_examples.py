@@ -115,6 +115,14 @@ def test_handoff_note_openapi_documents_response_example() -> None:
     assert response_example["noteFormat"] == "plainText"
     assert "DEMO ONLY - Not for production clinical use" in operation_text
     assert "AI-assisted output requires nurse review" in operation_text
+    for section_heading in [
+        "Patient Summary",
+        "Reported Symptoms",
+        "Red Flags",
+        "Recommended Nurse Review Priority",
+        "Notification Status",
+    ]:
+        assert section_heading in operation_text
 
 
 def test_runtime_behavior_remains_unchanged_for_intake_and_queue() -> None:

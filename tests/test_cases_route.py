@@ -132,10 +132,12 @@ def test_get_case_handoff_note_returns_saved_case_note() -> None:
     assert "DEMO ONLY - Not for production clinical use" in handoff_note
     assert "AI-assisted output requires nurse review" in handoff_note
     assert "Case metadata" in handoff_note
-    assert "Patient summary" in handoff_note
-    assert "Urgency" in handoff_note
+    assert "Patient Summary" in handoff_note
+    assert "Reported Symptoms" in handoff_note
+    assert "Red Flags" in handoff_note
+    assert "Recommended Nurse Review Priority" in handoff_note
     assert "Missing information / follow-up" in handoff_note
-    assert "Notification status" in handoff_note
+    assert "Notification Status" in handoff_note
     assert "Nurse review" in handoff_note
 
 

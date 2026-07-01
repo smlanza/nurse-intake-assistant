@@ -27,19 +27,21 @@ def test_formatter_includes_expected_handoff_sections() -> None:
     assert "Case metadata" in note
     assert "Case ID: case-123" in note
     assert "Source/channel: voicemail-transcript / text-intake" in note
-    assert "Patient summary" in note
+    assert "Patient Summary" in note
     assert "Patient name: Demo Patient" in note
     assert "Callback number: demo-callback-001" in note
     assert "Main concern: medication refill" in note
-    assert "Symptoms: fatigue, mild headache" in note
+    assert "Reported Symptoms" in note
+    assert "- Symptoms: fatigue, mild headache" in note
     assert "Duration/onset: Missing" in note
-    assert "Urgency" in note
+    assert "Red Flags" in note
+    assert "Red flag rationale: No urgent symptoms were described." in note
+    assert "Recommended Nurse Review Priority" in note
     assert "Urgency level: Routine" in note
-    assert "Red flags / rationale: No urgent symptoms were described." in note
     assert "Missing information / follow-up" in note
     assert "Missing required fields: insurance_status" in note
     assert "Intake completion status: NeedsFollowUp" in note
-    assert "Notification status" in note
+    assert "Notification Status" in note
     assert "Email status: MockRecorded" in note
     assert "SMS delivery confirmed: false" in note
     assert "Nurse review" in note
@@ -64,7 +66,7 @@ def test_formatter_handles_missing_optional_fields_without_raising() -> None:
     assert "Callback number: Missing" in note
     assert "Main concern: Missing" in note
     assert "Symptoms: None recorded" in note
-    assert "Red flags / rationale: None recorded" in note
+    assert "Red flag rationale: None recorded" in note
     assert "Missing required fields: None recorded" in note
     assert "Not yet reviewed" in note
 

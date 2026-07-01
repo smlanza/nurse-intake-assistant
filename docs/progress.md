@@ -25,11 +25,12 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Favicon fallback slice is complete.
-- `GET /favicon.ico` returns 204 No Content instead of 404 for browser demo
-  runs.
-- Existing static legal pages and `/demo` behavior are preserved.
-- No Azure calls, client creation, dependencies, provider default changes, or
+- Handoff note demo-readability polish is complete.
+- `GET /cases/{case_id}/handoff-note` keeps the same URL/data flow and now
+  labels Patient Summary, Reported Symptoms, Red Flags, Recommended Nurse
+  Review Priority, and Notification Status sections.
+- OpenAPI examples and formatter tests cover the clearer section labels.
+- No Azure calls, client creation, model calls, provider default changes, or
   notification sends were added.
 
 ## Current Resume Point
