@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 486 passed
+- 489 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -25,14 +25,13 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Demo case presentation polish is complete.
-- Recent case cards and selected case context now show case id, status,
-  priority, intake channel, reported symptoms, summary preview, and nurse
-  review completion in demo-friendly labels.
-- Recent cases include review and handoff-note actions while preserving existing
-  endpoint URLs and data flow.
-- No Azure calls, client creation, model calls, provider default changes, or
-  notification sends were added.
+- Demo empty/error-state polish is complete.
+- Empty recent-case state now tells users to seed demo cases or submit an
+  intake.
+- Demo action failures use concise safe messages instead of raw exception text.
+- Existing endpoint URLs/data flow are preserved; no Azure calls, client
+  creation, model calls, provider default changes, or notification sends were
+  added.
 
 ## Current Resume Point
 

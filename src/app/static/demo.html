@@ -717,6 +717,10 @@
           .replaceAll("'", "&#39;");
       }
 
+      function safeDemoErrorMessage(_error, fallbackMessage) {
+        return fallbackMessage;
+      }
+
       function renderNotifications(target, notifications, emptyMessage) {
         target.innerHTML = notifications.length
           ? notifications
@@ -853,7 +857,10 @@
           await loadSummary();
           await loadCases();
         } catch (error) {
-          status.textContent = error.message;
+          status.textContent = safeDemoErrorMessage(
+            error,
+            "Could not submit text intake. Try again or reset the demo.",
+          );
         } finally {
           setBusy(button, false);
         }
@@ -880,7 +887,10 @@
           await loadSummary();
           await loadCases();
         } catch (error) {
-          status.textContent = error.message;
+          status.textContent = safeDemoErrorMessage(
+            error,
+            "Could not submit voicemail transcript. Try again or reset the demo.",
+          );
         } finally {
           setBusy(button, false);
         }
@@ -934,7 +944,7 @@
               </div>
             `,
           )
-          .join("") || '<p class="muted">No cases yet.</p>';
+          .join("") || '<p class="muted">No recent cases found. Seed demo cases or submit an intake to populate the queue.</p>';
       }
 
       async function seedDemo(button) {
@@ -946,7 +956,10 @@
           await loadSummary();
           await loadCases();
         } catch (error) {
-          status.textContent = error.message;
+          status.textContent = safeDemoErrorMessage(
+            error,
+            "Could not seed demo cases. Try resetting the demo and running seed again.",
+          );
         } finally {
           setBusy(button, false);
         }
@@ -970,7 +983,10 @@
           await loadSummary();
           status.textContent = "Loaded queue summary.";
         } catch (error) {
-          status.textContent = error.message;
+          status.textContent = safeDemoErrorMessage(
+            error,
+            "Could not load queue summary. Try again or reset the demo.",
+          );
         }
       });
 
@@ -980,7 +996,10 @@
           await loadCases();
           status.textContent = "Loaded recent cases.";
         } catch (error) {
-          status.textContent = error.message;
+          status.textContent = safeDemoErrorMessage(
+            error,
+            "Could not load recent cases. Seed demo cases or submit an intake, then try again.",
+          );
         }
       });
 
@@ -1003,7 +1022,10 @@
           );
           status.textContent = "Loaded mock email notifications.";
         } catch (error) {
-          status.textContent = error.message;
+          status.textContent = safeDemoErrorMessage(
+            error,
+            "Could not load mock email notifications. Try again or reset the demo.",
+          );
         }
       });
 
@@ -1018,7 +1040,10 @@
           );
           status.textContent = "Loaded mock SMS notifications.";
         } catch (error) {
-          status.textContent = error.message;
+          status.textContent = safeDemoErrorMessage(
+            error,
+            "Could not load mock SMS notifications. Try again or reset the demo.",
+          );
         }
       });
 
@@ -1059,7 +1084,10 @@
           const data = await requestJson(`/cases/${encodeURIComponent(selectedId)}/handoff-note`);
           handoffNoteDisplay.textContent = data.handoffNote;
         } catch (error) {
-          handoffNoteDisplay.textContent = `Could not load handoff note: ${error.message}`;
+          handoffNoteDisplay.textContent = safeDemoErrorMessage(
+            error,
+            "Could not load handoff note. Select a saved case and try again.",
+          );
         } finally {
           if (button) {
             setBusy(button, false);
@@ -1094,7 +1122,10 @@
           await loadCases();
           status.textContent = "Review saved and queue refreshed.";
         } catch (error) {
-          reviewResult.textContent = error.message;
+          reviewResult.textContent = safeDemoErrorMessage(
+            error,
+            "Could not save review. Confirm the case id and try again.",
+          );
         } finally {
           setBusy(button, false);
         }
@@ -1114,7 +1145,10 @@
           await loadCases();
           status.textContent = "Local mock demo reset.";
         } catch (error) {
-          status.textContent = error.message;
+          status.textContent = safeDemoErrorMessage(
+            error,
+            "Could not reset the demo. Refresh the page and try again.",
+          );
         }
       });
 

@@ -292,6 +292,16 @@ def test_demo_page_recent_cases_include_demo_friendly_case_summary_labels() -> N
     assert "Nurse review completed" in html
 
 
+def test_demo_page_recent_cases_empty_state_guides_user_to_seed_or_submit() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "No recent cases found." in html
+    assert "Seed demo cases or submit an intake to populate the queue." in html
+    assert "No cases yet." not in html
+
+
 def test_demo_page_recent_cases_include_handoff_note_action() -> None:
     response = client.get("/demo")
 
@@ -465,3 +475,35 @@ def test_demo_page_successful_review_shows_refreshed_queue_status() -> None:
     assert response.status_code == 200
     html = response.text
     assert "Review saved and queue refreshed." in html
+
+
+def test_demo_page_uses_safe_user_friendly_error_messages() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "function safeDemoErrorMessage" in html
+    for message in [
+        "Could not submit text intake. Try again or reset the demo.",
+        "Could not submit voicemail transcript. Try again or reset the demo.",
+        "Could not load queue summary. Try again or reset the demo.",
+        "Could not load recent cases. Seed demo cases or submit an intake, then try again.",
+        "Could not seed demo cases. Try resetting the demo and running seed again.",
+        "Could not load handoff note. Select a saved case and try again.",
+        "Could not save review. Confirm the case id and try again.",
+        "Could not reset the demo. Refresh the page and try again.",
+    ]:
+        assert message in html
+
+
+def test_demo_page_does_not_render_raw_error_messages_to_user() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "textContent = error.message" not in html
+    assert "${error.message}" not in html
+    assert "Traceback" not in html
+    assert "connection string" not in html
+    assert "accesskey" not in html
+    assert "secret-token" not in html
