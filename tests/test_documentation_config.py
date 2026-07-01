@@ -227,6 +227,7 @@ def test_readme_documents_local_mock_demo_walkthrough() -> None:
     assert "reset demo state" in readme
     assert "docs/system-overview.md" in readme
     assert "docs/demo-smoke-test.md" in readme
+    assert "python scripts/preflight.py --all" in readme
     assert "Azure Speech" in readme
     assert "live Azure AI Foundry" in readme
     assert "ACS SMS delivery tracking" in readme
@@ -337,6 +338,7 @@ def test_system_overview_exists() -> None:
     assert "SPEECH_PROVIDER=azure" in guide
     assert "Mock vs Azure-Ready vs Deferred" in guide
     assert "Documentation Map" in guide
+    assert "scripts/preflight.py --all" in guide
     assert "Demo Claims" in guide
     assert "Do not claim complete" in guide
     assert "Next-Slice Guidance" in guide

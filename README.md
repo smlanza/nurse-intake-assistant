@@ -75,6 +75,12 @@ has an offline-safe preflight plus manual delivery checklist in
 preflight plus deferred handset-delivery checklist in
 `docs/manual-acs-sms-smoke-test.md`.
 
+Run all offline-safe provider readiness checks from one command:
+
+```bash
+python scripts/preflight.py --all
+```
+
 For the fuller manual checklist, see `docs/demo-smoke-test.md`. For API-level
 local demo commands, see `docs/manual-local-mock-demo.md`. For the future
 manual Azure AI Foundry smoke-test checklist, see

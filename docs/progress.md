@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 473 passed
+- 478 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -25,18 +25,17 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- ACS SMS smoke-test CLI preflight scaffold is complete.
-- `python scripts/smoke_acs_sms.py --check` validates ACS SMS config without
-  creating clients, making Azure calls, or sending SMS.
-- Optional Azure Communication SMS SDK visibility is reported safely.
-- Live handset delivery remains deferred until toll-free verification, carrier,
-  and Azure regulatory workflow are complete.
+- Consolidated provider preflight CLI is complete.
+- `python scripts/preflight.py --all` runs offline-safe readiness checks for
+  Foundry, Speech, ACS Email, and ACS SMS.
+- The consolidated check reports PASS/FAIL/SKIP without creating Azure clients,
+  making Azure calls, calling models, processing audio, sending email, or
+  sending SMS.
+- Individual provider smoke-check scripts remain available.
 - Automated tests remain offline and deterministic.
-- No provider default changes, notification sends, hosting/auth/Key
-  Vault/retry/phone intake/frontend framework work, real PHI, real phone
-  numbers, production deployment, or secrets were added.
-- Previous slice: ACS Email `--check` preflight validates config without
-  clients, Azure calls, email sends, provider default changes, PHI, or secrets.
+- No provider default changes, notification sends, hosting/auth/Key Vault/retry,
+  phone intake/frontend framework work, real PHI, real phone numbers, real
+  email addresses, production deployment, or secrets were added.
 
 ## Current Resume Point
 
@@ -51,8 +50,9 @@ Implemented but not live-confirmed:
 - Cosmos repository boundary and previously verified manual Cosmos point-read
   path
 - ACS Email/SMS provider boundaries, with ACS Email smoke testing and
-  offline-safe ACS Email/SMS `--check` preflights complete, and ACS SMS handset
-  delivery tracking deferred
+  offline-safe ACS Email/SMS `--check` preflights plus consolidated
+  `scripts/preflight.py --all` complete; ACS SMS handset delivery tracking is
+  deferred
 - Foundry provider boundary, structured extraction contract, fake-client seam,
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
 - Speech transcription provider boundary with mock provider and Azure scaffold

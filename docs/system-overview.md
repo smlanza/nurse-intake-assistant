@@ -55,6 +55,8 @@ POST /intake/text or POST /intake/voicemail-transcript
 - `SMS_PROVIDER=mock` records local mock SMS notifications. `SMS_PROVIDER=acs`
   selects the ACS SMS SDK/send-request boundary; final handset delivery is not
   live-confirmed and delivery tracking is deferred.
+- `scripts/preflight.py --all` runs consolidated offline-safe readiness checks
+  for Foundry, Speech, ACS Email, and ACS SMS without live calls or sends.
 
 ## Mock vs Azure-Ready vs Deferred
 
@@ -86,6 +88,7 @@ POST /intake/text or POST /intake/voicemail-transcript
 - `docs/manual-cosmos-smoke-test.md`: manual Cosmos smoke-test notes.
 - `docs/manual-acs-email-smoke-test.md`: completed ACS Email smoke-test guide.
 - `docs/manual-acs-sms-smoke-test.md`: ACS SMS smoke-test placeholder/status.
+- `scripts/preflight.py --all`: consolidated offline-safe provider preflight.
 - `docs/archive/progress-2026-06.md`: detailed historical progress archive.
 
 ## Demo Claims
