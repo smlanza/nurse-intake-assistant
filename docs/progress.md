@@ -25,13 +25,13 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Demo empty/error-state polish is complete.
-- Empty recent-case state now tells users to seed demo cases or submit an
-  intake.
-- Demo action failures use concise safe messages instead of raw exception text.
-- Existing endpoint URLs/data flow are preserved; no Azure calls, client
-  creation, model calls, provider default changes, or notification sends were
-  added.
+- README local demo walkthrough refresh is complete.
+- README now covers venv setup, dependency install, pytest, mock-safe preflight,
+  uvicorn startup, opening `/demo`, seeding cases, review, and handoff notes.
+- README explicitly states mock/local mode does not call Azure, call models,
+  process audio, or send real email/SMS.
+- No application behavior, Azure calls, client creation, model calls, provider
+  defaults, or notification sends were changed.
 
 ## Current Resume Point
 

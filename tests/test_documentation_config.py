@@ -208,18 +208,29 @@ def test_readme_documents_local_mock_demo_walkthrough() -> None:
     assert "local mock/demo only" in readme
     assert "no production clinical use" in readme
     assert "AI output requires human nurse review" in readme
+    assert "python -m venv .venv" in readme
+    assert "source .venv/bin/activate" in readme
+    assert "pip install -r requirements.txt" in readme
+    assert "python -m pytest" in readme
     assert "uvicorn src.app.main:app --reload" in readme
     assert "http://127.0.0.1:8000/demo" in readme
     assert "APP_MODE=mock" in readme
     assert "AI_PROVIDER=mock" in readme
+    assert "SPEECH_PROVIDER=mock" in readme
     assert "EMAIL_PROVIDER=mock" in readme
     assert "SMS_PROVIDER=mock" in readme
     assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in readme
+    assert "does not call Azure" in readme
+    assert "does not call models" in readme
+    assert "does not process audio" in readme
     assert "no real email or SMS" in readme
+    assert "explicit provider environment variables and credentials" in readme
+    assert "no real Azure resource identifiers" in readme
     assert "Seed Demo Data" in readme
     assert "Load Recent Cases" in readme
     assert "Load Queue Summary" in readme
     assert "Select for Review" in readme
+    assert "Load Handoff Note" in readme
     assert "submit the nurse review" in readme
     assert "submit a text intake" in readme
     assert "submit a voicemail transcript intake" in readme

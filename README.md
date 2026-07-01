@@ -21,18 +21,48 @@ Safety boundary:
 
 - This is local mock/demo only, with no production clinical use.
 - Mock mode sends no real email or SMS.
+- Mock/local mode does not call Azure, does not call models, and does not process audio.
 - AI output requires human nurse review before any clinical action.
 - Do not use real patient data, real phone numbers, secrets, connection
-  strings, or provider credentials in the local demo.
+  strings, provider credentials, or real Azure resource identifiers in the
+  local demo.
+- Use no real Azure resource identifiers in the local mock demo.
+- Real Azure providers require explicit provider environment variables and credentials before any live smoke testing.
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run the test suite:
+
+```bash
+python -m pytest
+```
 
 Use safe mock defaults:
 
 ```bash
 APP_MODE=mock
 AI_PROVIDER=mock
+SPEECH_PROVIDER=mock
 EMAIL_PROVIDER=mock
 SMS_PROVIDER=mock
 DEMO_SUPPRESS_NOTIFICATIONS=false
+```
+
+Run the offline-safe provider preflight in mock-safe mode:
+
+```bash
+python scripts/preflight.py --all
 ```
 
 Start the app locally:
@@ -53,7 +83,7 @@ Expected demo workflow:
 2. Click Load Recent Cases.
 3. Click Load Queue Summary.
 4. Click Select for Review on a case.
-5. Load the nurse handoff note for the selected case.
+5. Click Load Handoff Note for the selected case.
 6. submit the nurse review.
 7. submit a text intake.
 8. submit a voicemail transcript intake.
