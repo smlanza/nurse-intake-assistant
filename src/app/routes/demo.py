@@ -1,9 +1,10 @@
 from datetime import datetime, timezone
+from html import escape
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from src.app.dependencies import (
@@ -43,9 +44,19 @@ class DemoSeedResponse(BaseModel):
     caseIds: list[str]
 
 
-@router.get("", response_class=FileResponse)
-async def get_demo_page() -> FileResponse:
-    return FileResponse(demo_page_path, media_type="text/html")
+@router.get("", response_class=HTMLResponse)
+async def get_demo_page() -> HTMLResponse:
+    html = demo_page_path.read_text()
+    replacements = {
+        "{{ APP_MODE }}": settings.app_mode,
+        "{{ AI_PROVIDER }}": settings.ai_provider,
+        "{{ SPEECH_PROVIDER }}": settings.speech_provider,
+        "{{ EMAIL_PROVIDER }}": settings.email_provider,
+        "{{ SMS_PROVIDER }}": settings.sms_provider,
+    }
+    for placeholder, value in replacements.items():
+        html = html.replace(placeholder, escape(value, quote=True))
+    return HTMLResponse(html)
 
 
 @router.post("/seed", response_model=DemoSeedResponse)

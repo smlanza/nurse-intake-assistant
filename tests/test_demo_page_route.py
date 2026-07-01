@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from src.app.main import app
@@ -44,6 +46,67 @@ def test_demo_page_includes_local_mock_demo_safety_banner() -> None:
     assert "Mock mode sends no real email or SMS" in html
     assert "AI output requires human review" in html
     assert "HIPAA" not in html
+
+
+def test_demo_page_displays_active_provider_configuration() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Active Provider Configuration" in html
+    assert "APP_MODE" in html
+    assert "AI_PROVIDER" in html
+    assert "SPEECH_PROVIDER" in html
+    assert "EMAIL_PROVIDER" in html
+    assert "SMS_PROVIDER" in html
+    assert 'data-provider-name="APP_MODE"' in html
+    assert 'data-provider-value="mock"' in html
+    assert 'data-provider-name="AI_PROVIDER"' in html
+    assert 'data-provider-name="SPEECH_PROVIDER"' in html
+    assert 'data-provider-name="EMAIL_PROVIDER"' in html
+    assert 'data-provider-name="SMS_PROVIDER"' in html
+
+
+def test_demo_page_provider_configuration_reflects_active_settings(monkeypatch) -> None:
+    demo_endpoint = next(
+        child_route.endpoint
+        for route in app.routes
+        for child_route in getattr(getattr(route, "original_router", None), "routes", [])
+        if getattr(child_route, "path", None) == "/demo"
+    )
+
+    monkeypatch.setitem(
+        demo_endpoint.__globals__,
+        "settings",
+        SimpleNamespace(
+            app_mode="cosmos",
+            ai_provider="foundry",
+            speech_provider="azure",
+            email_provider="acs",
+            sms_provider="acs",
+        ),
+    )
+
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'data-provider-name="APP_MODE" data-provider-value="cosmos"' in html
+    assert 'data-provider-name="AI_PROVIDER" data-provider-value="foundry"' in html
+    assert 'data-provider-name="SPEECH_PROVIDER" data-provider-value="azure"' in html
+    assert 'data-provider-name="EMAIL_PROVIDER" data-provider-value="acs"' in html
+    assert 'data-provider-name="SMS_PROVIDER" data-provider-value="acs"' in html
+
+
+def test_demo_page_displays_mock_local_mode_safety_status() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Mock/local mode is active." in html
+    assert "Mock/local mode does not call Azure." in html
+    assert "Mock/local mode does not call models." in html
+    assert "Mock/local mode does not send real email or SMS." in html
 
 
 def test_demo_page_includes_guided_workflow_and_sections() -> None:

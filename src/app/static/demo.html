@@ -107,6 +107,35 @@
         min-width: 0;
       }
 
+      .provider-status {
+        display: grid;
+        gap: 12px;
+      }
+
+      .provider-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .provider-fact {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--soft);
+        padding: 9px;
+        min-width: 0;
+      }
+
+      .provider-fact strong {
+        display: block;
+        color: var(--muted);
+        font-size: 0.78rem;
+      }
+
+      .provider-fact code {
+        font-weight: 800;
+      }
+
       .section-heading {
         display: flex;
         align-items: baseline;
@@ -326,6 +355,7 @@
         .compact-grid,
         .filters,
         .facts,
+        .provider-grid,
         .metadata .facts,
         .case-detail-grid {
           grid-template-columns: 1fr;
@@ -349,6 +379,37 @@
 
       <section class="demo-banner" aria-label="Demo status">
         Local mock demo. Not for production clinical use. Mock mode sends no real email or SMS. AI output requires human review.
+      </section>
+
+      <section class="section-card provider-status" aria-labelledby="provider-status-heading">
+        <div class="section-heading">
+          <h2 id="provider-status-heading">Active Provider Configuration</h2>
+        </div>
+        <div class="provider-grid" aria-label="Active providers">
+          <div class="provider-fact" data-provider-name="APP_MODE" data-provider-value="{{ APP_MODE }}">
+            <strong>APP_MODE</strong>
+            <code>{{ APP_MODE }}</code>
+          </div>
+          <div class="provider-fact" data-provider-name="AI_PROVIDER" data-provider-value="{{ AI_PROVIDER }}">
+            <strong>AI_PROVIDER</strong>
+            <code>{{ AI_PROVIDER }}</code>
+          </div>
+          <div class="provider-fact" data-provider-name="SPEECH_PROVIDER" data-provider-value="{{ SPEECH_PROVIDER }}">
+            <strong>SPEECH_PROVIDER</strong>
+            <code>{{ SPEECH_PROVIDER }}</code>
+          </div>
+          <div class="provider-fact" data-provider-name="EMAIL_PROVIDER" data-provider-value="{{ EMAIL_PROVIDER }}">
+            <strong>EMAIL_PROVIDER</strong>
+            <code>{{ EMAIL_PROVIDER }}</code>
+          </div>
+          <div class="provider-fact" data-provider-name="SMS_PROVIDER" data-provider-value="{{ SMS_PROVIDER }}">
+            <strong>SMS_PROVIDER</strong>
+            <code>{{ SMS_PROVIDER }}</code>
+          </div>
+        </div>
+        <p class="muted">
+          Mock/local mode is active. Mock/local mode does not call Azure. Mock/local mode does not call models. Mock/local mode does not send real email or SMS.
+        </p>
       </section>
 
       <section id="demo-workflow-section" class="section-card workflow" aria-labelledby="workflow-heading">

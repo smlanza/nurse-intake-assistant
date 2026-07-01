@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 480 passed
+- 483 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -25,13 +25,12 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry live smoke authentication diagnostics are complete.
-- Azure authentication failures, including ClientAuthenticationError-style
-  errors and HTTP 401, classify as `authentication failed`.
-- The live smoke output says Foundry authentication failed and safely recommends
-  `az login`, endpoint/deployment verification, and project access checks
-  without printing tracebacks, raw exceptions, tokens, credentials, or secrets.
-- Preflight remains offline-safe and mock/default behavior is unchanged.
+- Demo page provider-status polish is complete.
+- `/demo` displays active APP_MODE, AI_PROVIDER, SPEECH_PROVIDER,
+  EMAIL_PROVIDER, and SMS_PROVIDER values with a mock/local safety statement.
+- The page states mock/local mode does not call Azure, does not call models, and
+  does not send real email/SMS.
+- Existing demo seed/reset/case links and offline-safe behavior are preserved.
 
 ## Current Resume Point
 
