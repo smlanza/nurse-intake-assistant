@@ -278,6 +278,31 @@ def test_demo_page_recent_cases_include_select_for_review_affordance() -> None:
     assert "Select for Review" in html
 
 
+def test_demo_page_recent_cases_include_demo_friendly_case_summary_labels() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Case ID" in html
+    assert "Status" in html
+    assert "Priority" in html
+    assert "Intake channel" in html
+    assert "Reported symptoms" in html
+    assert "Summary preview" in html
+    assert "Nurse review completed" in html
+
+
+def test_demo_page_recent_cases_include_handoff_note_action() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'data-handoff-case-id="${item.id}"' in html
+    assert "Load Handoff Note" in html
+    assert 'event.target.closest("[data-handoff-case-id]")' in html
+    assert "loadHandoffNoteForCase(handoffButton.dataset.handoffCaseId)" in html
+
+
 def test_demo_page_recent_cases_render_review_metadata_when_present() -> None:
     response = client.get("/demo")
 
@@ -352,16 +377,14 @@ def test_demo_page_select_for_review_renders_selected_case_context() -> None:
     assert "const selectedCase = recentCases.find((item) => item.id === button.dataset.caseId);" in html
     assert "renderSelectedCaseContext(selectedCase);" in html
     assert "function renderSelectedCaseContext(item)" in html
-    for field in [
-        "item.id",
-        "item.caseType",
-        "item.urgency",
-        "item.intakeStatus",
-        "item.reviewStatus",
-        "item.sourceSystem",
-        'item.summary || "No summary returned."',
-    ]:
-        assert f"${{escapeHtml({field})}}" in html
+    assert "${escapeHtml(item.id)}" in html
+    assert "${escapeHtml(item.intakeStatus || item.processingStatus || \"\")}" in html
+    assert "${escapeHtml(item.urgency)}" in html
+    assert "${escapeHtml(formatIntakeChannel(item))}" in html
+    assert "${escapeHtml(formatReviewCompleted(item))}" in html
+    assert "${escapeHtml(item.reviewStatus)}" in html
+    assert "${escapeHtml(formatSymptoms(item))}" in html
+    assert '${escapeHtml(item.summary || "No summary returned.")}' in html
 
 
 def test_demo_page_selected_case_context_renders_review_metadata_when_present() -> None:

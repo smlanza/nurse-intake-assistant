@@ -746,14 +746,15 @@
 
         selectedCaseContext.innerHTML = `
           <div class="case-detail-grid">
-            <span><strong>case id:</strong> ${escapeHtml(item.id)}</span>
-            <span><strong>caseType:</strong> ${escapeHtml(item.caseType)}</span>
-            <span><strong>urgency:</strong> ${escapeHtml(item.urgency)}</span>
-            <span><strong>intakeStatus:</strong> ${escapeHtml(item.intakeStatus)}</span>
-            <span><strong>reviewStatus:</strong> ${escapeHtml(item.reviewStatus)}</span>
-            <span><strong>sourceSystem:</strong> ${escapeHtml(item.sourceSystem)}</span>
+            <span><strong>Case ID:</strong> ${escapeHtml(item.id)}</span>
+            <span><strong>Status:</strong> ${escapeHtml(item.intakeStatus || item.processingStatus || "")}</span>
+            <span><strong>Priority:</strong> ${escapeHtml(item.urgency)}</span>
+            <span><strong>Intake channel:</strong> ${escapeHtml(formatIntakeChannel(item))}</span>
+            <span><strong>Nurse review completed:</strong> ${escapeHtml(formatReviewCompleted(item))}</span>
+            <span><strong>Review status:</strong> ${escapeHtml(item.reviewStatus)}</span>
           </div>
-          <p class="muted">${escapeHtml(item.summary || "No summary returned.")}</p>
+          <p><strong>Reported symptoms:</strong> ${escapeHtml(formatSymptoms(item))}</p>
+          <p class="muted"><strong>Summary preview:</strong> ${escapeHtml(item.summary || "No summary returned.")}</p>
           ${
             item.reviewedBy || item.reviewedAt || item.reviewNotes
               ? `
@@ -771,28 +772,41 @@
         `;
       }
 
+      function formatIntakeChannel(item) {
+        return [item.sourceSystem, item.caseType].filter(Boolean).join(" / ") || "Unknown";
+      }
+
+      function formatReviewCompleted(item) {
+        return item.reviewStatus === "Reviewed" ? "Yes" : "No";
+      }
+
+      function formatSymptoms(item) {
+        return Array.isArray(item.symptoms) && item.symptoms.length
+          ? item.symptoms.join(", ")
+          : "None recorded";
+      }
+
       function showCase(target, item) {
         selectedCaseId.value = item.id;
         target.innerHTML = `
           <div class="facts">
-            <div class="fact"><span>id</span><br /><code>${item.id}</code></div>
-            <div class="fact"><span>caseType</span><br />${item.caseType}</div>
-            <div class="fact"><span>sourceSystem</span><br />${item.sourceSystem || ""}</div>
-            <div class="fact"><span>urgency</span><br />${item.urgency}</div>
-            <div class="fact"><span>intakeComplete</span><br />${item.intakeComplete}</div>
-            <div class="fact"><span>intakeStatus</span><br />${item.intakeStatus || ""}</div>
-            <div class="fact"><span>reviewStatus</span><br />${item.reviewStatus}</div>
-            <div class="fact"><span>notificationEmailStatus</span><br />${item.notificationEmailStatus}</div>
-            <div class="fact"><span>notificationSmsStatus</span><br />${item.notificationSmsStatus}</div>
+            <div class="fact"><span>Case ID</span><br /><code>${escapeHtml(item.id)}</code></div>
+            <div class="fact"><span>Status</span><br />${escapeHtml(item.intakeStatus || item.processingStatus || "")}</div>
+            <div class="fact"><span>Priority</span><br />${escapeHtml(item.urgency)}</div>
+            <div class="fact"><span>Intake channel</span><br />${escapeHtml(formatIntakeChannel(item))}</div>
+            <div class="fact"><span>Nurse review completed</span><br />${escapeHtml(formatReviewCompleted(item))}</div>
+            <div class="fact"><span>Review status</span><br />${escapeHtml(item.reviewStatus)}</div>
+            <div class="fact"><span>Notification status</span><br />${escapeHtml(item.notificationEmailStatus)} / ${escapeHtml(item.notificationSmsStatus)}</div>
           </div>
-          <p><strong>summary:</strong> ${item.summary || "No summary returned."}</p>
+          <p><strong>Reported symptoms:</strong> ${escapeHtml(formatSymptoms(item))}</p>
+          <p><strong>Summary preview:</strong> ${escapeHtml(item.summary || "No summary returned.")}</p>
           <div class="metadata">
             <h3>metadata</h3>
             <div class="facts">
-              <div class="fact"><span>sourceCallId</span><br />${item.sourceCallId || ""}</div>
-              <div class="fact"><span>sourceRecordingId</span><br />${item.sourceRecordingId || ""}</div>
-              <div class="fact"><span>audioBlobName</span><br />${item.audioBlobName || ""}</div>
-              <div class="fact"><span>idempotencyKey</span><br />${item.idempotencyKey || ""}</div>
+              <div class="fact"><span>sourceCallId</span><br />${escapeHtml(item.sourceCallId || "")}</div>
+              <div class="fact"><span>sourceRecordingId</span><br />${escapeHtml(item.sourceRecordingId || "")}</div>
+              <div class="fact"><span>audioBlobName</span><br />${escapeHtml(item.audioBlobName || "")}</div>
+              <div class="fact"><span>idempotencyKey</span><br />${escapeHtml(item.idempotencyKey || "")}</div>
             </div>
           </div>
         `;
@@ -887,16 +901,17 @@
             (item) => `
               <div class="case-row">
                 <div>
-                  <strong>case id:</strong> <code>${item.id}</code>
+                  <strong>Case ID:</strong> <code>${escapeHtml(item.id)}</code>
                   <div class="case-detail-grid">
-                    <span><strong>sourceSystem:</strong> ${item.sourceSystem || ""}</span>
-                    <span><strong>caseType:</strong> ${item.caseType}</span>
-                    <span><strong>urgency:</strong> ${item.urgency}</span>
-                    <span><strong>intakeStatus:</strong> ${item.intakeStatus || ""}</span>
-                    <span><strong>reviewStatus:</strong> ${item.reviewStatus}</span>
-                    <span><strong>notification statuses:</strong> ${item.notificationEmailStatus} / ${item.notificationSmsStatus}</span>
+                    <span><strong>Status:</strong> ${escapeHtml(item.intakeStatus || item.processingStatus || "")}</span>
+                    <span><strong>Priority:</strong> ${escapeHtml(item.urgency)}</span>
+                    <span><strong>Intake channel:</strong> ${escapeHtml(formatIntakeChannel(item))}</span>
+                    <span><strong>Nurse review completed:</strong> ${escapeHtml(formatReviewCompleted(item))}</span>
+                    <span><strong>Review status:</strong> ${escapeHtml(item.reviewStatus)}</span>
+                    <span><strong>Notification status:</strong> ${escapeHtml(item.notificationEmailStatus)} / ${escapeHtml(item.notificationSmsStatus)}</span>
                   </div>
-                  <p class="muted">${escapeHtml(item.summary || "No summary returned.")}</p>
+                  <p><strong>Reported symptoms:</strong> ${escapeHtml(formatSymptoms(item))}</p>
+                  <p class="muted"><strong>Summary preview:</strong> ${escapeHtml(item.summary || "No summary returned.")}</p>
                   ${
                     item.reviewedBy || item.reviewedAt || item.reviewNotes
                       ? `
@@ -912,7 +927,10 @@
                       : ""
                   }
                 </div>
-                <button type="button" class="secondary" data-case-id="${item.id}">Select for Review</button>
+                <div class="actions">
+                  <button type="button" class="secondary" data-case-id="${item.id}">Select for Review</button>
+                  <button type="button" class="secondary" data-handoff-case-id="${item.id}">Load Handoff Note</button>
+                </div>
               </div>
             `,
           )
@@ -1018,26 +1036,39 @@
           selectedCaseId.focus();
           status.textContent = `Selected case ${button.dataset.caseId} for review.`;
         }
+
+        const handoffButton = event.target.closest("[data-handoff-case-id]");
+        if (handoffButton) {
+          loadHandoffNoteForCase(handoffButton.dataset.handoffCaseId);
+        }
       });
 
-      document.querySelector("#loadHandoffNote").addEventListener("click", async (event) => {
-        const button = event.currentTarget;
-        const caseId = selectedCaseId.value.trim();
-        if (!caseId) {
+      async function loadHandoffNoteForCase(caseId, button = null) {
+        const selectedId = caseId.trim();
+        selectedCaseId.value = selectedId;
+        if (!selectedId) {
           handoffNoteDisplay.textContent = "Select a saved case before loading a handoff note.";
           return;
         }
 
-        setBusy(button, true);
+        if (button) {
+          setBusy(button, true);
+        }
         handoffNoteDisplay.textContent = "Loading handoff note...";
         try {
-          const data = await requestJson(`/cases/${encodeURIComponent(caseId)}/handoff-note`);
+          const data = await requestJson(`/cases/${encodeURIComponent(selectedId)}/handoff-note`);
           handoffNoteDisplay.textContent = data.handoffNote;
         } catch (error) {
           handoffNoteDisplay.textContent = `Could not load handoff note: ${error.message}`;
         } finally {
-          setBusy(button, false);
+          if (button) {
+            setBusy(button, false);
+          }
         }
+      }
+
+      document.querySelector("#loadHandoffNote").addEventListener("click", async (event) => {
+        await loadHandoffNoteForCase(selectedCaseId.value, event.currentTarget);
       });
 
       document.querySelector("#reviewCase").addEventListener("click", async (event) => {

@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 484 passed
+- 486 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -25,11 +25,12 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Handoff note demo-readability polish is complete.
-- `GET /cases/{case_id}/handoff-note` keeps the same URL/data flow and now
-  labels Patient Summary, Reported Symptoms, Red Flags, Recommended Nurse
-  Review Priority, and Notification Status sections.
-- OpenAPI examples and formatter tests cover the clearer section labels.
+- Demo case presentation polish is complete.
+- Recent case cards and selected case context now show case id, status,
+  priority, intake channel, reported symptoms, summary preview, and nurse
+  review completion in demo-friendly labels.
+- Recent cases include review and handoff-note actions while preserving existing
+  endpoint URLs and data flow.
 - No Azure calls, client creation, model calls, provider default changes, or
   notification sends were added.
 
