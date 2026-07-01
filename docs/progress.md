@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 478 passed
+- 480 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -25,17 +25,13 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Consolidated provider preflight CLI is complete.
-- `python scripts/preflight.py --all` runs offline-safe readiness checks for
-  Foundry, Speech, ACS Email, and ACS SMS.
-- The consolidated check reports PASS/FAIL/SKIP without creating Azure clients,
-  making Azure calls, calling models, processing audio, sending email, or
-  sending SMS.
-- Individual provider smoke-check scripts remain available.
-- Automated tests remain offline and deterministic.
-- No provider default changes, notification sends, hosting/auth/Key Vault/retry,
-  phone intake/frontend framework work, real PHI, real phone numbers, real
-  email addresses, production deployment, or secrets were added.
+- Foundry live smoke authentication diagnostics are complete.
+- Azure authentication failures, including ClientAuthenticationError-style
+  errors and HTTP 401, classify as `authentication failed`.
+- The live smoke output says Foundry authentication failed and safely recommends
+  `az login`, endpoint/deployment verification, and project access checks
+  without printing tracebacks, raw exceptions, tokens, credentials, or secrets.
+- Preflight remains offline-safe and mock/default behavior is unchanged.
 
 ## Current Resume Point
 

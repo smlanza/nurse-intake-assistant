@@ -26,7 +26,9 @@ SAFE_FAILURE_HINTS = {
         "environment."
     ),
     "authentication failed": (
-        "Check Azure login state and whether the credential can get a token."
+        "Foundry authentication failed. Run `az login`, verify the Foundry "
+        "project endpoint, verify the model deployment name, and confirm the "
+        "signed-in identity has access to the Azure AI Foundry project."
     ),
     "authorization/RBAC failed": (
         "Check project-level RBAC for the signed-in identity."
@@ -108,12 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except Exception as exc:
         failure_category = classify_live_smoke_failure(exc)
-        print(
-            "Foundry smoke test failed. Review local configuration and provider "
-            "setup; no endpoint, deployment, prompt, token, or exception "
-            "details were printed.",
-            file=sys.stderr,
-        )
+        _print_safe_live_failure_summary(failure_category)
         print(f"Safe failure category: {failure_category}", file=sys.stderr)
         print(
             f"Next check: {SAFE_FAILURE_HINTS[failure_category]}",
@@ -186,6 +183,24 @@ def _print_configuration_error(message: str) -> None:
     print(
         "This manual script is opt-in and does not run in the automated test "
         "suite. Restore AI_PROVIDER=mock after any manual smoke test.",
+        file=sys.stderr,
+    )
+
+
+def _print_safe_live_failure_summary(failure_category: str) -> None:
+    if failure_category == "authentication failed":
+        print(
+            "Foundry authentication failed. No endpoint, deployment, prompt, "
+            "token, credential, traceback, or raw exception details were "
+            "printed.",
+            file=sys.stderr,
+        )
+        return
+
+    print(
+        "Foundry smoke test failed. Review local configuration and provider "
+        "setup; no endpoint, deployment, prompt, token, or exception details "
+        "were printed.",
         file=sys.stderr,
     )
 

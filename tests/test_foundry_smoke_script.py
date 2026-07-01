@@ -64,6 +64,10 @@ class FakeHttpError(RuntimeError):
         self.status_code = status_code
 
 
+class FakeClientAuthenticationError(RuntimeError):
+    pass
+
+
 def test_foundry_smoke_script_refuses_mock_provider(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -458,6 +462,12 @@ def test_foundry_smoke_script_live_fails_safely_when_sdk_unavailable(
             RuntimeError("DefaultAzureCredential failed to retrieve a token"),
             "Azure credential unavailable",
         ),
+        (
+            FakeClientAuthenticationError(
+                "ClientAuthenticationError: token secret-token was rejected"
+            ),
+            "authentication failed",
+        ),
         (FakeHttpError(401, "Bearer token expired"), "authentication failed"),
         (
             FakeHttpError(403, "Caller lacks project role assignment"),
@@ -497,6 +507,47 @@ def test_classify_live_smoke_failure_uses_nested_status_code() -> None:
         script.classify_live_smoke_failure(wrapped_error)
         == "deployment or model not found"
     )
+
+
+def test_foundry_smoke_script_live_authentication_failure_prints_safe_next_steps(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: RaisingAiService(
+            FakeHttpError(
+                401,
+                (
+                    "Unauthorized for https://secret-endpoint.example.invalid "
+                    "deployment secret-deployment token secret-token credential "
+                    "raw-secret-credential"
+                ),
+            )
+        ),
+    )
+
+    exit_code = script.main(["--live"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Foundry authentication failed" in captured.err
+    assert "Safe failure category: authentication failed" in captured.err
+    assert "az login" in captured.err
+    assert "Foundry project endpoint" in captured.err
+    assert "model deployment name" in captured.err
+    assert "signed-in identity has access" in captured.err
+    assert "Traceback" not in captured.err
+    assert "secret-endpoint" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "secret-token" not in captured.err
+    assert "raw-secret-credential" not in captured.err
+    assert "Unauthorized" not in captured.err
 
 
 def test_foundry_smoke_script_live_failure_prints_safe_category_only(
