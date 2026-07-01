@@ -7,7 +7,7 @@ progress through June 2026 is archived at
 ## Current Status
 
 Latest verified test baseline:
-- 483 passed
+- 484 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -25,12 +25,12 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Demo page provider-status polish is complete.
-- `/demo` displays active APP_MODE, AI_PROVIDER, SPEECH_PROVIDER,
-  EMAIL_PROVIDER, and SMS_PROVIDER values with a mock/local safety statement.
-- The page states mock/local mode does not call Azure, does not call models, and
-  does not send real email/SMS.
-- Existing demo seed/reset/case links and offline-safe behavior are preserved.
+- Favicon fallback slice is complete.
+- `GET /favicon.ico` returns 204 No Content instead of 404 for browser demo
+  runs.
+- Existing static legal pages and `/demo` behavior are preserved.
+- No Azure calls, client creation, dependencies, provider default changes, or
+  notification sends were added.
 
 ## Current Resume Point
 

@@ -23,3 +23,12 @@ def test_static_terms_page_is_served() -> None:
     assert "Terms of Use" in response.text
     assert "Not Medical Advice" in response.text
     assert "[Governing Law Placeholder" in response.text
+
+
+def test_favicon_request_returns_no_content_fallback() -> None:
+    client = TestClient(app)
+
+    response = client.get("/favicon.ico")
+
+    assert response.status_code == 204
+    assert response.content == b""

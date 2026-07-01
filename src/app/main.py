@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.staticfiles import StaticFiles
 
 from src.app.routes.cases import router as cases_router
@@ -16,6 +16,12 @@ app.include_router(intake_router)
 app.include_router(cases_router)
 app.include_router(notifications_router)
 app.include_router(demo_router)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> Response:
+    return Response(status_code=204)
+
 
 static_directory = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=static_directory), name="static")
