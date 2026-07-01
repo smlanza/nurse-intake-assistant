@@ -3,28 +3,62 @@
 ## Purpose
 
 This guide records the ACS SMS smoke-test checklist and current stopping point.
-It remains a placeholder/checklist for future live ACS SMS verification after
-external toll-free verification is complete.
+It includes an offline-safe `--check` preflight and remains a
+placeholder/checklist for future live ACS SMS verification after external
+toll-free verification, carrier, and Azure regulatory workflow are complete.
 
 ## Current status
 
-ACS SMS is integrated far enough to reach the Azure Communication Services SMS
+Live ACS SMS is integrated far enough to reach the Azure Communication Services SMS
 SDK/send-request path. Mock SMS remains the primary demo path. Live handset
 delivery is not confirmed yet. Confirmed live ACS SMS handset delivery is not implemented yet.
 
 ACS Email live smoke testing was previously completed successfully.
 
-## Future required configuration
+## Required preflight configuration
 
-Live ACS SMS smoke testing uses:
+The safe preflight and future live ACS SMS smoke testing use:
 
 ```bash
 SMS_PROVIDER=acs
-ACS_SMS_CONNECTION_STRING=
-ACS_SMS_FROM_PHONE_NUMBER=
-NURSE_NOTIFICATION_PHONE_NUMBER=
+ACS_SMS_CONNECTION_STRING=endpoint=https://placeholder-resource.communication.azure.com/;accesskey=placeholder-secret
+ACS_SMS_FROM_PHONE_NUMBER=+15555550100
+NURSE_NOTIFICATION_PHONE_NUMBER=+15555550123
 DEMO_SUPPRESS_NOTIFICATIONS=false
 ```
+
+Use placeholder values only in docs and tests. Do not paste or commit real ACS
+connection strings, access keys, provider credentials, real phone numbers, or
+real PHI.
+
+## Safe preflight command
+
+Run the ACS SMS configuration preflight before starting any manual SMS delivery
+attempt:
+
+```bash
+python scripts/smoke_acs_sms.py --check
+```
+
+Required environment variables:
+
+- `SMS_PROVIDER=acs`
+- `ACS_SMS_CONNECTION_STRING`
+- `ACS_SMS_FROM_PHONE_NUMBER`
+- `NURSE_NOTIFICATION_PHONE_NUMBER`
+
+Preflight success means the required settings are present for the ACS SMS
+provider boundary and optional Azure Communication SMS SDK visibility was
+reported. It does not prove handset delivery because it creates no ACS SMS
+client, makes no Azure network call, and sends no SMS.
+
+Preflight failure means one or more required settings are missing or
+`SMS_PROVIDER` is not set to `acs`. The script prints only variable names and
+safe next-step hints; it must not print configured connection strings, phone
+numbers, stack traces, or raw exception details.
+
+Live handset delivery remains deferred until toll-free verification, carrier,
+and Azure regulatory workflow are complete.
 
 ## Local run command
 
@@ -106,8 +140,20 @@ level, with handset delivery pending external verification.
 ## Safety notes
 
 Do not commit secrets, connection strings, access keys, or real phone numbers.
-Keep live ACS SMS values in local environment variables or a secure secret store
-when that future path is implemented.
+Do not paste those values into docs, tests, logs, prompts, or commits. Keep live
+ACS SMS values in local environment variables or a secure secret store when
+that future path is implemented.
+
+Restore mock defaults after any local ACS SMS preparation:
+
+```bash
+SMS_PROVIDER=mock
+ACS_SMS_CONNECTION_STRING=
+ACS_SMS_FROM_PHONE_NUMBER=
+NURSE_NOTIFICATION_PHONE_NUMBER=
+```
+
+Mock SMS remains the default behavior for local demo and automated tests.
 
 ## Current limitations
 

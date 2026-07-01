@@ -71,7 +71,9 @@ validation is manual/future; see `docs/progress.md` for the current resume
 point, `docs/manual-foundry-smoke-test.md` for the Foundry checklist, and
 `docs/manual-speech-smoke-test.md` for the Speech preflight guide. ACS Email
 has an offline-safe preflight plus manual delivery checklist in
-`docs/manual-acs-email-smoke-test.md`.
+`docs/manual-acs-email-smoke-test.md`, and ACS SMS has an offline-safe
+preflight plus deferred handset-delivery checklist in
+`docs/manual-acs-sms-smoke-test.md`.
 
 For the fuller manual checklist, see `docs/demo-smoke-test.md`. For API-level
 local demo commands, see `docs/manual-local-mock-demo.md`. For the future
@@ -79,7 +81,9 @@ manual Azure AI Foundry smoke-test checklist, see
 `docs/manual-foundry-smoke-test.md`. For offline-safe Azure Speech smoke-test
 preparation, see `docs/manual-speech-smoke-test.md`. For offline-safe ACS Email
 configuration preflight and the manual delivery checklist, see
-`docs/manual-acs-email-smoke-test.md`.
+`docs/manual-acs-email-smoke-test.md`. For offline-safe ACS SMS configuration
+preflight and the deferred handset-delivery checklist, see
+`docs/manual-acs-sms-smoke-test.md`.
 
 ## Static Legal Pages
 

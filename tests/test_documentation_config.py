@@ -120,6 +120,7 @@ def test_manual_acs_sms_smoke_test_checklist_exists() -> None:
     assert checklist_path.exists()
 
     checklist = checklist_path.read_text()
+    normalized_checklist = " ".join(checklist.split())
     assert "Manual ACS SMS Smoke Test" in checklist
     assert "Live ACS SMS" in checklist
     assert "not implemented yet" in checklist
@@ -129,7 +130,13 @@ def test_manual_acs_sms_smoke_test_checklist_exists() -> None:
     assert "ACS_SMS_CONNECTION_STRING" in checklist
     assert "ACS_SMS_FROM_PHONE_NUMBER" in checklist
     assert "NURSE_NOTIFICATION_PHONE_NUMBER" in checklist
+    assert "python scripts/smoke_acs_sms.py --check" in checklist
+    assert "creates no ACS SMS client" in normalized_checklist
+    assert "makes no Azure network call" in normalized_checklist
+    assert "sends no SMS" in normalized_checklist
+    assert "toll-free verification, carrier, and Azure regulatory workflow" in checklist
     assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in checklist
+    assert "SMS_PROVIDER=mock" in checklist
     assert "Do not commit" in checklist
     assert "connection strings" in checklist
     assert "access keys" in checklist
