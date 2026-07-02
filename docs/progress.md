@@ -4,7 +4,7 @@ Active current-status and resume document. Historical progress through June 2026
 
 ## Current Status
 Latest verified test baseline:
-- 503 passed
+- 504 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -22,18 +22,21 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Local demo UI copy cleanup slice is complete.
-- `/demo` now uses `Demo Talking Points` for reviewer/interviewer context while
-  leaving `Demo Workflow` as the operational step-by-step flow.
-- This is a local demo UI copy cleanup only; no backend runtime behavior, API
-  contracts, preflight behavior, Azure calls, clients, model calls, audio
-  processing, repository reads/writes/queries, notification sends, provider
-  defaults, hosting/auth/Key Vault, phone intake, retry behavior, frontend
-  framework changes, or real PHI were added.
-- Recent completed slices also include the `/demo` walkthrough/status/boundary
-  panels, README demo-claims/boundary docs, safe preflight failure docs, README
-  mock-mode preflight alignment, consolidated summary output, `Guidance:`
-  wording, Cosmos/Speech preflight coverage, and README walkthrough refresh.
+- Local demo UI handoff-note copy action slice is complete.
+- `/demo` now has a `Copy Handoff Note` button and local copy-status region;
+  it copies the loaded handoff note text with browser clipboard APIs when
+  available, handles no-note and copy-failure states locally, and tells the user
+  to select/copy manually when needed.
+- This is a local demo UI handoff-note copy action slice only; no backend
+  runtime behavior, API contracts, preflight behavior, Azure calls, clients,
+  model calls, audio processing, repository reads/writes/queries, notification
+  sends, provider defaults, hosting/auth/Key Vault, phone intake, retry
+  behavior, frontend framework changes, or real PHI were added.
+- Recent completed slices also include `/demo` talking-points/walkthrough/status/
+  boundary panels, README demo-claims/boundary docs, safe preflight failure docs,
+  README mock-mode preflight alignment, consolidated summary output,
+  `Guidance:` wording, Cosmos/Speech preflight coverage, and README walkthrough
+  refresh.
 
 ## Current Resume Point
 

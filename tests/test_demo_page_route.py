@@ -444,10 +444,32 @@ def test_demo_page_includes_nurse_handoff_note_controls() -> None:
     html = response.text
     assert "Nurse Handoff Note" in html
     assert "Load Handoff Note" in html
+    assert "Copy Handoff Note" in html
     assert 'id="loadHandoffNote"' in html
+    assert 'id="copyHandoffNote"' in html
     assert 'id="handoffNoteDisplay"' in html
+    assert 'id="handoffCopyStatus"' in html
+    assert 'aria-live="polite"' in html
     assert "<pre" in html
     assert "/handoff-note" in html
+
+
+def test_demo_page_handoff_note_copy_action_is_local_and_safe() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "async function copyHandoffNote()" in html
+    assert "const noteText = handoffNoteDisplay.textContent.trim();" in html
+    assert "navigator.clipboard.writeText(noteText)" in html
+    assert "Handoff note copied." in html
+    assert "No handoff note loaded to copy." in html
+    assert "Clipboard copy unavailable. Select and copy the handoff note manually." in html
+    assert "Could not copy handoff note. Select and copy the note manually." in html
+    assert 'document.querySelector("#copyHandoffNote").addEventListener("click"' in html
+    assert "navigator.clipboard.writeText(emailNotifications" not in html
+    assert "navigator.clipboard.writeText(smsNotifications" not in html
+    assert "navigator.clipboard.writeText(selectedCaseContext" not in html
 
 
 def test_demo_page_handoff_note_workflow_has_stable_messages() -> None:

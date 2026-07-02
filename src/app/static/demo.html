@@ -620,7 +620,11 @@
         <div class="panel" aria-labelledby="handoff-note-heading">
           <h3 id="handoff-note-heading">Nurse Handoff Note</h3>
           <p class="muted">Load a copy-friendly note for the selected saved case.</p>
-          <button id="loadHandoffNote" type="button" class="secondary">Load Handoff Note</button>
+          <div class="actions">
+            <button id="loadHandoffNote" type="button" class="secondary">Load Handoff Note</button>
+            <button id="copyHandoffNote" type="button" class="secondary" disabled>Copy Handoff Note</button>
+          </div>
+          <p id="handoffCopyStatus" class="muted" aria-live="polite"></p>
           <pre id="handoffNoteDisplay" aria-live="polite">No handoff note loaded.</pre>
         </div>
         <p class="section-nav"><a href="#demo-workflow-section">Back to Demo Workflow</a></p>
@@ -721,6 +725,8 @@
       const reviewNotes = document.querySelector("#reviewNotes");
       const selectedCaseContext = document.querySelector("#selectedCaseContext");
       const handoffNoteDisplay = document.querySelector("#handoffNoteDisplay");
+      const handoffCopyStatus = document.querySelector("#handoffCopyStatus");
+      const copyHandoffNoteButton = document.querySelector("#copyHandoffNote");
       const emailNotifications = document.querySelector("#emailNotifications");
       const smsNotifications = document.querySelector("#smsNotifications");
       let recentCases = [];
@@ -791,6 +797,8 @@
 
       function renderSelectedCaseContext(item) {
         handoffNoteDisplay.textContent = "No handoff note loaded.";
+        handoffCopyStatus.textContent = "";
+        copyHandoffNoteButton.disabled = true;
         if (!item) {
           selectedCaseContext.innerHTML = '<p class="muted">No case selected for review.</p>';
           return;
@@ -1121,6 +1129,8 @@
         selectedCaseId.value = selectedId;
         if (!selectedId) {
           handoffNoteDisplay.textContent = "Select a saved case before loading a handoff note.";
+          handoffCopyStatus.textContent = "No handoff note loaded to copy.";
+          copyHandoffNoteButton.disabled = true;
           return;
         }
 
@@ -1128,14 +1138,18 @@
           setBusy(button, true);
         }
         handoffNoteDisplay.textContent = "Loading handoff note...";
+        handoffCopyStatus.textContent = "";
+        copyHandoffNoteButton.disabled = true;
         try {
           const data = await requestJson(`/cases/${encodeURIComponent(selectedId)}/handoff-note`);
           handoffNoteDisplay.textContent = data.handoffNote;
+          copyHandoffNoteButton.disabled = false;
         } catch (error) {
           handoffNoteDisplay.textContent = safeDemoErrorMessage(
             error,
             "Could not load handoff note. Select a saved case and try again.",
           );
+          copyHandoffNoteButton.disabled = true;
         } finally {
           if (button) {
             setBusy(button, false);
@@ -1143,8 +1157,32 @@
         }
       }
 
+      async function copyHandoffNote() {
+        const noteText = handoffNoteDisplay.textContent.trim();
+        if (!noteText || noteText === "No handoff note loaded.") {
+          handoffCopyStatus.textContent = "No handoff note loaded to copy.";
+          return;
+        }
+
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {
+          handoffCopyStatus.textContent = "Clipboard copy unavailable. Select and copy the handoff note manually.";
+          return;
+        }
+
+        try {
+          await navigator.clipboard.writeText(noteText);
+          handoffCopyStatus.textContent = "Handoff note copied.";
+        } catch (error) {
+          handoffCopyStatus.textContent = "Could not copy handoff note. Select and copy the note manually.";
+        }
+      }
+
       document.querySelector("#loadHandoffNote").addEventListener("click", async (event) => {
         await loadHandoffNoteForCase(selectedCaseId.value, event.currentTarget);
+      });
+
+      document.querySelector("#copyHandoffNote").addEventListener("click", async () => {
+        await copyHandoffNote();
       });
 
       document.querySelector("#reviewCase").addEventListener("click", async (event) => {
