@@ -99,6 +99,39 @@ def test_demo_page_includes_local_mock_mode_status_panel() -> None:
     assert "fictional demo data" in html
 
 
+def test_demo_page_includes_reviewer_talking_points_panel() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'aria-labelledby="demo-talking-points-heading"' in html
+    assert "Demo Talking Points" in html
+    assert "Demo Workflow" in html
+    assert "local mock/demo workflow" in html
+    assert "text intake" in html
+    assert "already-transcribed voicemail transcript intake" in html
+    assert "deterministic mock extraction" in html
+    assert "urgency classification" in html
+    assert "nurse review" in html
+    assert "handoff notes" in html
+    assert "mock notifications" in html
+    assert "production clinical readiness" in html
+    assert "autonomous medical decision-making" in html
+    assert "live Azure Foundry extraction" in html
+    assert "live Azure Speech transcription" in html
+    assert "live phone intake/call automation" in html
+    assert "confirmed SMS handset delivery" in html
+    assert "fictional/demo data only" in html
+    assert "mock/local mode only" in html
+    talking_points_html = html[
+        html.index('aria-labelledby="demo-talking-points-heading"') : html.index(
+            'aria-labelledby="provider-status-heading"'
+        )
+    ]
+    assert "<ol>" not in talking_points_html
+    assert "Step 1" not in talking_points_html
+
+
 def test_demo_page_displays_active_provider_configuration() -> None:
     response = client.get("/demo")
 
