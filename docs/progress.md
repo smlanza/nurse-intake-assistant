@@ -5,7 +5,7 @@ progress through June 2026 is archived at `docs/archive/progress-2026-06.md`.
 
 ## Current Status
 Latest verified test baseline:
-- 493 passed
+- 497 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -23,22 +23,19 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Consolidated Azure Speech preflight coverage slice is complete.
-- Focused tests show `scripts/preflight.py --all` includes Azure Speech while
-  staying offline-safe: mock/unset skip, missing `AZURE_SPEECH_ENDPOINT` or
-  `AZURE_SPEECH_REGION` fail, placeholders pass, Speech service/transcription
-  are not used, and secret-like Speech config values are not exposed.
-- This slice adds consolidated Azure Speech preflight coverage only.
-- No live Speech transcription, audio processing, phone intake, Azure calls,
-  provider default changes, hosting/auth/Key Vault, retry behavior, frontend
-  framework work, notification sends, or real PHI were added.
-- README local demo walkthrough refresh is complete.
-- README now covers venv setup, dependency install, pytest, mock-safe preflight,
-  uvicorn startup, opening `/demo`, seeding cases, review, and handoff notes.
-- README explicitly states mock/local mode does not call Azure, call models,
-  process audio, or send real email/SMS.
-- No application behavior, Azure calls, client creation, model calls, provider
-  defaults, or notification sends were changed.
+- Consolidated preflight terminal wording cleanup is complete.
+- `scripts/preflight.py --all` now prints `Guidance:` instead of `Next step:`
+  so mock/offline skips do not sound like required follow-up work.
+- This is a terminal wording cleanup only; no preflight behavior, Azure calls,
+  clients, model calls, audio processing, repository reads/writes/queries,
+  notification sends, API contracts, provider defaults, hosting/auth/Key Vault,
+  phone intake, retry behavior, frontend work, or real PHI were added.
+- Consolidated Cosmos repository preflight coverage slice is complete.
+- It added consolidated Cosmos preflight coverage only: mock/unset skip,
+  missing required settings fail, placeholders pass, no Cosmos client/repository
+  operations run, and secret-like values are not exposed.
+- Recent completed slices also include consolidated Azure Speech preflight
+  coverage and the README local demo walkthrough refresh.
 
 ## Current Resume Point
 

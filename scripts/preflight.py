@@ -49,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_all_checks(settings: AppSettings) -> list[PreflightResult]:
     return [
+        _check_cosmos(settings),
         _check_foundry(settings),
         _check_speech(settings),
         _check_acs_email(settings),
@@ -67,12 +68,43 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--all",
         action="store_true",
         help=(
-            "Run Foundry, Speech, ACS Email, and ACS SMS readiness checks "
+            "Run Cosmos, Foundry, Speech, ACS Email, and ACS SMS readiness checks "
             "without creating Azure clients, making Azure calls, processing "
-            "audio, calling models, or sending notifications."
+            "audio, calling models, reading or writing repositories, or sending "
+            "notifications."
         ),
     )
     return parser.parse_args(argv)
+
+
+def _check_cosmos(settings: AppSettings) -> PreflightResult:
+    if _app_mode_normalized(settings) != "cosmos":
+        return _skip(
+            "Cosmos Repository",
+            "APP_MODE is not cosmos.",
+            "Keep APP_MODE=mock for local demo.",
+        )
+
+    missing = _missing_required(
+        [
+            ("COSMOS_ENDPOINT", settings.cosmos_endpoint),
+            ("COSMOS_KEY", settings.cosmos_key),
+            ("COSMOS_DATABASE_NAME", settings.cosmos_database_name),
+            ("COSMOS_CONTAINER_NAME", settings.cosmos_container_name),
+        ]
+    )
+    if missing:
+        return _fail(
+            "Cosmos Repository",
+            missing,
+            "Set missing Cosmos variables or restore APP_MODE=mock.",
+        )
+
+    return _pass(
+        "Cosmos Repository",
+        "Required Cosmos configuration is present. No Cosmos client was created, no Azure call was made, and no Cosmos read, write, or query was performed.",
+        "Keep APP_MODE=mock for local demo unless you are running the manual Cosmos smoke test.",
+    )
 
 
 def _check_foundry(settings: AppSettings) -> PreflightResult:
@@ -187,8 +219,13 @@ def _check_acs_sms(settings: AppSettings) -> PreflightResult:
     )
 
 
+def _app_mode_normalized(settings: AppSettings) -> str:
+    configured = getattr(settings, "app_mode_normalized", settings.app_mode)
+    return configured.strip().lower() or "mock"
+
+
 def _missing_required(settings: list[tuple[str, str | None]]) -> list[str]:
-    return [name for name, value in settings if value is None]
+    return [name for name, value in settings if value is None or not value.strip()]
 
 
 def _skip(name: str, message: str, next_step: str) -> PreflightResult:
@@ -216,10 +253,10 @@ def _sdk_next_step(sdk_available: Callable[[], bool], package_name: str) -> str:
 
 def _print_results(results: list[PreflightResult]) -> None:
     print("Nurse Intake Assistant Preflight")
-    print("Offline-safe checks only. No Azure clients, Azure calls, model calls, audio processing, email sends, or SMS sends are performed.")
+    print("Offline-safe checks only. No Azure clients, Azure calls, model calls, audio processing, repository reads/writes/queries, email sends, or SMS sends are performed.")
     for result in results:
         print(f"{result.status} {result.name}: {result.message}")
-        print(f"Next step: {result.next_step}")
+        print(f"Guidance: {result.next_step}")
 
 
 if __name__ == "__main__":

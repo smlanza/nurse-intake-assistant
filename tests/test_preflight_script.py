@@ -4,6 +4,11 @@ import pytest
 
 
 def _settings(
+    app_mode: str = "mock",
+    cosmos_endpoint: str | None = None,
+    cosmos_key: str | None = None,
+    cosmos_database_name: str | None = "nurse-intake",
+    cosmos_container_name: str | None = "cases",
     ai_provider: str = "mock",
     foundry_endpoint: str | None = None,
     foundry_deployment: str | None = None,
@@ -20,6 +25,12 @@ def _settings(
     nurse_phone_number: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
+        app_mode=app_mode,
+        app_mode_normalized=app_mode,
+        cosmos_endpoint=cosmos_endpoint,
+        cosmos_key=cosmos_key,
+        cosmos_database_name=cosmos_database_name,
+        cosmos_container_name=cosmos_container_name,
         ai_provider_normalized=ai_provider,
         azure_ai_foundry_project_endpoint=foundry_endpoint,
         azure_ai_foundry_model_deployment_name=foundry_deployment,
@@ -66,13 +77,125 @@ def test_preflight_all_skips_default_mock_providers(
     captured = capsys.readouterr()
     assert exit_code == 0
     assert "Nurse Intake Assistant Preflight" in captured.out
+    assert "Cosmos Repository" in captured.out
     assert "Foundry" in captured.out
     assert "Azure Speech" in captured.out
     assert "ACS Email" in captured.out
     assert "ACS SMS" in captured.out
-    assert captured.out.count("SKIP") == 4
+    assert captured.out.count("SKIP") == 5
+    assert captured.out.count("Guidance:") == 5
+    assert "Next step:" not in captured.out
     assert "PASS" not in captured.out
     assert "FAIL" not in captured.out
+    assert captured.err == ""
+
+
+def test_preflight_all_skips_cosmos_repository_when_app_mode_is_mock(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    _patch_settings(monkeypatch, _settings(app_mode="mock"))
+    _patch_sdk_visibility(monkeypatch)
+
+    exit_code = script.main(["--all"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "SKIP Cosmos Repository" in captured.out
+    assert "APP_MODE is not cosmos" in captured.out
+    assert "Keep APP_MODE=mock for local demo" in captured.out
+    assert "No Azure clients" in captured.out
+    assert "Azure calls" in captured.out
+    assert captured.err == ""
+
+
+def test_preflight_all_fails_safely_when_cosmos_config_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            app_mode="cosmos",
+            cosmos_endpoint=None,
+            cosmos_key=None,
+            cosmos_database_name=None,
+            cosmos_container_name=None,
+        ),
+    )
+
+    exit_code = script.main(["--all"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "FAIL Cosmos Repository" in captured.out
+    assert "COSMOS_ENDPOINT" in captured.out
+    assert "COSMOS_KEY" in captured.out
+    assert "COSMOS_DATABASE_NAME" in captured.out
+    assert "COSMOS_CONTAINER_NAME" in captured.out
+    assert "Set missing Cosmos variables or restore APP_MODE=mock" in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_preflight_all_passes_configured_cosmos_without_live_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+    import src.app.services.cosmos_case_repository as cosmos_repository
+    import src.app.services.cosmos_container_factory as cosmos_factory
+    import src.app.services.repository_factory as repository_factory
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            app_mode="cosmos",
+            cosmos_endpoint="https://placeholder-cosmos.example.invalid:443/",
+            cosmos_key="placeholder-key",
+            cosmos_database_name="placeholder-db",
+            cosmos_container_name="placeholder-container",
+        ),
+    )
+    monkeypatch.setattr(
+        cosmos_factory,
+        "create_cosmos_container",
+        lambda *args, **kwargs: pytest.fail("Cosmos container should not be created"),
+    )
+    monkeypatch.setattr(
+        repository_factory,
+        "create_case_repository",
+        lambda *args, **kwargs: pytest.fail("Case repository should not be created"),
+    )
+    monkeypatch.setattr(
+        cosmos_repository.CosmosCaseRepository,
+        "save",
+        lambda *args, **kwargs: pytest.fail("Cosmos write should not run"),
+    )
+    monkeypatch.setattr(
+        cosmos_repository.CosmosCaseRepository,
+        "get_by_id",
+        lambda *args, **kwargs: pytest.fail("Cosmos point read should not run"),
+    )
+    monkeypatch.setattr(
+        cosmos_repository.CosmosCaseRepository,
+        "list_cases",
+        lambda *args, **kwargs: pytest.fail("Cosmos query should not run"),
+    )
+
+    exit_code = script.main(["--all"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "PASS Cosmos Repository" in captured.out
+    assert "Required Cosmos configuration is present" in captured.out
+    assert "No Cosmos client was created" in captured.out
+    assert "no Cosmos read, write, or query was performed" in captured.out
+    assert "no Azure call was made" in captured.out
     assert captured.err == ""
 
 
@@ -196,7 +319,7 @@ def test_preflight_all_passes_configured_acs_email_and_sms(
     assert "ACS Email" in captured.out
     assert "ACS SMS" in captured.out
     assert captured.out.count("PASS") == 2
-    assert captured.out.count("SKIP") == 2
+    assert captured.out.count("SKIP") == 3
     assert "FAIL" not in captured.out
     assert captured.err == ""
 
@@ -283,6 +406,37 @@ def test_preflight_all_does_not_print_configured_secret_or_contact_values(
     assert "+15555550123" not in combined_output
 
 
+def test_preflight_all_does_not_print_cosmos_secret_like_values(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    settings = _settings(
+        app_mode="cosmos",
+        cosmos_endpoint="https://secret-cosmos.documents.azure.com:443/",
+        cosmos_key="secret-cosmos-key-token",
+        cosmos_database_name="secret-patient-db",
+        cosmos_container_name="secret-patient-container",
+    )
+    _patch_settings(monkeypatch, settings)
+    _patch_sdk_visibility(monkeypatch)
+
+    exit_code = script.main(["--all"])
+
+    captured = capsys.readouterr()
+    combined_output = captured.out + captured.err
+    assert exit_code == 0
+    assert "PASS Cosmos Repository" in combined_output
+    assert settings.cosmos_endpoint not in combined_output
+    assert settings.cosmos_key not in combined_output
+    assert settings.cosmos_database_name not in combined_output
+    assert settings.cosmos_container_name not in combined_output
+    assert "secret-cosmos" not in combined_output
+    assert "secret-patient" not in combined_output
+    assert "token" not in combined_output
+
+
 def test_preflight_all_does_not_print_speech_secret_like_values(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -318,10 +472,17 @@ def test_preflight_all_does_not_create_clients_or_send_or_call_live_services(
     import src.app.services.email_notification_sender as email_sender
     import src.app.services.sms_notification_sender as sms_sender
     import src.app.services.ai_service_factory as ai_factory
+    import src.app.services.cosmos_container_factory as cosmos_factory
+    import src.app.services.repository_factory as repository_factory
 
     _patch_settings(
         monkeypatch,
         _settings(
+            app_mode="cosmos",
+            cosmos_endpoint="https://placeholder-cosmos.example.invalid:443/",
+            cosmos_key="placeholder-key",
+            cosmos_database_name="placeholder-db",
+            cosmos_container_name="placeholder-container",
             ai_provider="foundry",
             foundry_endpoint="https://placeholder-foundry.example.invalid",
             foundry_deployment="placeholder-deployment",
@@ -343,6 +504,16 @@ def test_preflight_all_does_not_create_clients_or_send_or_call_live_services(
         ai_factory,
         "create_ai_service",
         lambda settings: pytest.fail("AI service should not be created"),
+    )
+    monkeypatch.setattr(
+        cosmos_factory,
+        "create_cosmos_container",
+        lambda settings: pytest.fail("Cosmos container should not be created"),
+    )
+    monkeypatch.setattr(
+        repository_factory,
+        "create_case_repository",
+        lambda settings: pytest.fail("Case repository should not be created"),
     )
     monkeypatch.setattr(
         email_sender,
