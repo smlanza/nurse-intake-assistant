@@ -257,6 +257,26 @@ def _print_results(results: list[PreflightResult]) -> None:
     for result in results:
         print(f"{result.status} {result.name}: {result.message}")
         print(f"Guidance: {result.next_step}")
+    print(_format_summary(results))
+
+
+def _format_summary(results: list[PreflightResult]) -> str:
+    pass_count = _count_status(results, PASS)
+    skip_count = _count_status(results, SKIP)
+    fail_count = _count_status(results, FAIL)
+    outcome = (
+        "Completed safely with no failed checks."
+        if fail_count == 0
+        else "One or more checks failed."
+    )
+    return (
+        f"Preflight summary: PASS={pass_count}, SKIP={skip_count}, "
+        f"FAIL={fail_count}. {outcome}"
+    )
+
+
+def _count_status(results: list[PreflightResult], status: str) -> int:
+    return sum(1 for result in results if result.status == status)
 
 
 if __name__ == "__main__":

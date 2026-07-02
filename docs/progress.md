@@ -1,7 +1,6 @@
 # Nurse Intake Assistant Progress
 
-This is the active current-status and resume document. Detailed historical
-progress through June 2026 is archived at `docs/archive/progress-2026-06.md`.
+Active current-status and resume document. Historical progress through June 2026 is archived at `docs/archive/progress-2026-06.md`.
 
 ## Current Status
 Latest verified test baseline:
@@ -23,6 +22,14 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
+- Consolidated preflight final summary output slice is complete.
+- `scripts/preflight.py --all` now prints concise PASS/SKIP/FAIL counts and
+  whether the consolidated preflight completed safely or checks failed.
+- This is a consolidated preflight output summary only; no preflight decision
+  behavior, Azure calls, clients, model calls, audio processing, repository
+  reads/writes/queries, notification sends, API contracts, provider defaults,
+  hosting/auth/Key Vault, phone intake, retry behavior, frontend work, or real
+  PHI were added.
 - Consolidated preflight terminal wording cleanup is complete.
 - `scripts/preflight.py --all` now prints `Guidance:` instead of `Next step:`
   so mock/offline skips do not sound like required follow-up work.
@@ -30,12 +37,8 @@ Latest completed slice:
   clients, model calls, audio processing, repository reads/writes/queries,
   notification sends, API contracts, provider defaults, hosting/auth/Key Vault,
   phone intake, retry behavior, frontend work, or real PHI were added.
-- Consolidated Cosmos repository preflight coverage slice is complete.
-- It added consolidated Cosmos preflight coverage only: mock/unset skip,
-  missing required settings fail, placeholders pass, no Cosmos client/repository
-  operations run, and secret-like values are not exposed.
-- Recent completed slices also include consolidated Azure Speech preflight
-  coverage and the README local demo walkthrough refresh.
+- Recent completed slices also include consolidated Cosmos and Azure Speech
+  preflight coverage plus the README local demo walkthrough refresh.
 
 ## Current Resume Point
 

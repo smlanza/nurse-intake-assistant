@@ -82,11 +82,16 @@ def test_preflight_all_skips_default_mock_providers(
     assert "Azure Speech" in captured.out
     assert "ACS Email" in captured.out
     assert "ACS SMS" in captured.out
-    assert captured.out.count("SKIP") == 5
+    assert captured.out.count("SKIP ") == 5
     assert captured.out.count("Guidance:") == 5
+    assert "Preflight summary:" in captured.out
+    assert "PASS=0" in captured.out
+    assert "SKIP=5" in captured.out
+    assert "FAIL=0" in captured.out
+    assert "Completed safely with no failed checks" in captured.out
     assert "Next step:" not in captured.out
-    assert "PASS" not in captured.out
-    assert "FAIL" not in captured.out
+    assert "PASS " not in captured.out
+    assert "FAIL " not in captured.out
     assert captured.err == ""
 
 
@@ -138,6 +143,11 @@ def test_preflight_all_fails_safely_when_cosmos_config_is_missing(
     assert "COSMOS_DATABASE_NAME" in captured.out
     assert "COSMOS_CONTAINER_NAME" in captured.out
     assert "Set missing Cosmos variables or restore APP_MODE=mock" in captured.out
+    assert "Preflight summary:" in captured.out
+    assert "PASS=0" in captured.out
+    assert "SKIP=4" in captured.out
+    assert "FAIL=1" in captured.out
+    assert "One or more checks failed" in captured.out
     assert "Traceback" not in captured.out
     assert captured.err == ""
 
@@ -318,9 +328,14 @@ def test_preflight_all_passes_configured_acs_email_and_sms(
     assert exit_code == 0
     assert "ACS Email" in captured.out
     assert "ACS SMS" in captured.out
-    assert captured.out.count("PASS") == 2
-    assert captured.out.count("SKIP") == 3
-    assert "FAIL" not in captured.out
+    assert captured.out.count("PASS ") == 2
+    assert captured.out.count("SKIP ") == 3
+    assert "Preflight summary:" in captured.out
+    assert "PASS=2" in captured.out
+    assert "SKIP=3" in captured.out
+    assert "FAIL=0" in captured.out
+    assert "Completed safely with no failed checks" in captured.out
+    assert "FAIL " not in captured.out
     assert captured.err == ""
 
 
