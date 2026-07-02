@@ -4,7 +4,7 @@ Active current-status and resume document. Historical progress through June 2026
 
 ## Current Status
 Latest verified test baseline:
-- 498 passed
+- 499 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -22,20 +22,19 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- README consolidated preflight documentation alignment slice is complete.
-- README now documents the current `scripts/preflight.py --all` mock-mode output:
-  Cosmos Repository included, `Guidance:` labels, safe `SKIP` results,
-  offline-safe boundary, and PASS/SKIP/FAIL summary.
-- This is a README/preflight documentation alignment slice only; no runtime
+- Safe preflight failure documentation slice is complete.
+- README now explains that `FAIL` means missing configuration for an explicitly
+  enabled provider, not a failed live call; the Cosmos example shows missing
+  variable names, `Guidance:`, summary `FAIL=1`, exit code 1, no secret values,
+  and the offline-safe boundary.
+- This is a safe preflight failure documentation slice only; no runtime
   behavior, preflight decision behavior, Azure calls, clients, model calls,
   audio processing, repository reads/writes/queries, notification sends, API
   contracts, provider defaults, hosting/auth/Key Vault, phone intake, retry
   behavior, frontend work, or real PHI were added.
-- Consolidated preflight final summary output slice is complete.
-- Recent completed slices also include consolidated preflight final summary
-  output and terminal wording cleanup from `Next step:` to `Guidance:`.
-- Recent completed slices also include consolidated Cosmos and Azure Speech
-  preflight coverage plus the README local demo walkthrough refresh.
+- Recent completed slices also include README mock-mode preflight alignment,
+  consolidated summary output, `Guidance:` wording, Cosmos/Speech preflight
+  coverage, and the README local demo walkthrough refresh.
 
 ## Current Resume Point
 

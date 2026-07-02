@@ -86,6 +86,22 @@ Guidance: Keep SMS_PROVIDER=mock for local demo.
 Preflight summary: PASS=0, SKIP=5, FAIL=0. Completed safely with no failed checks.
 ```
 
+If you explicitly enable a live provider without its required local
+configuration, `FAIL means required configuration is missing` for that
+explicitly enabled provider, not that a live service call failed. For example,
+`APP_MODE=cosmos` without Cosmos settings fails safely with exit code 1:
+
+```text
+FAIL Cosmos Repository: Missing required configuration: COSMOS_ENDPOINT, COSMOS_KEY, COSMOS_DATABASE_NAME, COSMOS_CONTAINER_NAME.
+Guidance: Set missing Cosmos variables or restore APP_MODE=mock.
+Preflight summary: PASS=0, SKIP=4, FAIL=1. One or more checks failed.
+```
+
+The preflight shows missing variable names, but secret values are not printed.
+Even in failure mode it remains offline-safe: No Azure clients, Azure calls,
+model calls, audio processing, repository reads/writes/queries, email sends, or
+SMS sends are performed.
+
 Start the app locally:
 
 ```bash

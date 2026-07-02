@@ -264,6 +264,33 @@ def test_readme_documents_consolidated_preflight_output() -> None:
     assert "SMS sends" in readme
 
 
+def test_readme_documents_consolidated_preflight_safe_failure_output() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+
+    assert "FAIL means required configuration is missing" in readme
+    assert "explicitly enabled provider" in readme
+    assert "not that a live service call failed" in readme
+    assert "APP_MODE=cosmos" in readme
+    assert "FAIL Cosmos Repository" in readme
+    assert "COSMOS_ENDPOINT" in readme
+    assert "COSMOS_KEY" in readme
+    assert "COSMOS_DATABASE_NAME" in readme
+    assert "COSMOS_CONTAINER_NAME" in readme
+    assert "Guidance:" in readme
+    assert "Preflight summary:" in readme
+    assert "FAIL=1" in readme
+    assert "exit code 1" in readme
+    assert "missing variable names" in readme
+    assert "secret values are not printed" in readme
+    assert "No Azure clients" in readme
+    assert "Azure calls" in readme
+    assert "model calls" in readme
+    assert "audio processing" in readme
+    assert "repository reads/writes/queries" in readme
+    assert "email sends" in readme
+    assert "SMS sends" in readme
+
+
 def test_demo_page_smoke_test_guide_exists() -> None:
     guide_path = PROJECT_ROOT / "docs" / "demo-smoke-test.md"
 
