@@ -4,7 +4,7 @@ Active current-status and resume document. Historical progress through June 2026
 
 ## Current Status
 Latest verified test baseline:
-- 500 passed
+- 501 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -22,18 +22,19 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- README demo-claims/boundary documentation slice is complete.
-- README now has a `Demo Claims` section separating safe local mock/demo claims
-  from production/live-integration claims it must not make, while preserving
-  human-review, fictional-data, no-secrets/no-PHI, and mock/offline boundaries.
-- This is a README demo-claims/boundary documentation slice only; no runtime
-  behavior, preflight behavior, Azure calls, clients, model calls, audio
-  processing, repository reads/writes/queries, notification sends, API
-  contracts, provider defaults, hosting/auth/Key Vault, phone intake, retry
-  behavior, frontend work, or real PHI were added.
-- Recent completed slices also include safe preflight failure docs, README
-  mock-mode preflight alignment, consolidated summary output, `Guidance:`
-  wording, Cosmos/Speech preflight coverage, and README walkthrough refresh.
+- Local demo UI boundary/claims panel slice is complete.
+- `/demo` now shows a visible `Demo Boundary` panel with safe mock/demo claims,
+  must-not-claim boundaries, human-review, fictional-data, no-PHI/no-secrets,
+  and mock/offline no-call/no-send wording.
+- This is a local demo UI boundary/claims panel slice only; no backend runtime
+  behavior, API contracts, preflight behavior, Azure calls, clients, model
+  calls, audio processing, repository reads/writes/queries, notification sends,
+  provider defaults, hosting/auth/Key Vault, phone intake, retry behavior,
+  frontend framework changes, or real PHI were added.
+- Recent completed slices also include README demo-claims/boundary docs, safe
+  preflight failure docs, README mock-mode preflight alignment, consolidated
+  summary output, `Guidance:` wording, Cosmos/Speech preflight coverage, and
+  README walkthrough refresh.
 
 ## Current Resume Point
 

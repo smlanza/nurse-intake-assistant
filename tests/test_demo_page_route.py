@@ -48,6 +48,40 @@ def test_demo_page_includes_local_mock_demo_safety_banner() -> None:
     assert "HIPAA" not in html
 
 
+def test_demo_page_includes_visible_demo_claims_boundary() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'aria-labelledby="demo-boundary-heading"' in html
+    assert "Demo Boundary" in html
+    assert "human nurse review is required" in html
+    assert "fictional/demo data only" in html
+    assert "no real PHI" in html
+    assert "no secrets" in html
+    assert "local text intake" in html
+    assert "already-transcribed voicemail transcript intake" in html
+    assert "deterministic mock AI extraction" in html
+    assert "urgency classification" in html
+    assert "nurse review workflow" in html
+    assert "queue/recent case views and summary counts" in html
+    assert "deterministic handoff notes" in html
+    assert "mock email/SMS notification inspection" in html
+    assert "production clinical readiness" in html
+    assert "autonomous medical decision-making" in html
+    assert "live Azure AI Foundry extraction" in html
+    assert "live Azure Speech transcription" in html
+    assert "live phone intake/call automation" in html
+    assert "confirmed ACS SMS handset delivery" in html
+    assert "hosting/auth/Key Vault/retry/durable processing" in html
+    assert "default mock demo makes no Azure calls" in html
+    assert "model calls" in html
+    assert "audio processing" in html
+    assert "repository reads/writes/queries" in html
+    assert "email sends" in html
+    assert "SMS sends" in html
+
+
 def test_demo_page_displays_active_provider_configuration() -> None:
     response = client.get("/demo")
 
