@@ -1,13 +1,11 @@
 # Nurse Intake Assistant Progress
 
 This is the active current-status and resume document. Detailed historical
-progress through June 2026 is archived at
-`docs/archive/progress-2026-06.md`.
+progress through June 2026 is archived at `docs/archive/progress-2026-06.md`.
 
 ## Current Status
-
 Latest verified test baseline:
-- 489 passed
+- 493 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -25,6 +23,15 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
+- Consolidated Azure Speech preflight coverage slice is complete.
+- Focused tests show `scripts/preflight.py --all` includes Azure Speech while
+  staying offline-safe: mock/unset skip, missing `AZURE_SPEECH_ENDPOINT` or
+  `AZURE_SPEECH_REGION` fail, placeholders pass, Speech service/transcription
+  are not used, and secret-like Speech config values are not exposed.
+- This slice adds consolidated Azure Speech preflight coverage only.
+- No live Speech transcription, audio processing, phone intake, Azure calls,
+  provider default changes, hosting/auth/Key Vault, retry behavior, frontend
+  framework work, notification sends, or real PHI were added.
 - README local demo walkthrough refresh is complete.
 - README now covers venv setup, dependency install, pytest, mock-safe preflight,
   uvicorn startup, opening `/demo`, seeding cases, review, and handoff notes.

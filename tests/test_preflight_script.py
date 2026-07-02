@@ -76,6 +76,92 @@ def test_preflight_all_skips_default_mock_providers(
     assert captured.err == ""
 
 
+def test_preflight_all_skips_azure_speech_when_speech_provider_is_mock(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    _patch_settings(monkeypatch, _settings(speech_provider="mock"))
+    _patch_sdk_visibility(monkeypatch)
+
+    exit_code = script.main(["--all"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "SKIP Azure Speech" in captured.out
+    assert "SPEECH_PROVIDER is not azure" in captured.out
+    assert "Keep SPEECH_PROVIDER=mock for local demo" in captured.out
+    assert "No Azure clients" in captured.out
+    assert "audio processing" in captured.out
+    assert captured.err == ""
+
+
+def test_preflight_all_fails_safely_when_azure_speech_config_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    _patch_settings(monkeypatch, _settings(speech_provider="azure"))
+    monkeypatch.setattr(
+        script,
+        "azure_speech_sdk_available",
+        lambda: pytest.fail("SDK check should not run after invalid Speech config"),
+    )
+
+    exit_code = script.main(["--all"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "FAIL Azure Speech" in captured.out
+    assert "AZURE_SPEECH_ENDPOINT" in captured.out
+    assert "AZURE_SPEECH_REGION" in captured.out
+    assert "Set missing Azure Speech variables or restore SPEECH_PROVIDER=mock" in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_preflight_all_passes_configured_azure_speech_without_live_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+    import src.app.services.speech_transcription_factory as speech_factory
+    import src.app.services.speech_transcription_service as speech_service
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            speech_provider="azure",
+            speech_endpoint="https://placeholder-speech.example.invalid",
+            speech_region="placeholder-region",
+        ),
+    )
+    _patch_sdk_visibility(monkeypatch)
+    monkeypatch.setattr(
+        speech_factory,
+        "create_speech_transcription_service",
+        lambda settings: pytest.fail("Speech service should not be created"),
+    )
+    monkeypatch.setattr(
+        speech_service.AzureSpeechTranscriptionService,
+        "transcribe_text",
+        lambda *args, **kwargs: pytest.fail("Speech transcription should not run"),
+    )
+
+    exit_code = script.main(["--all"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "PASS Azure Speech" in captured.out
+    assert "Required Speech configuration is present" in captured.out
+    assert "No Speech client was created" in captured.out
+    assert "no audio was processed" in captured.out
+    assert "no Azure call was made" in captured.out
+    assert captured.err == ""
+
+
 def test_preflight_all_passes_configured_acs_email_and_sms(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -195,6 +281,33 @@ def test_preflight_all_does_not_print_configured_secret_or_contact_values(
     assert "secret-sms" not in combined_output
     assert "+15555550100" not in combined_output
     assert "+15555550123" not in combined_output
+
+
+def test_preflight_all_does_not_print_speech_secret_like_values(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    settings = _settings(
+        speech_provider="azure",
+        speech_endpoint="https://speech-resource.example.invalid/?token=secret-speech-token",
+        speech_region="secret-speech-region",
+    )
+    _patch_settings(monkeypatch, settings)
+    _patch_sdk_visibility(monkeypatch)
+
+    exit_code = script.main(["--all"])
+
+    captured = capsys.readouterr()
+    combined_output = captured.out + captured.err
+    assert exit_code == 0
+    assert "PASS Azure Speech" in combined_output
+    assert settings.azure_speech_endpoint not in combined_output
+    assert settings.azure_speech_region not in combined_output
+    assert "secret-speech-token" not in combined_output
+    assert "secret-speech-region" not in combined_output
+    assert "token=" not in combined_output
 
 
 def test_preflight_all_does_not_create_clients_or_send_or_call_live_services(
