@@ -536,6 +536,28 @@ def test_demo_page_reset_clears_selected_case_context() -> None:
     assert "renderSelectedCaseContext(null);" in html
 
 
+def test_demo_page_reset_success_message_is_local_and_clear() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Local demo reset complete. Mock cases and mock notifications were cleared." in html
+    assert "await requestJson(\"/demo/reset\", { method: \"POST\" });" in html
+    assert "await loadSummary();" in html
+    assert "await loadCases();" in html
+    assert "renderSelectedCaseContext(null);" in html
+    assert "emailNotifications.innerHTML = \"\";" in html
+    assert "smsNotifications.innerHTML = \"\";" in html
+    reset_handler = html[
+        html.index('document.querySelector("#resetDemo").addEventListener')
+        : html.index("loadSummary().catch")
+    ]
+    assert "Azure resources were deleted" not in reset_handler
+    assert "production data" not in reset_handler
+    assert "real PHI" not in reset_handler
+    assert "real notifications were sent" not in reset_handler
+
+
 def test_demo_page_select_for_review_clears_stale_review_notes() -> None:
     response = client.get("/demo")
 

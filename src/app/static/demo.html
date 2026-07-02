@@ -1229,7 +1229,7 @@
           renderSelectedCaseContext(null);
           await loadSummary();
           await loadCases();
-          status.textContent = "Local mock demo reset.";
+          status.textContent = "Local demo reset complete. Mock cases and mock notifications were cleared.";
         } catch (error) {
           status.textContent = safeDemoErrorMessage(
             error,
