@@ -29,6 +29,18 @@ Safety boundary:
 - Use no real Azure resource identifiers in the local mock demo.
 - Real Azure providers require explicit provider environment variables and credentials before any live smoke testing.
 
+## Demo Claims
+
+The current demo can safely show local text intake, already-transcribed voicemail transcript intake, deterministic mock AI extraction, urgency classification, nurse review workflow, queue/recent case views and summary counts, deterministic handoff notes, mock email/SMS notification inspection, and offline-safe consolidated preflight checks.
+
+The demo must not claim production clinical readiness, autonomous medical decision-making, live Azure AI Foundry extraction, live Azure Speech transcription, live phone intake/call automation, confirmed ACS SMS handset delivery, or hosting/auth/Key Vault/retry/durable processing.
+
+The boundary remains: human nurse review is required, use fictional/demo data only,
+commit no secrets or PHI, and default mock mode makes no Azure calls,
+model calls, audio processing, repository reads/writes/queries, email sends, or
+SMS sends unless an explicit provider/manual smoke path is intentionally
+selected.
+
 Create and activate a virtual environment:
 
 ```bash

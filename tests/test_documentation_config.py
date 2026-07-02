@@ -244,6 +244,37 @@ def test_readme_documents_local_mock_demo_walkthrough() -> None:
     assert "ACS SMS delivery tracking" in readme
 
 
+def test_readme_documents_current_demo_claims_boundary() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+
+    assert "## Demo Claims" in readme
+    assert "human nurse review is required" in readme
+    assert "fictional/demo data only" in readme
+    assert "no secrets or PHI" in readme
+    assert "local text intake" in readme
+    assert "already-transcribed voicemail transcript intake" in readme
+    assert "deterministic mock AI extraction" in readme
+    assert "urgency classification" in readme
+    assert "nurse review workflow" in readme
+    assert "queue/recent case views and summary counts" in readme
+    assert "deterministic handoff notes" in readme
+    assert "mock email/SMS notification inspection" in readme
+    assert "offline-safe consolidated preflight checks" in readme
+    assert "must not claim production clinical readiness" in readme
+    assert "autonomous medical decision-making" in readme
+    assert "live Azure AI Foundry extraction" in readme
+    assert "live Azure Speech transcription" in readme
+    assert "live phone intake/call automation" in readme
+    assert "confirmed ACS SMS handset delivery" in readme
+    assert "hosting/auth/Key Vault/retry/durable processing" in readme
+    assert "default mock mode makes no Azure calls" in readme
+    assert "model calls" in readme
+    assert "audio processing" in readme
+    assert "repository reads/writes/queries" in readme
+    assert "email sends" in readme
+    assert "SMS sends" in readme
+
+
 def test_readme_documents_consolidated_preflight_output() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text()
 

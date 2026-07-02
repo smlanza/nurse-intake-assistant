@@ -4,7 +4,7 @@ Active current-status and resume document. Historical progress through June 2026
 
 ## Current Status
 Latest verified test baseline:
-- 499 passed
+- 500 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -22,19 +22,18 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Safe preflight failure documentation slice is complete.
-- README now explains that `FAIL` means missing configuration for an explicitly
-  enabled provider, not a failed live call; the Cosmos example shows missing
-  variable names, `Guidance:`, summary `FAIL=1`, exit code 1, no secret values,
-  and the offline-safe boundary.
-- This is a safe preflight failure documentation slice only; no runtime
-  behavior, preflight decision behavior, Azure calls, clients, model calls,
-  audio processing, repository reads/writes/queries, notification sends, API
+- README demo-claims/boundary documentation slice is complete.
+- README now has a `Demo Claims` section separating safe local mock/demo claims
+  from production/live-integration claims it must not make, while preserving
+  human-review, fictional-data, no-secrets/no-PHI, and mock/offline boundaries.
+- This is a README demo-claims/boundary documentation slice only; no runtime
+  behavior, preflight behavior, Azure calls, clients, model calls, audio
+  processing, repository reads/writes/queries, notification sends, API
   contracts, provider defaults, hosting/auth/Key Vault, phone intake, retry
   behavior, frontend work, or real PHI were added.
-- Recent completed slices also include README mock-mode preflight alignment,
-  consolidated summary output, `Guidance:` wording, Cosmos/Speech preflight
-  coverage, and the README local demo walkthrough refresh.
+- Recent completed slices also include safe preflight failure docs, README
+  mock-mode preflight alignment, consolidated summary output, `Guidance:`
+  wording, Cosmos/Speech preflight coverage, and README walkthrough refresh.
 
 ## Current Resume Point
 
