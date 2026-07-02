@@ -65,6 +65,27 @@ Run the offline-safe provider preflight in mock-safe mode:
 python scripts/preflight.py --all
 ```
 
+The consolidated preflight checks Cosmos Repository, Foundry, Azure Speech, ACS
+Email, and ACS SMS configuration without live service behavior. In default mock
+mode, `SKIP is expected and safe` because the corresponding live provider is
+not enabled:
+
+```text
+Nurse Intake Assistant Preflight
+Offline-safe checks only. No Azure clients, Azure calls, model calls, audio processing, repository reads/writes/queries, email sends, or SMS sends are performed.
+SKIP Cosmos Repository: APP_MODE is not cosmos.
+Guidance: Keep APP_MODE=mock for local demo.
+SKIP Foundry: AI_PROVIDER is not foundry.
+Guidance: Keep AI_PROVIDER=mock for local demo.
+SKIP Azure Speech: SPEECH_PROVIDER is not azure.
+Guidance: Keep SPEECH_PROVIDER=mock for local demo.
+SKIP ACS Email: EMAIL_PROVIDER is not acs.
+Guidance: Keep EMAIL_PROVIDER=mock for local demo.
+SKIP ACS SMS: SMS_PROVIDER is not acs.
+Guidance: Keep SMS_PROVIDER=mock for local demo.
+Preflight summary: PASS=0, SKIP=5, FAIL=0. Completed safely with no failed checks.
+```
+
 Start the app locally:
 
 ```bash

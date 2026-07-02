@@ -244,6 +244,26 @@ def test_readme_documents_local_mock_demo_walkthrough() -> None:
     assert "ACS SMS delivery tracking" in readme
 
 
+def test_readme_documents_consolidated_preflight_output() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+
+    assert "Cosmos Repository" in readme
+    assert "SKIP Cosmos Repository" in readme
+    assert "SKIP is expected and safe" in readme
+    assert "Guidance:" in readme
+    assert "Next step:" not in readme
+    assert "Preflight summary:" in readme
+    assert "PASS=0, SKIP=5, FAIL=0" in readme
+    assert "Completed safely with no failed checks" in readme
+    assert "No Azure clients" in readme
+    assert "Azure calls" in readme
+    assert "model calls" in readme
+    assert "audio processing" in readme
+    assert "repository reads/writes/queries" in readme
+    assert "email sends" in readme
+    assert "SMS sends" in readme
+
+
 def test_demo_page_smoke_test_guide_exists() -> None:
     guide_path = PROJECT_ROOT / "docs" / "demo-smoke-test.md"
 
