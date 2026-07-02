@@ -82,6 +82,23 @@ def test_demo_page_includes_visible_demo_claims_boundary() -> None:
     assert "SMS sends" in html
 
 
+def test_demo_page_includes_local_mock_mode_status_panel() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'aria-labelledby="local-demo-status-heading"' in html
+    assert "Local Demo Status" in html
+    assert "Mode: local mock/demo" in html
+    assert "AI extraction: deterministic mock AI" in html
+    assert "Repository: in-memory/local mock queue" in html
+    assert "Notifications: mock email/SMS records only" in html
+    assert "Review: human nurse review required" in html
+    assert "Azure: no live Azure calls in default demo mode" in html
+    assert "reset/seeded locally" in html
+    assert "fictional demo data" in html
+
+
 def test_demo_page_displays_active_provider_configuration() -> None:
     response = client.get("/demo")
 
