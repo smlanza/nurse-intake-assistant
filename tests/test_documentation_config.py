@@ -258,6 +258,24 @@ def test_readme_documents_local_mock_demo_walkthrough() -> None:
     assert "ACS SMS delivery tracking" in readme
 
 
+def test_readme_documents_current_live_smoke_status() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+    normalized_readme = " ".join(readme.split())
+
+    assert "## Current Status" in readme
+    assert "mock mode remains the primary interview/demo path" in readme
+    assert "Automated tests: offline only" in readme
+    assert "no Azure calls" in readme
+    assert "Live Azure OpenAI / Foundry structured extraction" in readme
+    assert "manually smoke-tested with fictional medication-refill input" in normalized_readme
+    assert "--live-client-mode azure-openai-endpoint" in readme
+    assert "not production clinical software" in readme
+    assert "requires nurse review before any clinical action" in readme
+    assert "do not use real PHI" in readme
+    assert "real endpoint values" in normalized_readme
+    assert "no Azure calls, model calls" in normalized_readme
+
+
 def test_readme_documents_current_demo_claims_boundary() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text()
 
@@ -396,6 +414,10 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "openai.azure.com/openai/v1" in guide
     assert "model parameter source" in normalized_guide
     assert "sanitized `404`" in guide
+    assert "validated live path is `--live-client-mode azure-openai-endpoint`" in guide
+    assert "completed structured extraction and urgency classification" in normalized_guide
+    assert "manual path validated for this capstone is `azure-openai-endpoint`" in guide
+    assert "A successful live smoke response should" in guide
     assert "entra-bearer-token-provider" in guide
     assert "cognitiveservices.default" in guide
     assert "token provider details are never printed" in normalized_guide
@@ -420,13 +442,31 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "AZURE_OPENAI_ENDPOINT" in guide
     assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME" in guide
     assert "Automated tests use fake SDK/client objects only" in guide
-    assert "real Azure AI Foundry smoke test has not been performed yet" in guide
+    assert "real Azure AI Foundry smoke test has not been performed yet" not in guide
     assert "Do not use real patient data" in guide
     assert "medication refill" in guide
     assert "chest pain" in guide
     assert "missing_fields" in guide
     assert "Restore mock defaults" in guide
     assert "Restore or verify `AI_PROVIDER=mock`" in guide
+
+
+def test_developer_handoff_documents_current_integration_status() -> None:
+    handoff = (PROJECT_ROOT / "docs" / "developer-handoff.md").read_text()
+    normalized_handoff = " ".join(handoff.split())
+
+    assert "Current Integration Status" in handoff
+    assert "Mock demo is the primary interview/demo path" in handoff
+    assert "--live-client-mode azure-openai-endpoint" in handoff
+    assert "AZURE_OPENAI_ENDPOINT" in handoff
+    assert "/openai/v1/" in handoff
+    assert "Entra bearer-token provider auth" in handoff
+    assert "not wired into the default demo" in handoff
+    assert "Azure Speech remains scaffolded" in handoff
+    assert "ACS Email/SMS" in handoff
+    assert "Cosmos has repository seams" in handoff
+    assert "Production hosting" in handoff
+    assert "out of scope for this MVP" in normalized_handoff
 
 
 def test_manual_speech_smoke_test_guide_exists() -> None:

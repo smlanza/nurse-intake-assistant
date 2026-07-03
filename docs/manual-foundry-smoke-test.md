@@ -1,6 +1,6 @@
 # Manual Foundry Smoke Test
 
-Use this checklist for a future manual Azure AI Foundry structured extraction
+Use this checklist for the manual Azure OpenAI / Foundry structured extraction
 smoke test. The current automated test suite must remain offline and must not
 call Azure.
 
@@ -12,12 +12,16 @@ Current status:
   `complete_structured_extraction(prompt, model_deployment_name)`.
 - The Foundry live client adapter is opt-in, matches the fake-client seam, and
   uses lazy SDK imports/client construction.
-- `scripts/smoke_foundry_extraction.py` provides an opt-in manual CLI scaffold
-  with separate preflight and explicit live smoke modes.
+- `scripts/smoke_foundry_extraction.py` provides an opt-in manual CLI with
+  separate preflight and explicit live smoke modes.
 - The script can load a local `.env.foundry.local` file for its own process
   with `--env-file`; existing shell environment variables still win.
 - Automated tests use fake SDK/client objects only.
-- A real Azure AI Foundry smoke test has not been performed yet.
+- The validated live path is `--live-client-mode azure-openai-endpoint` with
+  fictional routine medication-refill input. It completed structured extraction
+  and urgency classification, including advisory disclaimer output.
+- The `foundry-project-endpoint` path remains available for diagnosis but may
+  fail depending on project endpoint auth/client behavior.
 
 Do not use real patient data, real phone numbers, real email addresses,
 connection strings, secrets, provider credentials, or PHI in this smoke test.
@@ -103,7 +107,8 @@ running. It prints a small safe result summary for fictional input only.
 The default `--live` mode preserves the Foundry project endpoint path. Try
 `--live --diagnose --live-client-mode azure-openai-endpoint` only after
 `--check` passes and the default project endpoint mode reaches request
-execution but fails with a safe category such as authentication failed.
+execution but fails with a safe category such as authentication failed. The
+manual path validated for this capstone is `azure-openai-endpoint`.
 
 If `--live` fails, the script prints the existing generic safe failure message,
 then a safe diagnostic category. It intentionally does not print raw exception
@@ -214,7 +219,7 @@ My name is Alex Lee. DOB: 1975-03-20. I need a medication refill.
 
 ## Expected Validation Behavior
 
-A successful future live response should:
+A successful live smoke response should:
 
 - Map into the existing `ExtractionSummaryResult` model.
 - Map into the existing `UrgencyClassificationResult` model.

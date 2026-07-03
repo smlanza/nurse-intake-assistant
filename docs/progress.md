@@ -251,19 +251,19 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
-- Azure OpenAI v1 endpoint path compatibility slice is complete:
-  `--live-client-mode azure-openai-endpoint` now uses `OpenAI` with an internal
-  `/openai/v1/` base URL, Entra bearer-token-provider auth, and deployment name
-  as the model parameter while reporting only safe auth/path/scope labels.
-- Endpoint/client compatibility covers `services.ai.azure.com` and
-  `openai.azure.com`; wrong/missing endpoints, bad v1 path shapes, and
-  token-provider setup failures fail safely with sanitized diagnostics.
-- Default mock demo behavior is unchanged; no automated Azure calls, production
-  deployment, hosting/auth/Key Vault, Speech/phone intake, ACS behavior, Cosmos
-  writes, frontend changes, API key support, Agents, MCP/A2A, or PHI were added.
-- Recent Foundry diagnostic slices are complete: `--live --diagnose` reports
-  sanitized config/endpoint/deployment/SDK/token/phase, chain/root/status,
-  safe category, and next-step details without printing secret/raw values.
+- Live Foundry smoke status documentation consolidation slice is complete.
+- Manual live Azure OpenAI / Foundry structured extraction was validated with
+  fictional medication-refill input via `--live-client-mode azure-openai-endpoint`;
+  docs now describe the safe path without endpoint/deployment/token values.
+- Validated path details: `AZURE_OPENAI_ENDPOINT`, internal `/openai/v1/` base
+  URL, Entra bearer-token-provider auth, `cognitiveservices.default` scope
+  category, and deployment setting used as the model parameter.
+- Default mock demo behavior is unchanged; automated tests remain offline; no
+  production deployment, hosting/auth/Key Vault, Speech phone intake, ACS
+  changes, Cosmos writes, frontend changes, Agents, MCP/A2A, API key support,
+  or PHI were added.
+- Recent Azure OpenAI/Foundry diagnostic slices are complete: v1 endpoint path,
+  endpoint compatibility, token-provider setup, and sanitized root/status output.
 - Azure Speech env-file smoke isolation slice is complete.
 - `scripts/smoke_speech_transcription.py --env-file .env.speech.local --check`
   loads missing settings for the script only; shell variables win, missing paths

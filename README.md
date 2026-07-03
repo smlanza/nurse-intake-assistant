@@ -10,6 +10,20 @@ AI-assisted nurse intake capstone project for Azure AI-103 preparation.
 - Nurse notification
 - Basic storage/logging
 
+## Current Status
+
+- Default local demo: mock mode remains the primary interview/demo path.
+- Automated tests: offline only; no Azure calls, model calls, audio processing,
+  email sends, or SMS sends.
+- Live Azure OpenAI / Foundry structured extraction: manually smoke-tested with
+  fictional medication-refill input through
+  `scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose --live-client-mode azure-openai-endpoint`.
+- Clinical boundary: this is not production clinical software; AI output is
+  advisory only and requires nurse review before any clinical action.
+- Data boundary: do not use real PHI, real phone numbers, real email addresses,
+  secrets, tokens, credentials, connection strings, API keys, or real endpoint
+  values in demo/smoke-test documentation.
+
 ## Local Mock Demo Walkthrough
 
 This project demonstrates a local mock/demo only nurse intake workflow for the

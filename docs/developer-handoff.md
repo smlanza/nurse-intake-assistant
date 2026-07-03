@@ -16,6 +16,28 @@ ACS phone recording or protected demo input
 
 The implementation should prioritize demoability, cost control, and clear Azure AI-103 alignment over enterprise-scale architecture.
 
+## Current Integration Status
+
+- Mock demo is the primary interview/demo path. `APP_MODE=mock`,
+  `AI_PROVIDER=mock`, `SPEECH_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, and
+  `SMS_PROVIDER=mock` remain the safe defaults.
+- Live Azure OpenAI / Foundry structured extraction has a manual smoke script:
+  `scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose --live-client-mode azure-openai-endpoint`.
+- The validated live path uses `AZURE_OPENAI_ENDPOINT`, normalizes internally to
+  the Azure OpenAI `/openai/v1/` path, uses Entra bearer-token provider auth,
+  and passes `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME` as the model parameter.
+- Foundry/Azure OpenAI live extraction is not wired into the default demo; the
+  app remains mock-first unless explicit manual provider settings are used.
+- Azure Speech remains scaffolded with offline/manual preflight only; no live
+  audio transcription or phone intake is part of the default demo.
+- ACS Email/SMS have provider scaffolds and offline-safe preflight/manual smoke
+  guidance; do not overstate delivery guarantees.
+- Cosmos has repository seams and manual point-read style smoke guidance; the
+  default local demo remains in-memory.
+- Production hosting, authentication, security hardening, compliance, Key
+  Vault, retry/durable processing, Agents, MCP/A2A, and clinical production use
+  are out of scope for this MVP.
+
 ## 2. Implementation Sequence
 
 Use a backend-first build order.
