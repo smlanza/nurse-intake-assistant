@@ -1,4 +1,5 @@
 from importlib.util import find_spec
+from urllib.parse import urlparse, urlunparse
 
 
 FOUNDRY_LIVE_CLIENT_UNAVAILABLE_MESSAGE = (
@@ -24,9 +25,10 @@ AZURE_OPENAI_LIVE_CLIENT_EMPTY_RESPONSE_MESSAGE = (
     "Azure OpenAI endpoint live client returned no response content."
 )
 AZURE_OPENAI_AUTH_MODE = "entra-bearer-token-provider"
+AZURE_OPENAI_API_PATH_MODE = "openai-v1"
+AZURE_OPENAI_BASE_URL_SHAPE = "openai.azure.com/openai/v1"
 AZURE_OPENAI_TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
 AZURE_OPENAI_TOKEN_SCOPE_CATEGORY = "cognitiveservices.default"
-AZURE_OPENAI_API_VERSION = "2024-10-21"
 AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE = (
     "Azure OpenAI endpoint token provider setup failed."
 )
@@ -185,12 +187,12 @@ def _create_chat_client(project_endpoint: str):
 
 def _create_azure_openai_chat_client(azure_openai_endpoint: str):
     try:
-        AzureOpenAI = _get_azure_openai_client_class()
+        OpenAI = _get_openai_client_class()
+        base_url = normalize_azure_openai_v1_base_url(azure_openai_endpoint)
         token_provider = _create_azure_openai_bearer_token_provider()
-        return AzureOpenAI(
-            azure_endpoint=azure_openai_endpoint,
-            azure_ad_token_provider=token_provider,
-            api_version=AZURE_OPENAI_API_VERSION,
+        return OpenAI(
+            base_url=base_url,
+            api_key=token_provider,
         )
     except RuntimeError as exc:
         if str(exc) == AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE:
@@ -212,12 +214,32 @@ def _create_azure_openai_bearer_token_provider():
         raise RuntimeError(AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE) from exc
 
 
-def _get_azure_openai_client_class():
+def normalize_azure_openai_v1_base_url(azure_openai_endpoint: str) -> str:
+    parsed = urlparse(azure_openai_endpoint.strip())
+    normalized_path = parsed.path.strip("/")
+    if normalized_path in {"", "openai/v1"}:
+        path = "/openai/v1/"
+    else:
+        raise ValueError("Unsupported Azure OpenAI endpoint path shape.")
+
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc,
+            path,
+            "",
+            "",
+            "",
+        )
+    )
+
+
+def _get_openai_client_class():
     try:
-        from openai import AzureOpenAI
+        from openai import OpenAI
     except ImportError as exc:
         raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
-    return AzureOpenAI
+    return OpenAI
 
 
 def _get_default_credential_class():

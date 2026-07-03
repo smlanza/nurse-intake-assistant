@@ -54,6 +54,10 @@ Do not put an Azure OpenAI endpoint in `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`.
 Both modes reuse `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`; the value is never
 printed. The Azure OpenAI endpoint smoke path uses Microsoft Entra bearer-token
 provider auth through `DefaultAzureCredential` and the SDK token provider helper.
+It uses the Azure OpenAI v1 path shape internally, normalizing
+`AZURE_OPENAI_ENDPOINT` to a base URL ending in `/openai/v1/`. The endpoint may
+be provided with or without `/openai/v1`; the deployment name setting is passed
+as the OpenAI `model` parameter.
 Diagnostics report only the safe auth mode label
 `entra-bearer-token-provider` and token scope category
 `cognitiveservices.default`; token values and token provider details are never
@@ -137,11 +141,12 @@ yes/no, endpoint shape classification (`services.ai.azure.com`,
 availability, required endpoint present yes/no, live client mode
 (`foundry-project-endpoint` or `azure-openai-endpoint`), endpoint/client
 compatibility (`compatible`, `incompatible`, or `unknown`), Azure CLI token
-probe status, Azure OpenAI auth mode and safe token scope category when that
-mode is selected, failure phase, sanitized top-level and root exception class
-names, bounded exception-chain class names, safe HTTP status category (`401`,
-`403`, `404`, `429`, `5xx`, or `unknown`), the existing safe failure category,
-and the existing safe next-step hint.
+probe status, Azure OpenAI API path mode (`openai-v1`), base URL shape category
+(`openai.azure.com/openai/v1`), auth mode, safe token scope category, and model
+parameter source when that mode is selected, failure phase, sanitized top-level
+and root exception class names, bounded exception-chain class names, safe HTTP
+status category (`401`, `403`, `404`, `429`, `5xx`, or `unknown`), the existing
+safe failure category, and the existing safe next-step hint.
 
 If the endpoint/client combination is incompatible or unknown, `--live` fails
 before request execution and prints a safe next-step hint without making an
@@ -151,6 +156,10 @@ If `azure-openai-endpoint` mode reaches request execution and still reports a
 sanitized `401` after this bearer-token-provider path, treat it as likely Azure
 RBAC/resource authentication configuration rather than a local endpoint-shape
 problem.
+
+If it reports a sanitized `404` after this v1 path, check whether the deployment
+is reachable behind that Azure OpenAI endpoint and supports the called API
+shape.
 
 It still redacts endpoint values, deployment names, prompts, model responses,
 tokens, credentials, connection strings, raw exception messages, raw response

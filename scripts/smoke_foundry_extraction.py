@@ -17,6 +17,8 @@ from src.app.services.foundry_extraction_contract import FoundryExtractionContra
 from src.app.services.ai_service_factory import create_ai_service
 from src.app.services.foundry_live_client import (
     AZURE_OPENAI_AUTH_MODE,
+    AZURE_OPENAI_API_PATH_MODE,
+    AZURE_OPENAI_BASE_URL_SHAPE,
     AZURE_OPENAI_LIVE_CLIENT_MODE,
     AZURE_OPENAI_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE,
     AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE,
@@ -26,6 +28,7 @@ from src.app.services.foundry_live_client import (
     azure_openai_live_sdk_available,
     create_azure_openai_live_client,
     foundry_live_sdk_available,
+    normalize_azure_openai_v1_base_url,
 )
 
 
@@ -131,6 +134,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.diagnose:
             _print_diagnostic_failure("config validation")
         return 2
+
+    if args.live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
+        base_url_shape = _get_azure_openai_base_url_shape(settings)
+        if base_url_shape != AZURE_OPENAI_BASE_URL_SHAPE:
+            _print_endpoint_client_configuration_error(
+                "unknown",
+                args.live_client_mode,
+            )
+            if args.diagnose:
+                _print_diagnostic_failure("config validation")
+            return 2
 
     if not sdk_available:
         _print_configuration_error(
@@ -405,12 +419,26 @@ def _print_diagnostic_configuration(
     )
     if live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
         print(
+            "Diagnostic Azure OpenAI API path mode: "
+            f"{AZURE_OPENAI_API_PATH_MODE}",
+            file=sys.stderr,
+        )
+        print(
+            "Diagnostic Azure OpenAI base URL shape: "
+            f"{_get_azure_openai_base_url_shape(settings)}",
+            file=sys.stderr,
+        )
+        print(
             f"Diagnostic Azure OpenAI auth mode: {AZURE_OPENAI_AUTH_MODE}",
             file=sys.stderr,
         )
         print(
             "Diagnostic token scope category: "
             f"{AZURE_OPENAI_TOKEN_SCOPE_CATEGORY}",
+            file=sys.stderr,
+        )
+        print(
+            "Diagnostic model parameter source: deployment-name-setting",
             file=sys.stderr,
         )
 
@@ -536,6 +564,17 @@ def _get_configured_endpoint(
     if live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
         return settings.azure_openai_endpoint
     return settings.azure_ai_foundry_project_endpoint
+
+
+def _get_azure_openai_base_url_shape(settings: AppSettings) -> str:
+    endpoint = settings.azure_openai_endpoint
+    if endpoint is None:
+        return "unknown"
+    try:
+        normalize_azure_openai_v1_base_url(endpoint)
+    except ValueError:
+        return "unknown"
+    return AZURE_OPENAI_BASE_URL_SHAPE
 
 
 def _expected_endpoint_shape(live_client_mode: str) -> str:

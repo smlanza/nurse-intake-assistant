@@ -832,11 +832,17 @@ def test_foundry_smoke_script_azure_openai_mode_diagnose_reports_safe_compatibil
     assert "Diagnostic endpoint/client compatibility: compatible" in captured.err
     assert "Diagnostic deployment name present: yes" in captured.err
     assert "Diagnostic token probe: available" in captured.err
+    assert "Diagnostic Azure OpenAI API path mode: openai-v1" in captured.err
+    assert (
+        "Diagnostic Azure OpenAI base URL shape: openai.azure.com/openai/v1"
+        in captured.err
+    )
     assert (
         "Diagnostic Azure OpenAI auth mode: entra-bearer-token-provider"
         in captured.err
     )
     assert "Diagnostic token scope category: cognitiveservices.default" in captured.err
+    assert "Diagnostic model parameter source: deployment-name-setting" in captured.err
     assert "Diagnostic HTTP status category: 401" in captured.err
     assert "Diagnostic safe failure category: authentication failed" in captured.err
     assert "secret-openai-resource" not in captured.err
@@ -845,6 +851,135 @@ def test_foundry_smoke_script_azure_openai_mode_diagnose_reports_safe_compatibil
     assert "token_provider" not in captured.err
     assert "object at" not in captured.err
     assert "Unauthorized" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_foundry_smoke_script_azure_openai_mode_rejects_unknown_v1_path(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint=None,
+            azure_openai_endpoint=(
+                "https://secret-openai-resource.openai.azure.com/private/path"
+            ),
+        ),
+    )
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: pytest.fail("Azure OpenAI client should not be created"),
+    )
+    monkeypatch.setattr(
+        script,
+        "_probe_azure_token_availability",
+        lambda: pytest.fail("token probe should not run after invalid base URL path"),
+    )
+
+    exit_code = script.main(
+        ["--live", "--diagnose", "--live-client-mode", "azure-openai-endpoint"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "Diagnostic configured endpoint shape: openai.azure.com" in captured.err
+    assert "Diagnostic Azure OpenAI base URL shape: unknown" in captured.err
+    assert "Diagnostic failure phase: config validation" in captured.err
+    assert "secret-openai-resource" not in captured.err
+    assert "private/path" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_foundry_smoke_script_azure_openai_mode_requires_deployment_name(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint=None,
+            azure_openai_endpoint="https://secret-openai-resource.openai.azure.com/",
+            deployment=None,
+        ),
+    )
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: pytest.fail("Azure OpenAI client should not be created"),
+    )
+
+    exit_code = script.main(
+        ["--live", "--diagnose", "--live-client-mode", "azure-openai-endpoint"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME" in captured.err
+    assert "Diagnostic deployment name present: no" in captured.err
+    assert "Diagnostic failure phase: config validation" in captured.err
+    assert "secret-openai-resource" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_foundry_smoke_script_azure_openai_404_stays_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    response = SimpleNamespace(
+        status_code=404,
+        text="raw-secret-response-body",
+        url="https://secret-openai-resource.openai.azure.com/openai/v1/chat/completions",
+    )
+    http_error = RuntimeError(
+        "Not found at https://secret-openai-resource.openai.azure.com "
+        "deployment secret-openai-deployment raw-secret-response-body"
+    )
+    http_error.response = response
+    wrapped_error = RuntimeError("Azure OpenAI endpoint live client request failed.")
+    wrapped_error.__cause__ = http_error
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint=None,
+            azure_openai_endpoint="https://secret-openai-resource.openai.azure.com/",
+            deployment="secret-openai-deployment",
+        ),
+    )
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: RaisingStructuredClient(wrapped_error),
+    )
+
+    exit_code = script.main(
+        ["--live", "--diagnose", "--live-client-mode", "azure-openai-endpoint"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Diagnostic HTTP status category: 404" in captured.err
+    assert "Diagnostic safe failure category: deployment or model not found" in captured.err
+    assert "secret-openai-resource" not in captured.err
+    assert "secret-openai-deployment" not in captured.err
+    assert "raw-secret-response-body" not in captured.err
+    assert "openai/v1/chat/completions" not in captured.err
+    assert "Not found at" not in captured.err
     assert "Traceback" not in captured.err
 
 

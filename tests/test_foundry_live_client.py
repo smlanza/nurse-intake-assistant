@@ -221,7 +221,7 @@ def test_azure_openai_chat_client_uses_bearer_token_provider(
     constructed_clients: list[dict[str, object]] = []
     token_provider = object()
 
-    class FakeAzureOpenAI:
+    class FakeOpenAI:
         def __init__(self, **kwargs: object) -> None:
             constructed_clients.append(kwargs)
 
@@ -235,8 +235,8 @@ def test_azure_openai_chat_client_uses_bearer_token_provider(
 
     monkeypatch.setattr(
         foundry_live_client,
-        "_get_azure_openai_client_class",
-        lambda: FakeAzureOpenAI,
+        "_get_openai_client_class",
+        lambda: FakeOpenAI,
     )
     monkeypatch.setattr(
         foundry_live_client,
@@ -255,13 +255,60 @@ def test_azure_openai_chat_client_uses_bearer_token_provider(
 
     assert constructed_clients == [
         {
-            "azure_endpoint": "https://secret-openai-resource.openai.azure.com/",
-            "azure_ad_token_provider": token_provider,
-            "api_version": foundry_live_client.AZURE_OPENAI_API_VERSION,
+            "base_url": "https://secret-openai-resource.openai.azure.com/openai/v1/",
+            "api_key": token_provider,
         }
     ]
-    assert "api_key" not in constructed_clients[0]
+    assert "azure_endpoint" not in constructed_clients[0]
+    assert "azure_ad_token_provider" not in constructed_clients[0]
+    assert "api_version" not in constructed_clients[0]
     assert "credential" not in constructed_clients[0]
+
+
+@pytest.mark.parametrize(
+    "endpoint,expected_base_url",
+    [
+        (
+            "https://example-openai-resource.openai.azure.com",
+            "https://example-openai-resource.openai.azure.com/openai/v1/",
+        ),
+        (
+            "https://example-openai-resource.openai.azure.com/",
+            "https://example-openai-resource.openai.azure.com/openai/v1/",
+        ),
+        (
+            "https://example-openai-resource.openai.azure.com/openai/v1",
+            "https://example-openai-resource.openai.azure.com/openai/v1/",
+        ),
+        (
+            "https://example-openai-resource.openai.azure.com/openai/v1/",
+            "https://example-openai-resource.openai.azure.com/openai/v1/",
+        ),
+    ],
+)
+def test_azure_openai_v1_base_url_normalization(
+    endpoint: str,
+    expected_base_url: str,
+) -> None:
+    from src.app.services import foundry_live_client
+
+    assert (
+        foundry_live_client.normalize_azure_openai_v1_base_url(endpoint)
+        == expected_base_url
+    )
+
+
+def test_azure_openai_v1_base_url_rejects_unknown_path_safely() -> None:
+    from src.app.services import foundry_live_client
+
+    with pytest.raises(ValueError) as exc:
+        foundry_live_client.normalize_azure_openai_v1_base_url(
+            "https://secret-openai-resource.openai.azure.com/private/path"
+        )
+
+    message = str(exc.value)
+    assert message == "Unsupported Azure OpenAI endpoint path shape."
+    assert "secret-openai-resource" not in message
 
 
 def test_azure_openai_token_provider_setup_failure_is_safe(

@@ -388,6 +388,14 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "--live --diagnose --live-client-mode azure-openai-endpoint" in guide
     assert "API key support is not added" in guide
     assert "Microsoft Entra bearer-token provider auth" in normalized_guide
+    assert "Azure OpenAI v1 path shape" in guide
+    assert "/openai/v1/" in guide
+    assert "provided with or without `/openai/v1`" in guide
+    assert "OpenAI `model` parameter" in guide
+    assert "openai-v1" in guide
+    assert "openai.azure.com/openai/v1" in guide
+    assert "model parameter source" in normalized_guide
+    assert "sanitized `404`" in guide
     assert "entra-bearer-token-provider" in guide
     assert "cognitiveservices.default" in guide
     assert "token provider details are never printed" in normalized_guide
