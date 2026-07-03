@@ -368,6 +368,9 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "endpoint shape classification" in guide
     assert "Azure CLI token probe status" in guide
     assert "failure phase" in guide
+    assert "root exception class names" in guide
+    assert "exception-chain class names" in guide
+    assert "safe HTTP status category" in normalized_guide
     assert "raw exception messages" in guide
     assert ".env.foundry.local.example" in guide
     assert "existing shell environment variables still win" in guide

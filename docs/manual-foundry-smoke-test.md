@@ -90,6 +90,7 @@ Safe diagnostic categories include:
 - authorization/RBAC failed
 - deployment or model not found
 - endpoint rejected request
+- rate limited
 - model response parsing failed
 - unknown live smoke failure
 
@@ -109,9 +110,10 @@ python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live 
 Diagnostic mode prints sanitized status only: required config names present
 yes/no, endpoint shape classification (`services.ai.azure.com`,
 `openai.azure.com`, or `unknown`), deployment name present yes/no, SDK import
-availability, Azure CLI token probe status, failure phase, sanitized exception
-class name, the existing safe failure category, and the existing safe next-step
-hint.
+availability, Azure CLI token probe status, failure phase, sanitized top-level
+and root exception class names, bounded exception-chain class names, safe HTTP
+status category (`401`, `403`, `404`, `429`, `5xx`, or `unknown`), the existing
+safe failure category, and the existing safe next-step hint.
 
 It still redacts endpoint values, deployment names, prompts, model responses,
 tokens, credentials, connection strings, raw exception messages, raw response

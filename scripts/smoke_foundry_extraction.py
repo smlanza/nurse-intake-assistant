@@ -41,6 +41,10 @@ SAFE_FAILURE_HINTS = {
         "Check endpoint type, SDK compatibility, and request support for the "
         "deployed model."
     ),
+    "rate limited": (
+        "Wait and retry the manual smoke test later, or check quota and "
+        "capacity for the configured Foundry deployment."
+    ),
     "model response parsing failed": (
         "Check whether the model response still matches the structured JSON "
         "contract."
@@ -274,6 +278,21 @@ def _print_diagnostic_failure(
             f"{error.__class__.__name__}",
             file=sys.stderr,
         )
+        print(
+            "Diagnostic root exception class: "
+            f"{get_safe_root_exception_class(error)}",
+            file=sys.stderr,
+        )
+        print(
+            "Diagnostic exception chain classes: "
+            f"{' -> '.join(get_safe_exception_chain_classes(error))}",
+            file=sys.stderr,
+        )
+        print(
+            "Diagnostic HTTP status category: "
+            f"{get_safe_status_category(error)}",
+            file=sys.stderr,
+        )
     if failure_category is not None:
         print(
             f"Diagnostic safe failure category: {failure_category}",
@@ -290,6 +309,7 @@ def _diagnostic_failure_phase(current_phase: str, failure_category: str) -> str:
         "deployment or model not found",
         "endpoint rejected request",
         "Azure credential unavailable",
+        "rate limited",
     }:
         return "request execution"
     if failure_category == "client construction failed":
@@ -399,6 +419,24 @@ def classify_live_smoke_failure(error: BaseException) -> str:
         return "deployment or model not found"
     if status_code == 400:
         return "endpoint rejected request"
+    if status_code == 429:
+        return "rate limited"
+
+    chain_class_text = " ".join(get_safe_exception_chain_classes(error)).casefold()
+    if "credentialunavailable" in chain_class_text:
+        return "Azure credential unavailable"
+    if "clientauthentication" in chain_class_text:
+        return "authentication failed"
+    if "authentication" in chain_class_text:
+        return "authentication failed"
+    if "authorization" in chain_class_text or "forbidden" in chain_class_text:
+        return "authorization/RBAC failed"
+    if "notfound" in chain_class_text or "resourcegone" in chain_class_text:
+        return "deployment or model not found"
+    if "badrequest" in chain_class_text:
+        return "endpoint rejected request"
+    if "ratelimit" in chain_class_text or "toomanyrequests" in chain_class_text:
+        return "rate limited"
 
     combined_text = " ".join(
         f"{candidate.__class__.__name__} {candidate}"
@@ -419,6 +457,8 @@ def classify_live_smoke_failure(error: BaseException) -> str:
         return "deployment or model not found"
     if "bad request" in combined_text or "invalid request" in combined_text:
         return "endpoint rejected request"
+    if "rate limit" in combined_text or "too many requests" in combined_text:
+        return "rate limited"
     if "json" in combined_text or "schema" in combined_text or "parse" in combined_text:
         return "model response parsing failed"
     if "client creation" in combined_text or "live client is not configured" in combined_text:
@@ -429,10 +469,41 @@ def classify_live_smoke_failure(error: BaseException) -> str:
     return "unknown live smoke failure"
 
 
-def _walk_exception_chain(error: BaseException) -> list[BaseException]:
+def get_safe_exception_chain_classes(
+    error: BaseException,
+    max_depth: int = 5,
+) -> list[str]:
+    """Return bounded exception class names without messages or args."""
+
+    return [
+        candidate.__class__.__name__
+        for candidate in _walk_exception_chain(error, max_depth)
+    ]
+
+
+def get_safe_root_exception_class(error: BaseException, max_depth: int = 5) -> str:
+    """Return the deepest observed exception class name without raw details."""
+
+    chain_classes = get_safe_exception_chain_classes(error, max_depth)
+    return chain_classes[-1] if chain_classes else "unknown"
+
+
+def get_safe_status_category(error: BaseException) -> str:
+    status_code = _find_status_code(error)
+    if status_code in {401, 403, 404, 429}:
+        return str(status_code)
+    if status_code is not None and 500 <= status_code <= 599:
+        return "5xx"
+    return "unknown"
+
+
+def _walk_exception_chain(
+    error: BaseException,
+    max_depth: int = 5,
+) -> list[BaseException]:
     chain: list[BaseException] = []
     current: BaseException | None = error
-    while current is not None and current not in chain:
+    while current is not None and current not in chain and len(chain) < max_depth:
         chain.append(current)
         current = current.__cause__ or current.__context__
     return chain

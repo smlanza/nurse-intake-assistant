@@ -68,6 +68,26 @@ class FakeClientAuthenticationError(RuntimeError):
     pass
 
 
+class FakeOuterContextError(RuntimeError):
+    pass
+
+
+class FakeMiddleContextError(RuntimeError):
+    pass
+
+
+class FakeInnerContextError(RuntimeError):
+    pass
+
+
+class FakeDeepContextError(RuntimeError):
+    pass
+
+
+class FakeTooDeepContextError(RuntimeError):
+    pass
+
+
 def test_foundry_smoke_script_refuses_mock_provider(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -478,6 +498,7 @@ def test_foundry_smoke_script_live_fails_safely_when_sdk_unavailable(
             "deployment or model not found",
         ),
         (FakeHttpError(400, "Endpoint rejected request"), "endpoint rejected request"),
+        (FakeHttpError(429, "Too many requests"), "rate limited"),
         (
             FoundryExtractionContractError("not valid JSON"),
             "model response parsing failed",
@@ -607,6 +628,201 @@ def test_foundry_smoke_script_live_diagnose_auth_failure_is_sanitized(
     assert "Unauthorized" not in captured.err
     assert "Traceback" not in captured.err
     assert "Stack trace" not in captured.err
+
+
+def test_foundry_smoke_script_live_diagnose_unwraps_cause_chain_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    root_error = FakeClientAuthenticationError(
+        "raw auth failure secret-token https://secret-endpoint.example.invalid"
+    )
+    wrapped_error = RuntimeError(
+        "wrapper message secret-deployment Return JSON only"
+    )
+    wrapped_error.__cause__ = root_error
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: RaisingAiService(wrapped_error),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Diagnostic exception class: RuntimeError" in captured.err
+    assert (
+        "Diagnostic root exception class: FakeClientAuthenticationError"
+        in captured.err
+    )
+    assert (
+        "Diagnostic exception chain classes: RuntimeError -> "
+        "FakeClientAuthenticationError"
+    ) in captured.err
+    assert "Diagnostic HTTP status category: unknown" in captured.err
+    assert "Diagnostic safe failure category: authentication failed" in captured.err
+    assert "secret-token" not in captured.err
+    assert "secret-endpoint" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "Return JSON only" not in captured.err
+    assert "raw auth failure" not in captured.err
+    assert "wrapper message" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_foundry_smoke_script_live_diagnose_reports_bounded_context_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    top_error = RuntimeError("top raw message secret-token")
+    outer_error = FakeOuterContextError("outer raw message")
+    middle_error = FakeMiddleContextError("middle raw message")
+    inner_error = FakeInnerContextError("inner raw message")
+    deep_error = FakeDeepContextError("deep raw message")
+    too_deep_error = FakeTooDeepContextError("too deep raw message")
+    top_error.__context__ = outer_error
+    outer_error.__context__ = middle_error
+    middle_error.__context__ = inner_error
+    inner_error.__context__ = deep_error
+    deep_error.__context__ = too_deep_error
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: RaisingAiService(top_error),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert (
+        "Diagnostic exception chain classes: RuntimeError -> "
+        "FakeOuterContextError -> FakeMiddleContextError -> "
+        "FakeInnerContextError -> FakeDeepContextError"
+    ) in captured.err
+    assert "Diagnostic root exception class: FakeDeepContextError" in captured.err
+    assert "FakeTooDeepContextError" not in captured.err
+    assert "raw message" not in captured.err
+    assert "secret-token" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_foundry_smoke_script_live_diagnose_reports_safe_status_category(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    response = SimpleNamespace(
+        status_code=403,
+        text="raw-secret-response-body",
+        url="https://secret-endpoint.example.invalid/openai/deployments/secret-deployment",
+        headers={"Authorization": "Bearer secret-token"},
+    )
+    wrapped_error = RuntimeError("wrapper raw message")
+    http_error = RuntimeError(
+        "Forbidden raw message raw-secret-response-body secret-token"
+    )
+    http_error.response = response
+    wrapped_error.__cause__ = http_error
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: RaisingAiService(wrapped_error),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Diagnostic HTTP status category: 403" in captured.err
+    assert "Diagnostic safe failure category: authorization/RBAC failed" in captured.err
+    assert "raw-secret-response-body" not in captured.err
+    assert "secret-endpoint" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "secret-token" not in captured.err
+    assert "Forbidden raw message" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_foundry_smoke_script_live_diagnose_maps_404_status_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: RaisingAiService(
+            FakeHttpError(
+                404,
+                (
+                    "deployment secret-deployment missing at "
+                    "https://secret-endpoint.example.invalid"
+                ),
+            )
+        ),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Diagnostic HTTP status category: 404" in captured.err
+    assert "Diagnostic safe failure category: deployment or model not found" in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "secret-endpoint" not in captured.err
+    assert "deployment secret-deployment missing" not in captured.err
+
+
+def test_foundry_smoke_script_live_diagnose_handles_cyclic_exception_chain(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    cyclic_error = RuntimeError("cyclic raw secret-token")
+    cyclic_error.__context__ = cyclic_error
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: RaisingAiService(cyclic_error),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Diagnostic exception chain classes: RuntimeError" in captured.err
+    assert "Diagnostic root exception class: RuntimeError" in captured.err
+    assert "cyclic raw" not in captured.err
+    assert "secret-token" not in captured.err
+    assert "Traceback" not in captured.err
 
 
 def test_foundry_smoke_script_live_diagnose_reports_openai_endpoint_shape(
