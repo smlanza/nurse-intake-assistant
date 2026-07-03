@@ -28,7 +28,7 @@ Future live smoke testing still requires:
 
 - Azure AI Foundry project
 - Compatible deployed model
-- Project endpoint
+- Azure AI Foundry project endpoint
 - Model deployment name
 - Azure authentication method and SDK package setup appropriate for the live
   environment
@@ -40,6 +40,14 @@ AI_PROVIDER=foundry
 AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=
 AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME=
 ```
+
+`AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` is expected to be the Azure AI Foundry
+project endpoint shape used by the current live adapter, classified as
+`services.ai.azure.com`. An Azure OpenAI endpoint shape such as
+`openai.azure.com` is a different client/auth path and is not wired into this
+manual smoke script. If an Azure OpenAI endpoint is needed later, add that path
+as a separate explicit slice rather than putting it in
+`AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`.
 
 Keep notification providers in mock mode unless the smoke test is explicitly
 combined with a separate ACS notification test:
@@ -110,10 +118,16 @@ python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live 
 Diagnostic mode prints sanitized status only: required config names present
 yes/no, endpoint shape classification (`services.ai.azure.com`,
 `openai.azure.com`, or `unknown`), deployment name present yes/no, SDK import
-availability, Azure CLI token probe status, failure phase, sanitized top-level
-and root exception class names, bounded exception-chain class names, safe HTTP
-status category (`401`, `403`, `404`, `429`, `5xx`, or `unknown`), the existing
-safe failure category, and the existing safe next-step hint.
+availability, live client mode (`foundry-project-endpoint`), endpoint/client
+compatibility (`compatible`, `incompatible`, or `unknown`), Azure CLI token
+probe status, failure phase, sanitized top-level and root exception class names,
+bounded exception-chain class names, safe HTTP status category (`401`, `403`,
+`404`, `429`, `5xx`, or `unknown`), the existing safe failure category, and the
+existing safe next-step hint.
+
+If the endpoint/client combination is incompatible or unknown, `--live` fails
+before request execution and prints a safe next-step hint without making an
+Azure call.
 
 It still redacts endpoint values, deployment names, prompts, model responses,
 tokens, credentials, connection strings, raw exception messages, raw response

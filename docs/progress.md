@@ -251,18 +251,19 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
-- Foundry diagnostic root-cause unwrapping slice is complete.
-- `scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose`
-  now reports sanitized exception-chain classes, root class, and safe HTTP
-  status category without printing messages, bodies, URLs, tokens, endpoints,
-  deployments, prompts, tracebacks, stack traces, or PHI.
+- Foundry live endpoint/auth contract diagnostics slice is complete.
+- Current live adapter mode is explicit as `foundry-project-endpoint`, supporting
+  `services.ai.azure.com` Foundry project endpoints; `openai.azure.com` or unknown
+  endpoint shapes fail safely before request execution with sanitized diagnostic
+  compatibility output.
 - Default mock demo behavior is unchanged; no automated Azure calls, production
   deployment, hosting/auth/Key Vault, Speech/phone intake, ACS behavior, Cosmos
   writes, frontend changes, or PHI were added.
-- Foundry live smoke diagnostic mode slice is complete: `--live --diagnose`
-  adds sanitized manual-only config presence, endpoint shape, deployment
-  presence, SDK availability, token probe status, failure phase, exception
-  class, safe category, and next-step hint.
+- Foundry diagnostic root-cause unwrapping slice is complete.
+- `scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose`
+  reports sanitized config/endpoint/deployment/SDK/token/phase details plus
+  exception-chain classes, root class, safe HTTP status category, safe category,
+  and next-step hint without printing secret values or raw exception details.
 - Azure Speech env-file smoke isolation slice is complete.
 - `scripts/smoke_speech_transcription.py --env-file .env.speech.local --check`
   loads missing settings for the script only; shell variables win, missing paths

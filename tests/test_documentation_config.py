@@ -366,7 +366,12 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "--env-file .env.foundry.local --live --diagnose" in guide
     assert "Troubleshoot With Diagnose" in guide
     assert "endpoint shape classification" in guide
-    assert "Azure CLI token probe status" in guide
+    assert "foundry-project-endpoint" in guide
+    assert "endpoint/client compatibility" in normalized_guide
+    assert "services.ai.azure.com" in guide
+    assert "openai.azure.com" in guide
+    assert "not wired into this manual smoke script" in normalized_guide
+    assert "Azure CLI token probe status" in normalized_guide
     assert "failure phase" in guide
     assert "root exception class names" in guide
     assert "exception-chain class names" in guide

@@ -21,6 +21,16 @@ def test_foundry_live_client_exposes_structured_extraction_seam() -> None:
     assert callable(client.complete_structured_extraction)
 
 
+def test_foundry_live_client_declares_endpoint_contract() -> None:
+    from src.app.services import foundry_live_client
+
+    assert foundry_live_client.FOUNDRY_LIVE_CLIENT_MODE == "foundry-project-endpoint"
+    assert (
+        foundry_live_client.FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE
+        == "services.ai.azure.com"
+    )
+
+
 def test_foundry_live_client_fails_clearly_without_sdk_support(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

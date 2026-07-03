@@ -10,6 +10,8 @@ FOUNDRY_LIVE_CLIENT_REQUEST_FAILED_MESSAGE = (
 FOUNDRY_LIVE_CLIENT_EMPTY_RESPONSE_MESSAGE = (
     "Azure AI Foundry live client returned no response content."
 )
+FOUNDRY_LIVE_CLIENT_MODE = "foundry-project-endpoint"
+FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE = "services.ai.azure.com"
 
 FOUNDRY_SYSTEM_MESSAGE = (
     "You are a structured extraction adapter for a nurse intake assistant. "
@@ -18,7 +20,12 @@ FOUNDRY_SYSTEM_MESSAGE = (
 
 
 class AzureAiFoundryLiveClient:
-    """Opt-in scaffold for future live Azure AI Foundry structured extraction."""
+    """Opt-in scaffold for live Azure AI Foundry structured extraction.
+
+    The current adapter uses the Azure AI Inference client with an Azure AI
+    Foundry project endpoint. It does not implement the separate Azure OpenAI
+    endpoint/client path.
+    """
 
     def __init__(self, project_endpoint: str) -> None:
         self.project_endpoint = project_endpoint

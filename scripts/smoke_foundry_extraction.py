@@ -14,7 +14,11 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.app.config.settings import AppSettings
 from src.app.services.foundry_extraction_contract import FoundryExtractionContractError
 from src.app.services.ai_service_factory import create_ai_service
-from src.app.services.foundry_live_client import foundry_live_sdk_available
+from src.app.services.foundry_live_client import (
+    FOUNDRY_LIVE_CLIENT_MODE,
+    FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE,
+    foundry_live_sdk_available,
+)
 
 
 SAFE_FAILURE_HINTS = {
@@ -102,6 +106,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         print("Restore AI_PROVIDER=mock after any manual smoke test.")
         return 0
+
+    compatibility = _get_endpoint_client_compatibility(settings)
+    if compatibility != "compatible":
+        _print_endpoint_client_configuration_error(compatibility)
+        if args.diagnose:
+            _print_diagnostic_failure("config validation")
+        return 2
 
     if not sdk_available:
         _print_configuration_error(
@@ -223,6 +234,33 @@ def _print_configuration_error(message: str) -> None:
     )
 
 
+def _print_endpoint_client_configuration_error(compatibility: str) -> None:
+    if compatibility == "incompatible":
+        print(
+            "Foundry smoke test endpoint/client configuration is incompatible "
+            "with the current live adapter.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "Foundry smoke test endpoint/client configuration could not be "
+            "confirmed for the current live adapter.",
+            file=sys.stderr,
+        )
+    print(
+        "The current live adapter mode is foundry-project-endpoint and expects "
+        "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT to be a Foundry project endpoint "
+        "shape (services.ai.azure.com). Azure OpenAI endpoint support is not "
+        "wired in this smoke script. No Azure call was made.",
+        file=sys.stderr,
+    )
+    print(
+        "No endpoint value, deployment name, token, credential, raw exception, "
+        "or traceback was printed.",
+        file=sys.stderr,
+    )
+
+
 def _print_safe_live_failure_summary(failure_category: str) -> None:
     if failure_category == "authentication failed":
         print(
@@ -243,6 +281,10 @@ def _print_safe_live_failure_summary(failure_category: str) -> None:
 
 def _print_diagnostic_configuration(settings: AppSettings, sdk_available: bool | None) -> None:
     print("Foundry live diagnostic mode enabled.", file=sys.stderr)
+    print(
+        f"Diagnostic live client mode: {FOUNDRY_LIVE_CLIENT_MODE}",
+        file=sys.stderr,
+    )
     print("Diagnostic config AI_PROVIDER present: yes", file=sys.stderr)
     print(
         "Diagnostic config AZURE_AI_FOUNDRY_PROJECT_ENDPOINT present: "
@@ -252,6 +294,16 @@ def _print_diagnostic_configuration(settings: AppSettings, sdk_available: bool |
     print(
         "Diagnostic endpoint shape: "
         f"{_classify_endpoint_shape(settings.azure_ai_foundry_project_endpoint)}",
+        file=sys.stderr,
+    )
+    print(
+        "Diagnostic configured endpoint shape: "
+        f"{_classify_endpoint_shape(settings.azure_ai_foundry_project_endpoint)}",
+        file=sys.stderr,
+    )
+    print(
+        "Diagnostic endpoint/client compatibility: "
+        f"{_get_endpoint_client_compatibility(settings)}",
         file=sys.stderr,
     )
     print(
@@ -340,6 +392,17 @@ def _classify_endpoint_shape(endpoint: str | None) -> str:
         return "services.ai.azure.com"
     if "openai.azure.com" in host:
         return "openai.azure.com"
+    return "unknown"
+
+
+def _get_endpoint_client_compatibility(settings: AppSettings) -> str:
+    endpoint_shape = _classify_endpoint_shape(
+        settings.azure_ai_foundry_project_endpoint
+    )
+    if endpoint_shape == FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE:
+        return "compatible"
+    if endpoint_shape == "openai.azure.com":
+        return "incompatible"
     return "unknown"
 
 
