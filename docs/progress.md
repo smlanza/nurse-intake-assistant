@@ -246,24 +246,26 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Prefer small manual smoke guides, provider preflight checks, offline
-deterministic tests, and incremental Azure validation while keeping the default
-demo mock/offline. Keep ACS phone intake, live Azure Speech processing,
-hosting, auth, Key Vault, retry/durable processing, and production frontend
-deferred unless scope explicitly changes.
+Prefer small manual smoke guides, provider preflight checks, offline tests, and incremental Azure validation while keeping the default demo mock/offline.
+Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, retry/durable processing, and production frontend deferred unless scoped.
 
 ## Current Slice Completed
 
+- Azure Speech env-file smoke isolation slice is complete.
+- `scripts/smoke_speech_transcription.py --env-file .env.speech.local --check`
+  loads missing settings for the script process only; shell variables still win,
+  and missing paths fail safely before validation, client creation, or calls.
+- `.env.speech.local.example` has fictional placeholders; real `.env.speech.local` remains ignored.
+- `--check` remains offline-safe config validation only: default mock demo
+  behavior is unchanged, and no live Speech transcription, audio processing,
+  phone intake, ACS automation, hosting/auth/Key Vault, retry, frontend, real PHI,
+  production clinical use, or automated Azure calls were added.
 - Foundry env-file smoke isolation slice is complete.
 - `scripts/smoke_foundry_extraction.py --env-file .env.foundry.local` loads
-  missing Foundry smoke settings for the script process only; shell environment
-  variables still win, and missing env-file paths fail safely without Azure
-  calls or secret printing.
-- `.env.foundry.local.example` documents safe placeholders while the real local
-  `.env.foundry.local` remains ignored.
-- Default mock demo behavior is unchanged; automated tests remain offline with
-  no default provider change, production deployment, notifications, Cosmos
-  writes, Speech/phone intake, hosting/auth/Key Vault work, or real PHI added.
+  missing settings for the script process only; shell variables still win, and missing
+  paths fail safely without Azure calls or secret printing.
+- `.env.foundry.local.example` has safe placeholders; real `.env.foundry.local`
+  remains ignored. Default mock demo behavior and offline tests are unchanged.
 - Foundry live smoke safe diagnostics slice is complete.
 - `scripts/smoke_foundry_extraction.py --live` now prints a safe failure
   category and next-step hint without printing endpoints, deployment names,

@@ -32,13 +32,16 @@ SPEECH_PROVIDER=mock
 ```
 
 For a manual preflight only, use placeholders like these in your local shell or
-uncommitted `.env` file:
+uncommitted `.env.speech.local` file:
 
 ```bash
 SPEECH_PROVIDER=azure
-AZURE_SPEECH_ENDPOINT=https://demo-speech-resource.cognitiveservices.azure.com/
-AZURE_SPEECH_REGION=demo-region
+AZURE_SPEECH_ENDPOINT=https://example-speech-resource.cognitiveservices.azure.com/
+AZURE_SPEECH_REGION=eastus
 ```
+
+You can start from `.env.speech.local.example`. Keep the real
+`.env.speech.local` local-only and uncommitted.
 
 Do not commit real endpoints tied to production resources, keys, secrets,
 connection strings, real phone numbers, real email addresses, or real patient
@@ -52,6 +55,17 @@ Run:
 python scripts/smoke_speech_transcription.py --check
 ```
 
+Or keep Azure Speech smoke settings isolated to this script process:
+
+```bash
+python scripts/smoke_speech_transcription.py --env-file .env.speech.local --check
+```
+
+The env-file form loads simple `KEY=value` settings for the script process
+only. Existing shell environment variables still win over values from the env
+file, so the file only fills variables that are missing from the shell
+environment.
+
 The `--check` mode validates that:
 
 - `SPEECH_PROVIDER=azure`
@@ -61,6 +75,10 @@ The `--check` mode validates that:
 
 The SDK check is informational. Missing SDK support is reported clearly and
 does not by itself make the preflight fail.
+
+`--check` remains offline-safe with or without `--env-file`: it does not create
+Azure Speech clients, process audio, upload audio, transcribe audio, or make
+Azure calls. It is preflight/config validation only, not live transcription.
 
 ## What Successful Preflight Means
 

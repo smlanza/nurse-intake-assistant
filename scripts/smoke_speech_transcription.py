@@ -1,5 +1,6 @@
 import argparse
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -24,6 +25,13 @@ def main(argv: list[str] | None = None) -> int:
     """Run offline-safe Azure Speech smoke-test preparation checks."""
 
     args = _parse_args(argv)
+
+    if args.env_file is not None:
+        env_file_exit_code = _load_env_file(args.env_file)
+        if env_file_exit_code != 0:
+            return env_file_exit_code
+        print("Loaded Azure Speech smoke environment file.")
+
     settings = AppSettings()
 
     if not args.check:
@@ -73,6 +81,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "without creating a Speech client or making an Azure call."
         ),
     )
+    parser.add_argument(
+        "--env-file",
+        help=(
+            "Load Azure Speech smoke-test settings from a KEY=value file for "
+            "this script process only. Existing shell environment variables win."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -106,6 +121,61 @@ def _print_configuration_error(message: str) -> None:
         "preparation.",
         file=sys.stderr,
     )
+
+
+def _load_env_file(env_file: str) -> int:
+    path = Path(env_file)
+    if not path.exists():
+        print("Azure Speech smoke env file not found.", file=sys.stderr)
+        print(
+            "Create a local .env.speech.local file from the example, or pass "
+            "the correct --env-file path. No Azure call was made.",
+            file=sys.stderr,
+        )
+        return 2
+
+    for line_number, raw_line in enumerate(path.read_text().splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line.removeprefix("export ").strip()
+        if "=" not in line:
+            print(
+                f"Invalid Azure Speech smoke env file line {line_number}: "
+                "expected KEY=value.",
+                file=sys.stderr,
+            )
+            print(
+                "No environment values were printed. No Azure call was made.",
+                file=sys.stderr,
+            )
+            return 2
+
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            print(
+                f"Invalid Azure Speech smoke env file line {line_number}: "
+                "missing key.",
+                file=sys.stderr,
+            )
+            print(
+                "No environment values were printed. No Azure call was made.",
+                file=sys.stderr,
+            )
+            return 2
+
+        if key not in os.environ:
+            os.environ[key] = _strip_optional_quotes(value.strip())
+
+    return 0
+
+
+def _strip_optional_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
 
 
 if __name__ == "__main__":

@@ -399,6 +399,10 @@ def test_manual_speech_smoke_test_guide_exists() -> None:
     assert "AZURE_SPEECH_ENDPOINT" in guide
     assert "AZURE_SPEECH_REGION" in guide
     assert "python scripts/smoke_speech_transcription.py --check" in guide
+    assert "--env-file .env.speech.local --check" in guide
+    assert ".env.speech.local.example" in guide
+    assert "Existing shell environment variables still win" in guide
+    assert "preflight/config validation only" in guide
     assert "No Speech client was created" in guide
     assert "process audio" in guide
     assert "make an Azure network call" in guide

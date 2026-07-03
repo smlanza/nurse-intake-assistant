@@ -16,6 +16,7 @@ env/
 .env.*
 !.env.example
 !.env.foundry.local.example
+!.env.speech.local.example
 
 # VS Code
 .vscode/
