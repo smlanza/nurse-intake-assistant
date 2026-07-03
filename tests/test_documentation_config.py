@@ -387,11 +387,16 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "azure-openai-endpoint" in guide
     assert "--live --diagnose --live-client-mode azure-openai-endpoint" in guide
     assert "API key support is not added" in guide
+    assert "Microsoft Entra bearer-token provider auth" in normalized_guide
+    assert "entra-bearer-token-provider" in guide
+    assert "cognitiveservices.default" in guide
+    assert "token provider details are never printed" in normalized_guide
+    assert "RBAC/resource authentication configuration" in guide
     assert "required endpoint present" in normalized_guide
     assert "Azure CLI token probe status" in normalized_guide
     assert "failure phase" in guide
-    assert "root exception class names" in guide
-    assert "exception-chain class names" in guide
+    assert "root exception class names" in normalized_guide
+    assert "exception-chain class names" in normalized_guide
     assert "safe HTTP status category" in normalized_guide
     assert "raw exception messages" in guide
     assert ".env.foundry.local.example" in guide

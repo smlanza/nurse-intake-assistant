@@ -251,16 +251,16 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
-- Azure OpenAI endpoint smoke path scaffold slice is complete:
-  `--live-client-mode azure-openai-endpoint` adds a separate manual-only path
-  using `AZURE_OPENAI_ENDPOINT` (`openai.azure.com`) and Entra/Azure CLI auth;
-  default `foundry-project-endpoint` behavior is unchanged.
-- Endpoint/client compatibility now covers both `services.ai.azure.com` and
-  `openai.azure.com`; wrong or missing endpoints fail safely before request execution
-  with sanitized diagnostics and no endpoint/deployment printing.
-- No automated Azure calls, production deployment, hosting/auth/Key Vault, Speech/phone
-  intake, ACS behavior, Cosmos writes, frontend changes, API key support, PHI,
-  or default mock demo behavior changes were added.
+- Azure OpenAI token provider contract hardening slice is complete:
+  `--live-client-mode azure-openai-endpoint` now uses the SDK Microsoft Entra
+  bearer-token-provider pattern for `AZURE_OPENAI_ENDPOINT` (`openai.azure.com`)
+  and reports only safe auth mode/scope category labels.
+- Endpoint/client compatibility covers both `services.ai.azure.com` and
+  `openai.azure.com`; wrong/missing endpoints and token-provider setup failures
+  fail safely with sanitized diagnostics and no endpoint/deployment/token output.
+- Default mock demo behavior is unchanged; no automated Azure calls, production
+  deployment, hosting/auth/Key Vault, Speech/phone intake, ACS behavior, Cosmos
+  writes, frontend changes, API key support, Agents, or PHI were added.
 - Recent Foundry diagnostic slices are complete: `--live --diagnose` reports
   sanitized config/endpoint/deployment/SDK/token/phase, chain/root/status,
   safe category, and next-step details without printing secret/raw values.

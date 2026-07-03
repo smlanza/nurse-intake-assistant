@@ -52,8 +52,12 @@ The smoke script has two explicit live client modes:
 
 Do not put an Azure OpenAI endpoint in `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`.
 Both modes reuse `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`; the value is never
-printed. The Azure OpenAI endpoint smoke path expects Entra/Azure CLI auth in
-this slice. API key support is not added.
+printed. The Azure OpenAI endpoint smoke path uses Microsoft Entra bearer-token
+provider auth through `DefaultAzureCredential` and the SDK token provider helper.
+Diagnostics report only the safe auth mode label
+`entra-bearer-token-provider` and token scope category
+`cognitiveservices.default`; token values and token provider details are never
+printed. API key support is not added.
 
 Keep notification providers in mock mode unless the smoke test is explicitly
 combined with a separate ACS notification test:
@@ -133,14 +137,20 @@ yes/no, endpoint shape classification (`services.ai.azure.com`,
 availability, required endpoint present yes/no, live client mode
 (`foundry-project-endpoint` or `azure-openai-endpoint`), endpoint/client
 compatibility (`compatible`, `incompatible`, or `unknown`), Azure CLI token
-probe status, failure phase, sanitized top-level and root exception class names,
-bounded exception-chain class names, safe HTTP status category (`401`, `403`,
-`404`, `429`, `5xx`, or `unknown`), the existing safe failure category, and the
-existing safe next-step hint.
+probe status, Azure OpenAI auth mode and safe token scope category when that
+mode is selected, failure phase, sanitized top-level and root exception class
+names, bounded exception-chain class names, safe HTTP status category (`401`,
+`403`, `404`, `429`, `5xx`, or `unknown`), the existing safe failure category,
+and the existing safe next-step hint.
 
 If the endpoint/client combination is incompatible or unknown, `--live` fails
 before request execution and prints a safe next-step hint without making an
 Azure call.
+
+If `azure-openai-endpoint` mode reaches request execution and still reports a
+sanitized `401` after this bearer-token-provider path, treat it as likely Azure
+RBAC/resource authentication configuration rather than a local endpoint-shape
+problem.
 
 It still redacts endpoint values, deployment names, prompts, model responses,
 tokens, credentials, connection strings, raw exception messages, raw response

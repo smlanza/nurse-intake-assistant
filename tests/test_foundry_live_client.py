@@ -179,7 +179,7 @@ def test_azure_openai_live_client_returns_content_from_fake_chat_response(
     from src.app.services import foundry_live_client
     from src.app.services.foundry_live_client import AzureOpenAiEndpointLiveClient
 
-    fake_chat_client = FakeChatClient(
+    fake_chat_client = FakeAzureOpenAiClient(
         response={
             "choices": [
                 {
@@ -206,8 +206,92 @@ def test_azure_openai_live_client_returns_content_from_fake_chat_response(
     )
 
     assert result == '{"summary": "azure ok"}'
-    assert fake_chat_client.calls[0]["model"] == "secret-deployment"
-    assert fake_chat_client.calls[0]["messages"][1]["content"] == "secret prompt marker"
+    assert fake_chat_client.chat.completions.calls[0]["model"] == "secret-deployment"
+    assert (
+        fake_chat_client.chat.completions.calls[0]["messages"][1]["content"]
+        == "secret prompt marker"
+    )
+
+
+def test_azure_openai_chat_client_uses_bearer_token_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_live_client
+
+    constructed_clients: list[dict[str, object]] = []
+    token_provider = object()
+
+    class FakeAzureOpenAI:
+        def __init__(self, **kwargs: object) -> None:
+            constructed_clients.append(kwargs)
+
+    class FakeCredential:
+        pass
+
+    def fake_get_bearer_token_provider(credential: object, scope: str) -> object:
+        assert isinstance(credential, FakeCredential)
+        assert scope == "https://cognitiveservices.azure.com/.default"
+        return token_provider
+
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_get_azure_openai_client_class",
+        lambda: FakeAzureOpenAI,
+    )
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_get_default_credential_class",
+        lambda: FakeCredential,
+    )
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_get_bearer_token_provider_factory",
+        lambda: fake_get_bearer_token_provider,
+    )
+
+    foundry_live_client._create_azure_openai_chat_client(
+        "https://secret-openai-resource.openai.azure.com/"
+    )
+
+    assert constructed_clients == [
+        {
+            "azure_endpoint": "https://secret-openai-resource.openai.azure.com/",
+            "azure_ad_token_provider": token_provider,
+            "api_version": foundry_live_client.AZURE_OPENAI_API_VERSION,
+        }
+    ]
+    assert "api_key" not in constructed_clients[0]
+    assert "credential" not in constructed_clients[0]
+
+
+def test_azure_openai_token_provider_setup_failure_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_live_client
+
+    class FakeCredential:
+        pass
+
+    def failing_get_bearer_token_provider(credential: object, scope: str) -> object:
+        raise RuntimeError("raw token provider secret-token")
+
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_get_default_credential_class",
+        lambda: FakeCredential,
+    )
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_get_bearer_token_provider_factory",
+        lambda: failing_get_bearer_token_provider,
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        foundry_live_client._create_azure_openai_bearer_token_provider()
+
+    message = str(exc.value)
+    assert message == "Azure OpenAI endpoint token provider setup failed."
+    assert "secret-token" not in message
 
 
 def test_foundry_live_client_supports_object_chat_response(
@@ -326,6 +410,23 @@ class FakeChatClient:
         self.calls: list[dict[str, object]] = []
 
     def complete(self, messages: list[object], model: str) -> object:
+        self.calls.append({"messages": messages, "model": model})
+        return self.response
+
+
+class FakeAzureOpenAiClient:
+    def __init__(self, response: object) -> None:
+        self.chat = SimpleNamespace(
+            completions=FakeAzureOpenAiCompletions(response=response)
+        )
+
+
+class FakeAzureOpenAiCompletions:
+    def __init__(self, response: object) -> None:
+        self.response = response
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, messages: list[object], model: str) -> object:
         self.calls.append({"messages": messages, "model": model})
         return self.response
 

@@ -16,8 +16,11 @@ from src.app.services.foundry_ai_service import FoundryAiService
 from src.app.services.foundry_extraction_contract import FoundryExtractionContractError
 from src.app.services.ai_service_factory import create_ai_service
 from src.app.services.foundry_live_client import (
+    AZURE_OPENAI_AUTH_MODE,
     AZURE_OPENAI_LIVE_CLIENT_MODE,
     AZURE_OPENAI_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE,
+    AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE,
+    AZURE_OPENAI_TOKEN_SCOPE_CATEGORY,
     FOUNDRY_LIVE_CLIENT_MODE,
     FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE,
     azure_openai_live_sdk_available,
@@ -162,7 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.diagnose:
             _print_diagnostic_failure(
-                _diagnostic_failure_phase(failure_phase, failure_category),
+                _diagnostic_failure_phase(failure_phase, failure_category, exc),
                 exc,
                 failure_category,
             )
@@ -400,6 +403,16 @@ def _print_diagnostic_configuration(
         f"{_yes_no(sdk_available)}",
         file=sys.stderr,
     )
+    if live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
+        print(
+            f"Diagnostic Azure OpenAI auth mode: {AZURE_OPENAI_AUTH_MODE}",
+            file=sys.stderr,
+        )
+        print(
+            "Diagnostic token scope category: "
+            f"{AZURE_OPENAI_TOKEN_SCOPE_CATEGORY}",
+            file=sys.stderr,
+        )
 
 
 def _print_diagnostic_failure(
@@ -436,7 +449,13 @@ def _print_diagnostic_failure(
         )
 
 
-def _diagnostic_failure_phase(current_phase: str, failure_category: str) -> str:
+def _diagnostic_failure_phase(
+    current_phase: str,
+    failure_category: str,
+    error: BaseException | None = None,
+) -> str:
+    if error is not None and _is_token_provider_setup_failure(error):
+        return "credential/token provider setup"
     if failure_category == "model response parsing failed":
         return "response parsing"
     if failure_category in {
@@ -625,12 +644,16 @@ def classify_live_smoke_failure(error: BaseException) -> str:
         return "endpoint rejected request"
     if "ratelimit" in chain_class_text or "toomanyrequests" in chain_class_text:
         return "rate limited"
+    if "tokenprovider" in chain_class_text:
+        return "Azure credential unavailable"
 
     combined_text = " ".join(
         f"{candidate.__class__.__name__} {candidate}"
         for candidate in _walk_exception_chain(error)
     ).casefold()
 
+    if "token provider setup failed" in combined_text:
+        return "Azure credential unavailable"
     if "credentialunavailable" in combined_text or "credential unavailable" in combined_text:
         return "Azure credential unavailable"
     if "defaultazurecredential" in combined_text and "failed" in combined_text:
@@ -655,6 +678,15 @@ def classify_live_smoke_failure(error: BaseException) -> str:
         return "client construction failed"
 
     return "unknown live smoke failure"
+
+
+def _is_token_provider_setup_failure(error: BaseException) -> bool:
+    for candidate in _walk_exception_chain(error):
+        if str(candidate) == AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE:
+            return True
+        if "tokenprovider" in candidate.__class__.__name__.casefold():
+            return True
+    return False
 
 
 def get_safe_exception_chain_classes(

@@ -23,6 +23,13 @@ AZURE_OPENAI_LIVE_CLIENT_REQUEST_FAILED_MESSAGE = (
 AZURE_OPENAI_LIVE_CLIENT_EMPTY_RESPONSE_MESSAGE = (
     "Azure OpenAI endpoint live client returned no response content."
 )
+AZURE_OPENAI_AUTH_MODE = "entra-bearer-token-provider"
+AZURE_OPENAI_TOKEN_SCOPE = "https://cognitiveservices.azure.com/.default"
+AZURE_OPENAI_TOKEN_SCOPE_CATEGORY = "cognitiveservices.default"
+AZURE_OPENAI_API_VERSION = "2024-10-21"
+AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE = (
+    "Azure OpenAI endpoint token provider setup failed."
+)
 
 FOUNDRY_SYSTEM_MESSAGE = (
     "You are a structured extraction adapter for a nurse intake assistant. "
@@ -96,12 +103,15 @@ class AzureOpenAiEndpointLiveClient:
 
         try:
             chat_client = self._get_chat_client()
-            response = chat_client.complete(
-                messages=_build_chat_messages(prompt),
+            response = chat_client.chat.completions.create(
+                messages=_build_openai_chat_messages(prompt),
                 model=model_deployment_name,
             )
         except RuntimeError as exc:
-            if str(exc) == AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE:
+            if str(exc) in {
+                AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE,
+                AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE,
+            }:
                 raise
             raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_REQUEST_FAILED_MESSAGE) from exc
         except Exception as exc:
@@ -138,7 +148,13 @@ def foundry_live_sdk_available() -> bool:
 def azure_openai_live_sdk_available() -> bool:
     """Return whether optional Azure OpenAI endpoint smoke SDK imports appear available."""
 
-    return _chat_completions_sdk_available()
+    try:
+        return (
+            find_spec("openai") is not None
+            and find_spec("azure.identity") is not None
+        )
+    except (ImportError, ModuleNotFoundError, ValueError):
+        return False
 
 
 def _chat_completions_sdk_available() -> bool:
@@ -169,18 +185,55 @@ def _create_chat_client(project_endpoint: str):
 
 def _create_azure_openai_chat_client(azure_openai_endpoint: str):
     try:
-        from azure.ai.inference import ChatCompletionsClient
+        AzureOpenAI = _get_azure_openai_client_class()
+        token_provider = _create_azure_openai_bearer_token_provider()
+        return AzureOpenAI(
+            azure_endpoint=azure_openai_endpoint,
+            azure_ad_token_provider=token_provider,
+            api_version=AZURE_OPENAI_API_VERSION,
+        )
+    except RuntimeError as exc:
+        if str(exc) == AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE:
+            raise
+        raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+    except Exception as exc:
+        raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+
+
+def _create_azure_openai_bearer_token_provider():
+    try:
+        DefaultAzureCredential = _get_default_credential_class()
+        get_bearer_token_provider = _get_bearer_token_provider_factory()
+        return get_bearer_token_provider(
+            DefaultAzureCredential(),
+            AZURE_OPENAI_TOKEN_SCOPE,
+        )
+    except Exception as exc:
+        raise RuntimeError(AZURE_OPENAI_TOKEN_PROVIDER_UNAVAILABLE_MESSAGE) from exc
+
+
+def _get_azure_openai_client_class():
+    try:
+        from openai import AzureOpenAI
+    except ImportError as exc:
+        raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+    return AzureOpenAI
+
+
+def _get_default_credential_class():
+    try:
         from azure.identity import DefaultAzureCredential
     except ImportError as exc:
         raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+    return DefaultAzureCredential
 
+
+def _get_bearer_token_provider_factory():
     try:
-        return ChatCompletionsClient(
-            endpoint=azure_openai_endpoint,
-            credential=DefaultAzureCredential(),
-        )
-    except Exception as exc:
+        from azure.identity import get_bearer_token_provider
+    except ImportError as exc:
         raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+    return get_bearer_token_provider
 
 
 def _build_chat_messages(prompt: str) -> list[object]:
@@ -195,6 +248,13 @@ def _build_chat_messages(prompt: str) -> list[object]:
     return [
         SystemMessage(content=FOUNDRY_SYSTEM_MESSAGE),
         UserMessage(content=prompt),
+    ]
+
+
+def _build_openai_chat_messages(prompt: str) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": FOUNDRY_SYSTEM_MESSAGE},
+        {"role": "user", "content": prompt},
     ]
 
 
