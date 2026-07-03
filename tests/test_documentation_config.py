@@ -274,6 +274,41 @@ def test_readme_documents_current_live_smoke_status() -> None:
     assert "do not use real PHI" in readme
     assert "real endpoint values" in normalized_readme
     assert "no Azure calls, model calls" in normalized_readme
+    assert "docs/demo-readiness-checklist.md" in readme
+
+
+def test_demo_readiness_checklist_exists() -> None:
+    checklist_path = PROJECT_ROOT / "docs" / "demo-readiness-checklist.md"
+
+    assert checklist_path.exists()
+
+    checklist = checklist_path.read_text()
+    normalized_checklist = " ".join(checklist.split())
+    assert "Demo Readiness Checklist" in checklist
+    assert "local mock demo" in checklist
+    assert "source .venv/bin/activate" in checklist
+    assert "pip install -r requirements.txt" in checklist
+    assert "python -m pytest" in checklist
+    assert "uvicorn src.app.main:app --reload" in checklist
+    assert "http://127.0.0.1:8000/demo" in checklist
+    assert "demo reset" in checklist
+    assert "Submit a fictional text intake" in checklist
+    assert "Load the nurse handoff note" in checklist
+    assert "mock email/SMS notifications" in checklist
+    assert "Manual Azure OpenAI / Foundry structured extraction smoke" in checklist
+    assert "--live-client-mode azure-openai-endpoint" in checklist
+    assert "manual smoke script only" in checklist
+    assert "Automated tests remain offline" in checklist
+    assert "Nurse review is required" in checklist
+    assert "Urgency output is advisory only" in checklist
+    assert "no real PHI" in checklist
+    assert "Do Not Claim" in checklist
+    assert "Do not claim production readiness" in checklist
+    assert "replaces nurse judgment" in checklist
+    assert "Do not claim Azure hosting unless separately deployed" in checklist
+    assert "If tests fail, do not demo live changes" in checklist
+    assert "endpoint values" in checklist
+    assert "deployment names" in checklist
 
 
 def test_readme_documents_current_demo_claims_boundary() -> None:
@@ -467,6 +502,7 @@ def test_developer_handoff_documents_current_integration_status() -> None:
     assert "Cosmos has repository seams" in handoff
     assert "Production hosting" in handoff
     assert "out of scope for this MVP" in normalized_handoff
+    assert "docs/demo-readiness-checklist.md" in handoff
 
 
 def test_manual_speech_smoke_test_guide_exists() -> None:

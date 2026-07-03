@@ -37,6 +37,7 @@ The implementation should prioritize demoability, cost control, and clear Azure 
 - Production hosting, authentication, security hardening, compliance, Key
   Vault, retry/durable processing, Agents, MCP/A2A, and clinical production use
   are out of scope for this MVP.
+- For interview/demo preparation, use `docs/demo-readiness-checklist.md`.
 
 ## 2. Implementation Sequence
 

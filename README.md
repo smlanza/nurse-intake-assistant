@@ -24,6 +24,9 @@ AI-assisted nurse intake capstone project for Azure AI-103 preparation.
   secrets, tokens, credentials, connection strings, API keys, or real endpoint
   values in demo/smoke-test documentation.
 
+For a concise interview/demo runbook, use
+`docs/demo-readiness-checklist.md`.
+
 ## Local Mock Demo Walkthrough
 
 This project demonstrates a local mock/demo only nurse intake workflow for the
