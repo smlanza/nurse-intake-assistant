@@ -550,6 +550,159 @@ def test_foundry_smoke_script_live_authentication_failure_prints_safe_next_steps
     assert "Unauthorized" not in captured.err
 
 
+def test_foundry_smoke_script_live_diagnose_auth_failure_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint=(
+                "https://secret-project.services.ai.azure.com/api/projects/demo"
+            ),
+            deployment="secret-diagnostic-deployment",
+        ),
+    )
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: RaisingAiService(
+            FakeHttpError(
+                401,
+                (
+                    "Unauthorized for https://secret-project.services.ai.azure.com "
+                    "deployment secret-diagnostic-deployment token secret-token "
+                    "credential raw-secret-credential response raw-secret-body "
+                    "Return JSON only"
+                ),
+            )
+        ),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Foundry live diagnostic mode enabled" in captured.err
+    assert "Diagnostic config AZURE_AI_FOUNDRY_PROJECT_ENDPOINT present: yes" in captured.err
+    assert "Diagnostic endpoint shape: services.ai.azure.com" in captured.err
+    assert "Diagnostic deployment name present: yes" in captured.err
+    assert "Diagnostic SDK imports available: yes" in captured.err
+    assert "Diagnostic token probe: available" in captured.err
+    assert "Diagnostic failure phase: request execution" in captured.err
+    assert "Diagnostic exception class: FakeHttpError" in captured.err
+    assert "Diagnostic safe failure category: authentication failed" in captured.err
+    assert "Safe failure category: authentication failed" in captured.err
+    assert "Next check:" in captured.err
+    assert "secret-project" not in captured.err
+    assert "secret-diagnostic-deployment" not in captured.err
+    assert "secret-token" not in captured.err
+    assert "raw-secret-credential" not in captured.err
+    assert "raw-secret-body" not in captured.err
+    assert "Return JSON only" not in captured.err
+    assert "Unauthorized" not in captured.err
+    assert "Traceback" not in captured.err
+    assert "Stack trace" not in captured.err
+
+
+def test_foundry_smoke_script_live_diagnose_reports_openai_endpoint_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint="https://secret-resource.openai.azure.com/",
+            deployment=None,
+        ),
+    )
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: pytest.fail("create_ai_service should not be called"),
+    )
+    monkeypatch.setattr(
+        script,
+        "_probe_azure_token_availability",
+        lambda: pytest.fail("token probe should not run after invalid config"),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "Diagnostic endpoint shape: openai.azure.com" in captured.err
+    assert "Diagnostic deployment name present: no" in captured.err
+    assert "Diagnostic failure phase: config validation" in captured.err
+    assert "secret-resource" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_foundry_smoke_script_live_diagnose_reports_sdk_phase_without_service(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, _settings())
+    monkeypatch.setattr(script, "foundry_live_sdk_available", lambda: False)
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: pytest.fail("create_ai_service should not be called"),
+    )
+    monkeypatch.setattr(
+        script,
+        "_probe_azure_token_availability",
+        lambda: pytest.fail("token probe should not run without SDK availability"),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "Diagnostic SDK imports available: no" in captured.err
+    assert "Diagnostic failure phase: sdk import" in captured.err
+    assert "secret-endpoint" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert captured.out == ""
+
+
+def test_foundry_smoke_script_check_rejects_diagnose_without_service_or_token_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    monkeypatch.setattr(
+        script,
+        "create_ai_service",
+        lambda settings: pytest.fail("create_ai_service should not be called"),
+    )
+    monkeypatch.setattr(
+        script,
+        "_probe_azure_token_availability",
+        lambda: pytest.fail("token probe should not run for --check"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        script.main(["--check", "--diagnose"])
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 2
+    assert "--diagnose is only supported with --live" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_foundry_smoke_script_live_failure_prints_safe_category_only(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

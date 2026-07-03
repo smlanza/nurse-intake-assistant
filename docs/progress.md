@@ -251,6 +251,15 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
+- Foundry live smoke diagnostic mode slice is complete.
+- `scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose`
+  adds sanitized manual-only diagnostics: config presence, endpoint shape,
+  deployment presence, SDK availability, token probe status, failure phase,
+  exception class, safe category, and next-step hint without printing values.
+- Default mock demo behavior is unchanged; no automated Azure calls, production
+  deployment, hosting/auth/Key Vault, Speech/phone intake, ACS behavior, Cosmos
+  writes, frontend changes, PHI, raw exceptions, tracebacks, prompts, tokens, or
+  endpoint/deployment values were added.
 - Azure Speech env-file smoke isolation slice is complete.
 - `scripts/smoke_speech_transcription.py --env-file .env.speech.local --check`
   loads missing settings for the script process only; shell variables still win,
@@ -268,25 +277,16 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
   remains ignored. Default mock demo behavior and offline tests are unchanged.
 - Foundry live smoke safe diagnostics slice is complete.
 - `scripts/smoke_foundry_extraction.py --live` now prints a safe failure
-  category and next-step hint without printing endpoints, deployment names,
-  prompts, tokens, connection strings, raw exception details, or stack traces.
-- Diagnostic tests cover fake credential/auth/RBAC/not-found/bad-request,
-  parsing, nested-status, and unknown failures without Azure calls.
-- No Azure calls in automated tests, default provider change, production
-  deployment, notifications, Cosmos writes, Speech/phone intake,
-  hosting/auth/Key Vault work, frontend changes, or raw exception printing were
-  added.
-- Foundry manual smoke hardening slice is complete.
-- `scripts/smoke_foundry_extraction.py --check` validates Foundry config and
-  reports optional SDK visibility without creating services or making model
-  calls; `--live` is now the explicit manual live smoke mode.
-- The smoke path uses fictional Alex Morgan refill text, prints safe terminal
-  output, and avoids printing endpoints, deployments, prompts, tokens, or
-  exception details on failure.
-- Default mock demo behavior is unchanged; automated tests remain offline with
-  fake services/settings and no production deployment, notifications, Cosmos
-  writes, Speech/phone intake, hosting/auth/Key Vault work, or provider default
-  changes were added.
+  category and next-step hint without printing endpoints, deployments, prompts,
+  tokens, raw exceptions, or stack traces.
+- Tests cover fake credential/auth/RBAC/not-found/bad-request, parsing, nested
+  status, and unknown failures without Azure calls or provider default changes.
+- Foundry manual smoke hardening slice is complete: `--check` validates config
+  and SDK visibility without services/model calls; `--live` uses fictional Alex
+  Morgan text and safe output only.
+- Default mock demo behavior and offline tests remain unchanged; no production
+  deployment, notifications, Cosmos writes, Speech/phone intake, hosting/auth/Key
+  Vault work, or provider default changes were added.
 - Handoff note OpenAPI documentation slice is complete.
 - `/docs` now describes `GET /cases/{case_id}/handoff-note` with summary,
   description, response description, and a safe fictional 200 response example

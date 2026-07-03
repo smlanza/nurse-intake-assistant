@@ -363,6 +363,12 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "--live" in guide
     assert "--env-file .env.foundry.local --check" in guide
     assert "--env-file .env.foundry.local --live" in guide
+    assert "--env-file .env.foundry.local --live --diagnose" in guide
+    assert "Troubleshoot With Diagnose" in guide
+    assert "endpoint shape classification" in guide
+    assert "Azure CLI token probe status" in guide
+    assert "failure phase" in guide
+    assert "raw exception messages" in guide
     assert ".env.foundry.local.example" in guide
     assert "existing shell environment variables still win" in guide
     assert "validates local Foundry configuration" in normalized_guide

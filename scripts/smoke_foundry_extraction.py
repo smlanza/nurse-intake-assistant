@@ -4,6 +4,7 @@ import os
 import sys
 from pathlib import Path
 from typing import TextIO
+from urllib.parse import urlparse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -75,9 +76,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Loaded environment file: {args.env_file}")
 
     settings = AppSettings()
+    sdk_available = foundry_live_sdk_available() if args.live else None
+    if args.diagnose:
+        _print_diagnostic_configuration(settings, sdk_available)
 
     configuration_exit_code = _validate_foundry_configuration(settings)
     if configuration_exit_code != 0:
+        if args.diagnose:
+            _print_diagnostic_failure("config validation")
         return configuration_exit_code
 
     if args.check:
@@ -93,18 +99,26 @@ def main(argv: list[str] | None = None) -> int:
         print("Restore AI_PROVIDER=mock after any manual smoke test.")
         return 0
 
-    if not foundry_live_sdk_available():
+    if not sdk_available:
         _print_configuration_error(
             "Optional Foundry SDK support is unavailable for --live smoke mode."
         )
+        if args.diagnose:
+            _print_diagnostic_failure("sdk import")
         return 2
 
+    if args.diagnose:
+        token_probe_status = _probe_azure_token_availability()
+        print(f"Diagnostic token probe: {token_probe_status}", file=sys.stderr)
+
     try:
+        failure_phase = "client construction"
         ai_service = create_ai_service(settings)
         print(
             "Running manual Azure AI Foundry smoke test with fictional demo "
             "input only. This command is not part of automated pytest."
         )
+        failure_phase = "request execution"
         extraction, urgency = asyncio.run(
             _run_foundry_smoke(ai_service, FICTIONAL_INTAKE_TEXT)
         )
@@ -116,6 +130,12 @@ def main(argv: list[str] | None = None) -> int:
             f"Next check: {SAFE_FAILURE_HINTS[failure_category]}",
             file=sys.stderr,
         )
+        if args.diagnose:
+            _print_diagnostic_failure(
+                _diagnostic_failure_phase(failure_phase, failure_category),
+                exc,
+                failure_category,
+            )
         return 1
 
     _print_safe_result(extraction, urgency, sys.stdout)
@@ -153,7 +173,19 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "script process only. Existing shell environment variables win."
         ),
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help=(
+            "Print sanitized manual-only diagnostics for --live failures. "
+            "No endpoints, deployments, prompts, tokens, raw exceptions, or "
+            "tracebacks are printed."
+        ),
+    )
+    args = parser.parse_args(argv)
+    if args.diagnose and not args.live:
+        parser.error("--diagnose is only supported with --live")
+    return args
 
 
 def _validate_foundry_configuration(settings: AppSettings) -> int:
@@ -203,6 +235,96 @@ def _print_safe_live_failure_summary(failure_category: str) -> None:
         "were printed.",
         file=sys.stderr,
     )
+
+
+def _print_diagnostic_configuration(settings: AppSettings, sdk_available: bool | None) -> None:
+    print("Foundry live diagnostic mode enabled.", file=sys.stderr)
+    print("Diagnostic config AI_PROVIDER present: yes", file=sys.stderr)
+    print(
+        "Diagnostic config AZURE_AI_FOUNDRY_PROJECT_ENDPOINT present: "
+        f"{_yes_no(settings.azure_ai_foundry_project_endpoint)}",
+        file=sys.stderr,
+    )
+    print(
+        "Diagnostic endpoint shape: "
+        f"{_classify_endpoint_shape(settings.azure_ai_foundry_project_endpoint)}",
+        file=sys.stderr,
+    )
+    print(
+        "Diagnostic deployment name present: "
+        f"{_yes_no(settings.azure_ai_foundry_model_deployment_name)}",
+        file=sys.stderr,
+    )
+    print(
+        "Diagnostic SDK imports available: "
+        f"{_yes_no(sdk_available)}",
+        file=sys.stderr,
+    )
+
+
+def _print_diagnostic_failure(
+    phase: str,
+    error: BaseException | None = None,
+    failure_category: str | None = None,
+) -> None:
+    print(f"Diagnostic failure phase: {phase}", file=sys.stderr)
+    if error is not None:
+        print(
+            "Diagnostic exception class: "
+            f"{error.__class__.__name__}",
+            file=sys.stderr,
+        )
+    if failure_category is not None:
+        print(
+            f"Diagnostic safe failure category: {failure_category}",
+            file=sys.stderr,
+        )
+
+
+def _diagnostic_failure_phase(current_phase: str, failure_category: str) -> str:
+    if failure_category == "model response parsing failed":
+        return "response parsing"
+    if failure_category in {
+        "authentication failed",
+        "authorization/RBAC failed",
+        "deployment or model not found",
+        "endpoint rejected request",
+        "Azure credential unavailable",
+    }:
+        return "request execution"
+    if failure_category == "client construction failed":
+        return "client construction"
+    return current_phase or "unknown"
+
+
+def _probe_azure_token_availability() -> str:
+    try:
+        from azure.identity import AzureCliCredential
+    except Exception:
+        return "unavailable"
+
+    try:
+        AzureCliCredential().get_token("https://cognitiveservices.azure.com/.default")
+    except Exception:
+        return "unavailable"
+
+    return "available"
+
+
+def _classify_endpoint_shape(endpoint: str | None) -> str:
+    if endpoint is None:
+        return "unknown"
+
+    host = urlparse(endpoint).netloc.casefold()
+    if "services.ai.azure.com" in host:
+        return "services.ai.azure.com"
+    if "openai.azure.com" in host:
+        return "openai.azure.com"
+    return "unknown"
+
+
+def _yes_no(value: object) -> str:
+    return "yes" if bool(value) else "no"
 
 
 def _load_env_file(env_file: str) -> int:

@@ -55,6 +55,7 @@ local demo shells:
 ```bash
 python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --check
 python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live
+python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose
 ```
 
 Inline shell environment variables still work for a short manual session:
@@ -95,6 +96,28 @@ Safe diagnostic categories include:
 Common next checks are endpoint type, deployment name, Azure login/RBAC, SDK
 compatibility, and whether the model response still matches the structured JSON
 contract.
+
+## Troubleshoot With Diagnose
+
+Use `--live --diagnose` only for a manual troubleshooting pass after `--check`
+passes but `--live` fails with a safe category:
+
+```bash
+python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose
+```
+
+Diagnostic mode prints sanitized status only: required config names present
+yes/no, endpoint shape classification (`services.ai.azure.com`,
+`openai.azure.com`, or `unknown`), deployment name present yes/no, SDK import
+availability, Azure CLI token probe status, failure phase, sanitized exception
+class name, the existing safe failure category, and the existing safe next-step
+hint.
+
+It still redacts endpoint values, deployment names, prompts, model responses,
+tokens, credentials, connection strings, raw exception messages, raw response
+bodies, request URLs, authorization headers, tracebacks, stack traces, real
+emails, real phone numbers, and PHI. This is manual diagnostic output only; it
+does not make the app production-ready and does not change automated tests.
 
 One known manual failure pattern is a 401 authentication/token/audience failure.
 Treat that as an Azure login, endpoint type, token audience, or RBAC check; do
