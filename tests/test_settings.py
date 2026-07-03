@@ -262,11 +262,13 @@ def test_foundry_ai_settings_default_to_none(
 
     monkeypatch.delenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", raising=False)
+    monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
     settings = AppSettings()
 
     assert settings.azure_ai_foundry_project_endpoint is None
     assert settings.azure_ai_foundry_model_deployment_name is None
+    assert settings.azure_openai_endpoint is None
 
 
 def test_foundry_ai_settings_trim_values(
@@ -282,6 +284,10 @@ def test_foundry_ai_settings_trim_values(
         "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
         "  intake-extraction  ",
     )
+    monkeypatch.setenv(
+        "AZURE_OPENAI_ENDPOINT",
+        "  https://example-openai-resource.openai.azure.com/  ",
+    )
 
     settings = AppSettings()
 
@@ -290,6 +296,10 @@ def test_foundry_ai_settings_trim_values(
         == "https://example.services.ai.azure.com/api/projects/demo"
     )
     assert settings.azure_ai_foundry_model_deployment_name == "intake-extraction"
+    assert (
+        settings.azure_openai_endpoint
+        == "https://example-openai-resource.openai.azure.com/"
+    )
 
 
 def test_blank_foundry_ai_settings_are_none(
@@ -299,11 +309,13 @@ def test_blank_foundry_ai_settings_are_none(
 
     monkeypatch.setenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", "   ")
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "   ")
 
     settings = AppSettings()
 
     assert settings.azure_ai_foundry_project_endpoint is None
     assert settings.azure_ai_foundry_model_deployment_name is None
+    assert settings.azure_openai_endpoint is None
 
 
 def test_speech_provider_defaults_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:

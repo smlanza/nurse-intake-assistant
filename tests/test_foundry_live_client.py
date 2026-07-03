@@ -9,6 +9,8 @@ def test_foundry_live_client_module_imports_without_credentials() -> None:
 
     assert hasattr(module, "AzureAiFoundryLiveClient")
     assert hasattr(module, "create_foundry_live_client")
+    assert hasattr(module, "AzureOpenAiEndpointLiveClient")
+    assert hasattr(module, "create_azure_openai_live_client")
 
 
 def test_foundry_live_client_exposes_structured_extraction_seam() -> None:
@@ -29,6 +31,24 @@ def test_foundry_live_client_declares_endpoint_contract() -> None:
         foundry_live_client.FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE
         == "services.ai.azure.com"
     )
+    assert (
+        foundry_live_client.AZURE_OPENAI_LIVE_CLIENT_MODE
+        == "azure-openai-endpoint"
+    )
+    assert (
+        foundry_live_client.AZURE_OPENAI_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE
+        == "openai.azure.com"
+    )
+
+
+def test_azure_openai_live_client_exposes_structured_extraction_seam() -> None:
+    from src.app.services.foundry_live_client import AzureOpenAiEndpointLiveClient
+
+    client = AzureOpenAiEndpointLiveClient(
+        azure_openai_endpoint="https://example-openai-resource.openai.azure.com/"
+    )
+
+    assert callable(client.complete_structured_extraction)
 
 
 def test_foundry_live_client_fails_clearly_without_sdk_support(
@@ -64,6 +84,42 @@ def test_foundry_live_client_fails_clearly_without_sdk_support(
         == "Azure AI Foundry live client is not configured or SDK support is not available."
     )
     assert "secret-endpoint" not in message
+    assert "secret-deployment" not in message
+
+
+def test_azure_openai_live_client_fails_clearly_without_sdk_support(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_live_client
+    from src.app.services.foundry_live_client import AzureOpenAiEndpointLiveClient
+
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_create_azure_openai_chat_client",
+        lambda azure_openai_endpoint: (_ for _ in ()).throw(
+            RuntimeError(
+                "Azure OpenAI endpoint live client is not configured or SDK "
+                "support is not available."
+            )
+        ),
+    )
+
+    client = AzureOpenAiEndpointLiveClient(
+        azure_openai_endpoint="https://secret-openai-resource.openai.azure.com/"
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        client.complete_structured_extraction(
+            prompt="Return JSON only.",
+            model_deployment_name="secret-deployment",
+        )
+
+    message = str(exc.value)
+    assert (
+        message
+        == "Azure OpenAI endpoint live client is not configured or SDK support is not available."
+    )
+    assert "secret-openai-resource" not in message
     assert "secret-deployment" not in message
 
 
@@ -115,6 +171,43 @@ def test_foundry_live_client_returns_content_from_fake_chat_response(
             "model": "secret-deployment",
         }
     ]
+
+
+def test_azure_openai_live_client_returns_content_from_fake_chat_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_live_client
+    from src.app.services.foundry_live_client import AzureOpenAiEndpointLiveClient
+
+    fake_chat_client = FakeChatClient(
+        response={
+            "choices": [
+                {
+                    "message": {
+                        "content": '{"summary": "azure ok"}',
+                    }
+                }
+            ]
+        }
+    )
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_create_azure_openai_chat_client",
+        lambda azure_openai_endpoint: fake_chat_client,
+    )
+
+    client = AzureOpenAiEndpointLiveClient(
+        azure_openai_endpoint="https://secret-openai-resource.openai.azure.com/"
+    )
+
+    result = client.complete_structured_extraction(
+        prompt="secret prompt marker",
+        model_deployment_name="secret-deployment",
+    )
+
+    assert result == '{"summary": "azure ok"}'
+    assert fake_chat_client.calls[0]["model"] == "secret-deployment"
+    assert fake_chat_client.calls[0]["messages"][1]["content"] == "secret prompt marker"
 
 
 def test_foundry_live_client_supports_object_chat_response(

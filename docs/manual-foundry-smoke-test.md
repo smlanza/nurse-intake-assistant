@@ -38,16 +38,22 @@ Future live smoke testing still requires:
 ```bash
 AI_PROVIDER=foundry
 AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=
+AZURE_OPENAI_ENDPOINT=
 AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME=
 ```
 
-`AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` is expected to be the Azure AI Foundry
-project endpoint shape used by the current live adapter, classified as
-`services.ai.azure.com`. An Azure OpenAI endpoint shape such as
-`openai.azure.com` is a different client/auth path and is not wired into this
-manual smoke script. If an Azure OpenAI endpoint is needed later, add that path
-as a separate explicit slice rather than putting it in
-`AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`.
+The smoke script has two explicit live client modes:
+
+- `foundry-project-endpoint` is the default. It uses
+  `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, expected to classify as
+  `services.ai.azure.com`.
+- `azure-openai-endpoint` is optional. It uses `AZURE_OPENAI_ENDPOINT`,
+  expected to classify as `openai.azure.com`.
+
+Do not put an Azure OpenAI endpoint in `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`.
+Both modes reuse `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`; the value is never
+printed. The Azure OpenAI endpoint smoke path expects Entra/Azure CLI auth in
+this slice. API key support is not added.
 
 Keep notification providers in mock mode unless the smoke test is explicitly
 combined with a separate ACS notification test:
@@ -64,6 +70,7 @@ local demo shells:
 python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --check
 python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live
 python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose
+python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live --diagnose --live-client-mode azure-openai-endpoint
 ```
 
 Inline shell environment variables still work for a short manual session:
@@ -84,6 +91,11 @@ The `--live` command is the only mode intended to make a live Foundry call. It
 does not persist cases, does not send notifications, does not write to Cosmos,
 does not call FastAPI routes, and does not require the FastAPI server to be
 running. It prints a small safe result summary for fictional input only.
+
+The default `--live` mode preserves the Foundry project endpoint path. Try
+`--live --diagnose --live-client-mode azure-openai-endpoint` only after
+`--check` passes and the default project endpoint mode reaches request
+execution but fails with a safe category such as authentication failed.
 
 If `--live` fails, the script prints the existing generic safe failure message,
 then a safe diagnostic category. It intentionally does not print raw exception
@@ -118,7 +130,8 @@ python scripts/smoke_foundry_extraction.py --env-file .env.foundry.local --live 
 Diagnostic mode prints sanitized status only: required config names present
 yes/no, endpoint shape classification (`services.ai.azure.com`,
 `openai.azure.com`, or `unknown`), deployment name present yes/no, SDK import
-availability, live client mode (`foundry-project-endpoint`), endpoint/client
+availability, required endpoint present yes/no, live client mode
+(`foundry-project-endpoint` or `azure-openai-endpoint`), endpoint/client
 compatibility (`compatible`, `incompatible`, or `unknown`), Azure CLI token
 probe status, failure phase, sanitized top-level and root exception class names,
 bounded exception-chain class names, safe HTTP status category (`401`, `403`,

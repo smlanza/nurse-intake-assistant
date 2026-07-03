@@ -12,11 +12,16 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.app.config.settings import AppSettings
+from src.app.services.foundry_ai_service import FoundryAiService
 from src.app.services.foundry_extraction_contract import FoundryExtractionContractError
 from src.app.services.ai_service_factory import create_ai_service
 from src.app.services.foundry_live_client import (
+    AZURE_OPENAI_LIVE_CLIENT_MODE,
+    AZURE_OPENAI_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE,
     FOUNDRY_LIVE_CLIENT_MODE,
     FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE,
+    azure_openai_live_sdk_available,
+    create_azure_openai_live_client,
     foundry_live_sdk_available,
 )
 
@@ -84,11 +89,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Loaded environment file: {args.env_file}")
 
     settings = AppSettings()
-    sdk_available = foundry_live_sdk_available() if args.live else None
+    sdk_available = _live_sdk_available(args.live_client_mode) if args.live else None
     if args.diagnose:
-        _print_diagnostic_configuration(settings, sdk_available)
+        _print_diagnostic_configuration(settings, sdk_available, args.live_client_mode)
 
-    configuration_exit_code = _validate_foundry_configuration(settings)
+    configuration_exit_code = _validate_foundry_configuration(
+        settings,
+        args.live_client_mode,
+        live=args.live,
+    )
     if configuration_exit_code != 0:
         if args.diagnose:
             _print_diagnostic_failure("config validation")
@@ -107,9 +116,15 @@ def main(argv: list[str] | None = None) -> int:
         print("Restore AI_PROVIDER=mock after any manual smoke test.")
         return 0
 
-    compatibility = _get_endpoint_client_compatibility(settings)
+    compatibility = _get_endpoint_client_compatibility(
+        settings,
+        args.live_client_mode,
+    )
     if compatibility != "compatible":
-        _print_endpoint_client_configuration_error(compatibility)
+        _print_endpoint_client_configuration_error(
+            compatibility,
+            args.live_client_mode,
+        )
         if args.diagnose:
             _print_diagnostic_failure("config validation")
         return 2
@@ -128,7 +143,7 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         failure_phase = "client construction"
-        ai_service = create_ai_service(settings)
+        ai_service = _create_live_smoke_ai_service(settings, args.live_client_mode)
         print(
             "Running manual Azure AI Foundry smoke test with fictional demo "
             "input only. This command is not part of automated pytest."
@@ -197,20 +212,45 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "tracebacks are printed."
         ),
     )
+    parser.add_argument(
+        "--live-client-mode",
+        choices=[FOUNDRY_LIVE_CLIENT_MODE, AZURE_OPENAI_LIVE_CLIENT_MODE],
+        default=FOUNDRY_LIVE_CLIENT_MODE,
+        help=(
+            "Select the manual live smoke client path. The default preserves "
+            "the Foundry project endpoint path."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.diagnose and not args.live:
         parser.error("--diagnose is only supported with --live")
     return args
 
 
-def _validate_foundry_configuration(settings: AppSettings) -> int:
+def _validate_foundry_configuration(
+    settings: AppSettings,
+    live_client_mode: str = FOUNDRY_LIVE_CLIENT_MODE,
+    live: bool = False,
+) -> int:
     if settings.ai_provider_normalized != "foundry":
         _print_configuration_error(
             "Foundry smoke test requires AI_PROVIDER=foundry."
         )
         return 2
 
-    if settings.azure_ai_foundry_project_endpoint is None:
+    if (
+        live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE
+        and live
+        and settings.azure_openai_endpoint is None
+    ):
+        _print_configuration_error(
+            "Azure OpenAI endpoint smoke mode requires AZURE_OPENAI_ENDPOINT."
+        )
+        return 2
+
+    if (
+        live_client_mode == FOUNDRY_LIVE_CLIENT_MODE or not live
+    ) and settings.azure_ai_foundry_project_endpoint is None:
         _print_configuration_error(
             "Foundry smoke test requires AZURE_AI_FOUNDRY_PROJECT_ENDPOINT."
         )
@@ -225,6 +265,32 @@ def _validate_foundry_configuration(settings: AppSettings) -> int:
     return 0
 
 
+def _create_live_smoke_ai_service(
+    settings: AppSettings,
+    live_client_mode: str,
+) -> object:
+    if live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
+        return FoundryAiService(
+            project_endpoint=_required_setting(
+                settings.azure_openai_endpoint,
+                "AZURE_OPENAI_ENDPOINT",
+            ),
+            model_deployment_name=_required_setting(
+                settings.azure_ai_foundry_model_deployment_name,
+                "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+            ),
+            client_factory=create_azure_openai_live_client,
+        )
+
+    return create_ai_service(settings)
+
+
+def _required_setting(value: str | None, name: str) -> str:
+    if value is None:
+        raise ValueError(f"{name} is required for manual Foundry smoke mode")
+    return value
+
+
 def _print_configuration_error(message: str) -> None:
     print(message, file=sys.stderr)
     print(
@@ -234,24 +300,28 @@ def _print_configuration_error(message: str) -> None:
     )
 
 
-def _print_endpoint_client_configuration_error(compatibility: str) -> None:
+def _print_endpoint_client_configuration_error(
+    compatibility: str,
+    live_client_mode: str,
+) -> None:
+    endpoint_name = _required_endpoint_name(live_client_mode)
+    expected_shape = _expected_endpoint_shape(live_client_mode)
     if compatibility == "incompatible":
         print(
             "Foundry smoke test endpoint/client configuration is incompatible "
-            "with the current live adapter.",
+            "with the selected live adapter.",
             file=sys.stderr,
         )
     else:
         print(
             "Foundry smoke test endpoint/client configuration could not be "
-            "confirmed for the current live adapter.",
+            "confirmed for the selected live adapter.",
             file=sys.stderr,
         )
     print(
-        "The current live adapter mode is foundry-project-endpoint and expects "
-        "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT to be a Foundry project endpoint "
-        "shape (services.ai.azure.com). Azure OpenAI endpoint support is not "
-        "wired in this smoke script. No Azure call was made.",
+        f"The selected live adapter mode is {live_client_mode} and expects "
+        f"{endpoint_name} to have endpoint shape ({expected_shape}). "
+        "No Azure call was made.",
         file=sys.stderr,
     )
     print(
@@ -279,10 +349,14 @@ def _print_safe_live_failure_summary(failure_category: str) -> None:
     )
 
 
-def _print_diagnostic_configuration(settings: AppSettings, sdk_available: bool | None) -> None:
+def _print_diagnostic_configuration(
+    settings: AppSettings,
+    sdk_available: bool | None,
+    live_client_mode: str,
+) -> None:
     print("Foundry live diagnostic mode enabled.", file=sys.stderr)
     print(
-        f"Diagnostic live client mode: {FOUNDRY_LIVE_CLIENT_MODE}",
+        f"Diagnostic live client mode: {live_client_mode}",
         file=sys.stderr,
     )
     print("Diagnostic config AI_PROVIDER present: yes", file=sys.stderr)
@@ -292,18 +366,28 @@ def _print_diagnostic_configuration(settings: AppSettings, sdk_available: bool |
         file=sys.stderr,
     )
     print(
+        "Diagnostic config AZURE_OPENAI_ENDPOINT present: "
+        f"{_yes_no(settings.azure_openai_endpoint)}",
+        file=sys.stderr,
+    )
+    print(
         "Diagnostic endpoint shape: "
-        f"{_classify_endpoint_shape(settings.azure_ai_foundry_project_endpoint)}",
+        f"{_get_configured_endpoint_shape(settings, live_client_mode)}",
         file=sys.stderr,
     )
     print(
         "Diagnostic configured endpoint shape: "
-        f"{_classify_endpoint_shape(settings.azure_ai_foundry_project_endpoint)}",
+        f"{_get_configured_endpoint_shape(settings, live_client_mode)}",
+        file=sys.stderr,
+    )
+    print(
+        "Diagnostic required endpoint present: "
+        f"{_yes_no(_get_configured_endpoint(settings, live_client_mode))}",
         file=sys.stderr,
     )
     print(
         "Diagnostic endpoint/client compatibility: "
-        f"{_get_endpoint_client_compatibility(settings)}",
+        f"{_get_endpoint_client_compatibility(settings, live_client_mode)}",
         file=sys.stderr,
     )
     print(
@@ -383,6 +467,12 @@ def _probe_azure_token_availability() -> str:
     return "available"
 
 
+def _live_sdk_available(live_client_mode: str) -> bool:
+    if live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
+        return azure_openai_live_sdk_available()
+    return foundry_live_sdk_available()
+
+
 def _classify_endpoint_shape(endpoint: str | None) -> str:
     if endpoint is None:
         return "unknown"
@@ -395,15 +485,50 @@ def _classify_endpoint_shape(endpoint: str | None) -> str:
     return "unknown"
 
 
-def _get_endpoint_client_compatibility(settings: AppSettings) -> str:
-    endpoint_shape = _classify_endpoint_shape(
-        settings.azure_ai_foundry_project_endpoint
-    )
-    if endpoint_shape == FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE:
+def _get_endpoint_client_compatibility(
+    settings: AppSettings,
+    live_client_mode: str = FOUNDRY_LIVE_CLIENT_MODE,
+) -> str:
+    endpoint_shape = _get_configured_endpoint_shape(settings, live_client_mode)
+    expected_shape = _expected_endpoint_shape(live_client_mode)
+    if endpoint_shape == expected_shape:
         return "compatible"
-    if endpoint_shape == "openai.azure.com":
+    if endpoint_shape in {
+        FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE,
+        AZURE_OPENAI_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE,
+    }:
         return "incompatible"
     return "unknown"
+
+
+def _get_configured_endpoint_shape(
+    settings: AppSettings,
+    live_client_mode: str,
+) -> str:
+    return _classify_endpoint_shape(
+        _get_configured_endpoint(settings, live_client_mode)
+    )
+
+
+def _get_configured_endpoint(
+    settings: AppSettings,
+    live_client_mode: str,
+) -> str | None:
+    if live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
+        return settings.azure_openai_endpoint
+    return settings.azure_ai_foundry_project_endpoint
+
+
+def _expected_endpoint_shape(live_client_mode: str) -> str:
+    if live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
+        return AZURE_OPENAI_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE
+    return FOUNDRY_LIVE_CLIENT_SUPPORTED_ENDPOINT_SHAPE
+
+
+def _required_endpoint_name(live_client_mode: str) -> str:
+    if live_client_mode == AZURE_OPENAI_LIVE_CLIENT_MODE:
+        return "AZURE_OPENAI_ENDPOINT"
+    return "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
 
 
 def _yes_no(value: object) -> str:

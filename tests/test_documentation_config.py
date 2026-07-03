@@ -47,6 +47,20 @@ def test_env_example_documents_foundry_ai_placeholders() -> None:
     assert "Azure AI keys" in env_example
 
 
+def test_foundry_local_env_example_documents_openai_endpoint_placeholder() -> None:
+    env_example = (PROJECT_ROOT / ".env.foundry.local.example").read_text()
+
+    assert "AI_PROVIDER=foundry" in env_example
+    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=" in env_example
+    assert (
+        "AZURE_OPENAI_ENDPOINT=https://example-openai-resource.openai.azure.com/"
+        in env_example
+    )
+    assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME=" in env_example
+    assert "API_KEY" not in env_example
+    assert "accesskey=" not in env_example.lower()
+
+
 def test_env_example_documents_speech_placeholders() -> None:
     env_example = (PROJECT_ROOT / ".env.example").read_text()
 
@@ -370,7 +384,10 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "endpoint/client compatibility" in normalized_guide
     assert "services.ai.azure.com" in guide
     assert "openai.azure.com" in guide
-    assert "not wired into this manual smoke script" in normalized_guide
+    assert "azure-openai-endpoint" in guide
+    assert "--live --diagnose --live-client-mode azure-openai-endpoint" in guide
+    assert "API key support is not added" in guide
+    assert "required endpoint present" in normalized_guide
     assert "Azure CLI token probe status" in normalized_guide
     assert "failure phase" in guide
     assert "root exception class names" in guide
@@ -387,6 +404,7 @@ def test_manual_foundry_smoke_test_guide_exists() -> None:
     assert "does not send notifications" in normalized_guide
     assert "does not call FastAPI routes" in normalized_guide
     assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in guide
+    assert "AZURE_OPENAI_ENDPOINT" in guide
     assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME" in guide
     assert "Automated tests use fake SDK/client objects only" in guide
     assert "real Azure AI Foundry smoke test has not been performed yet" in guide

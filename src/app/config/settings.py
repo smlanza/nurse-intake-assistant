@@ -12,6 +12,7 @@ class AppSettings:
     ai_provider_normalized: str
     azure_ai_foundry_project_endpoint: str | None
     azure_ai_foundry_model_deployment_name: str | None
+    azure_openai_endpoint: str | None
     speech_provider: str
     speech_provider_normalized: str
     azure_speech_endpoint: str | None
@@ -44,6 +45,7 @@ class AppSettings:
         self.azure_ai_foundry_model_deployment_name = self._optional_env(
             "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME"
         )
+        self.azure_openai_endpoint = self._optional_env("AZURE_OPENAI_ENDPOINT")
         self.speech_provider = os.getenv("SPEECH_PROVIDER", "mock")
         self.speech_provider_normalized = (
             self.speech_provider.strip().lower() or "mock"

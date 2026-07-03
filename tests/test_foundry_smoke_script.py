@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -13,11 +14,13 @@ from src.app.services.foundry_extraction_contract import FoundryExtractionContra
 def _settings(
     ai_provider: str = "foundry",
     endpoint: str | None = "https://secret-endpoint.services.ai.azure.com/api/projects/demo",
+    azure_openai_endpoint: str | None = None,
     deployment: str | None = "secret-deployment",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         ai_provider_normalized=ai_provider,
         azure_ai_foundry_project_endpoint=endpoint,
+        azure_openai_endpoint=azure_openai_endpoint,
         azure_ai_foundry_model_deployment_name=deployment,
     )
 
@@ -32,6 +35,7 @@ def _clear_foundry_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in [
         "AI_PROVIDER",
         "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT",
+        "AZURE_OPENAI_ENDPOINT",
         "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
     ]:
         monkeypatch.delenv(name, raising=False)
@@ -40,21 +44,25 @@ def _clear_foundry_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def _write_foundry_env_file(
     tmp_path,
     endpoint: str = "https://secret-env-file-endpoint.services.ai.azure.com/api/projects/demo",
+    azure_openai_endpoint: str | None = None,
     deployment: str = "secret-env-file-deployment",
 ):
-    env_file = tmp_path / ".env.foundry.local"
-    env_file.write_text(
-        "\n".join(
-            [
-                "# local manual smoke settings",
-                "",
-                "AI_PROVIDER=foundry",
-                f"AZURE_AI_FOUNDRY_PROJECT_ENDPOINT={endpoint}",
-                f"AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME={deployment}",
-                "",
-            ]
-        )
+    lines = [
+        "# local manual smoke settings",
+        "",
+        "AI_PROVIDER=foundry",
+        f"AZURE_AI_FOUNDRY_PROJECT_ENDPOINT={endpoint}",
+    ]
+    if azure_openai_endpoint is not None:
+        lines.append(f"AZURE_OPENAI_ENDPOINT={azure_openai_endpoint}")
+    lines.extend(
+        [
+            f"AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME={deployment}",
+            "",
+        ]
     )
+    env_file = tmp_path / ".env.foundry.local"
+    env_file.write_text("\n".join(lines))
     return env_file
 
 
@@ -86,6 +94,59 @@ class FakeDeepContextError(RuntimeError):
 
 class FakeTooDeepContextError(RuntimeError):
     pass
+
+
+def _fake_model_response() -> str:
+    return json.dumps(
+        {
+            "patient": {
+                "name": "Alex Morgan",
+                "date_of_birth": None,
+                "callback_number": "demo-callback-001",
+            },
+            "reason_for_calling": "medication refill",
+            "symptoms": ["fatigue"],
+            "summary": "Demo patient requests a medication refill.",
+            "urgency": "Routine",
+            "urgency_rationale": "No urgent symptoms were described.",
+            "advisory_disclaimer": (
+                "Advisory urgency only; nurse review and clinical judgment "
+                "are required."
+            ),
+            "missing_fields": ["patient.date_of_birth"],
+            "uncertain_fields": [],
+        }
+    )
+
+
+class FakeStructuredAzureOpenAiClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, str]] = []
+
+    def complete_structured_extraction(
+        self,
+        prompt: str,
+        model_deployment_name: str,
+    ) -> str:
+        self.calls.append(
+            {
+                "prompt": prompt,
+                "model_deployment_name": model_deployment_name,
+            }
+        )
+        return _fake_model_response()
+
+
+class RaisingStructuredClient:
+    def __init__(self, error: BaseException) -> None:
+        self.error = error
+
+    def complete_structured_extraction(
+        self,
+        prompt: str,
+        model_deployment_name: str,
+    ) -> str:
+        raise self.error
 
 
 def test_foundry_smoke_script_refuses_mock_provider(
@@ -164,6 +225,14 @@ def test_foundry_smoke_script_calls_fake_ai_service_and_prints_safe_result(
     assert "secret-deployment" not in captured.out
     assert "Return JSON only" not in captured.out
     assert captured.err == ""
+
+
+def test_foundry_smoke_script_live_client_mode_defaults_to_foundry_project() -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    args = script._parse_args(["--live"])
+
+    assert args.live_client_mode == "foundry-project-endpoint"
 
 
 def test_foundry_smoke_script_uses_fictional_input_only() -> None:
@@ -673,6 +742,260 @@ def test_foundry_smoke_script_endpoint_client_compatibility_helper() -> None:
         )
         == "unknown"
     )
+    assert (
+        script._get_endpoint_client_compatibility(
+            _settings(
+                azure_openai_endpoint="https://secret-resource.openai.azure.com/"
+            ),
+            "azure-openai-endpoint",
+        )
+        == "compatible"
+    )
+    assert (
+        script._get_endpoint_client_compatibility(
+            _settings(
+                azure_openai_endpoint=(
+                    "https://secret-resource.services.ai.azure.com/api/projects/demo"
+                )
+            ),
+            "azure-openai-endpoint",
+        )
+        == "incompatible"
+    )
+
+
+def test_foundry_smoke_script_azure_openai_mode_requires_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(monkeypatch, _settings(endpoint=None, azure_openai_endpoint=None))
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: pytest.fail("Azure OpenAI client should not be created"),
+    )
+
+    exit_code = script.main(["--live", "--live-client-mode", "azure-openai-endpoint"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "AZURE_OPENAI_ENDPOINT" in captured.err
+    assert "secret-endpoint" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_foundry_smoke_script_azure_openai_mode_diagnose_reports_safe_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint=None,
+            azure_openai_endpoint="https://secret-openai-resource.openai.azure.com/",
+            deployment="secret-openai-deployment",
+        ),
+    )
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: RaisingStructuredClient(
+            FakeHttpError(
+                401,
+                (
+                    "Unauthorized for https://secret-openai-resource.openai.azure.com "
+                    "deployment secret-openai-deployment token secret-token"
+                ),
+            )
+        ),
+    )
+
+    exit_code = script.main(
+        ["--live", "--diagnose", "--live-client-mode", "azure-openai-endpoint"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Diagnostic live client mode: azure-openai-endpoint" in captured.err
+    assert "Diagnostic config AZURE_OPENAI_ENDPOINT present: yes" in captured.err
+    assert "Diagnostic configured endpoint shape: openai.azure.com" in captured.err
+    assert "Diagnostic required endpoint present: yes" in captured.err
+    assert "Diagnostic endpoint/client compatibility: compatible" in captured.err
+    assert "Diagnostic deployment name present: yes" in captured.err
+    assert "Diagnostic token probe: available" in captured.err
+    assert "Diagnostic safe failure category: authentication failed" in captured.err
+    assert "secret-openai-resource" not in captured.err
+    assert "secret-openai-deployment" not in captured.err
+    assert "secret-token" not in captured.err
+    assert "Unauthorized" not in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_foundry_smoke_script_azure_openai_mode_rejects_foundry_endpoint_shape(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint=None,
+            azure_openai_endpoint=(
+                "https://secret-project.services.ai.azure.com/api/projects/demo"
+            ),
+        ),
+    )
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "_probe_azure_token_availability",
+        lambda: pytest.fail("token probe should not run after incompatible config"),
+    )
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: pytest.fail("Azure OpenAI client should not be created"),
+    )
+
+    exit_code = script.main(
+        ["--live", "--diagnose", "--live-client-mode", "azure-openai-endpoint"]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "Diagnostic live client mode: azure-openai-endpoint" in captured.err
+    assert "Diagnostic configured endpoint shape: services.ai.azure.com" in captured.err
+    assert "Diagnostic endpoint/client compatibility: incompatible" in captured.err
+    assert "Diagnostic failure phase: config validation" in captured.err
+    assert "secret-project" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_foundry_smoke_script_azure_openai_mode_missing_sdk_fails_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint=None,
+            azure_openai_endpoint="https://secret-openai-resource.openai.azure.com/",
+        ),
+    )
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: False)
+    monkeypatch.setattr(
+        script,
+        "_probe_azure_token_availability",
+        lambda: pytest.fail("token probe should not run when SDK is missing"),
+    )
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: pytest.fail("Azure OpenAI client should not be created"),
+    )
+
+    exit_code = script.main(["--live", "--live-client-mode", "azure-openai-endpoint"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert "Optional Foundry SDK support is unavailable for --live" in captured.err
+    assert "secret-openai-resource" not in captured.err
+    assert "secret-deployment" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_foundry_smoke_script_azure_openai_mode_uses_fake_client_path(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    fake_client = FakeStructuredAzureOpenAiClient()
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            endpoint=None,
+            azure_openai_endpoint="https://secret-openai-resource.openai.azure.com/",
+        ),
+    )
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "_probe_azure_token_availability", lambda: "available")
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: fake_client,
+    )
+
+    exit_code = script.main(["--live", "--live-client-mode", "azure-openai-endpoint"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert fake_client.calls
+    assert fake_client.calls[0]["model_deployment_name"] == "secret-deployment"
+    assert "Return JSON only" in fake_client.calls[0]["prompt"]
+    assert "Foundry structured extraction smoke test completed" in captured.out
+    assert "secret-openai-resource" not in captured.out
+    assert "secret-deployment" not in captured.out
+    assert "Return JSON only" not in captured.out
+    assert captured.err == ""
+
+
+def test_foundry_smoke_script_azure_openai_mode_uses_env_file_with_fake_client(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path,
+) -> None:
+    import scripts.smoke_foundry_extraction as script
+
+    fake_client = FakeStructuredAzureOpenAiClient()
+    _clear_foundry_env(monkeypatch)
+    env_file = _write_foundry_env_file(
+        tmp_path,
+        azure_openai_endpoint=(
+            "https://secret-env-file-openai-resource.openai.azure.com/"
+        ),
+    )
+    monkeypatch.setattr(script, "azure_openai_live_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_azure_openai_live_client",
+        lambda endpoint: fake_client,
+    )
+
+    exit_code = script.main(
+        [
+            "--env-file",
+            str(env_file),
+            "--live",
+            "--live-client-mode",
+            "azure-openai-endpoint",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert fake_client.calls
+    assert "Foundry structured extraction smoke test completed" in captured.out
+    assert "secret-env-file-openai-resource" not in captured.out
+    assert "secret-env-file-openai-resource" not in captured.err
+    assert "secret-env-file-deployment" not in captured.out
+    assert "secret-env-file-deployment" not in captured.err
+    assert captured.err == ""
 
 
 def test_foundry_smoke_script_live_diagnose_unwraps_cause_chain_safely(
@@ -973,7 +1296,8 @@ def test_foundry_smoke_script_live_openai_endpoint_fails_before_request(
     captured = capsys.readouterr()
     assert exit_code == 2
     assert "endpoint/client configuration is incompatible" in captured.err
-    assert "Azure OpenAI endpoint support is not wired" in captured.err
+    assert "foundry-project-endpoint" in captured.err
+    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in captured.err
     assert "No Azure call was made" in captured.err
     assert "secret-resource" not in captured.err
     assert "secret-deployment" not in captured.err
