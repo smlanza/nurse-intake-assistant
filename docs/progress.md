@@ -4,7 +4,7 @@ Active current-status and resume document. Historical progress through June 2026
 
 ## Current Status
 Latest verified test baseline:
-- 553 passed
+- 582 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -22,17 +22,16 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Local demo UI readiness status panel slice is complete.
-- `/demo` now displays the `GET /demo/status` local readiness result: provider
-  labels, notification suppression state, safety boundary, and warnings.
-- The status panel is read-only and offline-safe: it exposes no secrets, creates
-  no Azure/provider clients, makes no Azure calls, runs no model calls,
-  processes no audio, sends no email or SMS, and performs no repository
-  reads/writes/queries. It does not validate live Azure readiness.
-- Recent completed slices also include the offline-safe `/demo/status` endpoint,
-  local demo UI reset confirmation, `/demo` handoff-note copy, demo boundary
-  panels, README demo-claims/boundary docs, safe preflight docs, consolidated
-  summary output, `Guidance:` wording, and Cosmos/Speech preflight coverage.
+- Foundry extraction normalization metadata slice is complete.
+- The Foundry structured extraction contract now records safe internal metadata
+  for normalization attempts, including provider, contract version, normalized
+  state, fallback flag, ignored-extra-fields flag, and validation issue count.
+- Metadata is provider/internal only and does not expose raw model output,
+  prompts, endpoints, deployment names, credentials, phone/email values, or
+  patient data beyond the normal extraction result.
+- Recent completed slices also include malformed Foundry output hardening,
+  offline-safe `/ops`, `/version`, `/health`, `/`, and `/demo/status` routes,
+  local demo UI readiness/status panels, and safe preflight docs.
 
 ## Current Resume Point
 

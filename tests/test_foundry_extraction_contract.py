@@ -9,6 +9,7 @@ from src.app.models.ai_outputs import (
 from src.app.services.foundry_extraction_contract import (
     FoundryExtractionContractError,
     build_foundry_structured_extraction_prompt,
+    normalize_foundry_structured_extraction_response,
     parse_foundry_structured_extraction_response,
 )
 
@@ -80,6 +81,21 @@ def test_parse_foundry_response_maps_valid_json_to_app_models() -> None:
     assert "nurse review" in urgency.advisory_disclaimer
 
 
+def test_normalize_foundry_response_records_safe_metadata_for_valid_json() -> None:
+    result = normalize_foundry_structured_extraction_response(
+        json.dumps(_valid_response_payload())
+    )
+
+    assert result.extraction.patient.name == "Jane Doe"
+    assert result.urgency.urgency == "Routine"
+    assert result.metadata.provider == "foundry"
+    assert result.metadata.normalized is True
+    assert result.metadata.fallback_used is False
+    assert result.metadata.ignored_extra_fields is False
+    assert result.metadata.validation_issue_count == 0
+    assert result.metadata.contract_version == "foundry-structured-extraction-v1"
+
+
 def test_parse_foundry_response_defaults_missing_list_fields() -> None:
     payload = _valid_response_payload()
     payload.pop("symptoms")
@@ -109,8 +125,14 @@ def test_parse_foundry_response_rejects_malformed_json() -> None:
 
 
 def test_parse_foundry_response_rejects_empty_content() -> None:
-    with pytest.raises(FoundryExtractionContractError, match="empty"):
+    with pytest.raises(FoundryExtractionContractError, match="empty") as exc:
         parse_foundry_structured_extraction_response("   ")
+
+    metadata = exc.value.normalization_metadata
+    assert metadata.provider == "foundry"
+    assert metadata.normalized is False
+    assert metadata.fallback_used is False
+    assert metadata.validation_issue_count == 1
 
 
 @pytest.mark.parametrize("model_response", ['["not", "object"]', '"not object"'])
@@ -191,3 +213,38 @@ def test_parse_foundry_response_ignores_unexpected_fields() -> None:
     assert "unexpected_top_level" not in returned_content
     assert "unexpected_patient_field" not in returned_content
     assert "must not leak" not in returned_content
+
+
+def test_normalize_foundry_response_records_ignored_extra_fields_metadata() -> None:
+    payload = _valid_response_payload()
+    payload["unexpected_top_level"] = "must not leak"
+    payload["patient"]["unexpected_patient_field"] = "must not leak"
+
+    result = normalize_foundry_structured_extraction_response(json.dumps(payload))
+
+    assert result.metadata.ignored_extra_fields is True
+    assert result.metadata.validation_issue_count == 0
+    metadata_text = str(result.metadata)
+    assert "must not leak" not in metadata_text
+    assert "unexpected_top_level" not in metadata_text
+    assert "unexpected_patient_field" not in metadata_text
+    assert "https://example.services.ai.azure.com" not in metadata_text
+    assert "intake-extraction" not in metadata_text
+
+
+def test_foundry_contract_error_metadata_is_safe_for_malformed_output() -> None:
+    raw_output = "not JSON with token=secret and https://example.services.ai.azure.com"
+
+    with pytest.raises(FoundryExtractionContractError) as exc:
+        normalize_foundry_structured_extraction_response(raw_output)
+
+    metadata = exc.value.normalization_metadata
+    metadata_text = str(metadata)
+    assert metadata.provider == "foundry"
+    assert metadata.normalized is False
+    assert metadata.fallback_used is False
+    assert metadata.ignored_extra_fields is False
+    assert metadata.validation_issue_count == 1
+    assert "not JSON" not in metadata_text
+    assert "token=secret" not in metadata_text
+    assert "https://example.services.ai.azure.com" not in metadata_text

@@ -1,4 +1,5 @@
 import json
+from dataclasses import dataclass, replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -13,10 +14,60 @@ from src.app.models.ai_outputs import (
 FOUNDRY_ADVISORY_DISCLAIMER = (
     "Advisory urgency only; nurse review and clinical judgment are required."
 )
+FOUNDRY_STRUCTURED_EXTRACTION_CONTRACT_VERSION = (
+    "foundry-structured-extraction-v1"
+)
+FOUNDRY_EXPECTED_TOP_LEVEL_FIELDS = {
+    "patient",
+    "reason_for_calling",
+    "symptoms",
+    "summary",
+    "urgency",
+    "urgency_rationale",
+    "advisory_disclaimer",
+    "missing_fields",
+    "uncertain_fields",
+}
+FOUNDRY_EXPECTED_PATIENT_FIELDS = {
+    "name",
+    "date_of_birth",
+    "callback_number",
+}
+
+
+@dataclass(frozen=True)
+class FoundryExtractionNormalizationMetadata:
+    provider: str = "foundry"
+    normalized: bool = False
+    fallback_used: bool = False
+    ignored_extra_fields: bool = False
+    validation_issue_count: int = 0
+    contract_version: str = FOUNDRY_STRUCTURED_EXTRACTION_CONTRACT_VERSION
+
+
+@dataclass(frozen=True)
+class FoundryStructuredExtractionResult:
+    extraction: ExtractionSummaryResult
+    urgency: UrgencyClassificationResult
+    metadata: FoundryExtractionNormalizationMetadata
 
 
 class FoundryExtractionContractError(ValueError):
     """Raised when a Foundry structured extraction response violates contract."""
+
+    def __init__(
+        self,
+        message: str,
+        normalization_metadata: FoundryExtractionNormalizationMetadata | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.normalization_metadata = (
+            normalization_metadata
+            or FoundryExtractionNormalizationMetadata(
+                normalized=False,
+                validation_issue_count=1,
+            )
+        )
 
 
 def build_foundry_structured_extraction_prompt(raw_text: str) -> str:
@@ -65,46 +116,68 @@ def parse_foundry_structured_extraction_response(
 ) -> tuple[ExtractionSummaryResult, UrgencyClassificationResult]:
     """Parse and validate JSON returned by a future Foundry model call."""
 
+    result = normalize_foundry_structured_extraction_response(model_response)
+    return result.extraction, result.urgency
+
+
+def normalize_foundry_structured_extraction_response(
+    model_response: str,
+) -> FoundryStructuredExtractionResult:
+    """Parse model JSON and return app models with safe normalization metadata."""
+
     if not model_response.strip():
-        raise FoundryExtractionContractError(
-            "Foundry structured extraction response was empty."
-        )
+        raise _contract_error("Foundry structured extraction response was empty.")
 
     try:
         payload = json.loads(model_response)
     except json.JSONDecodeError as exc:
-        raise FoundryExtractionContractError(
+        raise _contract_error(
             "Foundry structured extraction response was not valid JSON."
         ) from exc
 
     if not isinstance(payload, dict):
-        raise FoundryExtractionContractError(
+        raise _contract_error(
             "Foundry structured extraction response must be a JSON object."
         )
+
+    metadata = FoundryExtractionNormalizationMetadata(
+        normalized=True,
+        ignored_extra_fields=_has_unexpected_fields(payload),
+        validation_issue_count=0,
+    )
 
     _require_top_level_fields(
         payload,
         required_fields=("patient", "summary", "urgency", "urgency_rationale"),
+        metadata=metadata,
     )
-    _validate_supported_urgency(payload["urgency"])
+    _validate_supported_urgency(payload["urgency"], metadata)
 
     patient_payload = payload["patient"]
     if not isinstance(patient_payload, dict):
-        raise FoundryExtractionContractError(
-            "Foundry structured extraction field patient must be an object."
+        raise _contract_error(
+            "Foundry structured extraction field patient must be an object.",
+            metadata,
         )
 
-    symptoms = _optional_string_list(payload, "symptoms")
-    missing_fields = _optional_string_list(payload, "missing_fields")
-    uncertain_fields = _optional_string_list(payload, "uncertain_fields")
+    metadata = replace(
+        metadata,
+        ignored_extra_fields=metadata.ignored_extra_fields
+        or _has_unexpected_patient_fields(patient_payload),
+    )
+
+    symptoms = _optional_string_list(payload, "symptoms", metadata)
+    missing_fields = _optional_string_list(payload, "missing_fields", metadata)
+    uncertain_fields = _optional_string_list(payload, "uncertain_fields", metadata)
     advisory_disclaimer = payload.get(
         "advisory_disclaimer",
         FOUNDRY_ADVISORY_DISCLAIMER,
     )
 
     if not isinstance(advisory_disclaimer, str) or not advisory_disclaimer.strip():
-        raise FoundryExtractionContractError(
-            "Foundry structured extraction field advisory_disclaimer must be text."
+        raise _contract_error(
+            "Foundry structured extraction field advisory_disclaimer must be text.",
+            metadata,
         )
 
     try:
@@ -126,40 +199,82 @@ def parse_foundry_structured_extraction_response(
             advisory_disclaimer=advisory_disclaimer,
         )
     except ValidationError as exc:
-        raise FoundryExtractionContractError(
-            "Foundry structured extraction response did not match app models."
+        raise _contract_error(
+            "Foundry structured extraction response did not match app models.",
+            metadata,
         ) from exc
 
-    return extraction, urgency
+    return FoundryStructuredExtractionResult(
+        extraction=extraction,
+        urgency=urgency,
+        metadata=metadata,
+    )
 
 
 def _require_top_level_fields(
     payload: dict[str, Any],
     required_fields: tuple[str, ...],
+    metadata: FoundryExtractionNormalizationMetadata,
 ) -> None:
     missing = [field for field in required_fields if field not in payload]
     if missing:
         joined = ", ".join(missing)
-        raise FoundryExtractionContractError(
-            f"Foundry structured extraction response missing required field(s): {joined}."
+        raise _contract_error(
+            f"Foundry structured extraction response missing required field(s): {joined}.",
+            metadata,
         )
 
 
-def _validate_supported_urgency(value: Any) -> None:
+def _validate_supported_urgency(
+    value: Any,
+    metadata: FoundryExtractionNormalizationMetadata,
+) -> None:
     if value not in {"Routine", "Urgent"}:
-        raise FoundryExtractionContractError(
-            "Foundry structured extraction field urgency must be Routine or Urgent."
+        raise _contract_error(
+            "Foundry structured extraction field urgency must be Routine or Urgent.",
+            metadata,
         )
 
 
-def _optional_string_list(payload: dict[str, Any], field_name: str) -> list[str]:
+def _optional_string_list(
+    payload: dict[str, Any],
+    field_name: str,
+    metadata: FoundryExtractionNormalizationMetadata,
+) -> list[str]:
     value = payload.get(field_name, [])
     if value is None:
         return []
     if not isinstance(value, list) or not all(
         isinstance(item, str) for item in value
     ):
-        raise FoundryExtractionContractError(
-            f"Foundry structured extraction field {field_name} must be a list of text."
+        raise _contract_error(
+            f"Foundry structured extraction field {field_name} must be a list of text.",
+            metadata,
         )
     return value
+
+
+def _has_unexpected_fields(payload: dict[str, Any]) -> bool:
+    return any(field not in FOUNDRY_EXPECTED_TOP_LEVEL_FIELDS for field in payload)
+
+
+def _has_unexpected_patient_fields(patient_payload: dict[str, Any]) -> bool:
+    return any(field not in FOUNDRY_EXPECTED_PATIENT_FIELDS for field in patient_payload)
+
+
+def _contract_error(
+    message: str,
+    metadata: FoundryExtractionNormalizationMetadata | None = None,
+) -> FoundryExtractionContractError:
+    if metadata is None:
+        error_metadata = FoundryExtractionNormalizationMetadata(
+            normalized=False,
+            validation_issue_count=1,
+        )
+    else:
+        error_metadata = replace(
+            metadata,
+            normalized=False,
+            validation_issue_count=max(1, metadata.validation_issue_count),
+        )
+    return FoundryExtractionContractError(message, error_metadata)

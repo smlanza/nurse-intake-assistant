@@ -117,6 +117,21 @@ def test_foundry_service_maps_fake_structured_extraction_result() -> None:
     assert result.uncertain_fields == ["symptoms"]
 
 
+def test_foundry_service_records_normalization_metadata_for_valid_output() -> None:
+    service = create_service(FakeStructuredFoundryClient())
+
+    asyncio.run(service.extract_and_summarize("I need a refill."))
+    metadata = service.get_last_normalization_metadata()
+
+    assert metadata is not None
+    assert metadata.provider == "foundry"
+    assert metadata.normalized is True
+    assert metadata.fallback_used is False
+    assert metadata.ignored_extra_fields is False
+    assert metadata.validation_issue_count == 0
+    assert metadata.contract_version == "foundry-structured-extraction-v1"
+
+
 def test_foundry_service_maps_cached_fake_urgency_result() -> None:
     client = FakeStructuredFoundryClient()
     service = create_service(client)
@@ -188,8 +203,15 @@ def test_foundry_service_rejects_malformed_model_content(
 ) -> None:
     service = create_service(FakeStructuredFoundryClient(model_response=model_response))
 
-    with pytest.raises(FoundryExtractionContractError, match=message):
+    with pytest.raises(FoundryExtractionContractError, match=message) as exc:
         asyncio.run(service.extract_and_summarize("I need a refill."))
+
+    metadata = service.get_last_normalization_metadata()
+    assert metadata == exc.value.normalization_metadata
+    assert metadata.provider == "foundry"
+    assert metadata.normalized is False
+    assert metadata.fallback_used is False
+    assert metadata.validation_issue_count == 1
 
 
 def test_foundry_service_rejects_model_object_missing_expected_fields() -> None:
@@ -231,6 +253,28 @@ def test_foundry_service_ignores_unexpected_model_fields() -> None:
     assert "unexpected_top_level" not in returned_content
     assert "unexpected_patient_field" not in returned_content
     assert "must not leak" not in returned_content
+
+
+def test_foundry_service_records_ignored_extra_fields_in_metadata() -> None:
+    payload = _fake_model_payload()
+    payload["unexpected_top_level"] = "must not leak"
+    payload["patient"]["unexpected_patient_field"] = "must not leak"
+    service = create_service(
+        FakeStructuredFoundryClient(model_response=json.dumps(payload))
+    )
+
+    asyncio.run(service.extract_and_summarize("I need a refill."))
+    metadata = service.get_last_normalization_metadata()
+
+    assert metadata is not None
+    assert metadata.ignored_extra_fields is True
+    assert metadata.validation_issue_count == 0
+    metadata_text = str(metadata)
+    assert "must not leak" not in metadata_text
+    assert "unexpected_top_level" not in metadata_text
+    assert "unexpected_patient_field" not in metadata_text
+    assert "https://example.services.ai.azure.com" not in metadata_text
+    assert "intake-extraction" not in metadata_text
 
 
 def test_foundry_service_without_client_does_not_create_live_client() -> None:
