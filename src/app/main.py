@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI, Response
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.app.routes.cases import router as cases_router
@@ -16,6 +17,11 @@ app.include_router(intake_router)
 app.include_router(cases_router)
 app.include_router(notifications_router)
 app.include_router(demo_router)
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    return RedirectResponse(url="/demo", status_code=307)
 
 
 @app.get("/favicon.ico", include_in_schema=False)
