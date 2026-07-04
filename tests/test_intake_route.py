@@ -571,4 +571,7 @@ def test_health_endpoint_still_works() -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {
+        "status": "ok",
+        "service": "nurse-intake-assistant",
+    }
