@@ -428,7 +428,7 @@
         </p>
       </section>
 
-      <section class="section-card" aria-labelledby="demo-readiness-status-heading">
+      <section id="demo-readiness-status-section" class="section-card" aria-labelledby="demo-readiness-status-heading">
         <div class="section-heading">
           <h2 id="demo-readiness-status-heading">Demo Readiness Status</h2>
         </div>
@@ -476,25 +476,6 @@
             <p class="muted">Loading readiness warnings...</p>
           </div>
         </div>
-      </section>
-
-      <section class="section-card" aria-labelledby="demo-walkthrough-checklist-heading">
-        <div class="section-heading">
-          <h2 id="demo-walkthrough-checklist-heading">Demo Walkthrough Checklist</h2>
-        </div>
-        <p class="muted">
-          Use fictional demo data only. A human nurse must review before action, and this demo does not send real notifications in mock mode.
-        </p>
-        <ul class="workflow-steps">
-          <li>Confirm Demo Readiness Status is safe for local demo.</li>
-          <li>Seed deterministic mock demo cases.</li>
-          <li>Review queue summary and recent cases.</li>
-          <li>Submit a sample text intake.</li>
-          <li>Select the saved case.</li>
-          <li>Review red flags, urgency, symptoms, and nurse handoff note.</li>
-          <li>Inspect mock email/SMS notifications.</li>
-          <li>Reset demo data when finished.</li>
-        </ul>
       </section>
 
       <section class="section-card" aria-labelledby="demo-talking-points-heading">
@@ -548,15 +529,18 @@
         <div class="section-heading">
           <h2 id="workflow-heading">Demo Workflow</h2>
         </div>
+        <p class="muted">
+          Use fictional demo data only. A human nurse must review before action. Mock mode does not send real notifications.
+        </p>
         <ul class="workflow-steps">
-          <li><a href="#demo-controls-section"><span class="step-label">Step 1</span>Seed, load, and filter the nurse queue.</a></li>
-          <li><a href="#queue-summary-section"><span class="step-label">Step 2</span>Review Queue Summary.</a></li>
-          <li><a href="#recent-cases-section"><span class="step-label">Step 3</span>Review Recent Cases.</a></li>
-          <li><a href="#nurse-review-section"><span class="step-label">Step 4</span>Mark a selected case reviewed.</a></li>
-          <li><a href="#text-intake-section"><span class="step-label">Step 5</span>Submit a text intake.</a></li>
-          <li><a href="#voicemail-intake-section"><span class="step-label">Step 6</span>Submit a voicemail transcript intake.</a></li>
-          <li><a href="#mock-notifications-section"><span class="step-label">Step 7</span>Inspect mock notifications.</a></li>
-          <li><a href="#reset-section"><span class="step-label">Step 8</span>Reset demo when done.</a></li>
+          <li><a href="#demo-readiness-status-section"><span class="step-label">Step 1</span>Confirm Demo Readiness Status is safe for local demo.</a></li>
+          <li><a href="#demo-controls-section"><span class="step-label">Step 2</span>Seed deterministic mock demo cases.</a></li>
+          <li><a href="#queue-summary-section"><span class="step-label">Step 3</span>Review queue summary and recent cases.</a></li>
+          <li><a href="#text-intake-section"><span class="step-label">Step 4</span>Submit a sample text intake.</a></li>
+          <li><a href="#nurse-review-section"><span class="step-label">Step 5</span>Select the saved case.</a></li>
+          <li><a href="#nurse-review-section"><span class="step-label">Step 6</span>Review red flags, urgency, symptoms, and nurse handoff note.</a></li>
+          <li><a href="#mock-notifications-section"><span class="step-label">Step 7</span>Inspect mock email/SMS notifications.</a></li>
+          <li><a href="#reset-section"><span class="step-label">Step 8</span>Reset demo data when finished.</a></li>
         </ul>
       </section>
 

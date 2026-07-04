@@ -124,24 +124,32 @@ def test_demo_page_includes_dynamic_demo_readiness_status_panel() -> None:
     assert "textContent" in html
 
 
-def test_demo_page_includes_static_demo_walkthrough_checklist() -> None:
+def test_demo_page_uses_demo_workflow_as_single_walkthrough_guide() -> None:
     response = client.get("/demo")
 
     assert response.status_code == 200
     html = response.text
-    assert 'aria-labelledby="demo-walkthrough-checklist-heading"' in html
-    assert "Demo Walkthrough Checklist" in html
-    assert "Confirm Demo Readiness Status is safe for local demo." in html
-    assert "Seed deterministic mock demo cases." in html
-    assert "Review queue summary and recent cases." in html
-    assert "Submit a sample text intake." in html
-    assert "Select the saved case." in html
-    assert "Review red flags, urgency, symptoms, and nurse handoff note." in html
-    assert "Inspect mock email/SMS notifications." in html
-    assert "Reset demo data when finished." in html
-    assert "fictional demo data" in html
-    assert "human nurse must review before action" in html
-    assert "does not send real notifications in mock mode" in html
+    assert "Demo Walkthrough Checklist" not in html
+    assert 'aria-labelledby="demo-walkthrough-checklist-heading"' not in html
+    workflow_html = html[
+        html.index('aria-labelledby="workflow-heading"') : html.index(
+            'id="demo-controls-section"'
+        )
+    ]
+    assert "Confirm Demo Readiness Status is safe for local demo." in workflow_html
+    assert "Seed deterministic mock demo cases." in workflow_html
+    assert "Review queue summary and recent cases." in workflow_html
+    assert "Submit a sample text intake." in workflow_html
+    assert "Select the saved case." in workflow_html
+    assert (
+        "Review red flags, urgency, symptoms, and nurse handoff note."
+        in workflow_html
+    )
+    assert "Inspect mock email/SMS notifications." in workflow_html
+    assert "Reset demo data when finished." in workflow_html
+    assert "fictional demo data only" in workflow_html
+    assert "human nurse must review before action" in workflow_html
+    assert "Mock mode does not send real notifications" in workflow_html
     assert "/demo/walkthrough" not in html
 
 
@@ -271,12 +279,22 @@ def test_demo_page_workflow_is_unnumbered_clickable_navigation() -> None:
         )
     ]
     assert 'class="section-number"' not in workflow_html
+    assert "Use fictional demo data only." in workflow_html
+    assert "A human nurse must review before action." in workflow_html
+    assert "Mock mode does not send real notifications." in workflow_html
+    assert "<span class=\"step-label\">Step 1</span>Confirm Demo Readiness Status is safe for local demo." in workflow_html
+    assert "<span class=\"step-label\">Step 2</span>Seed deterministic mock demo cases." in workflow_html
+    assert "<span class=\"step-label\">Step 3</span>Review queue summary and recent cases." in workflow_html
+    assert "<span class=\"step-label\">Step 4</span>Submit a sample text intake." in workflow_html
+    assert "<span class=\"step-label\">Step 5</span>Select the saved case." in workflow_html
+    assert "<span class=\"step-label\">Step 6</span>Review red flags, urgency, symptoms, and nurse handoff note." in workflow_html
+    assert "<span class=\"step-label\">Step 7</span>Inspect mock email/SMS notifications." in workflow_html
+    assert "<span class=\"step-label\">Step 8</span>Reset demo data when finished." in workflow_html
+    assert 'href="#demo-readiness-status-section"' in workflow_html
     assert 'href="#demo-controls-section"' in workflow_html
     assert 'href="#queue-summary-section"' in workflow_html
-    assert 'href="#recent-cases-section"' in workflow_html
     assert 'href="#nurse-review-section"' in workflow_html
     assert 'href="#text-intake-section"' in workflow_html
-    assert 'href="#voicemail-intake-section"' in workflow_html
     assert 'href="#mock-notifications-section"' in workflow_html
     assert 'href="#reset-section"' in workflow_html
 
