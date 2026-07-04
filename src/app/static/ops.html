@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nurse Intake Assistant Operations</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f7faf9;
+        --panel: #ffffff;
+        --ink: #182322;
+        --muted: #566967;
+        --accent: #0f766e;
+        --line: #d8e4e1;
+        --soft: #eef6f4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        line-height: 1.5;
+      }
+
+      main {
+        width: min(880px, 100%);
+        margin: 0 auto;
+        padding: 24px;
+      }
+
+      header,
+      section,
+      .route-list {
+        display: grid;
+        gap: 12px;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 6vw, 3.2rem);
+        line-height: 1.08;
+      }
+
+      h2 {
+        font-size: 1.15rem;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .section-card {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 16px;
+      }
+
+      .route-item {
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--soft);
+        padding: 10px;
+      }
+
+      code {
+        color: var(--accent);
+        font-weight: 800;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Nurse Intake Assistant Operations</h1>
+        <p class="muted">Static local/demo operations visibility for safe routes.</p>
+      </header>
+
+      <section class="section-card" aria-labelledby="safe-routes-heading">
+        <h2 id="safe-routes-heading">Safe Routes</h2>
+        <div class="route-list">
+          <div class="route-item"><code>/health</code>: liveness check</div>
+          <div class="route-item"><code>/version</code>: safe service metadata</div>
+          <div class="route-item"><code>/demo</code>: local mock demo UI</div>
+          <div class="route-item"><code>/demo/status</code>: local demo readiness status</div>
+          <div class="route-item">/: redirects to /demo</div>
+        </div>
+      </section>
+
+      <section class="section-card" aria-labelledby="safety-heading">
+        <h2 id="safety-heading">Safety Boundary</h2>
+        <p class="muted">
+          The operations page is informational only. It does not validate live Azure readiness.
+          It must not expose secrets, provider credentials, connection strings, phone numbers, email addresses, or patient data.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

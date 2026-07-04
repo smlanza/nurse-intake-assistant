@@ -9,6 +9,7 @@ from src.app.routes.demo import router as demo_router
 from src.app.routes.health import router as health_router
 from src.app.routes.intake import router as intake_router
 from src.app.routes.notifications import router as notifications_router
+from src.app.routes.ops import router as ops_router
 
 app = FastAPI(title="Nurse Intake Assistant")
 
@@ -17,6 +18,7 @@ app.include_router(intake_router)
 app.include_router(cases_router)
 app.include_router(notifications_router)
 app.include_router(demo_router)
+app.include_router(ops_router)
 
 
 @app.get("/", include_in_schema=False)
