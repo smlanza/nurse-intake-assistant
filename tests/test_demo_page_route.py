@@ -124,6 +124,27 @@ def test_demo_page_includes_dynamic_demo_readiness_status_panel() -> None:
     assert "textContent" in html
 
 
+def test_demo_page_includes_static_demo_walkthrough_checklist() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'aria-labelledby="demo-walkthrough-checklist-heading"' in html
+    assert "Demo Walkthrough Checklist" in html
+    assert "Confirm Demo Readiness Status is safe for local demo." in html
+    assert "Seed deterministic mock demo cases." in html
+    assert "Review queue summary and recent cases." in html
+    assert "Submit a sample text intake." in html
+    assert "Select the saved case." in html
+    assert "Review red flags, urgency, symptoms, and nurse handoff note." in html
+    assert "Inspect mock email/SMS notifications." in html
+    assert "Reset demo data when finished." in html
+    assert "fictional demo data" in html
+    assert "human nurse must review before action" in html
+    assert "does not send real notifications in mock mode" in html
+    assert "/demo/walkthrough" not in html
+
+
 def test_demo_page_includes_reviewer_talking_points_panel() -> None:
     response = client.get("/demo")
 
