@@ -58,6 +58,9 @@ model calls, audio processing, repository reads/writes/queries, email sends, or
 SMS sends unless an explicit provider/manual smoke path is intentionally
 selected.
 
+`GET /demo/status` reports read-only, offline-safe local demo readiness without
+exposing secrets, creating Azure clients, or validating live Azure readiness.
+
 Create and activate a virtual environment:
 
 ```bash

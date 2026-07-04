@@ -24,6 +24,9 @@ DEMO_SUPPRESS_NOTIFICATIONS=false
 Mock mode sends no real email or SMS. Mock notifications are recorded in memory
 for local/demo inspection only.
 
+Use `GET /demo/status` for read-only, offline-safe local demo readiness status;
+it does not validate live Azure readiness.
+
 ## Start The API
 
 From the project root, start the FastAPI app with uvicorn:

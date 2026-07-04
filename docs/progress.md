@@ -22,21 +22,20 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Local demo UI reset-confirmation slice is complete.
-- `/demo` now shows `Local demo reset complete. Mock cases and mock notifications
-  were cleared.` after a successful reset while preserving existing local
-  refreshes for summary, recent cases, selected context, handoff note, and mock
-  notification panels.
-- This is a local demo UI reset-confirmation slice only; no backend runtime
-  behavior, API contracts, preflight behavior, Azure calls, clients, model
-  calls, audio processing, repository reads/writes/queries, notification sends,
-  provider defaults, hosting/auth/Key Vault, phone intake, retry behavior,
-  frontend framework changes, production deletion, or real PHI were added.
-- Recent completed slices also include `/demo` handoff-note copy, talking-points/
-  walkthrough/status/boundary panels, README demo-claims/boundary docs, safe
-  preflight failure docs, README mock-mode preflight alignment, consolidated
-  summary output, `Guidance:` wording, Cosmos/Speech preflight coverage, and
-  README walkthrough refresh.
+- Offline-safe demo readiness status slice is complete.
+- `GET /demo/status` reports safe local demo readiness for the active mock/demo
+  configuration, including app/provider mode labels, notification suppression
+  state, a human nurse review / non-production safety boundary, and safe
+  warnings when a provider is not mock.
+- The status endpoint is read-only and offline-safe: it exposes no secrets,
+  creates no Azure clients, makes no Azure calls, runs no model calls, processes
+  no audio, sends no email or SMS, and performs no repository reads/writes/
+  queries. It does not validate live Azure readiness.
+- Recent completed slices also include local demo UI reset confirmation, `/demo`
+  handoff-note copy, talking-points/walkthrough/status/boundary panels, README
+  demo-claims/boundary docs, safe preflight failure docs, README mock-mode
+  preflight alignment, consolidated summary output, `Guidance:` wording,
+  Cosmos/Speech preflight coverage, and README walkthrough refresh.
 
 ## Current Resume Point
 
@@ -94,6 +93,8 @@ pipeline through `POST /intake/voicemail-transcript`.
 ## Available Demo And Read Routes
 
 - `GET /demo` serves the local demo page.
+- `GET /demo/status` reports read-only, offline-safe local demo readiness without
+  validating live Azure readiness.
 - `POST /demo/seed` seeds deterministic mock demo cases and is mock-only.
 - `POST /demo/reset` clears mock in-memory cases and mock notification records.
 - `POST /intake/text` creates a text intake case.

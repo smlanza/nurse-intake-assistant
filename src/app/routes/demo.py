@@ -44,6 +44,19 @@ class DemoSeedResponse(BaseModel):
     caseIds: list[str]
 
 
+class DemoStatusResponse(BaseModel):
+    demoModeReady: bool
+    appMode: str
+    aiProvider: str
+    speechProvider: str
+    emailProvider: str
+    smsProvider: str
+    notificationsSuppressed: bool
+    safeForLocalDemo: bool
+    safetyBoundary: str
+    warnings: list[str]
+
+
 @router.get("", response_class=HTMLResponse)
 async def get_demo_page() -> HTMLResponse:
     html = demo_page_path.read_text()
@@ -57,6 +70,11 @@ async def get_demo_page() -> HTMLResponse:
     for placeholder, value in replacements.items():
         html = html.replace(placeholder, escape(value, quote=True))
     return HTMLResponse(html)
+
+
+@router.get("/status", response_model=DemoStatusResponse)
+async def get_demo_status() -> DemoStatusResponse:
+    return _build_demo_status()
 
 
 @router.post("/seed", response_model=DemoSeedResponse)
@@ -104,6 +122,75 @@ async def reset_demo_state() -> DemoResetResponse:
             smsNotifications=True,
         ),
     )
+
+
+def _build_demo_status() -> DemoStatusResponse:
+    app_mode = _status_value(settings.app_mode)
+    ai_provider = _status_value(settings.ai_provider)
+    speech_provider = _status_value(settings.speech_provider)
+    email_provider = _status_value(settings.email_provider)
+    sms_provider = _status_value(settings.sms_provider)
+
+    warnings = _demo_status_warnings(
+        app_mode=app_mode,
+        ai_provider=ai_provider,
+        speech_provider=speech_provider,
+        email_provider=email_provider,
+        sms_provider=sms_provider,
+    )
+
+    return DemoStatusResponse(
+        demoModeReady=not warnings,
+        appMode=app_mode,
+        aiProvider=ai_provider,
+        speechProvider=speech_provider,
+        emailProvider=email_provider,
+        smsProvider=sms_provider,
+        notificationsSuppressed=settings.demo_suppress_notifications,
+        safeForLocalDemo=True,
+        safetyBoundary=(
+            "Local mock/demo only. Not for production clinical use. "
+            "AI output requires human nurse review."
+        ),
+        warnings=warnings,
+    )
+
+
+def _status_value(value: str) -> str:
+    return value.strip().lower() or "mock"
+
+
+def _demo_status_warnings(
+    *,
+    app_mode: str,
+    ai_provider: str,
+    speech_provider: str,
+    email_provider: str,
+    sms_provider: str,
+) -> list[str]:
+    warnings: list[str] = []
+    if app_mode != "mock":
+        warnings.append(
+            "APP_MODE is not mock; repository behavior must be validated separately."
+        )
+    if ai_provider != "mock":
+        warnings.append(
+            "AI_PROVIDER is not mock; live AI integration should not be claimed "
+            "unless manually verified."
+        )
+    if speech_provider != "mock":
+        warnings.append(
+            "SPEECH_PROVIDER is not mock; live speech behavior must be validated separately."
+        )
+    if email_provider != "mock":
+        warnings.append(
+            "EMAIL_PROVIDER is not mock; real email behavior must be validated separately."
+        )
+    if sms_provider != "mock":
+        warnings.append(
+            "SMS_PROVIDER is not mock; real SMS behavior must be validated separately."
+        )
+    return warnings
 
 
 def _clear(target: Any, name: str) -> None:
