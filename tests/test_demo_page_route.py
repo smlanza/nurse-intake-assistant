@@ -99,6 +99,31 @@ def test_demo_page_includes_local_mock_mode_status_panel() -> None:
     assert "fictional demo data" in html
 
 
+def test_demo_page_includes_dynamic_demo_readiness_status_panel() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    assert 'aria-labelledby="demo-readiness-status-heading"' in html
+    assert "Demo Readiness Status" in html
+    assert 'requestJson("/demo/status")' in html
+    assert 'id="demoReadinessStatus"' in html
+    assert "Demo mode ready" in html
+    assert "App mode" in html
+    assert "AI provider" in html
+    assert "Speech provider" in html
+    assert "Email provider" in html
+    assert "SMS provider" in html
+    assert "Notifications suppressed" in html
+    assert "Safe for local demo" in html
+    assert "Warnings" in html
+    assert "local/demo readiness only" in html
+    assert "not production readiness" in html
+    assert "No readiness warnings for the current local mock configuration." in html
+    assert "Could not load demo readiness status. Refresh the page and try again." in html
+    assert "textContent" in html
+
+
 def test_demo_page_includes_reviewer_talking_points_panel() -> None:
     response = client.get("/demo")
 

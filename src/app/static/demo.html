@@ -112,12 +112,19 @@
         gap: 12px;
       }
 
+      .status-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 8px;
+      }
+
       .provider-grid {
         display: grid;
         grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 8px;
       }
 
+      .status-fact,
       .provider-fact {
         border: 1px solid var(--line);
         border-radius: 6px;
@@ -126,14 +133,21 @@
         min-width: 0;
       }
 
+      .status-fact strong,
       .provider-fact strong {
         display: block;
         color: var(--muted);
         font-size: 0.78rem;
       }
 
+      .status-fact code,
       .provider-fact code {
         font-weight: 800;
+      }
+
+      .warning-list {
+        margin: 0;
+        padding-left: 20px;
       }
 
       .section-heading {
@@ -355,6 +369,7 @@
         .compact-grid,
         .filters,
         .facts,
+        .status-grid,
         .provider-grid,
         .metadata .facts,
         .case-detail-grid {
@@ -411,6 +426,56 @@
         <p class="muted">
           The demo can be reset/seeded locally and uses fictional demo data.
         </p>
+      </section>
+
+      <section class="section-card" aria-labelledby="demo-readiness-status-heading">
+        <div class="section-heading">
+          <h2 id="demo-readiness-status-heading">Demo Readiness Status</h2>
+        </div>
+        <p class="muted">
+          This panel shows local/demo readiness only; it is not production readiness and does not validate live Azure readiness.
+        </p>
+        <div id="demoReadinessStatus" class="status-grid" aria-live="polite">
+          <div class="status-fact">
+            <strong>Demo mode ready</strong>
+            <code id="demoModeReadyStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
+            <strong>App mode</strong>
+            <code id="appModeStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
+            <strong>AI provider</strong>
+            <code id="aiProviderStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
+            <strong>Speech provider</strong>
+            <code id="speechProviderStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
+            <strong>Email provider</strong>
+            <code id="emailProviderStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
+            <strong>SMS provider</strong>
+            <code id="smsProviderStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
+            <strong>Notifications suppressed</strong>
+            <code id="notificationsSuppressedStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
+            <strong>Safe for local demo</strong>
+            <code id="safeForLocalDemoStatus">Loading...</code>
+          </div>
+        </div>
+        <p id="demoReadinessBoundary" class="muted">Loading local demo safety boundary...</p>
+        <div class="panel" aria-labelledby="demo-readiness-warnings-heading">
+          <h3 id="demo-readiness-warnings-heading">Warnings</h3>
+          <div id="demoReadinessWarnings" class="result">
+            <p class="muted">Loading readiness warnings...</p>
+          </div>
+        </div>
       </section>
 
       <section class="section-card" aria-labelledby="demo-talking-points-heading">
@@ -729,6 +794,8 @@
       const copyHandoffNoteButton = document.querySelector("#copyHandoffNote");
       const emailNotifications = document.querySelector("#emailNotifications");
       const smsNotifications = document.querySelector("#smsNotifications");
+      const demoReadinessWarnings = document.querySelector("#demoReadinessWarnings");
+      const demoReadinessBoundary = document.querySelector("#demoReadinessBoundary");
       let recentCases = [];
       const filterIds = [
         "filterSourceSystem",
@@ -773,6 +840,55 @@
 
       function safeDemoErrorMessage(_error, fallbackMessage) {
         return fallbackMessage;
+      }
+
+      function setStatusText(selector, value) {
+        document.querySelector(selector).textContent = String(value);
+      }
+
+      function renderDemoReadinessWarnings(warnings) {
+        demoReadinessWarnings.textContent = "";
+        if (!Array.isArray(warnings) || warnings.length === 0) {
+          const emptyMessage = document.createElement("p");
+          emptyMessage.className = "muted";
+          emptyMessage.textContent = "No readiness warnings for the current local mock configuration.";
+          demoReadinessWarnings.appendChild(emptyMessage);
+          return;
+        }
+
+        const warningList = document.createElement("ul");
+        warningList.className = "warning-list";
+        warnings.forEach((warning) => {
+          const item = document.createElement("li");
+          item.textContent = warning;
+          warningList.appendChild(item);
+        });
+        demoReadinessWarnings.appendChild(warningList);
+      }
+
+      async function loadDemoReadinessStatus() {
+        try {
+          const data = await requestJson("/demo/status");
+          setStatusText("#demoModeReadyStatus", data.demoModeReady ? "true" : "false");
+          setStatusText("#appModeStatus", data.appMode);
+          setStatusText("#aiProviderStatus", data.aiProvider);
+          setStatusText("#speechProviderStatus", data.speechProvider);
+          setStatusText("#emailProviderStatus", data.emailProvider);
+          setStatusText("#smsProviderStatus", data.smsProvider);
+          setStatusText(
+            "#notificationsSuppressedStatus",
+            data.notificationsSuppressed ? "true" : "false",
+          );
+          setStatusText("#safeForLocalDemoStatus", data.safeForLocalDemo ? "true" : "false");
+          demoReadinessBoundary.textContent = data.safetyBoundary;
+          renderDemoReadinessWarnings(data.warnings);
+        } catch (error) {
+          demoReadinessBoundary.textContent =
+            "Could not load demo readiness status. Refresh the page and try again.";
+          renderDemoReadinessWarnings([
+            "Could not load demo readiness status. Refresh the page and try again.",
+          ]);
+        }
       }
 
       function renderNotifications(target, notifications, emptyMessage) {
@@ -1238,6 +1354,7 @@
         }
       });
 
+      loadDemoReadinessStatus().catch(() => {});
       loadSummary().catch(() => {});
       loadCases().catch(() => {});
     </script>

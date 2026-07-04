@@ -4,7 +4,7 @@ Active current-status and resume document. Historical progress through June 2026
 
 ## Current Status
 Latest verified test baseline:
-- 505 passed
+- 553 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -22,20 +22,17 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Offline-safe demo readiness status slice is complete.
-- `GET /demo/status` reports safe local demo readiness for the active mock/demo
-  configuration, including app/provider mode labels, notification suppression
-  state, a human nurse review / non-production safety boundary, and safe
-  warnings when a provider is not mock.
-- The status endpoint is read-only and offline-safe: it exposes no secrets,
-  creates no Azure clients, makes no Azure calls, runs no model calls, processes
-  no audio, sends no email or SMS, and performs no repository reads/writes/
-  queries. It does not validate live Azure readiness.
-- Recent completed slices also include local demo UI reset confirmation, `/demo`
-  handoff-note copy, talking-points/walkthrough/status/boundary panels, README
-  demo-claims/boundary docs, safe preflight failure docs, README mock-mode
-  preflight alignment, consolidated summary output, `Guidance:` wording,
-  Cosmos/Speech preflight coverage, and README walkthrough refresh.
+- Local demo UI readiness status panel slice is complete.
+- `/demo` now displays the `GET /demo/status` local readiness result: provider
+  labels, notification suppression state, safety boundary, and warnings.
+- The status panel is read-only and offline-safe: it exposes no secrets, creates
+  no Azure/provider clients, makes no Azure calls, runs no model calls,
+  processes no audio, sends no email or SMS, and performs no repository
+  reads/writes/queries. It does not validate live Azure readiness.
+- Recent completed slices also include the offline-safe `/demo/status` endpoint,
+  local demo UI reset confirmation, `/demo` handoff-note copy, demo boundary
+  panels, README demo-claims/boundary docs, safe preflight docs, consolidated
+  summary output, `Guidance:` wording, and Cosmos/Speech preflight coverage.
 
 ## Current Resume Point
 
@@ -44,7 +41,8 @@ Safe to demo today:
 - Nurse review workflow, recent cases, queue summary, and demo seed/reset
 - Copy-friendly nurse handoff note display for selected saved cases
 - Mock email/SMS notification inspection
-- Local mock demo safety banner and human nurse review boundary
+- Local mock demo safety banner, readiness status panel, and human nurse review
+  boundary
 
 Implemented but not live-confirmed:
 - Cosmos repository boundary and previously verified manual Cosmos point-read
@@ -92,7 +90,7 @@ pipeline through `POST /intake/voicemail-transcript`.
 
 ## Available Demo And Read Routes
 
-- `GET /demo` serves the local demo page.
+- `GET /demo` serves the local demo page with the local readiness status panel.
 - `GET /demo/status` reports read-only, offline-safe local demo readiness without
   validating live Azure readiness.
 - `POST /demo/seed` seeds deterministic mock demo cases and is mock-only.
