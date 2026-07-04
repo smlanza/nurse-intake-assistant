@@ -449,6 +449,10 @@
             <code id="aiProviderStatus">Loading...</code>
           </div>
           <div class="status-fact">
+            <strong>Agent provider</strong>
+            <code id="agentProviderStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
             <strong>Speech provider</strong>
             <code id="speechProviderStatus">Loading...</code>
           </div>
@@ -469,6 +473,9 @@
             <code id="safeForLocalDemoStatus">Loading...</code>
           </div>
         </div>
+        <p class="muted">
+          Mock agent mode is local/demo only. Live Azure AI Agent orchestration is not wired yet.
+        </p>
         <p id="demoReadinessBoundary" class="muted">Loading local demo safety boundary...</p>
         <div class="panel" aria-labelledby="demo-readiness-warnings-heading">
           <h3 id="demo-readiness-warnings-heading">Warnings</h3>
@@ -875,6 +882,7 @@
           setStatusText("#demoModeReadyStatus", data.demoModeReady ? "true" : "false");
           setStatusText("#appModeStatus", data.appMode);
           setStatusText("#aiProviderStatus", data.aiProvider);
+          setStatusText("#agentProviderStatus", data.agentProvider);
           setStatusText("#speechProviderStatus", data.speechProvider);
           setStatusText("#emailProviderStatus", data.emailProvider);
           setStatusText("#smsProviderStatus", data.smsProvider);

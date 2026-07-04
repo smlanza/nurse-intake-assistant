@@ -51,6 +51,7 @@ class DemoStatusResponse(BaseModel):
     speechProvider: str
     emailProvider: str
     smsProvider: str
+    agentProvider: str
     notificationsSuppressed: bool
     safeForLocalDemo: bool
     safetyBoundary: str
@@ -130,6 +131,7 @@ def _build_demo_status() -> DemoStatusResponse:
     speech_provider = _status_value(settings.speech_provider)
     email_provider = _status_value(settings.email_provider)
     sms_provider = _status_value(settings.sms_provider)
+    agent_provider = _status_value(settings.agent_provider)
 
     warnings = _demo_status_warnings(
         app_mode=app_mode,
@@ -137,6 +139,7 @@ def _build_demo_status() -> DemoStatusResponse:
         speech_provider=speech_provider,
         email_provider=email_provider,
         sms_provider=sms_provider,
+        agent_provider=agent_provider,
     )
 
     return DemoStatusResponse(
@@ -146,6 +149,7 @@ def _build_demo_status() -> DemoStatusResponse:
         speechProvider=speech_provider,
         emailProvider=email_provider,
         smsProvider=sms_provider,
+        agentProvider=agent_provider,
         notificationsSuppressed=settings.demo_suppress_notifications,
         safeForLocalDemo=True,
         safetyBoundary=(
@@ -167,6 +171,7 @@ def _demo_status_warnings(
     speech_provider: str,
     email_provider: str,
     sms_provider: str,
+    agent_provider: str,
 ) -> list[str]:
     warnings: list[str] = []
     if app_mode != "mock":
@@ -189,6 +194,16 @@ def _demo_status_warnings(
     if sms_provider != "mock":
         warnings.append(
             "SMS_PROVIDER is not mock; real SMS behavior must be validated separately."
+        )
+    if agent_provider == "foundry-agent":
+        warnings.append(
+            "AGENT_PROVIDER is foundry-agent; live Azure AI Agent orchestration is "
+            "not wired yet."
+        )
+    elif agent_provider != "mock":
+        warnings.append(
+            "AGENT_PROVIDER is not mock; unsupported agent providers must not be "
+            "claimed for local demo readiness."
         )
     return warnings
 

@@ -25,6 +25,7 @@ def _set_demo_status_settings(monkeypatch, **overrides) -> None:
         "speech_provider": "mock",
         "email_provider": "mock",
         "sms_provider": "mock",
+        "agent_provider": "mock",
         "demo_suppress_notifications": False,
     }
     values.update(overrides)
@@ -48,6 +49,7 @@ def test_demo_status_reports_default_mock_configuration(monkeypatch) -> None:
     assert body["speechProvider"] == "mock"
     assert body["emailProvider"] == "mock"
     assert body["smsProvider"] == "mock"
+    assert body["agentProvider"] == "mock"
     assert body["safeForLocalDemo"] is True
     assert body["warnings"] == []
     safety_boundary = body["safetyBoundary"].lower()
@@ -81,6 +83,38 @@ def test_demo_status_reflects_suppressed_notifications(monkeypatch) -> None:
     assert body["demoModeReady"] is True
     assert body["emailProvider"] == "mock"
     assert body["smsProvider"] == "mock"
+
+
+def test_demo_status_warns_when_foundry_agent_provider_is_configured(
+    monkeypatch,
+) -> None:
+    _set_demo_status_settings(monkeypatch, agent_provider="foundry-agent")
+
+    response = client.get("/demo/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["demoModeReady"] is False
+    assert body["agentProvider"] == "foundry-agent"
+    assert (
+        "AGENT_PROVIDER is foundry-agent; live Azure AI Agent orchestration is "
+        "not wired yet."
+    ) in body["warnings"]
+
+
+def test_demo_status_warns_when_agent_provider_is_unsupported(monkeypatch) -> None:
+    _set_demo_status_settings(monkeypatch, agent_provider="future-agent")
+
+    response = client.get("/demo/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["demoModeReady"] is False
+    assert body["agentProvider"] == "future-agent"
+    assert (
+        "AGENT_PROVIDER is not mock; unsupported agent providers must not be "
+        "claimed for local demo readiness."
+    ) in body["warnings"]
 
 
 def test_demo_status_does_not_expose_secret_like_fields(monkeypatch) -> None:
