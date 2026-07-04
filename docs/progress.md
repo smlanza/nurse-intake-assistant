@@ -4,7 +4,7 @@ Active current-status and resume document. Historical progress through June 2026
 
 ## Current Status
 Latest verified test baseline:
-- 582 passed
+- 591 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
@@ -22,16 +22,16 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry extraction normalization metadata slice is complete.
-- The Foundry structured extraction contract now records safe internal metadata
-  for normalization attempts, including provider, contract version, normalized
-  state, fallback flag, ignored-extra-fields flag, and validation issue count.
-- Metadata is provider/internal only and does not expose raw model output,
-  prompts, endpoints, deployment names, credentials, phone/email values, or
-  patient data beyond the normal extraction result.
-- Recent completed slices also include malformed Foundry output hardening,
-  offline-safe `/ops`, `/version`, `/health`, `/`, and `/demo/status` routes,
-  local demo UI readiness/status panels, and safe preflight docs.
+- Mock-first Nurse Intake Agent abstraction slice is complete.
+- Added a `NurseIntakeAgent` boundary, deterministic `MockNurseIntakeAgent`,
+  safe agent result/metadata models, and a small factory with `AGENT_PROVIDER`
+  defaulting to `mock`.
+- The mock agent reuses existing mock extraction, urgency rules, and nurse
+  handoff formatting without Azure clients/calls, model calls, repositories, or
+  notification sends. Live Azure AI Agent orchestration is not wired yet.
+- Recent completed slices also include Foundry normalization metadata,
+  malformed Foundry output hardening, offline-safe `/ops`, `/version`,
+  `/health`, `/`, and `/demo/status` routes, and local demo readiness panels.
 
 ## Current Resume Point
 

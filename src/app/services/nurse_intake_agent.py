@@ -1,0 +1,109 @@
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Literal, Protocol
+
+from pydantic import BaseModel
+
+from src.app.models.ai_outputs import (
+    ExtractionSummaryResult,
+    UrgencyClassificationResult,
+)
+from src.app.models.case import CaseDocument
+from src.app.services.case_processing_service import CaseProcessingService
+from src.app.services.mock_ai_service import MockAiService
+from src.app.services.nurse_handoff_note_formatter import NurseHandoffNoteFormatter
+from src.app.services.urgency_rules_service import UrgencyRulesService
+
+
+class NurseIntakeAgentMetadata(BaseModel):
+    provider: Literal["mock"]
+    agentMode: Literal["mock"]
+
+
+class NurseIntakeAgentResult(BaseModel):
+    extraction: ExtractionSummaryResult
+    urgency: UrgencyClassificationResult
+    handoffNote: str
+    metadata: NurseIntakeAgentMetadata
+
+
+class NurseIntakeAgent(Protocol):
+    async def analyze_intake(self, raw_text: str) -> NurseIntakeAgentResult:
+        """Analyze intake text without implying a specific model/provider."""
+
+
+class MockNurseIntakeAgent:
+    """Deterministic local nurse intake agent boundary for future agent wiring."""
+
+    _CREATED_UTC = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    def __init__(
+        self,
+        ai_service: MockAiService | None = None,
+        rules_service: UrgencyRulesService | None = None,
+        handoff_formatter: NurseHandoffNoteFormatter | None = None,
+    ) -> None:
+        self.ai_service = ai_service or MockAiService()
+        self.rules_service = rules_service or UrgencyRulesService(
+            Path(__file__).parents[1] / "config" / "red_flags.yaml"
+        )
+        self.handoff_formatter = handoff_formatter or NurseHandoffNoteFormatter()
+
+    async def analyze_intake(self, raw_text: str) -> NurseIntakeAgentResult:
+        extraction = await self.ai_service.extract_and_summarize(raw_text)
+        ai_urgency = await self.ai_service.classify_urgency(raw_text)
+        rule_result = self.rules_service.evaluate(raw_text)
+        final_urgency = (
+            "Urgent"
+            if rule_result.urgency == "Urgent" or ai_urgency.urgency == "Urgent"
+            else "Routine"
+        )
+        urgency_source = CaseProcessingService._merge_urgency_source(
+            ai_urgency,
+            rule_result,
+        )
+        urgency_rationale = CaseProcessingService._build_urgency_rationale(
+            ai_urgency,
+            rule_result,
+        )
+        urgency = UrgencyClassificationResult(
+            urgency=final_urgency,
+            urgency_rationale=urgency_rationale,
+            advisory_disclaimer=ai_urgency.advisory_disclaimer,
+        )
+        case = CaseDocument(
+            id="mock-agent-analysis",
+            createdDate=self._CREATED_UTC.date().isoformat(),
+            createdUtc=self._CREATED_UTC,
+            lastStatusUpdatedUtc=self._CREATED_UTC,
+            caseType="text-intake",
+            sourceSystem="mock-agent",
+            patient=extraction.patient,
+            reasonForCalling=extraction.reason_for_calling,
+            symptoms=extraction.symptoms,
+            transcript=raw_text,
+            summary=extraction.summary,
+            urgency=final_urgency,
+            urgencySource=urgency_source,
+            ruleUrgency=rule_result.urgency,
+            aiUrgency=ai_urgency.urgency,
+            urgencyRationale=urgency_rationale,
+            missingFields=extraction.missing_fields,
+            uncertainFields=extraction.uncertain_fields,
+            intakeComplete=not extraction.missing_fields,
+            processingStatus="Completed",
+            intakeStatus=(
+                "NeedsFollowUp" if extraction.missing_fields else "Complete"
+            ),
+            reviewStatus="PendingReview",
+        )
+
+        return NurseIntakeAgentResult(
+            extraction=extraction,
+            urgency=urgency,
+            handoffNote=self.handoff_formatter.format(case),
+            metadata=NurseIntakeAgentMetadata(
+                provider="mock",
+                agentMode="mock",
+            ),
+        )

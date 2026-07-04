@@ -22,6 +22,8 @@ class AppSettings:
     nurse_notification_email: str | None
     sms_provider: str
     sms_provider_normalized: str
+    agent_provider: str
+    agent_provider_normalized: str
     acs_sms_connection_string: str | None
     acs_sms_from_phone_number: str | None
     nurse_notification_phone_number: str | None
@@ -59,6 +61,10 @@ class AppSettings:
         self.nurse_notification_email = self._optional_env("NURSE_NOTIFICATION_EMAIL")
         self.sms_provider = os.getenv("SMS_PROVIDER", "mock")
         self.sms_provider_normalized = self.sms_provider.strip().lower()
+        self.agent_provider = os.getenv("AGENT_PROVIDER", "mock")
+        self.agent_provider_normalized = (
+            self.agent_provider.strip().lower() or "mock"
+        )
         self.acs_sms_connection_string = self._optional_env(
             "ACS_SMS_CONNECTION_STRING"
         )
