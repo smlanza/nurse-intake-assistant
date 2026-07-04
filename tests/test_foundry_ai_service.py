@@ -36,6 +36,10 @@ def _fake_model_response() -> str:
     )
 
 
+def _fake_model_payload() -> dict:
+    return json.loads(_fake_model_response())
+
+
 class FakeStructuredFoundryClient:
     def __init__(self, model_response: str | None = None) -> None:
         self.model_response = model_response or _fake_model_response()
@@ -168,6 +172,65 @@ def test_foundry_service_invalid_fake_response_fails_with_contract_error() -> No
 
     with pytest.raises(FoundryExtractionContractError, match="not valid JSON"):
         asyncio.run(service.extract_and_summarize("I need a refill."))
+
+
+@pytest.mark.parametrize(
+    ("model_response", "message"),
+    [
+        ("not JSON at all", "not valid JSON"),
+        ("   ", "empty"),
+        ('["not", "object"]', "must be a JSON object"),
+    ],
+)
+def test_foundry_service_rejects_malformed_model_content(
+    model_response: str,
+    message: str,
+) -> None:
+    service = create_service(FakeStructuredFoundryClient(model_response=model_response))
+
+    with pytest.raises(FoundryExtractionContractError, match=message):
+        asyncio.run(service.extract_and_summarize("I need a refill."))
+
+
+def test_foundry_service_rejects_model_object_missing_expected_fields() -> None:
+    payload = _fake_model_payload()
+    payload.pop("summary")
+    service = create_service(
+        FakeStructuredFoundryClient(model_response=json.dumps(payload))
+    )
+
+    with pytest.raises(FoundryExtractionContractError, match="missing required"):
+        asyncio.run(service.extract_and_summarize("I need a refill."))
+
+
+def test_foundry_service_rejects_model_object_with_wrong_field_types() -> None:
+    payload = _fake_model_payload()
+    payload["symptoms"] = "fatigue"
+    service = create_service(
+        FakeStructuredFoundryClient(model_response=json.dumps(payload))
+    )
+
+    with pytest.raises(FoundryExtractionContractError, match="list of text"):
+        asyncio.run(service.extract_and_summarize("I need a refill."))
+
+
+def test_foundry_service_ignores_unexpected_model_fields() -> None:
+    payload = _fake_model_payload()
+    payload["unexpected_top_level"] = "must not leak"
+    payload["patient"]["unexpected_patient_field"] = "must not leak"
+    service = create_service(
+        FakeStructuredFoundryClient(model_response=json.dumps(payload))
+    )
+
+    extraction = asyncio.run(service.extract_and_summarize("I need a refill."))
+    urgency = asyncio.run(service.classify_urgency("I need a refill."))
+    returned_content = extraction.model_dump_json() + urgency.model_dump_json()
+
+    assert extraction.patient.name == "Jane Doe"
+    assert urgency.urgency == "Routine"
+    assert "unexpected_top_level" not in returned_content
+    assert "unexpected_patient_field" not in returned_content
+    assert "must not leak" not in returned_content
 
 
 def test_foundry_service_without_client_does_not_create_live_client() -> None:

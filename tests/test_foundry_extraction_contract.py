@@ -108,6 +108,11 @@ def test_parse_foundry_response_rejects_malformed_json() -> None:
         parse_foundry_structured_extraction_response("{not-json")
 
 
+def test_parse_foundry_response_rejects_empty_content() -> None:
+    with pytest.raises(FoundryExtractionContractError, match="empty"):
+        parse_foundry_structured_extraction_response("   ")
+
+
 @pytest.mark.parametrize("model_response", ['["not", "object"]', '"not object"'])
 def test_parse_foundry_response_rejects_non_object_json(
     model_response: str,
@@ -138,3 +143,51 @@ def test_parse_foundry_response_rejects_invalid_list_field() -> None:
 
     with pytest.raises(FoundryExtractionContractError, match="list of text"):
         parse_foundry_structured_extraction_response(json.dumps(payload))
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bad_value", "message"),
+    [
+        ("summary", ["not", "text"], "did not match app models"),
+        ("urgency_rationale", {"not": "text"}, "did not match app models"),
+        ("advisory_disclaimer", "", "advisory_disclaimer must be text"),
+    ],
+)
+def test_parse_foundry_response_rejects_wrong_top_level_field_types(
+    field_name: str,
+    bad_value: object,
+    message: str,
+) -> None:
+    payload = _valid_response_payload()
+    payload[field_name] = bad_value
+
+    with pytest.raises(FoundryExtractionContractError, match=message):
+        parse_foundry_structured_extraction_response(json.dumps(payload))
+
+
+def test_parse_foundry_response_rejects_wrong_patient_field_types() -> None:
+    payload = _valid_response_payload()
+    payload["patient"]["name"] = ["not", "text"]
+
+    with pytest.raises(
+        FoundryExtractionContractError,
+        match="did not match app models",
+    ):
+        parse_foundry_structured_extraction_response(json.dumps(payload))
+
+
+def test_parse_foundry_response_ignores_unexpected_fields() -> None:
+    payload = _valid_response_payload()
+    payload["unexpected_top_level"] = "must not leak"
+    payload["patient"]["unexpected_patient_field"] = "must not leak"
+
+    extraction, urgency = parse_foundry_structured_extraction_response(
+        json.dumps(payload)
+    )
+    returned_content = extraction.model_dump_json() + urgency.model_dump_json()
+
+    assert extraction.patient.name == "Jane Doe"
+    assert urgency.urgency == "Routine"
+    assert "unexpected_top_level" not in returned_content
+    assert "unexpected_patient_field" not in returned_content
+    assert "must not leak" not in returned_content

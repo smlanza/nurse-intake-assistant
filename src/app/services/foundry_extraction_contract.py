@@ -65,6 +65,11 @@ def parse_foundry_structured_extraction_response(
 ) -> tuple[ExtractionSummaryResult, UrgencyClassificationResult]:
     """Parse and validate JSON returned by a future Foundry model call."""
 
+    if not model_response.strip():
+        raise FoundryExtractionContractError(
+            "Foundry structured extraction response was empty."
+        )
+
     try:
         payload = json.loads(model_response)
     except json.JSONDecodeError as exc:
