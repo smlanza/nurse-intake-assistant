@@ -47,6 +47,21 @@ def test_env_example_documents_foundry_ai_placeholders() -> None:
     assert "Azure AI keys" in env_example
 
 
+def test_env_example_documents_foundry_agent_placeholders() -> None:
+    env_example = (PROJECT_ROOT / ".env.example").read_text()
+
+    assert "AGENT_PROVIDER=mock" in env_example
+    assert "AGENT_PROVIDER=foundry-agent" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_ID=" in env_example
+    assert "offline-safe client boundary" in env_example
+    assert "Do not commit" in env_example
+    assert "PHI" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_ID=agent-" not in env_example
+    assert "services.ai.azure.com/api/projects/" not in env_example
+    assert "accesskey=" not in env_example.lower()
+
+
 def test_foundry_local_env_example_documents_openai_endpoint_placeholder() -> None:
     env_example = (PROJECT_ROOT / ".env.foundry.local.example").read_text()
 

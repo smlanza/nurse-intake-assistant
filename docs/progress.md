@@ -1,16 +1,16 @@
 # Nurse Intake Assistant Progress
 
-Active current-status and resume document. Historical progress through June 2026 is archived at `docs/archive/progress-2026-06.md`.
+Active current-status and resume document. Historical progress through June
+2026 is archived at `docs/archive/progress-2026-06.md`.
 
 ## Current Status
 Latest verified test baseline:
-- 593 passed
+- 603 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow.
-It demonstrates intake processing, deterministic mock AI extraction, urgency
-classification, nurse queue review, mock notification inspection, and a local
-demo UI without requiring live Azure services.
+The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
+covering intake processing, deterministic mock AI extraction, urgency
+classification, nurse review, mock notification inspection, and a local demo UI.
 
 Important constraints:
 - Local mock/demo only
@@ -22,15 +22,19 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Agent provider demo readiness visibility slice is complete.
-- `GET /demo/status` now reports normalized `agentProvider`; `/demo` displays it
-  in the readiness panel. `AGENT_PROVIDER=foundry-agent` and unsupported values
-  add safe warnings without creating Azure clients or wiring live agents.
-- Live Azure AI Agent orchestration is not wired yet; the app remains local/mock
-  demo only unless explicit smoke paths are selected.
-- Recent completed slices also include the mock-first Nurse Intake Agent
-  boundary, Foundry normalization metadata, malformed Foundry output hardening,
-  offline-safe `/ops`, `/version`, `/health`, `/`, and `/demo/status` routes.
+- Offline-safe Foundry Agent client boundary slice is complete.
+- Added `FoundryAgentClient` request/response models, deterministic fake client,
+  safe diagnostics, lazy live adapter scaffold, and a factory that supports
+  injected fakes while validating settings only for explicit live creation.
+- `AGENT_PROVIDER=foundry-agent` remains unwired from intake processing. No app
+  startup, `/demo/status`, `/health`, `/version`, `/`, `/demo`, or automated
+  test path creates Azure clients or makes Azure calls.
+- `.env.example` includes safe placeholders for
+  `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` and `AZURE_AI_FOUNDRY_AGENT_ID`.
+- Previous slice: agent provider demo readiness visibility added normalized
+  `agentProvider` reporting and safe warnings without wiring live agents.
+- Recent slices also include the mock-first Nurse Intake Agent boundary, Foundry
+  normalization hardening, and offline-safe ops/readiness routes.
 
 ## Current Resume Point
 
@@ -43,14 +47,15 @@ Safe to demo today:
   boundary
 
 Implemented but not live-confirmed:
-- Cosmos repository boundary and previously verified manual Cosmos point-read
-  path
-- ACS Email/SMS provider boundaries, with ACS Email smoke testing and
-  offline-safe ACS Email/SMS `--check` preflights plus consolidated
-  `scripts/preflight.py --all` complete; ACS SMS handset delivery tracking is
-  deferred
+- Cosmos repository boundary and manual Cosmos point-read path
+- ACS Email/SMS boundaries, ACS Email smoke testing, offline-safe ACS
+  Email/SMS `--check` preflights, and consolidated `scripts/preflight.py --all`
+  are complete; ACS SMS handset delivery tracking is deferred
 - Foundry provider boundary, structured extraction contract, fake-client seam,
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
+- Foundry Agent client boundary, fake-client seam, and lazy live adapter
+  scaffold; live Foundry Agent orchestration is still not wired into intake
+  processing
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
@@ -61,10 +66,9 @@ Do not claim as complete:
   production clinical readiness
 
 Recommended next move:
-- If Azure credentials and a model deployment are ready, run or prepare the
-  manual Foundry smoke test in `docs/manual-foundry-smoke-test.md`.
-- If staying offline, prefer concise orientation docs, manual smoke guides, or
-  provider preflight checks while keeping the default demo mock/offline.
+- With Azure credentials/model deployment, use `docs/manual-foundry-smoke-test.md`.
+- If staying offline, prefer docs, smoke guides, or provider preflight checks
+  while keeping the default demo mock/offline.
 
 ## Current Working Local Pipeline
 
@@ -88,27 +92,12 @@ pipeline through `POST /intake/voicemail-transcript`.
 
 ## Available Demo And Read Routes
 
-- `GET /demo` serves the local demo page with the local readiness status panel.
-- `GET /demo/status` reports read-only, offline-safe local demo readiness without
-  validating live Azure readiness.
-- `POST /demo/seed` seeds deterministic mock demo cases and is mock-only.
-- `POST /demo/reset` clears mock in-memory cases and mock notification records.
-- `POST /intake/text` creates a text intake case.
-- `POST /intake/voicemail-transcript` creates a case from already-transcribed
-  voicemail text.
-- `GET /cases` returns mock/in-memory cases newest-first after filters.
-- `GET /cases` supports filters for review status, urgency, dates, intake
-  status, source/channel, and notification status, with limit/offset pagination.
-- `GET /cases/summary` returns unpaginated dashboard-style counts for the full
-  filtered mock queue.
-- `GET /cases/{case_id}` returns a saved case in mock/default mode.
-- `GET /cases/{case_id}?createdDate=YYYY-MM-DD` supports Cosmos point-read
-  lookup when the client knows the case date.
-- `GET /cases/{case_id}/handoff-note` returns a deterministic plain-text nurse
-  handoff note for a saved case and supports the same `createdDate` point-read
-  lookup pattern when needed.
-- `GET /notifications/email` returns recorded mock email notifications.
-- `GET /notifications/sms` returns recorded mock SMS notifications.
+- Demo: `GET /demo`, `GET /demo/status`, `POST /demo/seed`, `POST /demo/reset`.
+- Intake: `POST /intake/text`, `POST /intake/voicemail-transcript`.
+- Cases: `GET /cases`, `GET /cases/summary`, `GET /cases/{case_id}`, and
+  `GET /cases/{case_id}/handoff-note`, with filters and Cosmos point-read
+  lookup where already supported.
+- Notifications: `GET /notifications/email`, `GET /notifications/sms`.
 
 Primary demo documentation:
 - `README.md`
@@ -137,6 +126,13 @@ Provider settings:
   extraction prompt/schema/parser contract and injected fake-client seam are
   implemented. A thin opt-in live adapter matches the same seam with lazy SDK
   imports/client construction, but live extraction is deferred.
+- `AGENT_PROVIDER=mock` remains the default. `AGENT_PROVIDER=foundry-agent`
+  currently reports safe demo readiness warnings and is not wired into intake
+  processing. The Foundry Agent client boundary supports injected fakes and
+  explicit opt-in live-client creation using
+  `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
+  `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, plus `AZURE_AI_FOUNDRY_AGENT_ID`; missing
+  settings and SDK support fail with sanitized diagnostics.
 - `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
   already-transcribed text.
 - `SPEECH_PROVIDER=azure` wires an Azure Speech scaffold/factory, but live
