@@ -35,6 +35,7 @@ class CaseProcessingService:
         case_repository: CaseRepository | None = None,
         email_notification_sender: EmailNotificationSender | None = None,
         sms_notification_sender: SmsNotificationSender | None = None,
+        nurse_intake_agent: object | None = None,
         suppress_notifications: bool = False,
     ) -> None:
         self.ai_service = ai_service or MockAiService()
@@ -44,6 +45,7 @@ class CaseProcessingService:
         self.case_repository = case_repository
         self.email_notification_sender = email_notification_sender
         self.sms_notification_sender = sms_notification_sender
+        self.nurse_intake_agent = nurse_intake_agent
         self.suppress_notifications = suppress_notifications
 
     async def process(self, raw_text: str, case_type: CaseType) -> CaseDocument:
@@ -51,8 +53,13 @@ class CaseProcessingService:
         if case_type not in self._SUPPORTED_CASE_TYPES:
             raise ValueError(f"Unsupported case type: {case_type}")
 
-        extraction = await self.ai_service.extract_and_summarize(raw_text)
-        ai_urgency = await self.ai_service.classify_urgency(raw_text)
+        if self.nurse_intake_agent is not None:
+            agent_result = await self.nurse_intake_agent.analyze_intake(raw_text)
+            extraction = agent_result.extraction
+            ai_urgency = agent_result.urgency
+        else:
+            extraction = await self.ai_service.extract_and_summarize(raw_text)
+            ai_urgency = await self.ai_service.classify_urgency(raw_text)
         rule_result = self.rules_service.evaluate(raw_text)
 
         urgency_source = self._merge_urgency_source(ai_urgency, rule_result)

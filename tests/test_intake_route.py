@@ -2,8 +2,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from src.app.models.ai_outputs import ExtractionSummaryResult, PatientInfo
 from src.app.main import app
 from src.app.models.case import CaseDocument
+from src.app.models.ai_outputs import UrgencyClassificationResult
 from src.app.services.case_processing_service import CaseProcessingService
 
 
@@ -29,6 +31,38 @@ class SnapshotCaseRepository:
         created_date: str | None = None,
     ) -> CaseDocument | None:
         return None
+
+
+class FakeRouteNurseIntakeAgent:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def analyze_intake(self, raw_text: str):
+        self.calls.append(raw_text)
+        return type(
+            "AgentResult",
+            (),
+            {
+                "extraction": ExtractionSummaryResult(
+                    patient=PatientInfo(
+                        name="Route Agent Patient",
+                        date_of_birth="1990-01-02",
+                        callback_number="000-000-0100",
+                    ),
+                    reason_for_calling="agent route refill",
+                    symptoms=["nausea"],
+                    summary="Agent route summary.",
+                    missing_fields=[],
+                    uncertain_fields=[],
+                ),
+                "urgency": UrgencyClassificationResult(
+                    urgency="Routine",
+                    urgency_rationale="Fake route agent classified the intake.",
+                    advisory_disclaimer="Advisory only; nurse review is required.",
+                ),
+                "handoffNote": "Fake route handoff note.",
+            },
+        )()
 
 
 def test_text_intake_returns_completed_routine_case() -> None:
@@ -57,6 +91,52 @@ def test_text_intake_returns_completed_routine_case() -> None:
     assert case["sourceCallId"] == "test-call-123"
     assert case["id"]
     assert case["summary"] == "Patient is calling about medication refill."
+
+
+def test_text_intake_can_use_configured_nurse_intake_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.routes.intake as intake_route
+
+    repository = SnapshotCaseRepository()
+    fake_agent = FakeRouteNurseIntakeAgent()
+    monkeypatch.setattr(
+        intake_route,
+        "case_processing_service",
+        CaseProcessingService(
+            case_repository=repository,
+            nurse_intake_agent=fake_agent,
+            suppress_notifications=True,
+        ),
+    )
+    monkeypatch.setattr(intake_route, "case_repository", repository)
+    test_app = FastAPI()
+    test_app.include_router(intake_route.router)
+    local_client = TestClient(test_app)
+    intake_text = "This fictional intake should be handled by an agent."
+
+    response = local_client.post(
+        "/intake/text",
+        json={
+            "text": intake_text,
+            "sourceSystem": "agent-route-test",
+            "sourceCallId": "agent-call-001",
+        },
+    )
+
+    assert response.status_code == 200
+    case = response.json()
+    assert fake_agent.calls == [intake_text]
+    assert case["patient"]["name"] == "Route Agent Patient"
+    assert case["reasonForCalling"] == "agent route refill"
+    assert case["symptoms"] == ["nausea"]
+    assert case["summary"] == "Agent route summary."
+    assert case["urgency"] == "Routine"
+    assert case["sourceSystem"] == "agent-route-test"
+    assert case["sourceCallId"] == "agent-call-001"
+    assert case["notificationEmailStatus"] == "Suppressed"
+    assert case["notificationSmsStatus"] == "Suppressed"
+    assert repository.saved_cases[-1]["summary"] == "Agent route summary."
 
 
 def test_text_intake_records_notification_through_shared_sender() -> None:

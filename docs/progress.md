@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 618 passed
+- 624 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,14 +22,13 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Provider mode matrix documentation slice is complete.
-- `README.md` now explains that provider settings are independent adapter
-  toggles, not an all-or-nothing Azure switch. It documents default local demo,
-  Foundry Agent, ACS Email, ACS SMS, Azure Speech, and Cosmos smoke-test modes,
-  including which providers remain mock.
-- Documentation tests now guard the matrix, `AGENT_PROVIDER=foundry` with other
-  providers still mock, the rule that `APP_MODE` must not flip all providers to
-  Azure, and manual invocation of smoke-test scripts unless wired into CI/CD.
+- Agent-aware text intake processing slice is complete.
+- `CaseProcessingService` can use an injected `NurseIntakeAgent` for
+  `AGENT_PROVIDER=foundry` or `foundry-agent` while preserving the default
+  `AGENT_PROVIDER=mock` AI-service path, local red-flag rules, persistence, and
+  notification handling.
+- The configured Foundry agent wrapper stays lazy: app import, `/demo`,
+  `/demo/status`, and unit tests do not create Azure clients or call Azure.
 
 ## Current Resume Point
 
@@ -49,8 +48,8 @@ Implemented but not live-confirmed:
 - Foundry provider boundary, structured extraction contract, fake-client seam,
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
 - Foundry Agent client boundary, fake-client seam, and lazy live adapter
-  scaffold; live Foundry Agent orchestration is still not wired into intake
-  processing. A manual `scripts/smoke_foundry_agent.py` entry point exists for
+  scaffold; text intake can route through the agent boundary when explicitly
+  configured. A manual `scripts/smoke_foundry_agent.py` entry point exists for
   explicit smoke validation with fictional data and no notification side effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
@@ -71,6 +70,7 @@ Recommended next move:
 ```text
 POST /intake/text
 -> CaseProcessingService
+-> Optional NurseIntakeAgent when AGENT_PROVIDER is foundry/foundry-agent
 -> create_ai_service(settings)
 -> MockAiService for AI_PROVIDER=mock
 -> UrgencyRulesService

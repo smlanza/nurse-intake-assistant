@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel
 
@@ -10,14 +10,21 @@ from src.app.models.ai_outputs import (
 )
 from src.app.models.case import CaseDocument
 from src.app.services.case_processing_service import CaseProcessingService
+from src.app.services.foundry_agent_client import (
+    FoundryAgentRequest,
+    create_foundry_agent_client,
+)
+from src.app.services.foundry_extraction_contract import (
+    normalize_foundry_structured_extraction_response,
+)
 from src.app.services.mock_ai_service import MockAiService
 from src.app.services.nurse_handoff_note_formatter import NurseHandoffNoteFormatter
 from src.app.services.urgency_rules_service import UrgencyRulesService
 
 
 class NurseIntakeAgentMetadata(BaseModel):
-    provider: Literal["mock"]
-    agentMode: Literal["mock"]
+    provider: Literal["mock", "foundry", "foundry-agent"]
+    agentMode: str
 
 
 class NurseIntakeAgentResult(BaseModel):
@@ -106,4 +113,86 @@ class MockNurseIntakeAgent:
                 provider="mock",
                 agentMode="mock",
             ),
+        )
+
+
+class FoundryNurseIntakeAgent:
+    """Lazy Foundry Agent adapter for configured non-mock agent mode."""
+
+    def __init__(
+        self,
+        settings: Any,
+        client: Any | None = None,
+        client_factory: Any = create_foundry_agent_client,
+        handoff_formatter: NurseHandoffNoteFormatter | None = None,
+    ) -> None:
+        self.settings = settings
+        self.client = client
+        self.client_factory = client_factory
+        self.handoff_formatter = handoff_formatter or NurseHandoffNoteFormatter()
+
+    async def analyze_intake(self, raw_text: str) -> NurseIntakeAgentResult:
+        client = self._get_client()
+        response = await client.invoke_agent(
+            FoundryAgentRequest(intake_text=raw_text)
+        )
+        structured_result = normalize_foundry_structured_extraction_response(
+            response.content
+        )
+        case = self._build_handoff_case(
+            raw_text,
+            structured_result.extraction,
+            structured_result.urgency,
+        )
+        provider = self._provider()
+        return NurseIntakeAgentResult(
+            extraction=structured_result.extraction,
+            urgency=structured_result.urgency,
+            handoffNote=self.handoff_formatter.format(case),
+            metadata=NurseIntakeAgentMetadata(
+                provider=provider,
+                agentMode="foundry-agent",
+            ),
+        )
+
+    def _get_client(self) -> Any:
+        if self.client is None:
+            self.client = self.client_factory(self.settings, enable_live=True)
+        return self.client
+
+    def _provider(self) -> Literal["foundry", "foundry-agent"]:
+        provider = getattr(self.settings, "agent_provider_normalized", "foundry")
+        return "foundry" if provider == "foundry" else "foundry-agent"
+
+    @staticmethod
+    def _build_handoff_case(
+        raw_text: str,
+        extraction: ExtractionSummaryResult,
+        urgency: UrgencyClassificationResult,
+    ) -> CaseDocument:
+        created_utc = datetime.now(timezone.utc)
+        return CaseDocument(
+            createdDate=created_utc.date().isoformat(),
+            createdUtc=created_utc,
+            lastStatusUpdatedUtc=created_utc,
+            caseType="text-intake",
+            sourceSystem="foundry-agent",
+            patient=extraction.patient,
+            reasonForCalling=extraction.reason_for_calling,
+            symptoms=extraction.symptoms,
+            transcript=raw_text,
+            summary=extraction.summary,
+            urgency=urgency.urgency,
+            urgencySource="AI",
+            ruleUrgency="Unknown",
+            aiUrgency=urgency.urgency,
+            urgencyRationale=urgency.urgency_rationale,
+            missingFields=extraction.missing_fields,
+            uncertainFields=extraction.uncertain_fields,
+            intakeComplete=not extraction.missing_fields,
+            processingStatus="Completed",
+            intakeStatus=(
+                "NeedsFollowUp" if extraction.missing_fields else "Complete"
+            ),
+            reviewStatus="PendingReview",
         )

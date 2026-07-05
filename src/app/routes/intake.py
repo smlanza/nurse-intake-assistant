@@ -7,6 +7,7 @@ from src.app.dependencies import (
     ai_service,
     case_repository,
     email_notification_sender,
+    nurse_intake_agent,
     settings,
     sms_notification_sender,
 )
@@ -144,6 +145,7 @@ case_processing_service = CaseProcessingService(
     case_repository=case_repository,
     email_notification_sender=email_notification_sender,
     sms_notification_sender=sms_notification_sender,
+    nurse_intake_agent=nurse_intake_agent,
     suppress_notifications=settings.demo_suppress_notifications,
 )
 

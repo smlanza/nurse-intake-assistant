@@ -128,7 +128,7 @@ def create_foundry_agent_client(
     if client is not None:
         return client
 
-    if settings.agent_provider_normalized != "foundry-agent":
+    if settings.agent_provider_normalized not in {"foundry", "foundry-agent"}:
         return None
 
     if not enable_live:

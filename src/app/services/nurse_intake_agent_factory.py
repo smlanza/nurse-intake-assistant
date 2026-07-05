@@ -1,5 +1,9 @@
 from src.app.config.settings import AppSettings
-from src.app.services.nurse_intake_agent import MockNurseIntakeAgent, NurseIntakeAgent
+from src.app.services.nurse_intake_agent import (
+    FoundryNurseIntakeAgent,
+    MockNurseIntakeAgent,
+    NurseIntakeAgent,
+)
 
 
 class NurseIntakeAgentProviderNotImplementedError(RuntimeError):
@@ -14,9 +18,15 @@ def create_nurse_intake_agent(settings: AppSettings) -> NurseIntakeAgent:
     if provider == "mock":
         return MockNurseIntakeAgent()
 
-    if provider == "foundry-agent":
-        raise NurseIntakeAgentProviderNotImplementedError(
-            "Azure AI Foundry Agent orchestration is not wired yet."
-        )
+    if provider in {"foundry", "foundry-agent"}:
+        return FoundryNurseIntakeAgent(settings=settings)
 
     raise ValueError(f"Unsupported AGENT_PROVIDER: {settings.agent_provider}")
+
+
+def create_optional_nurse_intake_agent(settings: AppSettings) -> NurseIntakeAgent | None:
+    """Return an agent only when a non-mock agent provider is configured."""
+
+    if settings.agent_provider_normalized == "mock":
+        return None
+    return create_nurse_intake_agent(settings)

@@ -4,6 +4,7 @@ from datetime import date
 import pytest
 
 from src.app.models.ai_outputs import UrgencyClassificationResult
+from src.app.models.ai_outputs import ExtractionSummaryResult, PatientInfo
 from src.app.models.case import CaseDocument
 from src.app.services.case_repository import InMemoryCaseRepository
 from src.app.services.case_processing_service import CaseProcessingService
@@ -94,6 +95,62 @@ class ExceptionEmailNotificationSender:
         raise RuntimeError("Email notification failed")
 
 
+class ExplodingAiService:
+    async def extract_and_summarize(self, raw_text: str) -> ExtractionSummaryResult:
+        raise AssertionError("AI service should not run when agent is configured")
+
+    async def classify_urgency(self, raw_text: str) -> UrgencyClassificationResult:
+        raise AssertionError("AI service should not run when agent is configured")
+
+
+class RecordingNurseIntakeAgent:
+    def __init__(
+        self,
+        urgency: str = "Routine",
+        summary: str = "Agent mapped summary.",
+    ) -> None:
+        self.calls: list[str] = []
+        self.urgency = urgency
+        self.summary = summary
+
+    async def analyze_intake(self, raw_text: str):
+        self.calls.append(raw_text)
+        return _agent_result(
+            urgency=self.urgency,
+            summary=self.summary,
+        )
+
+
+def _agent_result(
+    urgency: str = "Routine",
+    summary: str = "Agent mapped summary.",
+):
+    return type(
+        "AgentResult",
+        (),
+        {
+            "extraction": ExtractionSummaryResult(
+                patient=PatientInfo(
+                    name="Agent Demo Patient",
+                    date_of_birth="1988-08-08",
+                    callback_number="000-000-0200",
+                ),
+                reason_for_calling="agent-assisted refill",
+                symptoms=["fatigue"],
+                summary=summary,
+                missing_fields=[],
+                uncertain_fields=[],
+            ),
+            "urgency": UrgencyClassificationResult(
+                urgency=urgency,
+                urgency_rationale="Agent classified the intake.",
+                advisory_disclaimer="Advisory only; nurse review is required.",
+            ),
+            "handoffNote": "Agent handoff note.",
+        },
+    )()
+
+
 def test_routine_intake_creates_completed_case() -> None:
     case = asyncio.run(CaseProcessingService().process(ROUTINE_TEXT, "text-intake"))
 
@@ -113,6 +170,46 @@ def test_routine_intake_creates_completed_case() -> None:
     assert case.missingFields == []
     assert case.reviewStatus == "PendingReview"
     assert date.fromisoformat(case.createdDate) == case.createdUtc.date()
+
+
+def test_agent_configured_intake_uses_agent_instead_of_ai_service() -> None:
+    agent = RecordingNurseIntakeAgent()
+    service = CaseProcessingService(
+        ai_service=ExplodingAiService(),
+        nurse_intake_agent=agent,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert agent.calls == [ROUTINE_TEXT]
+    assert case.patient.name == "Agent Demo Patient"
+    assert case.reasonForCalling == "agent-assisted refill"
+    assert case.summary == "Agent mapped summary."
+    assert case.urgency == "Routine"
+    assert case.aiUrgency == "Routine"
+    assert case.ruleUrgency == "Routine"
+    assert case.notificationEmailStatus == "Suppressed"
+    assert case.notificationSmsStatus == "Suppressed"
+
+
+def test_agent_configured_intake_preserves_red_flag_rules() -> None:
+    text = "I have chest pain and need help with my refill."
+    agent = RecordingNurseIntakeAgent(urgency="Routine")
+    service = CaseProcessingService(
+        ai_service=ExplodingAiService(),
+        nurse_intake_agent=agent,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(service.process(text, "text-intake"))
+
+    assert agent.calls == [text]
+    assert case.urgency == "Urgent"
+    assert case.aiUrgency == "Routine"
+    assert case.ruleUrgency == "Urgent"
+    assert case.urgencySource == "Rules"
+    assert "Red-flag rule match" in case.urgencyRationale
 
 
 def test_processed_case_is_saved_through_repository() -> None:

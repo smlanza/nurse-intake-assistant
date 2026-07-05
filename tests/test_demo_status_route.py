@@ -1,6 +1,7 @@
 import json
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.app.main import app
@@ -151,6 +152,30 @@ def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
     serialized = json.dumps(body)
     assert "fictional-foundry" not in serialized
     assert "fictional-agent-id" not in serialized
+
+
+def test_demo_status_does_not_create_foundry_agent_client(monkeypatch) -> None:
+    import src.app.services.foundry_agent_client as foundry_agent_client
+
+    _set_demo_status_settings(
+        monkeypatch,
+        agent_provider="foundry",
+        agent_provider_normalized="foundry",
+        azure_ai_foundry_agent_project_endpoint=(
+            "https://fictional-foundry.services.ai.azure.com/api/projects/demo"
+        ),
+        azure_ai_foundry_agent_id="fictional-agent-id",
+    )
+    monkeypatch.setattr(
+        foundry_agent_client,
+        "create_foundry_agent_client",
+        lambda *args, **kwargs: pytest.fail("Foundry client should not be created"),
+    )
+
+    response = client.get("/demo/status")
+
+    assert response.status_code == 200
+    assert response.json()["agentStatus"]["ready"] is True
 
 
 def test_demo_status_warns_when_agent_provider_is_unsupported(monkeypatch) -> None:

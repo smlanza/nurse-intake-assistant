@@ -1,7 +1,10 @@
 import pytest
 
 from src.app.config.settings import AppSettings
-from src.app.services.nurse_intake_agent import MockNurseIntakeAgent
+from src.app.services.nurse_intake_agent import (
+    FoundryNurseIntakeAgent,
+    MockNurseIntakeAgent,
+)
 
 
 def test_agent_provider_defaults_to_mock(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -38,21 +41,42 @@ def test_blank_agent_provider_uses_mock_provider(
     assert isinstance(agent, MockNurseIntakeAgent)
 
 
-def test_foundry_agent_provider_fails_safely_without_creating_live_agent(
+def test_foundry_agent_provider_creates_lazy_foundry_agent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from src.app.services.nurse_intake_agent_factory import (
-        NurseIntakeAgentProviderNotImplementedError,
-        create_nurse_intake_agent,
-    )
+    from src.app.services.nurse_intake_agent_factory import create_nurse_intake_agent
 
     monkeypatch.setenv("AGENT_PROVIDER", "foundry-agent")
 
-    with pytest.raises(
-        NurseIntakeAgentProviderNotImplementedError,
-        match="Azure AI Foundry Agent orchestration is not wired yet",
-    ):
-        create_nurse_intake_agent(AppSettings())
+    agent = create_nurse_intake_agent(AppSettings())
+
+    assert isinstance(agent, FoundryNurseIntakeAgent)
+    assert agent.client is None
+
+
+def test_foundry_agent_provider_supports_foundry_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services.nurse_intake_agent_factory import create_nurse_intake_agent
+
+    monkeypatch.setenv("AGENT_PROVIDER", "foundry")
+
+    agent = create_nurse_intake_agent(AppSettings())
+
+    assert isinstance(agent, FoundryNurseIntakeAgent)
+    assert agent.client is None
+
+
+def test_optional_agent_factory_returns_none_for_mock_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services.nurse_intake_agent_factory import (
+        create_optional_nurse_intake_agent,
+    )
+
+    monkeypatch.setenv("AGENT_PROVIDER", "mock")
+
+    assert create_optional_nurse_intake_agent(AppSettings()) is None
 
 
 def test_unknown_agent_provider_raises_clear_error(
