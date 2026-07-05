@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 614 passed
+- 618 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,18 +22,14 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Manual Foundry Agent smoke-test script slice is complete.
-- Added `scripts/smoke_foundry_agent.py` for explicit manual validation with
-  fictional intake text. It loads app settings, requires the Foundry Agent
-  provider, uses the agent preflight/status check, reports missing settings by
-  name only, calls the configured `NurseIntakeAgent` path only after preflight
-  passes, prints a concise success summary, and sends no email or SMS.
-- Automated tests fake the agent path and make no Azure calls. Normal app
-  startup, `/demo`, `/demo/status`, and default mock behavior remain
-  offline-safe.
-- Recent slices include the Nurse Intake Agent preflight/status check, Foundry
-  Agent client boundary, mock-first Nurse Intake Agent boundary, and offline-safe
-  ops/readiness routes.
+- Provider mode matrix documentation slice is complete.
+- `README.md` now explains that provider settings are independent adapter
+  toggles, not an all-or-nothing Azure switch. It documents default local demo,
+  Foundry Agent, ACS Email, ACS SMS, Azure Speech, and Cosmos smoke-test modes,
+  including which providers remain mock.
+- Documentation tests now guard the matrix, `AGENT_PROVIDER=foundry` with other
+  providers still mock, the rule that `APP_MODE` must not flip all providers to
+  Azure, and manual invocation of smoke-test scripts unless wired into CI/CD.
 
 ## Current Resume Point
 

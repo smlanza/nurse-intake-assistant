@@ -404,6 +404,77 @@ def test_readme_documents_consolidated_preflight_safe_failure_output() -> None:
     assert "SMS sends" in readme
 
 
+def test_readme_documents_provider_mode_matrix() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+
+    assert "## Provider Mode Matrix" in readme
+    for scenario in [
+        "Default local demo mode",
+        "Foundry Agent smoke-test mode",
+        "ACS Email smoke-test mode",
+        "ACS SMS smoke-test mode",
+        "Azure Speech smoke-test mode",
+        "Cosmos persistence smoke-test mode",
+    ]:
+        assert scenario in readme
+    for setting_name in [
+        "APP_MODE",
+        "AI_PROVIDER",
+        "AGENT_PROVIDER",
+        "SPEECH_PROVIDER",
+        "EMAIL_PROVIDER",
+        "SMS_PROVIDER",
+    ]:
+        assert setting_name in readme
+
+
+def test_readme_documents_independent_provider_toggles() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+    normalized_readme = " ".join(readme.split())
+
+    assert "provider settings are independent adapter toggles" in normalized_readme
+    assert "not an all-or-nothing Azure switch" in normalized_readme
+    assert (
+        "APP_MODE selects the app runtime/storage posture; it does not "
+        "automatically switch every provider to Azure"
+    ) in normalized_readme
+    assert "Do not introduce APP_MODE=azure" in readme
+
+
+def test_readme_documents_foundry_agent_smoke_mode_with_mock_providers() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+    normalized_readme = " ".join(readme.split())
+
+    assert "Foundry Agent smoke-test mode" in readme
+    assert "AGENT_PROVIDER=foundry" in readme
+    assert "APP_MODE=mock" in readme
+    assert "AI_PROVIDER=mock" in readme
+    assert "EMAIL_PROVIDER=mock" in readme
+    assert "SMS_PROVIDER=mock" in readme
+    assert "SPEECH_PROVIDER=mock" in readme
+    assert (
+        "AGENT_PROVIDER=foundry while APP_MODE, AI_PROVIDER, EMAIL_PROVIDER, "
+        "SMS_PROVIDER, and SPEECH_PROVIDER remain mock"
+    ) in normalized_readme
+
+
+def test_readme_documents_smoke_scripts_are_explicitly_invoked_checks() -> None:
+    readme = (PROJECT_ROOT / "README.md").read_text()
+    normalized_readme = " ".join(readme.split())
+
+    assert "Smoke-test scripts are automated checks that are manually invoked" in readme
+    assert "unless wired into CI/CD" in readme
+    for script_name in [
+        "scripts/smoke_foundry_agent.py",
+        "scripts/smoke_acs_email.py",
+        "scripts/smoke_acs_sms.py",
+        "scripts/smoke_speech_transcription.py",
+        "docs/manual-cosmos-smoke-test.md",
+    ]:
+        assert script_name in readme
+    assert "not run by app startup, /demo, or /demo/status" in normalized_readme
+
+
 def test_demo_page_smoke_test_guide_exists() -> None:
     guide_path = PROJECT_ROOT / "docs" / "demo-smoke-test.md"
 
