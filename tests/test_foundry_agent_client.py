@@ -25,6 +25,7 @@ def test_fake_foundry_agent_client_returns_deterministic_output() -> None:
     client = FakeFoundryAgentClient()
     request = FoundryAgentRequest(
         intake_text="Fictional patient requests nurse follow-up for a refill.",
+        instructions="Return JSON only.",
         correlation_id="test-correlation",
     )
 
@@ -34,6 +35,17 @@ def test_fake_foundry_agent_client_returns_deterministic_output() -> None:
     assert response.metadata["provider"] == "foundry-agent"
     assert response.metadata["agentMode"] == "fake"
     assert client.requests == [request]
+
+
+def test_foundry_agent_request_carries_contract_instructions() -> None:
+    from src.app.services.foundry_agent_client import FoundryAgentRequest
+
+    request = FoundryAgentRequest(
+        intake_text="Fictional patient requests nurse follow-up for a refill.",
+        instructions="Return JSON only.",
+    )
+
+    assert request.instructions == "Return JSON only."
 
 
 def test_foundry_agent_factory_returns_injected_fake_client(

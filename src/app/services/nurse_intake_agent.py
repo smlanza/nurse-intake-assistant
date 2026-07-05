@@ -14,6 +14,9 @@ from src.app.services.foundry_agent_client import (
     FoundryAgentRequest,
     create_foundry_agent_client,
 )
+from src.app.services.foundry_agent_contract import (
+    build_foundry_agent_intake_instructions,
+)
 from src.app.services.foundry_extraction_contract import (
     normalize_foundry_structured_extraction_response,
 )
@@ -134,7 +137,10 @@ class FoundryNurseIntakeAgent:
     async def analyze_intake(self, raw_text: str) -> NurseIntakeAgentResult:
         client = self._get_client()
         response = await client.invoke_agent(
-            FoundryAgentRequest(intake_text=raw_text)
+            FoundryAgentRequest(
+                intake_text=raw_text,
+                instructions=build_foundry_agent_intake_instructions(),
+            )
         )
         structured_result = normalize_foundry_structured_extraction_response(
             response.content

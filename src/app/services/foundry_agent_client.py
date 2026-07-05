@@ -27,6 +27,7 @@ class FoundryAgentRequest:
     """Input contract for future Foundry Agent orchestration."""
 
     intake_text: str
+    instructions: str
     correlation_id: str | None = None
 
 

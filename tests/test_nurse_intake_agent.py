@@ -1,6 +1,43 @@
 import asyncio
+import json
+from types import SimpleNamespace
 
-from src.app.services.nurse_intake_agent import MockNurseIntakeAgent
+from src.app.services.nurse_intake_agent import (
+    FoundryNurseIntakeAgent,
+    MockNurseIntakeAgent,
+)
+
+
+class RecordingFoundryAgentClient:
+    def __init__(self) -> None:
+        self.requests = []
+
+    async def invoke_agent(self, request):
+        self.requests.append(request)
+        return SimpleNamespace(content=_foundry_agent_response())
+
+
+def _foundry_agent_response() -> str:
+    return json.dumps(
+        {
+            "patient": {
+                "name": "Foundry Demo Patient",
+                "date_of_birth": None,
+                "callback_number": "000-000-0101",
+            },
+            "reason_for_calling": "medication refill",
+            "symptoms": ["fatigue"],
+            "summary": "Demo patient requests a medication refill.",
+            "missing_fields": ["patient.date_of_birth"],
+            "uncertain_fields": [],
+            "urgency": "Routine",
+            "urgency_rationale": "No urgent symptoms were reported.",
+            "advisory_disclaimer": (
+                "Advisory urgency only; nurse review and clinical judgment "
+                "are required."
+            ),
+        }
+    )
 
 
 def test_mock_nurse_intake_agent_returns_deterministic_analysis() -> None:
@@ -62,3 +99,24 @@ def test_mock_nurse_intake_agent_does_not_expose_secrets_or_configuration() -> N
         "provider credential",
     ]:
         assert unsafe_text not in serialized
+
+
+def test_foundry_nurse_intake_agent_sends_contract_instructions_to_client() -> None:
+    client = RecordingFoundryAgentClient()
+    agent = FoundryNurseIntakeAgent(
+        settings=SimpleNamespace(agent_provider_normalized="foundry"),
+        client=client,
+    )
+    raw_text = "Demo patient asks for a refill."
+
+    result = asyncio.run(agent.analyze_intake(raw_text))
+
+    assert result.extraction.patient.name == "Foundry Demo Patient"
+    assert len(client.requests) == 1
+    request = client.requests[0]
+    assert request.intake_text == raw_text
+    assert "Return JSON only" in request.instructions
+    assert "patient" in request.instructions
+    assert "urgency_rationale" in request.instructions
+    assert "Do not invent missing patient demographics" in request.instructions
+    assert "requires nurse review" in request.instructions

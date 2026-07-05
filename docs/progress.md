@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 624 passed
+- 631 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,13 +22,13 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Agent-aware text intake processing slice is complete.
-- `CaseProcessingService` can use an injected `NurseIntakeAgent` for
-  `AGENT_PROVIDER=foundry` or `foundry-agent` while preserving the default
-  `AGENT_PROVIDER=mock` AI-service path, local red-flag rules, persistence, and
-  notification handling.
-- The configured Foundry agent wrapper stays lazy: app import, `/demo`,
-  `/demo/status`, and unit tests do not create Azure clients or call Azure.
+- Foundry Agent response contract/instruction builder slice is complete.
+- `FoundryNurseIntakeAgent` now sends explicit JSON-only nurse intake
+  instructions with required structured fields, no Markdown/code fences, no
+  invented missing demographics or clinical details, and advisory-only nurse
+  review language.
+- The normalizer remains in place, the live client stays lazy, and automated
+  tests use fake clients with no Azure calls.
 
 ## Current Resume Point
 
@@ -49,8 +49,10 @@ Implemented but not live-confirmed:
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
 - Foundry Agent client boundary, fake-client seam, and lazy live adapter
   scaffold; text intake can route through the agent boundary when explicitly
-  configured. A manual `scripts/smoke_foundry_agent.py` entry point exists for
-  explicit smoke validation with fictional data and no notification side effects
+  configured. The request path now includes a structured JSON contract for the
+  agent response. A manual `scripts/smoke_foundry_agent.py` entry point exists
+  for explicit smoke validation with fictional data and no notification side
+  effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
