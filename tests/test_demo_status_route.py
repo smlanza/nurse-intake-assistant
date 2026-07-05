@@ -26,9 +26,17 @@ def _set_demo_status_settings(monkeypatch, **overrides) -> None:
         "email_provider": "mock",
         "sms_provider": "mock",
         "agent_provider": "mock",
+        "agent_provider_normalized": "mock",
+        "azure_ai_foundry_agent_project_endpoint": None,
+        "azure_ai_foundry_project_endpoint": None,
+        "azure_ai_foundry_agent_id": None,
         "demo_suppress_notifications": False,
     }
     values.update(overrides)
+    if "agent_provider_normalized" not in overrides:
+        values["agent_provider_normalized"] = (
+            values["agent_provider"].strip().lower() or "mock"
+        )
     monkeypatch.setitem(
         _demo_status_endpoint().__globals__,
         "settings",
@@ -50,6 +58,12 @@ def test_demo_status_reports_default_mock_configuration(monkeypatch) -> None:
     assert body["emailProvider"] == "mock"
     assert body["smsProvider"] == "mock"
     assert body["agentProvider"] == "mock"
+    assert body["agentStatus"] == {
+        "provider": "mock",
+        "ready": True,
+        "mode": "mock",
+        "missingSettings": [],
+    }
     assert body["safeForLocalDemo"] is True
     assert body["warnings"] == []
     safety_boundary = body["safetyBoundary"].lower()
@@ -96,10 +110,47 @@ def test_demo_status_warns_when_foundry_agent_provider_is_configured(
     body = response.json()
     assert body["demoModeReady"] is False
     assert body["agentProvider"] == "foundry-agent"
+    assert body["agentStatus"] == {
+        "provider": "foundry-agent",
+        "ready": False,
+        "mode": "configuration-only",
+        "missingSettings": [
+            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+            "AZURE_AI_FOUNDRY_AGENT_ID",
+        ],
+    }
     assert (
         "AGENT_PROVIDER is foundry-agent; live Azure AI Agent orchestration is "
         "not wired yet."
     ) in body["warnings"]
+
+
+def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
+    monkeypatch,
+) -> None:
+    _set_demo_status_settings(
+        monkeypatch,
+        agent_provider="foundry-agent",
+        agent_provider_normalized="foundry-agent",
+        azure_ai_foundry_agent_project_endpoint=(
+            "https://fictional-foundry.services.ai.azure.com/api/projects/demo"
+        ),
+        azure_ai_foundry_agent_id="fictional-agent-id",
+    )
+
+    response = client.get("/demo/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["agentStatus"] == {
+        "provider": "foundry-agent",
+        "ready": True,
+        "mode": "configuration-only",
+        "missingSettings": [],
+    }
+    serialized = json.dumps(body)
+    assert "fictional-foundry" not in serialized
+    assert "fictional-agent-id" not in serialized
 
 
 def test_demo_status_warns_when_agent_provider_is_unsupported(monkeypatch) -> None:

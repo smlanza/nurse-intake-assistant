@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 603 passed
+- 609 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,19 +22,15 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Offline-safe Foundry Agent client boundary slice is complete.
-- Added `FoundryAgentClient` request/response models, deterministic fake client,
-  safe diagnostics, lazy live adapter scaffold, and a factory that supports
-  injected fakes while validating settings only for explicit live creation.
-- `AGENT_PROVIDER=foundry-agent` remains unwired from intake processing. No app
-  startup, `/demo/status`, `/health`, `/version`, `/`, `/demo`, or automated
-  test path creates Azure clients or makes Azure calls.
-- `.env.example` includes safe placeholders for
-  `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` and `AZURE_AI_FOUNDRY_AGENT_ID`.
-- Previous slice: agent provider demo readiness visibility added normalized
-  `agentProvider` reporting and safe warnings without wiring live agents.
-- Recent slices also include the mock-first Nurse Intake Agent boundary, Foundry
-  normalization hardening, and offline-safe ops/readiness routes.
+- Nurse Intake Agent preflight/status slice is complete.
+- `/demo/status` now includes `agentStatus` with provider, readiness, mode, and
+  missing Foundry Agent setting names. The check is configuration-only and never
+  imports SDKs, creates Azure clients, or calls Azure.
+- `/demo` shows a small Agent readiness indicator in the existing readiness
+  panel. `AGENT_PROVIDER=foundry-agent` remains unwired from intake processing.
+- Recent slices include the Foundry Agent client boundary, mock-first Nurse
+  Intake Agent boundary, Foundry normalization hardening, and offline-safe
+  ops/readiness routes.
 
 ## Current Resume Point
 
@@ -132,7 +128,8 @@ Provider settings:
   explicit opt-in live-client creation using
   `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, plus `AZURE_AI_FOUNDRY_AGENT_ID`; missing
-  settings and SDK support fail with sanitized diagnostics.
+  settings and SDK support fail with sanitized diagnostics. `/demo/status`
+  reports configuration-only agent readiness without calling Azure.
 - `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
   already-transcribed text.
 - `SPEECH_PROVIDER=azure` wires an Azure Speech scaffold/factory, but live

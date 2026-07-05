@@ -453,6 +453,10 @@
             <code id="agentProviderStatus">Loading...</code>
           </div>
           <div class="status-fact">
+            <strong>Agent readiness</strong>
+            <code id="agentReadinessStatus">Loading...</code>
+          </div>
+          <div class="status-fact">
             <strong>Speech provider</strong>
             <code id="speechProviderStatus">Loading...</code>
           </div>
@@ -876,6 +880,21 @@
         demoReadinessWarnings.appendChild(warningList);
       }
 
+      function formatAgentReadiness(agentStatus) {
+        if (!agentStatus) {
+          return "unknown";
+        }
+        if (agentStatus.ready) {
+          return `${agentStatus.provider}: ready (${agentStatus.mode})`;
+        }
+        const missingSettings = Array.isArray(agentStatus.missingSettings)
+          ? agentStatus.missingSettings.join(", ")
+          : "";
+        return missingSettings
+          ? `${agentStatus.provider}: missing ${missingSettings}`
+          : `${agentStatus.provider}: not ready (${agentStatus.mode})`;
+      }
+
       async function loadDemoReadinessStatus() {
         try {
           const data = await requestJson("/demo/status");
@@ -883,6 +902,7 @@
           setStatusText("#appModeStatus", data.appMode);
           setStatusText("#aiProviderStatus", data.aiProvider);
           setStatusText("#agentProviderStatus", data.agentProvider);
+          setStatusText("#agentReadinessStatus", formatAgentReadiness(data.agentStatus));
           setStatusText("#speechProviderStatus", data.speechProvider);
           setStatusText("#emailProviderStatus", data.emailProvider);
           setStatusText("#smsProviderStatus", data.smsProvider);

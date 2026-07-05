@@ -15,6 +15,10 @@ from src.app.dependencies import (
 )
 from src.app.models.ai_outputs import PatientInfo
 from src.app.models.case import CaseDocument
+from src.app.services.nurse_intake_agent_preflight import (
+    NurseIntakeAgentStatus,
+    build_nurse_intake_agent_status,
+)
 
 
 router = APIRouter(prefix="/demo", tags=["demo"])
@@ -52,6 +56,7 @@ class DemoStatusResponse(BaseModel):
     emailProvider: str
     smsProvider: str
     agentProvider: str
+    agentStatus: NurseIntakeAgentStatus
     notificationsSuppressed: bool
     safeForLocalDemo: bool
     safetyBoundary: str
@@ -132,6 +137,7 @@ def _build_demo_status() -> DemoStatusResponse:
     email_provider = _status_value(settings.email_provider)
     sms_provider = _status_value(settings.sms_provider)
     agent_provider = _status_value(settings.agent_provider)
+    agent_status = build_nurse_intake_agent_status(settings)
 
     warnings = _demo_status_warnings(
         app_mode=app_mode,
@@ -150,6 +156,7 @@ def _build_demo_status() -> DemoStatusResponse:
         emailProvider=email_provider,
         smsProvider=sms_provider,
         agentProvider=agent_provider,
+        agentStatus=agent_status,
         notificationsSuppressed=settings.demo_suppress_notifications,
         safeForLocalDemo=True,
         safetyBoundary=(

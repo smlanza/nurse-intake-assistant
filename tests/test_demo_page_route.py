@@ -112,6 +112,7 @@ def test_demo_page_includes_dynamic_demo_readiness_status_panel() -> None:
     assert "App mode" in html
     assert "AI provider" in html
     assert "Agent provider" in html
+    assert "Agent readiness" in html
     assert "Speech provider" in html
     assert "Email provider" in html
     assert "SMS provider" in html
@@ -123,7 +124,9 @@ def test_demo_page_includes_dynamic_demo_readiness_status_panel() -> None:
     assert "Mock agent mode is local/demo only." in html
     assert "Live Azure AI Agent orchestration is not wired yet." in html
     assert 'id="agentProviderStatus"' in html
+    assert 'id="agentReadinessStatus"' in html
     assert 'setStatusText("#agentProviderStatus", data.agentProvider)' in html
+    assert 'setStatusText("#agentReadinessStatus", formatAgentReadiness(data.agentStatus))' in html
     assert "No readiness warnings for the current local mock configuration." in html
     assert "Could not load demo readiness status. Refresh the page and try again." in html
     assert "textContent" in html
