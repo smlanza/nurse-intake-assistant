@@ -23,10 +23,10 @@ def build_nurse_intake_agent_status(settings: Any) -> NurseIntakeAgentStatus:
             missingSettings=[],
         )
 
-    if provider == "foundry-agent":
+    if provider in {"foundry", "foundry-agent"}:
         missing_settings = _missing_foundry_agent_settings(settings)
         return NurseIntakeAgentStatus(
-            provider="foundry-agent",
+            provider=provider,
             ready=not missing_settings,
             mode="configuration-only",
             missingSettings=missing_settings,

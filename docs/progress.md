@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 609 passed
+- 614 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,14 +22,17 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Nurse Intake Agent preflight/status slice is complete.
-- `/demo/status` now includes `agentStatus` with provider, readiness, mode, and
-  missing Foundry Agent setting names. The check is configuration-only and never
-  imports SDKs, creates Azure clients, or calls Azure.
-- `/demo` shows a small Agent readiness indicator in the existing readiness
-  panel. `AGENT_PROVIDER=foundry-agent` remains unwired from intake processing.
-- Recent slices include the Foundry Agent client boundary, mock-first Nurse
-  Intake Agent boundary, Foundry normalization hardening, and offline-safe
+- Manual Foundry Agent smoke-test script slice is complete.
+- Added `scripts/smoke_foundry_agent.py` for explicit manual validation with
+  fictional intake text. It loads app settings, requires the Foundry Agent
+  provider, uses the agent preflight/status check, reports missing settings by
+  name only, calls the configured `NurseIntakeAgent` path only after preflight
+  passes, prints a concise success summary, and sends no email or SMS.
+- Automated tests fake the agent path and make no Azure calls. Normal app
+  startup, `/demo`, `/demo/status`, and default mock behavior remain
+  offline-safe.
+- Recent slices include the Nurse Intake Agent preflight/status check, Foundry
+  Agent client boundary, mock-first Nurse Intake Agent boundary, and offline-safe
   ops/readiness routes.
 
 ## Current Resume Point
@@ -51,7 +54,8 @@ Implemented but not live-confirmed:
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
 - Foundry Agent client boundary, fake-client seam, and lazy live adapter
   scaffold; live Foundry Agent orchestration is still not wired into intake
-  processing
+  processing. A manual `scripts/smoke_foundry_agent.py` entry point exists for
+  explicit smoke validation with fictional data and no notification side effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
@@ -129,7 +133,9 @@ Provider settings:
   `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, plus `AZURE_AI_FOUNDRY_AGENT_ID`; missing
   settings and SDK support fail with sanitized diagnostics. `/demo/status`
-  reports configuration-only agent readiness without calling Azure.
+  reports configuration-only agent readiness without calling Azure. The manual
+  Foundry Agent smoke script also accepts the `AGENT_PROVIDER=foundry` smoke
+  alias while preserving `mock` as the default.
 - `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
   already-transcribed text.
 - `SPEECH_PROVIDER=azure` wires an Azure Speech scaffold/factory, but live
