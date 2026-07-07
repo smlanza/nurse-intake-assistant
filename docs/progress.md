@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 631 passed
+- 640 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,13 +22,17 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent response contract/instruction builder slice is complete.
-- `FoundryNurseIntakeAgent` now sends explicit JSON-only nurse intake
-  instructions with required structured fields, no Markdown/code fences, no
-  invented missing demographics or clinical details, and advisory-only nurse
-  review language.
-- The normalizer remains in place, the live client stays lazy, and automated
-  tests use fake clients with no Azure calls.
+- Offline-tested Foundry Agent text-intake routing slice is complete.
+- When `AGENT_PROVIDER=foundry-agent` is explicitly configured, text intake can
+  route through the `NurseIntakeAgent` boundary while preserving deterministic
+  urgency-rule escalation, missing-field validation, saved case fields, mock
+  notification statuses, and the human nurse review boundary.
+- `AGENT_PROVIDER=mock` remains the default local demo path and continues to use
+  the normal mock/offline extraction flow. The existing `AGENT_PROVIDER=foundry`
+  smoke alias is preserved and documented as a Foundry Agent alias.
+- `FoundryNurseIntakeAgent` still keeps live Azure client creation lazy and
+  opt-in. Automated tests use fake agents/clients only and make no Azure calls.
+- Live Foundry Agent smoke testing is still not claimed complete unless manually verified.
 
 ## Current Resume Point
 
@@ -47,12 +51,12 @@ Implemented but not live-confirmed:
   are complete; ACS SMS handset delivery tracking is deferred
 - Foundry provider boundary, structured extraction contract, fake-client seam,
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
-- Foundry Agent client boundary, fake-client seam, and lazy live adapter
-  scaffold; text intake can route through the agent boundary when explicitly
-  configured. The request path now includes a structured JSON contract for the
-  agent response. A manual `scripts/smoke_foundry_agent.py` entry point exists
-  for explicit smoke validation with fictional data and no notification side
-  effects
+- Foundry Agent client boundary, fake-client seam, lazy live adapter scaffold,
+  and explicit `AGENT_PROVIDER=foundry-agent` text-intake routing through the
+  `NurseIntakeAgent` boundary. The request path includes a structured JSON
+  contract for the agent response. A manual `scripts/smoke_foundry_agent.py`
+  entry point exists for explicit smoke validation with fictional data and no
+  notification side effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
@@ -125,8 +129,8 @@ Provider settings:
   implemented. A thin opt-in live adapter matches the same seam with lazy SDK
   imports/client construction, but live extraction is deferred.
 - `AGENT_PROVIDER=mock` remains the default. `AGENT_PROVIDER=foundry-agent`
-  currently reports safe demo readiness warnings and is not wired into intake
-  processing. The Foundry Agent client boundary supports injected fakes and
+  routes text intake through the `NurseIntakeAgent` boundary when explicitly
+  configured. The Foundry Agent client boundary supports injected fakes and
   explicit opt-in live-client creation using
   `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, plus `AZURE_AI_FOUNDRY_AGENT_ID`; missing
@@ -199,6 +203,9 @@ Completed work by feature area:
 - Swagger/OpenAPI metadata and safe example for the handoff note route
 - README local mock demo walkthrough and manual demo/smoke-test docs
 - Minimal Bicep infrastructure baseline and manual Cosmos smoke test
+- No Azure calls, PHI, production clinical behavior, hosting/auth/Key Vault,
+  phone intake automation, retry/durable processing, or frontend framework work
+  were added in the Foundry Agent routing slice.
 
 ## Infrastructure Summary
 

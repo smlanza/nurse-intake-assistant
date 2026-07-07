@@ -108,22 +108,26 @@ class RecordingNurseIntakeAgent:
         self,
         urgency: str = "Routine",
         summary: str = "Agent mapped summary.",
+        missing_fields: list[str] | None = None,
     ) -> None:
         self.calls: list[str] = []
         self.urgency = urgency
         self.summary = summary
+        self.missing_fields = missing_fields or []
 
     async def analyze_intake(self, raw_text: str):
         self.calls.append(raw_text)
         return _agent_result(
             urgency=self.urgency,
             summary=self.summary,
+            missing_fields=self.missing_fields,
         )
 
 
 def _agent_result(
     urgency: str = "Routine",
     summary: str = "Agent mapped summary.",
+    missing_fields: list[str] | None = None,
 ):
     return type(
         "AgentResult",
@@ -138,7 +142,7 @@ def _agent_result(
                 reason_for_calling="agent-assisted refill",
                 symptoms=["fatigue"],
                 summary=summary,
-                missing_fields=[],
+                missing_fields=missing_fields or [],
                 uncertain_fields=[],
             ),
             "urgency": UrgencyClassificationResult(
@@ -172,6 +176,17 @@ def test_routine_intake_creates_completed_case() -> None:
     assert date.fromisoformat(case.createdDate) == case.createdUtc.date()
 
 
+def test_mock_agent_provider_path_still_uses_ai_service() -> None:
+    service = CaseProcessingService(suppress_notifications=True)
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.patient.name == "Jane Doe"
+    assert case.reasonForCalling == "medication refill"
+    assert case.summary == "Patient is calling about medication refill."
+    assert case.urgency == "Routine"
+
+
 def test_agent_configured_intake_uses_agent_instead_of_ai_service() -> None:
     agent = RecordingNurseIntakeAgent()
     service = CaseProcessingService(
@@ -193,6 +208,33 @@ def test_agent_configured_intake_uses_agent_instead_of_ai_service() -> None:
     assert case.notificationSmsStatus == "Suppressed"
 
 
+def test_agent_configured_intake_preserves_missing_field_validation() -> None:
+    agent = RecordingNurseIntakeAgent(
+        missing_fields=[
+            "patient.date_of_birth",
+            "patient.callback_number",
+        ],
+    )
+    service = CaseProcessingService(
+        ai_service=ExplodingAiService(),
+        nurse_intake_agent=agent,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(
+        service.process("Agent text with incomplete demographics.", "text-intake")
+    )
+
+    assert agent.calls == ["Agent text with incomplete demographics."]
+    assert case.intakeComplete is False
+    assert case.intakeStatus == "NeedsFollowUp"
+    assert case.missingFields == [
+        "patient.date_of_birth",
+        "patient.callback_number",
+    ]
+    assert case.reviewStatus == "PendingReview"
+
+
 def test_agent_configured_intake_preserves_red_flag_rules() -> None:
     text = "I have chest pain and need help with my refill."
     agent = RecordingNurseIntakeAgent(urgency="Routine")
@@ -210,6 +252,51 @@ def test_agent_configured_intake_preserves_red_flag_rules() -> None:
     assert case.ruleUrgency == "Urgent"
     assert case.urgencySource == "Rules"
     assert "Red-flag rule match" in case.urgencyRationale
+
+
+def test_agent_configured_intake_saves_same_core_case_fields() -> None:
+    repository = RecordingCaseRepository()
+    agent = RecordingNurseIntakeAgent(summary="Agent saved summary.")
+    service = CaseProcessingService(
+        ai_service=ExplodingAiService(),
+        nurse_intake_agent=agent,
+        case_repository=repository,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert repository.saved_case is case
+    assert repository.saved_case is not None
+    assert repository.saved_case.caseType == "text-intake"
+    assert repository.saved_case.patient.name == "Agent Demo Patient"
+    assert repository.saved_case.reasonForCalling == "agent-assisted refill"
+    assert repository.saved_case.symptoms == ["fatigue"]
+    assert repository.saved_case.transcript == ROUTINE_TEXT
+    assert repository.saved_case.summary == "Agent saved summary."
+    assert repository.saved_case.reviewStatus == "PendingReview"
+
+
+def test_agent_configured_intake_keeps_mock_notification_semantics() -> None:
+    email_sender = MockEmailNotificationSender()
+    sms_sender = MockSmsNotificationSender()
+    agent = RecordingNurseIntakeAgent()
+    service = CaseProcessingService(
+        ai_service=ExplodingAiService(),
+        nurse_intake_agent=agent,
+        email_notification_sender=email_sender,
+        sms_notification_sender=sms_sender,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.notificationEmailSent is True
+    assert case.notificationEmailStatus == "MockRecorded"
+    assert case.notificationSmsSent is True
+    assert case.notificationSmsStatus == "MockRecorded"
+    assert case.notificationSmsDeliveryConfirmed is False
+    assert email_sender.sent_notifications[0].case_id == case.id
+    assert sms_sender.sent_notifications[0].case_id == case.id
 
 
 def test_processed_case_is_saved_through_repository() -> None:

@@ -120,10 +120,12 @@ def test_demo_status_warns_when_foundry_agent_provider_is_configured(
             "AZURE_AI_FOUNDRY_AGENT_ID",
         ],
     }
-    assert (
-        "AGENT_PROVIDER is foundry-agent; live Azure AI Agent orchestration is "
-        "not wired yet."
-    ) in body["warnings"]
+    assert any(
+        "AGENT_PROVIDER is foundry-agent" in warning
+        for warning in body["warnings"]
+    )
+    assert any("manual" in warning.lower() for warning in body["warnings"])
+    assert all("not wired yet" not in warning for warning in body["warnings"])
 
 
 def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
@@ -154,6 +156,26 @@ def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
     assert "fictional-agent-id" not in serialized
 
 
+def test_demo_status_treats_foundry_agent_smoke_alias_as_foundry_agent(
+    monkeypatch,
+) -> None:
+    _set_demo_status_settings(monkeypatch, agent_provider="foundry")
+
+    response = client.get("/demo/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["demoModeReady"] is False
+    assert body["agentProvider"] == "foundry"
+    assert body["agentStatus"]["provider"] == "foundry"
+    assert body["agentStatus"]["mode"] == "configuration-only"
+    assert any(
+        "AGENT_PROVIDER is foundry" in warning
+        for warning in body["warnings"]
+    )
+    assert all("unsupported" not in warning for warning in body["warnings"])
+
+
 def test_demo_status_does_not_create_foundry_agent_client(monkeypatch) -> None:
     import src.app.services.foundry_agent_client as foundry_agent_client
 
@@ -176,6 +198,60 @@ def test_demo_status_does_not_create_foundry_agent_client(monkeypatch) -> None:
 
     assert response.status_code == 200
     assert response.json()["agentStatus"]["ready"] is True
+
+
+def test_demo_status_does_not_construct_live_foundry_agent_client_on_app_import(
+    monkeypatch,
+) -> None:
+    import importlib
+    import sys
+    from types import ModuleType
+
+    import src.app.services.foundry_agent_client as foundry_agent_client
+
+    module_names = (
+        "src.app.main",
+        "src.app.routes.intake",
+        "src.app.routes.demo",
+        "src.app.dependencies",
+    )
+    original_modules: dict[str, ModuleType | None] = {
+        module_name: sys.modules.get(module_name)
+        for module_name in module_names
+    }
+
+    monkeypatch.setenv("AGENT_PROVIDER", "foundry-agent")
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+        "https://fictional-foundry.services.ai.azure.com/api/projects/demo",
+    )
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "fictional-agent-id")
+    monkeypatch.setattr(
+        foundry_agent_client,
+        "AzureAiFoundryAgentLiveClient",
+        lambda *args, **kwargs: pytest.fail(
+            "Live Foundry Agent client should not be constructed for /demo/status"
+        ),
+    )
+
+    try:
+        for module_name in module_names:
+            sys.modules.pop(module_name, None)
+
+        imported_main = importlib.import_module("src.app.main")
+        local_client = TestClient(imported_main.app)
+
+        response = local_client.get("/demo/status")
+
+        assert response.status_code == 200
+        assert response.json()["agentStatus"]["mode"] == "configuration-only"
+    finally:
+        for module_name in reversed(module_names):
+            original_module = original_modules[module_name]
+            if original_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = original_module
 
 
 def test_demo_status_warns_when_agent_provider_is_unsupported(monkeypatch) -> None:

@@ -202,10 +202,11 @@ def _demo_status_warnings(
         warnings.append(
             "SMS_PROVIDER is not mock; real SMS behavior must be validated separately."
         )
-    if agent_provider == "foundry-agent":
+    if agent_provider in {"foundry", "foundry-agent"}:
         warnings.append(
-            "AGENT_PROVIDER is foundry-agent; live Azure AI Agent orchestration is "
-            "not wired yet."
+            f"AGENT_PROVIDER is {agent_provider}; Foundry Agent intake routing "
+            "uses the NurseIntakeAgent boundary, but live Azure AI Agent "
+            "behavior should not be claimed unless manually verified."
         )
     elif agent_provider != "mock":
         warnings.append(

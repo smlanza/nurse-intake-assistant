@@ -201,3 +201,49 @@ def test_fastapi_app_setup_creates_ai_service_through_factory_once(
                 sys.modules.pop(module_name, None)
             else:
                 sys.modules[module_name] = original_module
+
+
+def test_fastapi_app_setup_wires_optional_nurse_intake_agent_for_foundry_agent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.nurse_intake_agent_factory as agent_factory
+
+    calls: list[str] = []
+    fake_agent = object()
+
+    def fake_create_optional_nurse_intake_agent(settings: Any) -> object:
+        calls.append(settings.agent_provider_normalized)
+        return fake_agent
+
+    original_factory = agent_factory.create_optional_nurse_intake_agent
+    original_modules: dict[str, ModuleType | None] = {
+        module_name: sys.modules.get(module_name)
+        for module_name in APP_SETUP_MODULES
+    }
+
+    monkeypatch.setenv("AGENT_PROVIDER", "foundry-agent")
+    monkeypatch.setattr(
+        agent_factory,
+        "create_optional_nurse_intake_agent",
+        fake_create_optional_nurse_intake_agent,
+    )
+
+    try:
+        for module_name in APP_SETUP_MODULES:
+            sys.modules.pop(module_name, None)
+
+        importlib.import_module("src.app.main")
+        dependencies = sys.modules["src.app.dependencies"]
+        intake_route = sys.modules["src.app.routes.intake"]
+
+        assert calls == ["foundry-agent"]
+        assert dependencies.nurse_intake_agent is fake_agent
+        assert intake_route.case_processing_service.nurse_intake_agent is fake_agent
+    finally:
+        agent_factory.create_optional_nurse_intake_agent = original_factory
+        for module_name in reversed(APP_SETUP_MODULES):
+            original_module = original_modules[module_name]
+            if original_module is None:
+                sys.modules.pop(module_name, None)
+            else:
+                sys.modules[module_name] = original_module
