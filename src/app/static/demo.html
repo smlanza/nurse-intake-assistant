@@ -962,6 +962,7 @@
           </div>
           <p><strong>Reported symptoms:</strong> ${escapeHtml(formatSymptoms(item))}</p>
           <p class="muted"><strong>Summary preview:</strong> ${escapeHtml(item.summary || "No summary returned.")}</p>
+          ${renderProcessingTrace(item)}
           ${
             item.reviewedBy || item.reviewedAt || item.reviewNotes
               ? `
@@ -993,6 +994,47 @@
           : "None recorded";
       }
 
+      function renderProcessingTrace(item) {
+        const trace = item.processing_trace;
+        if (!trace || !hasProcessingTraceDetails(trace)) {
+          return "";
+        }
+        const provider = trace.agent_used
+          ? trace.agent_provider || "agent"
+          : trace.ai_provider || "ai";
+        const steps = Array.isArray(trace.steps) && trace.steps.length
+          ? trace.steps.join(" -> ")
+          : "Not recorded";
+        const warnings = Array.isArray(trace.warnings) && trace.warnings.length
+          ? trace.warnings.join("; ")
+          : "None";
+        return `
+          <div class="metadata">
+            <h3>processing trace</h3>
+            <div class="facts">
+              <div class="fact"><span>path</span><br />${escapeHtml(trace.agent_used ? "agent" : "ai")}</div>
+              <div class="fact"><span>provider</span><br />${escapeHtml(provider)}</div>
+              <div class="fact"><span>final urgency source</span><br />${escapeHtml(trace.final_urgency_source || "unknown")}</div>
+              <div class="fact"><span>rules override</span><br />${escapeHtml(trace.rules_urgency_override ? "true" : "false")}</div>
+              <div class="fact"><span>steps</span><br />${escapeHtml(steps)}</div>
+              <div class="fact"><span>warnings</span><br />${escapeHtml(warnings)}</div>
+            </div>
+          </div>
+        `;
+      }
+
+      function hasProcessingTraceDetails(trace) {
+        return Boolean(
+          trace.agent_used ||
+            trace.ai_provider ||
+            trace.agent_provider ||
+            trace.rules_urgency_override ||
+            (trace.final_urgency_source && trace.final_urgency_source !== "unknown") ||
+            (Array.isArray(trace.steps) && trace.steps.length) ||
+            (Array.isArray(trace.warnings) && trace.warnings.length),
+        );
+      }
+
       function showCase(target, item) {
         selectedCaseId.value = item.id;
         target.innerHTML = `
@@ -1007,6 +1049,7 @@
           </div>
           <p><strong>Reported symptoms:</strong> ${escapeHtml(formatSymptoms(item))}</p>
           <p><strong>Summary preview:</strong> ${escapeHtml(item.summary || "No summary returned.")}</p>
+          ${renderProcessingTrace(item)}
           <div class="metadata">
             <h3>metadata</h3>
             <div class="facts">

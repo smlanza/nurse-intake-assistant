@@ -22,6 +22,7 @@ Urgency = Literal["Routine", "Urgent", "Unknown"]
 
 CaseType = Literal["phone-intake", "text-intake", "audio-upload"]
 UrgencySource = Literal["AI", "Rules", "RulesAndAI", "Unknown"]
+FinalUrgencySource = Literal["agent", "ai", "rules", "unknown"]
 NotificationStatus = Literal[
     "NotAttempted",
     "MockRecorded",
@@ -29,6 +30,16 @@ NotificationStatus = Literal[
     "Failed",
     "Suppressed",
 ]
+
+
+class ProcessingTrace(BaseModel):
+    ai_provider: str | None = None
+    agent_provider: str | None = None
+    agent_used: bool = False
+    steps: list[str] = Field(default_factory=list)
+    rules_urgency_override: bool = False
+    final_urgency_source: FinalUrgencySource = "unknown"
+    warnings: list[str] = Field(default_factory=list)
 
 
 class CaseDocument(BaseModel):
@@ -76,6 +87,8 @@ class CaseDocument(BaseModel):
     notificationSmsSent: bool = False
     notificationSmsStatus: NotificationStatus = "NotAttempted"
     notificationSmsDeliveryConfirmed: bool = False
+
+    processing_trace: ProcessingTrace = Field(default_factory=ProcessingTrace)
 
     audioBlobName: str | None = None
     audioDeleted: bool = False

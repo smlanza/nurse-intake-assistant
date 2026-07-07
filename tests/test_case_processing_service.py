@@ -151,6 +151,14 @@ def _agent_result(
                 advisory_disclaimer="Advisory only; nurse review is required.",
             ),
             "handoffNote": "Agent handoff note.",
+            "metadata": type(
+                "AgentMetadata",
+                (),
+                {
+                    "provider": "mock",
+                    "agentMode": "mock",
+                },
+            )(),
         },
     )()
 
@@ -206,6 +214,37 @@ def test_agent_configured_intake_uses_agent_instead_of_ai_service() -> None:
     assert case.ruleUrgency == "Routine"
     assert case.notificationEmailStatus == "Suppressed"
     assert case.notificationSmsStatus == "Suppressed"
+    assert case.processing_trace.agent_used is True
+    assert case.processing_trace.ai_provider is None
+    assert case.processing_trace.agent_provider == "mock"
+    assert case.processing_trace.final_urgency_source == "agent"
+    assert case.processing_trace.rules_urgency_override is False
+    assert case.processing_trace.steps == [
+        "agent.extract_summary",
+        "agent.classify_urgency",
+        "rules.apply_red_flags",
+        "case.persist",
+        "notifications.send",
+    ]
+
+
+def test_non_agent_processing_records_ai_processing_trace() -> None:
+    service = CaseProcessingService(suppress_notifications=True)
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert case.processing_trace.agent_used is False
+    assert case.processing_trace.agent_provider is None
+    assert case.processing_trace.ai_provider == "mock"
+    assert case.processing_trace.final_urgency_source == "ai"
+    assert case.processing_trace.rules_urgency_override is False
+    assert case.processing_trace.steps == [
+        "ai.extract_summary",
+        "ai.classify_urgency",
+        "rules.apply_red_flags",
+        "case.persist",
+        "notifications.send",
+    ]
 
 
 def test_agent_configured_intake_preserves_missing_field_validation() -> None:
@@ -252,6 +291,8 @@ def test_agent_configured_intake_preserves_red_flag_rules() -> None:
     assert case.ruleUrgency == "Urgent"
     assert case.urgencySource == "Rules"
     assert "Red-flag rule match" in case.urgencyRationale
+    assert case.processing_trace.rules_urgency_override is True
+    assert case.processing_trace.final_urgency_source == "rules"
 
 
 def test_agent_configured_intake_saves_same_core_case_fields() -> None:
@@ -592,6 +633,8 @@ def test_rule_urgency_overrides_ai_routine_result() -> None:
     assert case.urgencySource == "Rules"
     assert "Forced routine result" in case.urgencyRationale
     assert "Shortness of breath" in case.urgencyRationale
+    assert case.processing_trace.rules_urgency_override is True
+    assert case.processing_trace.final_urgency_source == "rules"
 
 
 def test_missing_patient_fields_are_carried_into_case() -> None:

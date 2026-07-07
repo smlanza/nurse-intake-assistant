@@ -1,7 +1,12 @@
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.app.models.case import CaseDocument, CaseType, UrgencySource
+from src.app.models.case import (
+    CaseDocument,
+    CaseType,
+    ProcessingTrace,
+    UrgencySource,
+)
 from src.app.models.ai_outputs import UrgencyClassificationResult
 from src.app.services.case_repository import CaseRepository
 from src.app.services.email_notification_sender import (
@@ -26,6 +31,20 @@ class CaseProcessingService:
         "text-intake",
         "phone-intake",
         "audio-upload",
+    )
+    _AGENT_STEPS: tuple[str, ...] = (
+        "agent.extract_summary",
+        "agent.classify_urgency",
+        "rules.apply_red_flags",
+        "case.persist",
+        "notifications.send",
+    )
+    _AI_STEPS: tuple[str, ...] = (
+        "ai.extract_summary",
+        "ai.classify_urgency",
+        "rules.apply_red_flags",
+        "case.persist",
+        "notifications.send",
     )
 
     def __init__(
@@ -53,7 +72,9 @@ class CaseProcessingService:
         if case_type not in self._SUPPORTED_CASE_TYPES:
             raise ValueError(f"Unsupported case type: {case_type}")
 
-        if self.nurse_intake_agent is not None:
+        agent_result = None
+        agent_used = self.nurse_intake_agent is not None
+        if agent_used:
             agent_result = await self.nurse_intake_agent.analyze_intake(raw_text)
             extraction = agent_result.extraction
             ai_urgency = agent_result.urgency
@@ -96,6 +117,12 @@ class CaseProcessingService:
                 "NeedsFollowUp" if extraction.missing_fields else "Complete"
             ),
             reviewStatus="PendingReview",
+            processing_trace=self._build_processing_trace(
+                agent_used=agent_used,
+                agent_result=agent_result,
+                ai_urgency=ai_urgency,
+                rule_result=rule_result,
+            ),
         )
 
         self._apply_email_notification_status(case)
@@ -105,6 +132,62 @@ class CaseProcessingService:
             await self.case_repository.save(case)
 
         return case
+
+    def _build_processing_trace(
+        self,
+        *,
+        agent_used: bool,
+        agent_result: object | None,
+        ai_urgency: UrgencyClassificationResult,
+        rule_result: RuleEvaluationResult,
+    ) -> ProcessingTrace:
+        rules_urgency_override = self._rules_override_urgency(
+            ai_urgency,
+            rule_result,
+        )
+        if rules_urgency_override:
+            final_urgency_source = "rules"
+        elif agent_used:
+            final_urgency_source = "agent"
+        else:
+            final_urgency_source = "ai"
+
+        return ProcessingTrace(
+            ai_provider=None if agent_used else self._ai_provider_name(),
+            agent_provider=(
+                self._agent_provider_name(agent_result) if agent_used else None
+            ),
+            agent_used=agent_used,
+            steps=list(self._AGENT_STEPS if agent_used else self._AI_STEPS),
+            rules_urgency_override=rules_urgency_override,
+            final_urgency_source=final_urgency_source,
+            warnings=[],
+        )
+
+    def _ai_provider_name(self) -> str | None:
+        configured_provider = getattr(self.ai_service, "provider", None)
+        if isinstance(configured_provider, str):
+            return configured_provider
+
+        class_name = self.ai_service.__class__.__name__
+        if isinstance(self.ai_service, MockAiService):
+            return "mock"
+        if class_name == "FoundryAiService":
+            return "foundry"
+        return class_name
+
+    @staticmethod
+    def _agent_provider_name(agent_result: object | None) -> str | None:
+        metadata = getattr(agent_result, "metadata", None)
+        provider = getattr(metadata, "provider", None)
+        return provider if isinstance(provider, str) else None
+
+    @staticmethod
+    def _rules_override_urgency(
+        ai_urgency: UrgencyClassificationResult,
+        rule_result: RuleEvaluationResult,
+    ) -> bool:
+        return rule_result.urgency == "Urgent" and ai_urgency.urgency != "Urgent"
 
     def _apply_email_notification_status(self, case: CaseDocument) -> None:
         if self.suppress_notifications:
