@@ -20,22 +20,26 @@ class RecordingFoundryAgentClient:
 def _foundry_agent_response() -> str:
     return json.dumps(
         {
-            "patient": {
-                "name": "Foundry Demo Patient",
-                "date_of_birth": None,
-                "callback_number": "000-000-0101",
+            "extraction": {
+                "patient": {
+                    "name": "Foundry Demo Patient",
+                    "date_of_birth": None,
+                    "callback_number": "000-000-0101",
+                },
+                "reason_for_calling": "medication refill",
+                "symptoms": ["fatigue"],
+                "summary": "Demo patient requests a medication refill.",
+                "missing_fields": ["patient.date_of_birth"],
+                "uncertain_fields": [],
             },
-            "reason_for_calling": "medication refill",
-            "symptoms": ["fatigue"],
-            "summary": "Demo patient requests a medication refill.",
-            "missing_fields": ["patient.date_of_birth"],
-            "uncertain_fields": [],
-            "urgency": "Routine",
-            "urgency_rationale": "No urgent symptoms were reported.",
-            "advisory_disclaimer": (
-                "Advisory urgency only; nurse review and clinical judgment "
-                "are required."
-            ),
+            "urgency": {
+                "urgency": "Routine",
+                "urgency_rationale": "No urgent symptoms were reported.",
+                "advisory_disclaimer": (
+                    "Advisory urgency only; nurse review and clinical judgment "
+                    "are required."
+                ),
+            },
         }
     )
 

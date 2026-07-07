@@ -16,9 +16,7 @@ from src.app.services.foundry_agent_client import (
 )
 from src.app.services.foundry_agent_contract import (
     build_foundry_agent_intake_instructions,
-)
-from src.app.services.foundry_extraction_contract import (
-    normalize_foundry_structured_extraction_response,
+    normalize_foundry_agent_intake_response,
 )
 from src.app.services.mock_ai_service import MockAiService
 from src.app.services.nurse_handoff_note_formatter import NurseHandoffNoteFormatter
@@ -142,7 +140,7 @@ class FoundryNurseIntakeAgent:
                 instructions=build_foundry_agent_intake_instructions(),
             )
         )
-        structured_result = normalize_foundry_structured_extraction_response(
+        structured_result = normalize_foundry_agent_intake_response(
             response.content
         )
         case = self._build_handoff_case(

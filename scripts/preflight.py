@@ -372,7 +372,6 @@ def _format_guidance(results: list[PreflightResult]) -> str:
         )
         lines.append(
             "- A FAIL result means the requested provider is not enabled or required local configuration is missing; this preflight did not call Azure."
-            "this preflight did not call Azure."
         )
         return "\n".join(lines)
 

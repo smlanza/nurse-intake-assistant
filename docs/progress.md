@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 660 passed
+- 681 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,16 +22,16 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Consolidated preflight includes Foundry Agent check slice is complete.
-- `scripts/preflight.py --foundry-agent` now validates Foundry Agent provider
-  and required settings, reports optional SDK visibility, and prints sanitized
-  configuration-only readiness output.
-- `scripts/preflight.py --all` now includes Foundry Agent readiness alongside
-  Cosmos, Foundry extraction, Speech, ACS Email, and ACS SMS checks.
-- Foundry Agent preflight makes no Azure calls, constructs no live client,
-  invokes no agent, persists no case, and sends no email or SMS.
-- Live Foundry Agent validation remains manual/opt-in through
-  `scripts/smoke_foundry_agent.py --live`; default mock demo behavior is unchanged.
+- Foundry Agent response normalization edge-case hardening slice is complete.
+- Foundry Agent response parsing now rejects malformed JSON, explanatory prose,
+  concatenated JSON, missing sections/fields, and wrong-type fields with
+  sanitized contract errors.
+- Simple outer Markdown code fences are accepted only when the inner body is
+  valid contract JSON; arbitrary prose extraction is not attempted.
+- Parsing/contract failures do not include raw response text, prompts,
+  endpoints, agent IDs, tokens, contact details, or PHI-like sample text.
+- Live Foundry Agent validation remains manual/opt-in and not claimed complete;
+  default mock demo behavior is unchanged.
 
 ## Current Resume Point
 
@@ -54,7 +54,8 @@ Implemented but not live-confirmed:
 - Foundry Agent client boundary, fake-client seam, lazy live adapter scaffold,
   explicit `AGENT_PROVIDER=foundry-agent` text-intake routing, and manual
   `scripts/smoke_foundry_agent.py` `--check`/`--live` smoke CLI with env-file
-  isolation, fictional data only, safe diagnostics, and no notification effects
+  isolation, fictional data only, safe diagnostics, strict response parsing,
+  and no notification effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
@@ -132,10 +133,10 @@ Provider settings:
   explicit opt-in live-client creation using
   `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, plus `AZURE_AI_FOUNDRY_AGENT_ID`; missing
-  settings and SDK support fail with sanitized diagnostics. `/demo/status` and
-  `scripts/preflight.py --foundry-agent` report readiness without calling Azure.
-  The manual smoke script also accepts the `AGENT_PROVIDER=foundry` smoke alias
-  while preserving `mock` as the default.
+  settings, SDK support, and response contract failures use sanitized
+  diagnostics. `/demo/status` and `scripts/preflight.py --foundry-agent` report
+  readiness without calling Azure. The manual smoke script also accepts the
+  `AGENT_PROVIDER=foundry` smoke alias while preserving `mock` as the default.
 - `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
   already-transcribed text.
 - `SPEECH_PROVIDER=azure` wires an Azure Speech scaffold/factory, but live
@@ -203,7 +204,7 @@ Completed work by feature area:
 - Minimal Bicep infrastructure baseline and manual Cosmos smoke test
 - No Azure calls in tests, PHI, production clinical behavior, hosting/auth/Key
   Vault, phone intake automation, retry/durable processing, or frontend work
-  were added in the Foundry Agent preflight slice.
+  were added in the Foundry Agent response hardening slice.
 
 ## Infrastructure Summary
 
