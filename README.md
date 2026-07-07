@@ -105,15 +105,16 @@ They are not run by app startup, /demo, or /demo/status.
 | Scenario | Set these variables | Providers that remain mock |
 | --- | --- | --- |
 | Default local demo mode | `APP_MODE=mock`, `AI_PROVIDER=mock`, `AGENT_PROVIDER=mock`, `SPEECH_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock` | All live providers remain mock/offline |
-| Foundry Agent smoke-test mode | `AGENT_PROVIDER=foundry`, `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT`, `AZURE_AI_FOUNDRY_AGENT_ID`; run `scripts/smoke_foundry_agent.py` | `APP_MODE=mock`, `AI_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, `SPEECH_PROVIDER=mock` |
+| Foundry Agent smoke-test mode | `AGENT_PROVIDER=foundry-agent` or the `AGENT_PROVIDER=foundry` smoke alias, `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT`, `AZURE_AI_FOUNDRY_AGENT_ID`; run `scripts/smoke_foundry_agent.py --check` before explicit `--live` | `APP_MODE=mock`, `AI_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, `SPEECH_PROVIDER=mock` |
 | ACS Email smoke-test mode | `EMAIL_PROVIDER=acs`, `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, `NURSE_NOTIFICATION_EMAIL`; run `scripts/smoke_acs_email.py --check` | `APP_MODE=mock`, `AI_PROVIDER=mock`, `AGENT_PROVIDER=mock`, `SMS_PROVIDER=mock`, `SPEECH_PROVIDER=mock` |
 | ACS SMS smoke-test mode | `SMS_PROVIDER=acs`, `ACS_SMS_CONNECTION_STRING`, `ACS_SMS_FROM_PHONE_NUMBER`, `NURSE_NOTIFICATION_PHONE_NUMBER`; run `scripts/smoke_acs_sms.py --check` | `APP_MODE=mock`, `AI_PROVIDER=mock`, `AGENT_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, `SPEECH_PROVIDER=mock` |
 | Azure Speech smoke-test mode | `SPEECH_PROVIDER=azure`, `AZURE_SPEECH_ENDPOINT`, `AZURE_SPEECH_REGION`; run `scripts/smoke_speech_transcription.py --check` | `APP_MODE=mock`, `AI_PROVIDER=mock`, `AGENT_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock` |
 | Cosmos persistence smoke-test mode | `APP_MODE=cosmos`, `COSMOS_ENDPOINT`, `COSMOS_KEY`, `COSMOS_DATABASE_NAME`, `COSMOS_CONTAINER_NAME`; see `docs/manual-cosmos-smoke-test.md` | `AI_PROVIDER=mock`, `AGENT_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, `SPEECH_PROVIDER=mock` |
 
-For example, AGENT_PROVIDER=foundry while APP_MODE, AI_PROVIDER, EMAIL_PROVIDER,
-SMS_PROVIDER, and SPEECH_PROVIDER remain mock is an expected manual Foundry
-Agent smoke-test shape.
+For example, AGENT_PROVIDER=foundry-agent or the AGENT_PROVIDER=foundry smoke
+alias while APP_MODE, AI_PROVIDER, EMAIL_PROVIDER, SMS_PROVIDER, and
+SPEECH_PROVIDER remain mock is an expected manual Foundry Agent smoke-test
+shape.
 
 Run the offline-safe provider preflight in mock-safe mode:
 

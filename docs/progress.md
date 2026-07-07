@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 640 passed
+- 655 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,17 +22,16 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Offline-tested Foundry Agent text-intake routing slice is complete.
-- When `AGENT_PROVIDER=foundry-agent` is explicitly configured, text intake can
-  route through the `NurseIntakeAgent` boundary while preserving deterministic
-  urgency-rule escalation, missing-field validation, saved case fields, mock
-  notification statuses, and the human nurse review boundary.
-- `AGENT_PROVIDER=mock` remains the default local demo path and continues to use
-  the normal mock/offline extraction flow. The existing `AGENT_PROVIDER=foundry`
-  smoke alias is preserved and documented as a Foundry Agent alias.
-- `FoundryNurseIntakeAgent` still keeps live Azure client creation lazy and
-  opt-in. Automated tests use fake agents/clients only and make no Azure calls.
-- Live Foundry Agent smoke testing is still not claimed complete unless manually verified.
+- Foundry Agent smoke CLI env-file isolation and safe diagnostics slice is complete.
+- `scripts/smoke_foundry_agent.py --env-file` loads settings for the script
+  process only, with shell variables overriding env-file values and no secrets,
+  endpoints, agent IDs, prompts, tokens, stack traces, or PHI printed.
+- `--check` validates Foundry Agent configuration and optional SDK visibility
+  without constructing a Foundry Agent client or making Azure calls.
+- `--live` remains manual, explicit, opt-in, fictional-data-only, and reports
+  sanitized failure categories plus next-step hints.
+- Default mock demo behavior is unchanged; live Foundry Agent smoke testing is
+  still not claimed complete unless manually verified.
 
 ## Current Resume Point
 
@@ -52,11 +51,9 @@ Implemented but not live-confirmed:
 - Foundry provider boundary, structured extraction contract, fake-client seam,
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
 - Foundry Agent client boundary, fake-client seam, lazy live adapter scaffold,
-  and explicit `AGENT_PROVIDER=foundry-agent` text-intake routing through the
-  `NurseIntakeAgent` boundary. The request path includes a structured JSON
-  contract for the agent response. A manual `scripts/smoke_foundry_agent.py`
-  entry point exists for explicit smoke validation with fictional data and no
-  notification side effects
+  explicit `AGENT_PROVIDER=foundry-agent` text-intake routing, and manual
+  `scripts/smoke_foundry_agent.py` `--check`/`--live` smoke CLI with env-file
+  isolation, fictional data only, safe diagnostics, and no notification effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
@@ -134,9 +131,9 @@ Provider settings:
   explicit opt-in live-client creation using
   `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, plus `AZURE_AI_FOUNDRY_AGENT_ID`; missing
-  settings and SDK support fail with sanitized diagnostics. `/demo/status`
-  reports configuration-only agent readiness without calling Azure. The manual
-  Foundry Agent smoke script also accepts the `AGENT_PROVIDER=foundry` smoke
+  settings and SDK support fail with sanitized diagnostics. `/demo/status` and
+  `scripts/smoke_foundry_agent.py --check` report readiness without calling
+  Azure. The manual smoke script also accepts the `AGENT_PROVIDER=foundry` smoke
   alias while preserving `mock` as the default.
 - `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
   already-transcribed text.
@@ -203,9 +200,9 @@ Completed work by feature area:
 - Swagger/OpenAPI metadata and safe example for the handoff note route
 - README local mock demo walkthrough and manual demo/smoke-test docs
 - Minimal Bicep infrastructure baseline and manual Cosmos smoke test
-- No Azure calls, PHI, production clinical behavior, hosting/auth/Key Vault,
-  phone intake automation, retry/durable processing, or frontend framework work
-  were added in the Foundry Agent routing slice.
+- No Azure calls in tests, PHI, production clinical behavior, hosting/auth/Key
+  Vault, phone intake automation, retry/durable processing, or frontend
+  framework work were added in the Foundry Agent smoke CLI slice.
 
 ## Infrastructure Summary
 

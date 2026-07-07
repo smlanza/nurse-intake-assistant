@@ -131,6 +131,87 @@ Common next checks are endpoint type, deployment name, Azure login/RBAC, SDK
 compatibility, and whether the model response still matches the structured JSON
 contract.
 
+## Foundry Agent Smoke CLI
+
+Use `scripts/smoke_foundry_agent.py` only for manual Azure AI Foundry Agent
+validation with fictional data only. The default local demo remains
+mock/offline: `AGENT_PROVIDER=mock`, `AI_PROVIDER=mock`, `APP_MODE=mock`,
+`EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and `SPEECH_PROVIDER=mock`.
+
+Create a local `.env.foundry-agent.local` from
+`.env.foundry-agent.local.example` or export temporary shell variables:
+
+```bash
+AGENT_PROVIDER=foundry-agent
+AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=<your-foundry-agent-project-endpoint>
+AZURE_AI_FOUNDRY_AGENT_ID=<your-foundry-agent-id>
+```
+
+The script also preserves the existing `AGENT_PROVIDER=foundry` smoke alias.
+Prefer `AGENT_PROVIDER=foundry-agent` for new manual checks.
+
+Example `--check` command:
+
+```bash
+python scripts/smoke_foundry_agent.py --check
+```
+
+Example `--env-file` check command:
+
+```bash
+python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --check
+```
+
+Shell environment variables override env-file values. The env file is loaded
+for the script process only and values are reported only as configured/missing.
+Endpoint values and agent IDs are not printed.
+
+`--check` does not call Azure. No Foundry Agent client is created in --check
+mode, no agent invocation is made, no cases are persisted, and no email or SMS
+is sent. It validates required settings and reports optional SDK visibility.
+In plain terms: --check does not call Azure.
+
+Example `--live` command:
+
+```bash
+python scripts/smoke_foundry_agent.py --live
+```
+
+Example `--env-file` live command:
+
+```bash
+python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live
+```
+
+`--live` remains manual and opt-in. It is the only mode intended to construct
+the Foundry Agent path and may call Azure. It uses the script's built-in
+fictional medication-refill intake only, does not send notifications, does not
+write to Cosmos, does not call FastAPI routes, and does not require the FastAPI
+server to be running.
+In plain terms: --live remains manual and opt-in.
+
+If live validation fails, the script prints a sanitized failure category and a
+next-step hint. It does not print raw exception messages, stack traces, full
+endpoints, agent IDs, bearer tokens, prompts, instructions, connection strings,
+real patient/contact data, email addresses, phone numbers, or PHI.
+
+Safe Foundry Agent live failure categories include:
+
+- configuration
+- credential
+- authentication
+- authorization
+- not_found
+- bad_request
+- sdk_missing
+- parsing
+- unknown
+
+Do not claim live Foundry Agent behavior is verified unless this manual
+`--live` path has been run successfully in the intended Azure environment.
+Passing `--check` means local configuration is present and no Azure call was
+made.
+
 ## Troubleshoot With Diagnose
 
 Use `--live --diagnose` only for a manual troubleshooting pass after `--check`

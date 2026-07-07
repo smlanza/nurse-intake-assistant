@@ -76,6 +76,25 @@ def test_foundry_local_env_example_documents_openai_endpoint_placeholder() -> No
     assert "accesskey=" not in env_example.lower()
 
 
+def test_foundry_agent_local_env_example_documents_placeholders() -> None:
+    env_example_path = PROJECT_ROOT / ".env.foundry-agent.local.example"
+
+    assert env_example_path.exists()
+
+    env_example = env_example_path.read_text()
+    assert "AGENT_PROVIDER=foundry-agent" in env_example
+    assert (
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT="
+        "<your-foundry-agent-project-endpoint>"
+    ) in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_ID=<your-foundry-agent-id>" in env_example
+    assert "Do not commit real values" in env_example
+    assert "services.ai.azure.com/api/projects/" not in env_example
+    assert "secret" not in env_example.lower()
+    assert "accesskey=" not in env_example.lower()
+    assert "bearer" not in env_example.lower()
+
+
 def test_env_example_documents_speech_placeholders() -> None:
     env_example = (PROJECT_ROOT / ".env.example").read_text()
 
@@ -446,6 +465,7 @@ def test_readme_documents_foundry_agent_smoke_mode_with_mock_providers() -> None
     normalized_readme = " ".join(readme.split())
 
     assert "Foundry Agent smoke-test mode" in readme
+    assert "AGENT_PROVIDER=foundry-agent" in readme
     assert "AGENT_PROVIDER=foundry" in readme
     assert "APP_MODE=mock" in readme
     assert "AI_PROVIDER=mock" in readme
@@ -453,9 +473,39 @@ def test_readme_documents_foundry_agent_smoke_mode_with_mock_providers() -> None
     assert "SMS_PROVIDER=mock" in readme
     assert "SPEECH_PROVIDER=mock" in readme
     assert (
-        "AGENT_PROVIDER=foundry while APP_MODE, AI_PROVIDER, EMAIL_PROVIDER, "
-        "SMS_PROVIDER, and SPEECH_PROVIDER remain mock"
+        "AGENT_PROVIDER=foundry-agent or the AGENT_PROVIDER=foundry smoke "
+        "alias while APP_MODE, AI_PROVIDER, EMAIL_PROVIDER, SMS_PROVIDER, and "
+        "SPEECH_PROVIDER remain mock"
     ) in normalized_readme
+
+
+def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
+    doc = (PROJECT_ROOT / "docs" / "manual-foundry-smoke-test.md").read_text()
+    normalized_doc = " ".join(doc.split())
+
+    assert "Foundry Agent Smoke CLI" in doc
+    assert "python scripts/smoke_foundry_agent.py --check" in doc
+    assert "python scripts/smoke_foundry_agent.py --live" in doc
+    assert (
+        "python scripts/smoke_foundry_agent.py --env-file "
+        ".env.foundry-agent.local --check"
+    ) in doc
+    assert (
+        "python scripts/smoke_foundry_agent.py --env-file "
+        ".env.foundry-agent.local --live"
+    ) in doc
+    assert "Shell environment variables override env-file values" in doc
+    assert "--check does not call Azure" in doc
+    assert "No Foundry Agent client is created in --check mode" in normalized_doc
+    assert "--live remains manual and opt-in" in doc
+    assert "fictional data only" in normalized_doc
+    assert "default local demo remains mock/offline" in normalized_doc
+    assert "Do not claim live Foundry Agent behavior" in doc
+    assert "authorization" in doc
+    assert "not_found" in doc
+    assert "bad_request" in doc
+    assert "sdk_missing" in doc
+    assert "parsing" in doc
 
 
 def test_readme_documents_smoke_scripts_are_explicitly_invoked_checks() -> None:
