@@ -1,19 +1,27 @@
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
+from src.app.models.ai_outputs import (
+    ExtractionSummaryResult,
+    PatientInfo,
+    UrgencyClassificationResult,
+)
 from src.app.models.case import (
     CaseDocument,
     CaseType,
     ProcessingTrace,
     UrgencySource,
 )
-from src.app.models.ai_outputs import UrgencyClassificationResult
 from src.app.services.case_repository import CaseRepository
 from src.app.services.email_notification_sender import (
     EmailNotificationSender,
     MockEmailNotificationSender,
 )
 from src.app.services.mock_ai_service import MockAiService
+from src.app.services.nurse_intake_agent_contract import (
+    validate_nurse_intake_agent_result,
+)
 from src.app.services.sms_notification_sender import (
     MockSmsNotificationSender,
     SmsNotificationSender,
@@ -27,6 +35,12 @@ from src.app.services.urgency_rules_service import (
 class CaseProcessingService:
     """Orchestrate intake extraction, urgency, persistence, and notification."""
 
+    _AGENT_CONTRACT_FALLBACK_SUMMARY = (
+        "Agent output could not be safely parsed. Nurse review required."
+    )
+    _AGENT_CONTRACT_FALLBACK_RATIONALE = (
+        "Agent output failed contract validation; safe fallback values were used."
+    )
     _SUPPORTED_CASE_TYPES: tuple[CaseType, ...] = (
         "text-intake",
         "phone-intake",
@@ -73,21 +87,36 @@ class CaseProcessingService:
             raise ValueError(f"Unsupported case type: {case_type}")
 
         agent_result = None
+        processing_trace_warnings: list[str] = []
+        agent_contract_valid = True
         agent_used = self.nurse_intake_agent is not None
         if agent_used:
             agent_result = await self.nurse_intake_agent.analyze_intake(raw_text)
-            extraction = agent_result.extraction
-            ai_urgency = agent_result.urgency
+            validation_result = validate_nurse_intake_agent_result(agent_result)
+            if validation_result.is_valid:
+                extraction = agent_result.extraction
+                ai_urgency = agent_result.urgency
+            else:
+                agent_contract_valid = False
+                processing_trace_warnings.append(
+                    self._AGENT_CONTRACT_FALLBACK_RATIONALE
+                )
+                extraction = self._build_agent_contract_fallback_extraction()
+                ai_urgency = self._build_agent_contract_fallback_urgency()
         else:
             extraction = await self.ai_service.extract_and_summarize(raw_text)
             ai_urgency = await self.ai_service.classify_urgency(raw_text)
         rule_result = self.rules_service.evaluate(raw_text)
 
         urgency_source = self._merge_urgency_source(ai_urgency, rule_result)
-        final_urgency = (
-            "Urgent"
-            if rule_result.urgency == "Urgent" or ai_urgency.urgency == "Urgent"
-            else "Routine"
+        final_urgency = self._merge_final_urgency(ai_urgency, rule_result)
+        urgency_rationale = (
+            self._AGENT_CONTRACT_FALLBACK_RATIONALE
+            if not agent_contract_valid
+            else self._build_urgency_rationale(
+                ai_urgency,
+                rule_result,
+            )
         )
         now = datetime.now(timezone.utc)
 
@@ -105,23 +134,24 @@ class CaseProcessingService:
             urgencySource=urgency_source,
             ruleUrgency=rule_result.urgency,
             aiUrgency=ai_urgency.urgency,
-            urgencyRationale=self._build_urgency_rationale(
-                ai_urgency,
-                rule_result,
-            ),
+            urgencyRationale=urgency_rationale,
             missingFields=extraction.missing_fields,
             uncertainFields=extraction.uncertain_fields,
-            intakeComplete=not extraction.missing_fields,
+            intakeComplete=agent_contract_valid and not extraction.missing_fields,
             processingStatus="Completed",
             intakeStatus=(
-                "NeedsFollowUp" if extraction.missing_fields else "Complete"
+                "NeedsFollowUp"
+                if not agent_contract_valid or extraction.missing_fields
+                else "Complete"
             ),
             reviewStatus="PendingReview",
             processing_trace=self._build_processing_trace(
                 agent_used=agent_used,
+                agent_contract_valid=agent_contract_valid,
                 agent_result=agent_result,
                 ai_urgency=ai_urgency,
                 rule_result=rule_result,
+                warnings=processing_trace_warnings,
             ),
         )
 
@@ -137,9 +167,11 @@ class CaseProcessingService:
         self,
         *,
         agent_used: bool,
+        agent_contract_valid: bool,
         agent_result: object | None,
-        ai_urgency: UrgencyClassificationResult,
+        ai_urgency: object,
         rule_result: RuleEvaluationResult,
+        warnings: list[str] | None = None,
     ) -> ProcessingTrace:
         rules_urgency_override = self._rules_override_urgency(
             ai_urgency,
@@ -147,6 +179,8 @@ class CaseProcessingService:
         )
         if rules_urgency_override:
             final_urgency_source = "rules"
+        elif agent_used and not agent_contract_valid:
+            final_urgency_source = "unknown"
         elif agent_used:
             final_urgency_source = "agent"
         else:
@@ -161,7 +195,7 @@ class CaseProcessingService:
             steps=list(self._AGENT_STEPS if agent_used else self._AI_STEPS),
             rules_urgency_override=rules_urgency_override,
             final_urgency_source=final_urgency_source,
-            warnings=[],
+            warnings=warnings or [],
         )
 
     def _ai_provider_name(self) -> str | None:
@@ -184,10 +218,30 @@ class CaseProcessingService:
 
     @staticmethod
     def _rules_override_urgency(
-        ai_urgency: UrgencyClassificationResult,
+        ai_urgency: object,
         rule_result: RuleEvaluationResult,
     ) -> bool:
         return rule_result.urgency == "Urgent" and ai_urgency.urgency != "Urgent"
+
+    @classmethod
+    def _build_agent_contract_fallback_extraction(cls) -> ExtractionSummaryResult:
+        return ExtractionSummaryResult(
+            patient=PatientInfo(),
+            reason_for_calling=None,
+            symptoms=[],
+            summary=cls._AGENT_CONTRACT_FALLBACK_SUMMARY,
+            missing_fields=["agent_output"],
+            uncertain_fields=["agent_output"],
+            extraction_notes=cls._AGENT_CONTRACT_FALLBACK_RATIONALE,
+        )
+
+    @classmethod
+    def _build_agent_contract_fallback_urgency(cls) -> object:
+        return SimpleNamespace(
+            urgency="Unknown",
+            urgency_rationale=cls._AGENT_CONTRACT_FALLBACK_RATIONALE,
+            advisory_disclaimer="Nurse review required.",
+        )
 
     def _apply_email_notification_status(self, case: CaseDocument) -> None:
         if self.suppress_notifications:
@@ -260,7 +314,7 @@ class CaseProcessingService:
 
     @staticmethod
     def _merge_urgency_source(
-        ai_urgency: UrgencyClassificationResult,
+        ai_urgency: object,
         rule_result: RuleEvaluationResult,
     ) -> UrgencySource:
         rules_are_urgent = rule_result.urgency == "Urgent"
@@ -275,8 +329,19 @@ class CaseProcessingService:
         return "Unknown"
 
     @staticmethod
+    def _merge_final_urgency(
+        ai_urgency: object,
+        rule_result: RuleEvaluationResult,
+    ) -> str:
+        if rule_result.urgency == "Urgent" or ai_urgency.urgency == "Urgent":
+            return "Urgent"
+        if ai_urgency.urgency == "Routine":
+            return "Routine"
+        return "Unknown"
+
+    @staticmethod
     def _build_urgency_rationale(
-        ai_urgency: UrgencyClassificationResult,
+        ai_urgency: object,
         rule_result: RuleEvaluationResult,
     ) -> str:
         if rule_result.matched_red_flags:

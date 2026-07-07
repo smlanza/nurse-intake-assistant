@@ -1,5 +1,6 @@
 import asyncio
 from datetime import date
+from types import SimpleNamespace
 
 import pytest
 
@@ -124,6 +125,16 @@ class RecordingNurseIntakeAgent:
         )
 
 
+class InvalidNurseIntakeAgent:
+    def __init__(self, agent_result: object) -> None:
+        self.agent_result = agent_result
+        self.calls: list[str] = []
+
+    async def analyze_intake(self, raw_text: str) -> object:
+        self.calls.append(raw_text)
+        return self.agent_result
+
+
 def _agent_result(
     urgency: str = "Routine",
     summary: str = "Agent mapped summary.",
@@ -161,6 +172,18 @@ def _agent_result(
             )(),
         },
     )()
+
+
+def _invalid_agent_result_missing_extraction() -> SimpleNamespace:
+    return SimpleNamespace(
+        urgency=SimpleNamespace(
+            urgency="Routine",
+            urgency_rationale="Agent classified the intake.",
+            advisory_disclaimer="Advisory only; nurse review is required.",
+        ),
+        handoffNote="Agent handoff note.",
+        metadata=SimpleNamespace(provider="mock", agentMode="mock"),
+    )
 
 
 def test_routine_intake_creates_completed_case() -> None:
@@ -293,6 +316,65 @@ def test_agent_configured_intake_preserves_red_flag_rules() -> None:
     assert "Red-flag rule match" in case.urgencyRationale
     assert case.processing_trace.rules_urgency_override is True
     assert case.processing_trace.final_urgency_source == "rules"
+
+
+def test_invalid_agent_output_creates_safe_fallback_case() -> None:
+    agent = InvalidNurseIntakeAgent(_invalid_agent_result_missing_extraction())
+    service = CaseProcessingService(
+        ai_service=ExplodingAiService(),
+        nurse_intake_agent=agent,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert agent.calls == [ROUTINE_TEXT]
+    assert case.summary == "Agent output could not be safely parsed. Nurse review required."
+    assert case.urgency == "Unknown"
+    assert case.aiUrgency == "Unknown"
+    assert case.ruleUrgency == "Routine"
+    assert (
+        case.urgencyRationale
+        == "Agent output failed contract validation; safe fallback values were used."
+    )
+    assert case.intakeStatus == "NeedsFollowUp"
+    assert case.reviewStatus == "PendingReview"
+    assert case.intakeComplete is False
+    assert case.processing_trace.agent_used is True
+    assert case.processing_trace.agent_provider == "mock"
+    assert case.processing_trace.final_urgency_source == "unknown"
+    assert case.processing_trace.rules_urgency_override is False
+    assert case.processing_trace.warnings == [
+        "Agent output failed contract validation; safe fallback values were used."
+    ]
+
+
+def test_invalid_agent_output_still_allows_red_flag_rules_to_promote_urgency() -> None:
+    text = "The patient reports chest pain during the refill call."
+    agent = InvalidNurseIntakeAgent(_invalid_agent_result_missing_extraction())
+    service = CaseProcessingService(
+        ai_service=ExplodingAiService(),
+        nurse_intake_agent=agent,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(service.process(text, "text-intake"))
+
+    assert agent.calls == [text]
+    assert case.summary == "Agent output could not be safely parsed. Nurse review required."
+    assert case.urgency == "Urgent"
+    assert case.aiUrgency == "Unknown"
+    assert case.ruleUrgency == "Urgent"
+    assert case.urgencySource == "Rules"
+    assert (
+        case.urgencyRationale
+        == "Agent output failed contract validation; safe fallback values were used."
+    )
+    assert case.processing_trace.rules_urgency_override is True
+    assert case.processing_trace.final_urgency_source == "rules"
+    assert case.processing_trace.warnings == [
+        "Agent output failed contract validation; safe fallback values were used."
+    ]
 
 
 def test_agent_configured_intake_saves_same_core_case_fields() -> None:
