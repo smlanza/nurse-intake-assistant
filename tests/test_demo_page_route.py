@@ -575,6 +575,44 @@ def test_demo_page_select_for_review_renders_selected_case_context() -> None:
     assert '${escapeHtml(item.summary || "No summary returned.")}' in html
 
 
+def test_demo_page_includes_processing_trace_explanation_helper() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    helper = html[
+        html.index("function renderProcessingTraceExplanation(trace)")
+        : html.index("function hasProcessingTraceDetails(trace)")
+    ]
+    assert 'return "";' in helper
+    assert "Processing path" in helper
+    assert "Initial result" in helper
+    assert "Rules review" in helper
+    assert "Final urgency" in helper
+    assert "configured/mock agent path" in helper
+    assert "Agent produced the initial summary and urgency classification." in helper
+    assert "configured/mock AI path" in helper
+    assert "AI service produced the initial summary and urgency classification." in helper
+    assert "Deterministic red-flag rules reviewed the intake." in helper
+    assert "Rules did not override the model result." in helper
+    assert "Deterministic red-flag rules detected red-flag symptoms." in helper
+    assert "Final urgency source was promoted to rules." in helper
+
+
+def test_demo_page_renders_processing_trace_explanation_inside_trace_panel() -> None:
+    response = client.get("/demo")
+
+    assert response.status_code == 200
+    html = response.text
+    renderer = html[
+        html.index("function renderProcessingTrace(item)")
+        : html.index("function renderProcessingTraceExplanation(trace)")
+    ]
+    assert "const traceExplanation = renderProcessingTraceExplanation(trace);" in renderer
+    assert '<h3>processing trace</h3>' in renderer
+    assert "${traceExplanation}" in renderer
+
+
 def test_demo_page_selected_case_context_renders_review_metadata_when_present() -> None:
     response = client.get("/demo")
 
