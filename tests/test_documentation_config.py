@@ -378,18 +378,35 @@ def test_readme_documents_current_demo_claims_boundary() -> None:
 
 def test_readme_documents_consolidated_preflight_output() -> None:
     readme = (PROJECT_ROOT / "README.md").read_text()
+    normalized_readme = " ".join(readme.split()).lower()
 
     assert "Cosmos Repository" in readme
+    assert "Foundry Agent" in readme
     assert "SKIP Cosmos Repository" in readme
+    assert "SKIP Foundry Agent" in readme
     assert "SKIP is expected and safe" in readme
     assert "Guidance:" in readme
+    assert "Guidance: Keep" not in readme
+    assert (
+        "For the local demo, keep APP_MODE, AI_PROVIDER, AGENT_PROVIDER, "
+        "SPEECH_PROVIDER, EMAIL_PROVIDER, and SMS_PROVIDER set to mock."
+    ) in readme
+    assert (
+        "Enable one live provider at a time only for explicit manual smoke testing."
+        in readme
+    )
+    assert "This preflight remains offline-safe and does not call Azure." in readme
     assert "Next step:" not in readme
     assert "Preflight summary:" in readme
-    assert "PASS=0, SKIP=5, FAIL=0" in readme
+    assert "PASS=0, SKIP=6, FAIL=0" in readme
+    assert "python scripts/preflight.py --foundry-agent" in readme
+    assert "No Foundry Agent client" in readme
+    assert "no agent was invoked" in normalized_readme
     assert "Completed safely with no failed checks" in readme
     assert "No Azure clients" in readme
     assert "Azure calls" in readme
     assert "model calls" in readme
+    assert "agent calls" in readme
     assert "audio processing" in readme
     assert "repository reads/writes/queries" in readme
     assert "email sends" in readme
@@ -410,7 +427,13 @@ def test_readme_documents_consolidated_preflight_safe_failure_output() -> None:
     assert "COSMOS_CONTAINER_NAME" in readme
     assert "Guidance:" in readme
     assert "Preflight summary:" in readme
+    assert "PASS=0, SKIP=5, FAIL=1" in readme
     assert "FAIL=1" in readme
+    assert "- Cosmos Repository: Set missing Cosmos variables or restore APP_MODE=mock." in readme
+    assert (
+        "A FAIL result means required local configuration is missing; this "
+        "preflight did not call Azure."
+    ) in readme
     assert "exit code 1" in readme
     assert "missing variable names" in readme
     assert "secret values are not printed" in readme

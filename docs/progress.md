@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 655 passed
+- 660 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,16 +22,16 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent smoke CLI env-file isolation and safe diagnostics slice is complete.
-- `scripts/smoke_foundry_agent.py --env-file` loads settings for the script
-  process only, with shell variables overriding env-file values and no secrets,
-  endpoints, agent IDs, prompts, tokens, stack traces, or PHI printed.
-- `--check` validates Foundry Agent configuration and optional SDK visibility
-  without constructing a Foundry Agent client or making Azure calls.
-- `--live` remains manual, explicit, opt-in, fictional-data-only, and reports
-  sanitized failure categories plus next-step hints.
-- Default mock demo behavior is unchanged; live Foundry Agent smoke testing is
-  still not claimed complete unless manually verified.
+- Consolidated preflight includes Foundry Agent check slice is complete.
+- `scripts/preflight.py --foundry-agent` now validates Foundry Agent provider
+  and required settings, reports optional SDK visibility, and prints sanitized
+  configuration-only readiness output.
+- `scripts/preflight.py --all` now includes Foundry Agent readiness alongside
+  Cosmos, Foundry extraction, Speech, ACS Email, and ACS SMS checks.
+- Foundry Agent preflight makes no Azure calls, constructs no live client,
+  invokes no agent, persists no case, and sends no email or SMS.
+- Live Foundry Agent validation remains manual/opt-in through
+  `scripts/smoke_foundry_agent.py --live`; default mock demo behavior is unchanged.
 
 ## Current Resume Point
 
@@ -47,7 +47,8 @@ Implemented but not live-confirmed:
 - Cosmos repository boundary and manual Cosmos point-read path
 - ACS Email/SMS boundaries, ACS Email smoke testing, offline-safe ACS
   Email/SMS `--check` preflights, and consolidated `scripts/preflight.py --all`
-  are complete; ACS SMS handset delivery tracking is deferred
+  with Foundry Agent readiness are complete; ACS SMS handset delivery tracking
+  is deferred
 - Foundry provider boundary, structured extraction contract, fake-client seam,
   lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
 - Foundry Agent client boundary, fake-client seam, lazy live adapter scaffold,
@@ -132,9 +133,9 @@ Provider settings:
   `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, plus `AZURE_AI_FOUNDRY_AGENT_ID`; missing
   settings and SDK support fail with sanitized diagnostics. `/demo/status` and
-  `scripts/smoke_foundry_agent.py --check` report readiness without calling
-  Azure. The manual smoke script also accepts the `AGENT_PROVIDER=foundry` smoke
-  alias while preserving `mock` as the default.
+  `scripts/preflight.py --foundry-agent` report readiness without calling Azure.
+  The manual smoke script also accepts the `AGENT_PROVIDER=foundry` smoke alias
+  while preserving `mock` as the default.
 - `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
   already-transcribed text.
 - `SPEECH_PROVIDER=azure` wires an Azure Speech scaffold/factory, but live
@@ -201,8 +202,8 @@ Completed work by feature area:
 - README local mock demo walkthrough and manual demo/smoke-test docs
 - Minimal Bicep infrastructure baseline and manual Cosmos smoke test
 - No Azure calls in tests, PHI, production clinical behavior, hosting/auth/Key
-  Vault, phone intake automation, retry/durable processing, or frontend
-  framework work were added in the Foundry Agent smoke CLI slice.
+  Vault, phone intake automation, retry/durable processing, or frontend work
+  were added in the Foundry Agent preflight slice.
 
 ## Infrastructure Summary
 

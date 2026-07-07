@@ -122,26 +122,37 @@ Run the offline-safe provider preflight in mock-safe mode:
 python scripts/preflight.py --all
 ```
 
-The consolidated preflight checks Cosmos Repository, Foundry, Azure Speech, ACS
-Email, and ACS SMS configuration without live service behavior. In default mock
-mode, `SKIP is expected and safe` because the corresponding live provider is
-not enabled:
+The consolidated preflight checks Cosmos Repository, Foundry, Foundry Agent,
+Azure Speech, ACS Email, and ACS SMS configuration without live service
+behavior. In default mock mode, `SKIP is expected and safe` because the
+corresponding live provider is not enabled:
 
 ```text
 Nurse Intake Assistant Preflight
-Offline-safe checks only. No Azure clients, Azure calls, model calls, audio processing, repository reads/writes/queries, email sends, or SMS sends are performed.
+Offline-safe checks only. No Azure clients, Azure calls, model calls, agent calls, audio processing, repository reads/writes/queries, email sends, or SMS sends are performed.
 SKIP Cosmos Repository: APP_MODE is not cosmos.
-Guidance: Keep APP_MODE=mock for local demo.
 SKIP Foundry: AI_PROVIDER is not foundry.
-Guidance: Keep AI_PROVIDER=mock for local demo.
+SKIP Foundry Agent: AGENT_PROVIDER is mock.
 SKIP Azure Speech: SPEECH_PROVIDER is not azure.
-Guidance: Keep SPEECH_PROVIDER=mock for local demo.
 SKIP ACS Email: EMAIL_PROVIDER is not acs.
-Guidance: Keep EMAIL_PROVIDER=mock for local demo.
 SKIP ACS SMS: SMS_PROVIDER is not acs.
-Guidance: Keep SMS_PROVIDER=mock for local demo.
-Preflight summary: PASS=0, SKIP=5, FAIL=0. Completed safely with no failed checks.
+Preflight summary: PASS=0, SKIP=6, FAIL=0. Completed safely with no failed checks.
+Guidance:
+- For the local demo, keep APP_MODE, AI_PROVIDER, AGENT_PROVIDER, SPEECH_PROVIDER, EMAIL_PROVIDER, and SMS_PROVIDER set to mock.
+- Enable one live provider at a time only for explicit manual smoke testing.
+- This preflight remains offline-safe and does not call Azure.
 ```
+
+Run the Foundry Agent readiness check by itself when preparing that manual
+smoke path:
+
+```bash
+python scripts/preflight.py --foundry-agent
+```
+
+That check is configuration-only: No Foundry Agent client is created, no agent
+was invoked, no Azure call is made, no case is persisted, and no email or SMS is
+sent.
 
 If you explicitly enable a live provider without its required local
 configuration, `FAIL means required configuration is missing` for that
@@ -150,14 +161,16 @@ explicitly enabled provider, not that a live service call failed. For example,
 
 ```text
 FAIL Cosmos Repository: Missing required configuration: COSMOS_ENDPOINT, COSMOS_KEY, COSMOS_DATABASE_NAME, COSMOS_CONTAINER_NAME.
-Guidance: Set missing Cosmos variables or restore APP_MODE=mock.
-Preflight summary: PASS=0, SKIP=4, FAIL=1. One or more checks failed.
+Preflight summary: PASS=0, SKIP=5, FAIL=1. One or more checks failed.
+Guidance:
+- Cosmos Repository: Set missing Cosmos variables or restore APP_MODE=mock.
+- A FAIL result means required local configuration is missing; this preflight did not call Azure.
 ```
 
 The preflight shows missing variable names, but secret values are not printed.
 Even in failure mode it remains offline-safe: No Azure clients, Azure calls,
-model calls, audio processing, repository reads/writes/queries, email sends, or
-SMS sends are performed.
+model calls, agent calls, audio processing, repository reads/writes/queries,
+email sends, or SMS sends are performed.
 
 Start the app locally:
 

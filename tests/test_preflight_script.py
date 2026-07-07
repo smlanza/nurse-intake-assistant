@@ -23,6 +23,9 @@ def _settings(
     sms_connection_string: str | None = None,
     sms_from_phone_number: str | None = None,
     nurse_phone_number: str | None = None,
+    agent_provider: str = "mock",
+    agent_project_endpoint: str | None = None,
+    agent_id: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         app_mode=app_mode,
@@ -45,6 +48,9 @@ def _settings(
         acs_sms_connection_string=sms_connection_string,
         acs_sms_from_phone_number=sms_from_phone_number,
         nurse_notification_phone_number=nurse_phone_number,
+        agent_provider_normalized=agent_provider,
+        azure_ai_foundry_agent_project_endpoint=agent_project_endpoint,
+        azure_ai_foundry_agent_id=agent_id,
     )
 
 
@@ -61,6 +67,7 @@ def _patch_sdk_visibility(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(script, "azure_speech_sdk_available", lambda: True)
     monkeypatch.setattr(script, "acs_email_sdk_available", lambda: True)
     monkeypatch.setattr(script, "acs_sms_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
 
 
 def test_preflight_all_skips_default_mock_providers(
@@ -79,16 +86,28 @@ def test_preflight_all_skips_default_mock_providers(
     assert "Nurse Intake Assistant Preflight" in captured.out
     assert "Cosmos Repository" in captured.out
     assert "Foundry" in captured.out
+    assert "Foundry Agent" in captured.out
     assert "Azure Speech" in captured.out
     assert "ACS Email" in captured.out
     assert "ACS SMS" in captured.out
-    assert captured.out.count("SKIP ") == 5
-    assert captured.out.count("Guidance:") == 5
+    assert captured.out.count("SKIP ") == 6
+    assert captured.out.count("Guidance:") == 1
+    assert "Guidance: Keep" not in captured.out
     assert "Preflight summary:" in captured.out
     assert "PASS=0" in captured.out
-    assert "SKIP=5" in captured.out
+    assert "SKIP=6" in captured.out
     assert "FAIL=0" in captured.out
     assert "Completed safely with no failed checks" in captured.out
+    assert (
+        "For the local demo, keep APP_MODE, AI_PROVIDER, AGENT_PROVIDER, "
+        "SPEECH_PROVIDER, EMAIL_PROVIDER, and SMS_PROVIDER set to mock."
+        in captured.out
+    )
+    assert (
+        "Enable one live provider at a time only for explicit manual smoke testing."
+        in captured.out
+    )
+    assert "This preflight remains offline-safe and does not call Azure." in captured.out
     assert "Next step:" not in captured.out
     assert "PASS " not in captured.out
     assert "FAIL " not in captured.out
@@ -110,7 +129,7 @@ def test_preflight_all_skips_cosmos_repository_when_app_mode_is_mock(
     assert exit_code == 0
     assert "SKIP Cosmos Repository" in captured.out
     assert "APP_MODE is not cosmos" in captured.out
-    assert "Keep APP_MODE=mock for local demo" in captured.out
+    assert "APP_MODE, AI_PROVIDER, AGENT_PROVIDER" in captured.out
     assert "No Azure clients" in captured.out
     assert "Azure calls" in captured.out
     assert captured.err == ""
@@ -142,10 +161,16 @@ def test_preflight_all_fails_safely_when_cosmos_config_is_missing(
     assert "COSMOS_KEY" in captured.out
     assert "COSMOS_DATABASE_NAME" in captured.out
     assert "COSMOS_CONTAINER_NAME" in captured.out
+    assert captured.out.count("Guidance:") == 1
     assert "Set missing Cosmos variables or restore APP_MODE=mock" in captured.out
+    assert (
+        "A FAIL result means the requested provider is not enabled or required local "
+        "configuration is missing; this preflight did not call Azure."
+        in captured.out
+    )
     assert "Preflight summary:" in captured.out
     assert "PASS=0" in captured.out
-    assert "SKIP=4" in captured.out
+    assert "SKIP=5" in captured.out
     assert "FAIL=1" in captured.out
     assert "One or more checks failed" in captured.out
     assert "Traceback" not in captured.out
@@ -206,6 +231,7 @@ def test_preflight_all_passes_configured_cosmos_without_live_calls(
     assert "No Cosmos client was created" in captured.out
     assert "no Cosmos read, write, or query was performed" in captured.out
     assert "no Azure call was made" in captured.out
+    assert captured.out.count("Guidance:") == 1
     assert captured.err == ""
 
 
@@ -224,7 +250,7 @@ def test_preflight_all_skips_azure_speech_when_speech_provider_is_mock(
     assert exit_code == 0
     assert "SKIP Azure Speech" in captured.out
     assert "SPEECH_PROVIDER is not azure" in captured.out
-    assert "Keep SPEECH_PROVIDER=mock for local demo" in captured.out
+    assert "APP_MODE, AI_PROVIDER, AGENT_PROVIDER" in captured.out
     assert "No Azure clients" in captured.out
     assert "audio processing" in captured.out
     assert captured.err == ""
@@ -292,6 +318,7 @@ def test_preflight_all_passes_configured_azure_speech_without_live_calls(
     assert "No Speech client was created" in captured.out
     assert "no audio was processed" in captured.out
     assert "no Azure call was made" in captured.out
+    assert captured.out.count("Guidance:") == 1
     assert captured.err == ""
 
 
@@ -329,13 +356,14 @@ def test_preflight_all_passes_configured_acs_email_and_sms(
     assert "ACS Email" in captured.out
     assert "ACS SMS" in captured.out
     assert captured.out.count("PASS ") == 2
-    assert captured.out.count("SKIP ") == 3
+    assert captured.out.count("SKIP ") == 4
     assert "Preflight summary:" in captured.out
     assert "PASS=2" in captured.out
-    assert "SKIP=3" in captured.out
+    assert "SKIP=4" in captured.out
     assert "FAIL=0" in captured.out
     assert "Completed safely with no failed checks" in captured.out
     assert "FAIL " not in captured.out
+    assert captured.out.count("Guidance:") == 1
     assert captured.err == ""
 
 
@@ -360,6 +388,7 @@ def test_preflight_all_fails_when_applicable_provider_config_is_missing(
     assert "FAIL" in captured.out
     assert "ACS_EMAIL_CONNECTION_STRING" in captured.out
     assert "SKIP" in captured.out
+    assert captured.out.count("Guidance:") == 1
     assert captured.err == ""
 
 
@@ -390,6 +419,9 @@ def test_preflight_all_does_not_print_configured_secret_or_contact_values(
         ),
         sms_from_phone_number="+15555550100",
         nurse_phone_number="+15555550123",
+        agent_provider="foundry-agent",
+        agent_project_endpoint="https://secret-agent.services.ai.azure.com/api/projects/demo",
+        agent_id="secret-agent-id",
     )
     _patch_settings(monkeypatch, settings)
     _patch_sdk_visibility(monkeypatch)
@@ -409,6 +441,8 @@ def test_preflight_all_does_not_print_configured_secret_or_contact_values(
     assert settings.acs_sms_connection_string not in combined_output
     assert settings.acs_sms_from_phone_number not in combined_output
     assert settings.nurse_notification_phone_number not in combined_output
+    assert settings.azure_ai_foundry_agent_project_endpoint not in combined_output
+    assert settings.azure_ai_foundry_agent_id not in combined_output
     assert "secret-foundry" not in combined_output
     assert "secret-model-deployment" not in combined_output
     assert "secret-speech" not in combined_output
@@ -417,8 +451,163 @@ def test_preflight_all_does_not_print_configured_secret_or_contact_values(
     assert "sender@clinic.example.com" not in combined_output
     assert "nurse@clinic.example.com" not in combined_output
     assert "secret-sms" not in combined_output
+    assert "secret-agent" not in combined_output
     assert "+15555550100" not in combined_output
     assert "+15555550123" not in combined_output
+
+
+def test_preflight_foundry_agent_passes_configured_provider_without_live_calls(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+    import src.app.services.foundry_agent_client as agent_client
+    import src.app.services.nurse_intake_agent_factory as agent_factory
+
+    settings = _settings(
+        agent_provider="foundry-agent",
+        agent_project_endpoint="https://secret-agent.services.ai.azure.com/api/projects/demo",
+        agent_id="secret-agent-id",
+    )
+    _patch_settings(monkeypatch, settings)
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        agent_client,
+        "AzureAiFoundryAgentLiveClient",
+        lambda *args, **kwargs: pytest.fail("Live Foundry Agent client should not be created"),
+    )
+    monkeypatch.setattr(
+        agent_factory,
+        "create_nurse_intake_agent",
+        lambda settings: pytest.fail("NurseIntakeAgent should not be created"),
+    )
+
+    exit_code = script.main(["--foundry-agent"])
+
+    captured = capsys.readouterr()
+    combined_output = captured.out + captured.err
+    assert exit_code == 0
+    assert "PASS Foundry Agent" in captured.out
+    assert "configuration-only" in captured.out
+    assert "No Foundry Agent client was created" in captured.out
+    assert "no Azure call was made" in captured.out
+    assert "Optional Foundry Agent SDK package appears importable" in captured.out
+    assert captured.out.count("Guidance:") == 1
+    assert "secret-agent" not in combined_output
+    assert settings.azure_ai_foundry_agent_project_endpoint not in combined_output
+    assert settings.azure_ai_foundry_agent_id not in combined_output
+    assert captured.err == ""
+
+
+def test_preflight_foundry_agent_accepts_foundry_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            agent_provider="foundry",
+            foundry_endpoint="https://fallback-foundry.services.ai.azure.com/api/projects/demo",
+            agent_id="secret-agent-id",
+        ),
+    )
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: False)
+
+    exit_code = script.main(["--foundry-agent"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "PASS Foundry Agent" in captured.out
+    assert "Optional Foundry Agent SDK package is not importable" in captured.out
+    assert captured.out.count("Guidance:") == 1
+    assert "fallback-foundry" not in captured.out
+    assert "secret-agent" not in captured.out
+    assert captured.err == ""
+
+
+def test_preflight_foundry_agent_fails_for_mock_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    _patch_settings(monkeypatch, _settings(agent_provider="mock"))
+
+    exit_code = script.main(["--foundry-agent"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "FAIL Foundry Agent" in captured.out
+    assert "AGENT_PROVIDER=foundry-agent" in captured.out
+    assert "AGENT_PROVIDER=foundry" in captured.out
+    assert captured.out.count("Guidance:") == 1
+    assert "Traceback" not in captured.out
+    assert "token" not in captured.out.lower()
+    assert captured.err == ""
+
+
+def test_preflight_foundry_agent_reports_missing_endpoint_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(agent_provider="foundry-agent", agent_project_endpoint=None, agent_id="secret-agent-id"),
+    )
+    monkeypatch.setattr(
+        script,
+        "foundry_agent_sdk_available",
+        lambda: pytest.fail("SDK check should not run after invalid agent config"),
+    )
+
+    exit_code = script.main(["--foundry-agent"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "FAIL Foundry Agent" in captured.out
+    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in captured.out
+    assert "Set missing Foundry Agent variables or restore AGENT_PROVIDER=mock" in captured.out
+    assert captured.out.count("Guidance:") == 1
+    assert "secret-agent" not in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
+
+
+def test_preflight_foundry_agent_reports_missing_agent_id_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            agent_provider="foundry-agent",
+            agent_project_endpoint="https://secret-agent.services.ai.azure.com/api/projects/demo",
+            agent_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        script,
+        "foundry_agent_sdk_available",
+        lambda: pytest.fail("SDK check should not run after invalid agent config"),
+    )
+
+    exit_code = script.main(["--foundry-agent"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "FAIL Foundry Agent" in captured.out
+    assert "AZURE_AI_FOUNDRY_AGENT_ID" in captured.out
+    assert "Set missing Foundry Agent variables or restore AGENT_PROVIDER=mock" in captured.out
+    assert captured.out.count("Guidance:") == 1
+    assert "secret-agent" not in captured.out
+    assert "Traceback" not in captured.out
+    assert captured.err == ""
 
 
 def test_preflight_all_does_not_print_cosmos_secret_like_values(

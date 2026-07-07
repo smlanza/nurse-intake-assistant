@@ -11,9 +11,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from scripts.smoke_acs_email import acs_email_sdk_available
 from scripts.smoke_acs_sms import acs_sms_sdk_available
+from scripts.smoke_foundry_agent import foundry_agent_sdk_available
 from scripts.smoke_foundry_extraction import foundry_live_sdk_available
 from scripts.smoke_speech_transcription import azure_speech_sdk_available
 from src.app.config.settings import AppSettings
+from src.app.services.nurse_intake_agent_preflight import (
+    build_nurse_intake_agent_status,
+)
 
 
 PASS = "PASS"
@@ -35,14 +39,18 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     settings = AppSettings()
 
-    if not args.all:
+    if args.all:
+        results = run_all_checks(settings)
+    elif args.foundry_agent:
+        results = [_check_foundry_agent(settings, explicit=True)]
+    else:
         print(
-            "Run consolidated provider readiness checks with --all.",
+            "Run consolidated provider readiness checks with --all or a specific "
+            "provider option such as --foundry-agent.",
             file=sys.stderr,
         )
         return 2
 
-    results = run_all_checks(settings)
     _print_results(results)
     return 1 if any(result.status == FAIL for result in results) else 0
 
@@ -51,6 +59,7 @@ def run_all_checks(settings: AppSettings) -> list[PreflightResult]:
     return [
         _check_cosmos(settings),
         _check_foundry(settings),
+        _check_foundry_agent(settings),
         _check_speech(settings),
         _check_acs_email(settings),
         _check_acs_sms(settings),
@@ -68,10 +77,19 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--all",
         action="store_true",
         help=(
-            "Run Cosmos, Foundry, Speech, ACS Email, and ACS SMS readiness checks "
-            "without creating Azure clients, making Azure calls, processing "
-            "audio, calling models, reading or writing repositories, or sending "
-            "notifications."
+            "Run Cosmos, Foundry, Foundry Agent, Speech, ACS Email, and ACS "
+            "SMS readiness checks without creating Azure clients, making Azure "
+            "calls, processing audio, calling models or agents, reading or "
+            "writing repositories, or sending notifications."
+        ),
+    )
+    parser.add_argument(
+        "--foundry-agent",
+        action="store_true",
+        help=(
+            "Run the Foundry Agent readiness check only. This validates "
+            "configuration and optional SDK visibility without creating a "
+            "Foundry Agent client, invoking an agent, or making an Azure call."
         ),
     )
     return parser.parse_args(argv)
@@ -127,6 +145,69 @@ def _check_foundry(settings: AppSettings) -> PreflightResult:
         "Foundry",
         "Required Foundry configuration is present. No AI service was created and no model call was made.",
         _sdk_next_step(foundry_live_sdk_available, "Foundry SDK imports"),
+    )
+
+
+def _check_foundry_agent(
+    settings: AppSettings,
+    *,
+    explicit: bool = False,
+) -> PreflightResult:
+    agent_status = build_nurse_intake_agent_status(settings)
+    provider = agent_status.provider
+
+    if provider == "mock":
+        if explicit:
+            return PreflightResult(
+                name="Foundry Agent",
+                status=FAIL,
+                message=(
+                    "Foundry Agent preflight requires "
+                    "AGENT_PROVIDER=foundry-agent or AGENT_PROVIDER=foundry."
+                ),
+                next_step=(
+                    "Set AGENT_PROVIDER=foundry-agent only for manual Foundry "
+                    "Agent checks, or keep AGENT_PROVIDER=mock for local demo."
+                ),
+            )
+        return _skip(
+            "Foundry Agent",
+            "AGENT_PROVIDER is mock.",
+            "Keep AGENT_PROVIDER=mock for local demo.",
+        )
+
+    if provider not in {"foundry", "foundry-agent"}:
+        return PreflightResult(
+            name="Foundry Agent",
+            status=FAIL,
+            message=(
+                "Unsupported AGENT_PROVIDER for Foundry Agent preflight. "
+                "Use AGENT_PROVIDER=foundry-agent or AGENT_PROVIDER=foundry."
+            ),
+            next_step="Restore AGENT_PROVIDER=mock for local demo.",
+        )
+
+    if not agent_status.ready:
+        return _fail(
+            "Foundry Agent",
+            agent_status.missingSettings,
+            (
+                "Set missing Foundry Agent variables or restore "
+                "AGENT_PROVIDER=mock."
+            ),
+        )
+
+    return _pass(
+        "Foundry Agent",
+        (
+            "Required Foundry Agent configuration is present. "
+            "Readiness is configuration-only. No Foundry Agent client was "
+            "created, no agent was invoked, and no Azure call was made."
+        ),
+        _sdk_next_step(
+            foundry_agent_sdk_available,
+            "Foundry Agent SDK package",
+        ),
     )
 
 
@@ -253,11 +334,15 @@ def _sdk_next_step(sdk_available: Callable[[], bool], package_name: str) -> str:
 
 def _print_results(results: list[PreflightResult]) -> None:
     print("Nurse Intake Assistant Preflight")
-    print("Offline-safe checks only. No Azure clients, Azure calls, model calls, audio processing, repository reads/writes/queries, email sends, or SMS sends are performed.")
+    print(
+        "Offline-safe checks only. No Azure clients, Azure calls, model calls, "
+        "agent calls, audio processing, repository reads/writes/queries, email "
+        "sends, or SMS sends are performed."
+    )
     for result in results:
         print(f"{result.status} {result.name}: {result.message}")
-        print(f"Guidance: {result.next_step}")
     print(_format_summary(results))
+    print(_format_guidance(results))
 
 
 def _format_summary(results: list[PreflightResult]) -> str:
@@ -273,6 +358,39 @@ def _format_summary(results: list[PreflightResult]) -> str:
         f"Preflight summary: PASS={pass_count}, SKIP={skip_count}, "
         f"FAIL={fail_count}. {outcome}"
     )
+
+
+def _format_guidance(results: list[PreflightResult]) -> str:
+    lines = ["Guidance:"]
+    failed_results = [result for result in results if result.status == FAIL]
+    pass_results = [result for result in results if result.status == PASS]
+
+    if failed_results:
+        lines.extend(
+            f"- {result.name}: {result.next_step}"
+            for result in failed_results
+        )
+        lines.append(
+            "- A FAIL result means the requested provider is not enabled or required local configuration is missing; this preflight did not call Azure."
+            "this preflight did not call Azure."
+        )
+        return "\n".join(lines)
+
+    lines.append(
+        "- For the local demo, keep APP_MODE, AI_PROVIDER, AGENT_PROVIDER, "
+        "SPEECH_PROVIDER, EMAIL_PROVIDER, and SMS_PROVIDER set to mock."
+    )
+    lines.append(
+        "- Enable one live provider at a time only for explicit manual smoke testing."
+    )
+
+    lines.extend(
+        f"- {result.name}: {result.next_step}"
+        for result in pass_results
+    )
+
+    lines.append("- This preflight remains offline-safe and does not call Azure.")
+    return "\n".join(lines)
 
 
 def _count_status(results: list[PreflightResult], status: str) -> int:
