@@ -46,6 +46,7 @@ Browser or API client
 | `create_ai_service(settings)` | Selects mock AI by default or the Foundry provider boundary when configured |
 | `MockAiService` | Deterministic local extraction, summary, and urgency classification for demo/testing |
 | `FoundryAiService` | Azure AI Foundry provider boundary/scaffold with offline structured extraction prompt/schema/parser contract, injected fake-client seam, and opt-in lazy live adapter; live extraction is deferred |
+| `NurseIntakeAgent` | External reasoning boundary for future agent orchestration; output is contract-validated before case processing trusts it |
 | Speech transcription services | Offline mock transcription boundary and Azure Speech scaffold/factory; live audio transcription is deferred |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
@@ -113,6 +114,26 @@ The service also evaluates local red-flag rules from
 `src/app/config/red_flags.yaml`. Rule detection is deterministic and includes
 negation-aware handling so phrases such as denying a red-flag symptom do not
 count as a positive match.
+
+### Agent Safety Boundary
+
+NurseIntakeAgent is treated as an external reasoning boundary. Agent output is
+validated against an application-owned contract before
+`CaseProcessingService` trusts it for summary or urgency classification. This
+agent contract validation keeps malformed agent responses from silently
+creating bad cases.
+
+Valid agent output is used for the initial summary and urgency classification.
+Invalid agent output does not crash intake processing; it falls back to safe
+nurse-review values, records a processing trace warning, and leaves final
+urgency source as `unknown` unless deterministic red-flag rules promote the
+case to urgent. Deterministic red-flag rules still evaluate the raw intake text
+even when agent output is invalid, and `processing_trace` records agent usage,
+warnings, rules override state, and final urgency source.
+
+```text
+Raw intake -> Agent/AI analysis -> agent contract validation -> safe fallback if needed -> deterministic red-flag rules -> persisted case -> notification/review
+```
 
 Urgency merge behavior:
 

@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 681 passed
+- 690 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,14 +22,13 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent response normalization edge-case hardening slice is complete.
-- Foundry Agent response parsing now rejects malformed JSON, explanatory prose,
-  concatenated JSON, missing sections/fields, and wrong-type fields with
-  sanitized contract errors.
-- Simple outer Markdown code fences are accepted only when the inner body is
-  valid contract JSON; arbitrary prose extraction is not attempted.
-- Parsing/contract failures do not include raw response text, prompts,
-  endpoints, agent IDs, tokens, contact details, or PHI-like sample text.
+- Agent output contract validation added with safe fallback behavior and processing trace warnings.
+- `NurseIntakeAgent` output is validated before `CaseProcessingService` trusts
+  summary, urgency, or handoff-note fields.
+- Invalid agent output does not crash intake processing; it creates safe
+  nurse-review fallback values and keeps deterministic red-flag rules active.
+- `processing_trace.final_urgency_source` is `unknown` for invalid agent
+  fallback unless red-flag rules promote urgency, in which case it is `rules`.
 - Live Foundry Agent validation remains manual/opt-in and not claimed complete;
   default mock demo behavior is unchanged.
 

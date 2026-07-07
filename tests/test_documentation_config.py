@@ -748,6 +748,23 @@ def test_architecture_documents_current_mvp_boundaries() -> None:
     assert "Key Vault" in architecture
 
 
+def test_architecture_documents_agent_contract_safety_flow() -> None:
+    architecture = (PROJECT_ROOT / "docs" / "architecture.md").read_text()
+    normalized_architecture = " ".join(architecture.split())
+
+    assert "NurseIntakeAgent is treated as an external reasoning boundary" in architecture
+    assert "agent contract validation" in architecture
+    assert "application-owned contract" in architecture
+    assert "safe fallback" in architecture
+    assert "deterministic red-flag rules" in architecture
+    assert "processing_trace" in architecture
+    assert "final urgency source" in architecture
+    assert (
+        "Raw intake -> Agent/AI analysis -> agent contract validation -> safe fallback if needed -> deterministic red-flag rules -> persisted case -> notification/review"
+        in normalized_architecture
+    )
+
+
 def test_ai_103_mapping_documents_current_scope_and_roi_order() -> None:
     mapping = (PROJECT_ROOT / "docs" / "ai-103-mapping.md").read_text()
     normalized_mapping = " ".join(mapping.split())
@@ -771,6 +788,19 @@ def test_ai_103_mapping_documents_current_scope_and_roi_order() -> None:
     assert mapping.index("1. Live Azure AI Foundry structured extraction") < mapping.index(
         "8. ACS phone intake"
     )
+
+
+def test_ai_103_mapping_documents_agent_safety_boundary() -> None:
+    mapping = (PROJECT_ROOT / "docs" / "ai-103-mapping.md").read_text()
+
+    assert "Azure AI Foundry / agent orchestration readiness" in mapping
+    assert "responsible AI pattern" in mapping
+    assert "validation before trusting model/agent output" in mapping
+    assert "agent contract validation" in mapping
+    assert "safe fallback" in mapping
+    assert "human review and deterministic safety rules" in mapping
+    assert "processing trace" in mapping
+    assert "final urgency source" in mapping
 
 
 def test_progress_links_manual_acs_email_smoke_test() -> None:
@@ -810,6 +840,10 @@ def test_progress_active_resume_links_archived_history() -> None:
     assert "Retry logic" in progress
     assert "Every future TDD slice must include a `docs/progress.md` update" in progress
     assert "Testing Guidance" in progress
+    assert (
+        "Agent output contract validation added with safe fallback behavior and processing trace warnings."
+        in progress
+    )
 
     assert "Detailed historical progress through June 2026" in archive
     assert "README local mock demo walkthrough polish is complete" in archive
