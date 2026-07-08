@@ -49,7 +49,10 @@ POST /intake/text or POST /intake/voicemail-transcript
 - `AGENT_PROVIDER=mock` remains the default and does not attempt Foundry Agent
   execution. `AGENT_PROVIDER=foundry-agent` explicitly routes intake through
   the `NurseIntakeAgent` boundary where already supported, with contract
-  validation and safe fallback behavior.
+  validation and safe fallback behavior. `/demo/status` exposes safe structured
+  `agentProviderStatus` details for configuration readiness only; it reports
+  missing setting names without endpoint or agent ID values, does not create a
+  live client, and does not validate live Azure Foundry Agent behavior.
 - `SPEECH_PROVIDER=mock` supports already-transcribed text through an offline
   boundary. `SPEECH_PROVIDER=azure` wires the Azure Speech scaffold and
   preflight guide/CLI; live audio transcription, upload, and processing are
@@ -87,6 +90,7 @@ remain active after agent processing, and `final_urgency_source` remains
 | Voicemail transcript intake | Working in local mock mode | Accepts already-transcribed text only |
 | Nurse review | Working in local mock mode | Review queue, case detail, and review metadata are implemented |
 | Mock notifications | Working in local mock mode | Email/SMS records are inspectable without live sends |
+| Demo agent readiness | Working in local mock/offline tests | `/demo/status` reports configuration readiness only, with no Azure calls |
 | NurseIntakeAgent trace | Working in local mock/offline tests | Diagnostic-only safe trace; no live Azure validation claim |
 | Cosmos | Azure-ready boundary with prior manual point-read smoke | Cross-partition list/summary work remains future |
 | ACS Email | Boundary implemented; live smoke complete | Keep credentials local and uncommitted |

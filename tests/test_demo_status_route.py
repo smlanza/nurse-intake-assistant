@@ -65,6 +65,13 @@ def test_demo_status_reports_default_mock_configuration(monkeypatch) -> None:
         "mode": "mock",
         "missingSettings": [],
     }
+    assert body["agentProviderStatus"] == {
+        "provider": "mock",
+        "configured": True,
+        "liveValidation": "not_attempted",
+        "missingSettings": [],
+        "warnings": [],
+    }
     assert body["safeForLocalDemo"] is True
     assert body["warnings"] == []
     safety_boundary = body["safetyBoundary"].lower()
@@ -120,6 +127,21 @@ def test_demo_status_warns_when_foundry_agent_provider_is_configured(
             "AZURE_AI_FOUNDRY_AGENT_ID",
         ],
     }
+    assert body["agentProviderStatus"] == {
+        "provider": "foundry-agent",
+        "configured": False,
+        "liveValidation": "not_attempted",
+        "missingSettings": [
+            (
+                "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT or "
+                "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
+            ),
+            "AZURE_AI_FOUNDRY_AGENT_ID",
+        ],
+        "warnings": [
+            "Foundry Agent readiness is configuration-only; live Azure validation was not attempted."
+        ],
+    }
     assert any(
         "AGENT_PROVIDER is foundry-agent" in warning
         for warning in body["warnings"]
@@ -150,6 +172,15 @@ def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
         "ready": True,
         "mode": "configuration-only",
         "missingSettings": [],
+    }
+    assert body["agentProviderStatus"] == {
+        "provider": "foundry-agent",
+        "configured": True,
+        "liveValidation": "not_attempted",
+        "missingSettings": [],
+        "warnings": [
+            "Foundry Agent readiness is configuration-only; live Azure validation was not attempted."
+        ],
     }
     serialized = json.dumps(body)
     assert "fictional-foundry" not in serialized
@@ -267,6 +298,35 @@ def test_demo_status_warns_when_agent_provider_is_unsupported(monkeypatch) -> No
         "AGENT_PROVIDER is not mock; unsupported agent providers must not be "
         "claimed for local demo readiness."
     ) in body["warnings"]
+    assert body["agentProviderStatus"] == {
+        "provider": "unsupported",
+        "configured": False,
+        "liveValidation": "not_attempted",
+        "missingSettings": [],
+        "warnings": [
+            "Unsupported AGENT_PROVIDER; restore AGENT_PROVIDER=mock for local demo readiness."
+        ],
+    }
+
+
+def test_demo_status_sanitizes_secret_like_unsupported_agent_provider(
+    monkeypatch,
+) -> None:
+    unsafe_provider = "https://example.invalid/?token=secret-agent-id"
+    _set_demo_status_settings(monkeypatch, agent_provider=unsafe_provider)
+
+    response = client.get("/demo/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["demoModeReady"] is False
+    assert body["agentProvider"] == "unsupported"
+    assert body["agentStatus"]["provider"] == "unsupported"
+    assert body["agentProviderStatus"]["provider"] == "unsupported"
+    serialized = json.dumps(body)
+    assert "example.invalid" not in serialized
+    assert "secret-agent-id" not in serialized
+    assert "token=" not in serialized
 
 
 def test_demo_status_does_not_expose_secret_like_fields(monkeypatch) -> None:

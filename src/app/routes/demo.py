@@ -16,7 +16,9 @@ from src.app.dependencies import (
 from src.app.models.ai_outputs import PatientInfo
 from src.app.models.case import CaseDocument
 from src.app.services.nurse_intake_agent_preflight import (
+    AgentProviderStatus,
     NurseIntakeAgentStatus,
+    build_agent_provider_status,
     build_nurse_intake_agent_status,
 )
 
@@ -57,6 +59,7 @@ class DemoStatusResponse(BaseModel):
     smsProvider: str
     agentProvider: str
     agentStatus: NurseIntakeAgentStatus
+    agentProviderStatus: AgentProviderStatus
     notificationsSuppressed: bool
     safeForLocalDemo: bool
     safetyBoundary: str
@@ -136,8 +139,9 @@ def _build_demo_status() -> DemoStatusResponse:
     speech_provider = _status_value(settings.speech_provider)
     email_provider = _status_value(settings.email_provider)
     sms_provider = _status_value(settings.sms_provider)
-    agent_provider = _status_value(settings.agent_provider)
+    agent_provider = _agent_status_value(settings.agent_provider)
     agent_status = build_nurse_intake_agent_status(settings)
+    agent_provider_status = build_agent_provider_status(settings)
 
     warnings = _demo_status_warnings(
         app_mode=app_mode,
@@ -157,6 +161,7 @@ def _build_demo_status() -> DemoStatusResponse:
         smsProvider=sms_provider,
         agentProvider=agent_provider,
         agentStatus=agent_status,
+        agentProviderStatus=agent_provider_status,
         notificationsSuppressed=settings.demo_suppress_notifications,
         safeForLocalDemo=True,
         safetyBoundary=(
@@ -169,6 +174,15 @@ def _build_demo_status() -> DemoStatusResponse:
 
 def _status_value(value: str) -> str:
     return value.strip().lower() or "mock"
+
+
+def _agent_status_value(value: str) -> str:
+    provider = _status_value(value)
+    if provider in {"mock", "foundry", "foundry-agent"}:
+        return provider
+    if all(character.isalnum() or character == "-" for character in provider):
+        return provider
+    return "unsupported"
 
 
 def _demo_status_warnings(
