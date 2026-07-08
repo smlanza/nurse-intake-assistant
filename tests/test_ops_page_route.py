@@ -1,9 +1,34 @@
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from src.app.main import app
+from src.app.services.nurse_intake_agent_preflight import (
+    FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
+)
 
 
 client = TestClient(app)
+
+
+def _set_ops_settings(monkeypatch, **overrides) -> None:
+    import src.app.routes.ops as ops_route
+
+    values = {
+        "agent_provider": "mock",
+        "agent_provider_normalized": "mock",
+        "azure_ai_foundry_agent_project_endpoint": None,
+        "azure_ai_foundry_project_endpoint": None,
+        "azure_ai_foundry_agent_id": None,
+        "azure_ai_foundry_model_deployment_name": None,
+        "acs_email_connection_string": None,
+    }
+    values.update(overrides)
+    if "agent_provider_normalized" not in overrides:
+        values["agent_provider_normalized"] = (
+            values["agent_provider"].strip().lower() or "mock"
+        )
+    monkeypatch.setattr(ops_route, "settings", SimpleNamespace(**values), raising=False)
 
 
 def test_ops_page_returns_html() -> None:
@@ -28,6 +53,90 @@ def test_ops_page_lists_safe_routes_and_purposes() -> None:
     assert "/demo/status" in html
     assert "local demo readiness status" in html
     assert "/: redirects to /demo" in html
+
+
+def test_ops_page_does_not_show_foundry_agent_manual_command_in_mock_mode(
+    monkeypatch,
+) -> None:
+    _set_ops_settings(monkeypatch)
+
+    response = client.get("/ops")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Nurse Intake Assistant Operations" in html
+    assert "Safe Routes" in html
+    assert FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND not in html
+    assert "Foundry Agent Manual Validation" not in html
+
+
+def test_ops_page_shows_foundry_agent_manual_command_when_configured(
+    monkeypatch,
+) -> None:
+    _set_ops_settings(
+        monkeypatch,
+        agent_provider="foundry-agent",
+        azure_ai_foundry_agent_project_endpoint=(
+            "https://actual-endpoint.services.ai.azure.com/api/projects/demo"
+        ),
+        azure_ai_foundry_agent_id="actual-agent-id",
+        azure_ai_foundry_model_deployment_name="actual-deployment",
+        acs_email_connection_string="Endpoint=https://actual-secret/;AccessKey=secret",
+    )
+
+    response = client.get("/ops")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Foundry Agent Manual Validation" in html
+    assert FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND in html
+    assert "Run this command manually from a configured developer shell" in html
+    assert "This page only shows the command; it does not call Azure" in html
+    for unsafe_text in [
+        "https://actual-endpoint.services.ai.azure.com",
+        "actual-agent-id",
+        "actual-deployment",
+        "actual-secret",
+        "AccessKey",
+        "bearer",
+        "token",
+    ]:
+        assert unsafe_text not in html
+
+
+def test_ops_page_shows_foundry_agent_manual_command_when_settings_missing(
+    monkeypatch,
+) -> None:
+    _set_ops_settings(
+        monkeypatch,
+        agent_provider="foundry-agent",
+        azure_ai_foundry_agent_project_endpoint=None,
+        azure_ai_foundry_agent_id=None,
+    )
+
+    response = client.get("/ops")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Foundry Agent Manual Validation" in html
+    assert FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND in html
+    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in html
+    assert "AZURE_AI_FOUNDRY_AGENT_ID" in html
+    assert "None" not in html
+
+
+def test_ops_page_does_not_show_manual_command_for_unsupported_agent_provider(
+    monkeypatch,
+) -> None:
+    _set_ops_settings(monkeypatch, agent_provider="unsupported-value")
+
+    response = client.get("/ops")
+
+    assert response.status_code == 200
+    html = response.text
+    assert "Unsupported AGENT_PROVIDER" in html
+    assert FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND not in html
+    assert "Foundry Agent Manual Validation" not in html
 
 
 def test_ops_page_includes_safety_wording() -> None:

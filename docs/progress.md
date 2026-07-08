@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 709 passed
+- 713 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,10 +22,10 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent readiness/status surfaces now advertise the sanitized manual
-  `--live --json` smoke command without calling Azure.
-- `/demo/status` and `scripts/preflight.py --foundry-agent` use the same static
-  safe command hint without exposing endpoint URLs, agent IDs, deployment
+- Ops/readiness page now displays the static Foundry Agent manual
+  `--live --json` validation command when Foundry Agent mode is selected.
+- The page remains configuration-only and does not call Azure, create Foundry
+  Agent clients, invoke agents, or expose endpoint URLs, agent IDs, deployment
   names, prompts, raw model output, tokens, connection strings, access keys, or
   secret values.
 - Automated tests remain offline; no live Azure calls were added to tests.
@@ -260,6 +260,9 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 - `/demo/status` and `scripts/preflight.py --foundry-agent` now point operators
   to the sanitized manual `--live --json` smoke command without creating Azure
   clients, invoking an agent, or calling Azure.
+- Ops/readiness command-hint slice is complete.
+- `/ops` now displays the same static Foundry Agent manual validation command
+  when Foundry Agent mode is selected, and remains configuration-only.
 - Automated tests use fake agents/settings/failures only and remain offline; no
   live Azure calls were added to tests.
 - `AGENT_PROVIDER=mock` and all other mock/local defaults remain unchanged.
