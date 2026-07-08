@@ -523,12 +523,14 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "--live remains manual and opt-in" in doc
     assert "fictional data only" in normalized_doc
     assert "default local demo remains mock/offline" in normalized_doc
+    assert "--live --json" in doc
+    assert "safeFailureCategory" in doc
     assert "Do not claim live Foundry Agent behavior" in doc
-    assert "authorization" in doc
-    assert "not_found" in doc
+    assert "authorization_failed" in doc
+    assert "agent_not_found" in doc
     assert "bad_request" in doc
-    assert "sdk_missing" in doc
-    assert "parsing" in doc
+    assert "sdk_unavailable" in doc
+    assert "contract_invalid" in doc
 
 
 def test_readme_documents_smoke_scripts_are_explicitly_invoked_checks() -> None:

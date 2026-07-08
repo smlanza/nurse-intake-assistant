@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 694 passed
+- 702 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,17 +22,19 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Agent output contract validation added with safe fallback behavior and processing trace warnings.
-- `/demo/status` now includes `agentProviderStatus` with safe provider,
-  configured, liveValidation, missingSettings, and warnings fields for Foundry
-  Agent configuration readiness.
-- Missing Foundry Agent settings are reported by name only; configured endpoint
-  values, agent IDs, prompts, raw model output, tokens, stack traces, and
-  exceptions are not exposed.
-- Agent readiness is configuration-only: no Azure calls/live client creation;
-  live Foundry Agent validation remains manual/opt-in and not claimed complete.
-- `processing_trace` still records safe agent attempt/output/fallback fields,
-  and red-flag rules remain active.
+- Foundry Agent live smoke CLI now reports sanitized structured
+  success/failure results for manual Azure validation through
+  `scripts/smoke_foundry_agent.py --live --json`.
+- The JSON result contract reports provider, mode, configured, SDK visibility,
+  attempted, status, safe failure category, and next-step hint without exposing
+  endpoint URLs, agent IDs, deployment names, prompts, raw model output, raw
+  exceptions, stack traces, bearer tokens, connection strings, access keys, or
+  real patient data.
+- Automated tests remain offline with fake clients only; no live Azure calls
+  were added to tests.
+- No default provider changes, notification behavior changes,
+  hosting/auth/Key Vault/Speech/phone intake/retry/durable processing,
+  production frontend, or production clinical behavior was added.
 
 ## Current Resume Point
 
@@ -56,7 +58,8 @@ Implemented but not live-confirmed:
   explicit `AGENT_PROVIDER=foundry-agent` text-intake routing, and manual
   `scripts/smoke_foundry_agent.py` `--check`/`--live` smoke CLI with env-file
   isolation, fictional data only, safe diagnostics, strict response parsing,
-  and no notification effects
+  sanitized `--live --json` success/failure results for manual Azure
+  validation, and no notification effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
@@ -252,74 +255,23 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
-- Demo readiness checklist documentation slice is complete.
-- `docs/demo-readiness-checklist.md` now gives an interview/demo runbook for
-  mock setup, local `/demo` flow, safe talking points, do-not-claim boundaries,
-  optional manual Azure OpenAI / Foundry smoke, and troubleshooting.
-- Manual live Azure OpenAI / Foundry structured extraction remains documented
-  as validated with fictional input through `--live-client-mode azure-openai-endpoint`.
-- Default mock demo behavior is unchanged; automated tests remain offline; no
-  production deployment, hosting/auth/Key Vault, Speech phone intake, ACS
-  behavior, Cosmos writes, frontend changes, Agents, MCP/A2A, API key support,
-  or PHI were added.
-- Recent Azure OpenAI/Foundry diagnostic slices are complete: v1 endpoint path,
-  endpoint compatibility, token-provider setup, and sanitized root/status output.
-- Azure Speech env-file smoke isolation slice is complete.
-- `scripts/smoke_speech_transcription.py --env-file .env.speech.local --check`
-  loads missing settings for the script only; shell variables win, missing paths
-  fail safely, `.env.speech.local.example` has fictional placeholders, and no
-  live Speech/audio/phone/ACS/hosting/auth/Key Vault/frontend/PHI was added.
-- Foundry env-file smoke isolation slice is complete.
-- `scripts/smoke_foundry_extraction.py --env-file .env.foundry.local` loads
-  missing settings for the script process only; shell variables still win, and
-  missing paths fail safely without Azure calls or secret printing.
-- `.env.foundry.local.example` has safe placeholders; real `.env.foundry.local`
-  remains ignored. Default mock demo behavior and offline tests are unchanged.
-- Foundry live smoke safe diagnostics slice is complete.
-- `scripts/smoke_foundry_extraction.py --live` now prints a safe failure
-  category and next-step hint without printing endpoints, deployments, prompts,
-  tokens, raw exceptions, or stack traces.
-- Tests cover fake credential/auth/RBAC/not-found/bad-request, parsing, nested
-  status, and unknown failures without Azure calls or provider default changes.
-- Foundry manual smoke hardening slice is complete: `--check` validates config
-  and SDK visibility without services/model calls; `--live` uses fictional Alex
-  Morgan text and safe output only.
-- Default mock demo behavior and offline tests remain unchanged; no production
-  deployment, notifications, Cosmos writes, Speech/phone intake, hosting/auth/Key
-  Vault work, or provider default changes were added.
-- Handoff note OpenAPI documentation slice is complete.
-- `/docs` now describes `GET /cases/{case_id}/handoff-note` with summary,
-  description, response description, and a safe fictional 200 response example
-  containing `caseId`, `createdDate`, `noteFormat=plainText`, and the demo
-  safety/human-review boundary in `handoffNote`.
-- No runtime behavior changes, endpoint contract changes, Azure calls,
-  AI/model calls, notification sends, demo UI changes, hosting/auth/Key
-  Vault/phone intake/retry/frontend framework work were added.
-- Local demo handoff note display slice is complete.
-- The demo page exposes a Nurse Handoff Note panel that loads
-  `GET /cases/{case_id}/handoff-note` for the selected saved case and displays
-  the returned plain text in a preformatted copy-friendly area.
-- The demo shows a clear local message when no case is selected and a clear
-  local error message if the handoff note request fails.
-- No backend endpoint contract changes, Azure calls, AI/model calls,
-  notification sends, notification semantic changes, hosting/auth/Key
-  Vault/phone intake/retry/frontend framework work were added.
-- Nurse handoff note feature slice is complete.
-- `GET /cases/{case_id}/handoff-note` returns `caseId`, `createdDate`,
-  `noteFormat=plainText`, and a deterministic copy-friendly handoff note with
-  the demo safety/human-review boundary.
-- The route reuses saved-case repository lookup, including the existing
-  `createdDate` point-read pattern for Cosmos-style repositories.
-- Formatter tests cover deterministic output, expected sections, and missing
-  optional fields; route tests cover 200, 404, and createdDate guardrails.
-- No live Azure calls, AI/model calls, notification sends, existing route
-  contract changes, notification semantic changes, hosting/auth/Key Vault/phone
-  intake/retry/frontend framework work were added.
-- System overview documentation slice is complete.
-- `docs/system-overview.md` maps purpose, flow, boundaries, status, docs, demo claims, testing guidance, and next-slice guidance.
-- README links to the system overview from the local documentation section.
-- No runtime behavior, API contract, notification semantics, provider behavior,
-  infrastructure, demo UI, or live Azure claims were changed.
+- Foundry Agent live smoke result contract slice is complete.
+- `scripts/smoke_foundry_agent.py --live --json` now returns sanitized
+  structured success/failure results for manual Azure validation.
+- Automated tests use fake agents/settings only and remain offline; no live
+  Azure calls were added to tests.
+- `AGENT_PROVIDER=mock` and all other mock/local defaults remain unchanged.
+- No notification behavior, hosting/auth/Key Vault, Speech, phone intake,
+  retry/durable processing, production frontend, or production clinical
+  behavior was added.
+- Agent output contract validation added with safe fallback behavior and processing trace warnings.
+- Recent completed milestones include demo readiness checklist docs, Azure
+  OpenAI/Foundry diagnostics, Speech and Foundry env-file smoke isolation,
+  Foundry live smoke safe diagnostics, Foundry manual smoke hardening, handoff
+  note OpenAPI/demo display, nurse handoff note route/formatter, and system
+  overview documentation.
+- Detailed earlier slice notes are archived in
+  `docs/archive/progress-2026-06.md` or covered by the reference docs below.
 - Azure Speech smoke-test guide / CLI preflight scaffold slice is complete.
 - `docs/manual-speech-smoke-test.md` documents prerequisites, safe placeholder
   settings, `--check` usage, preflight meaning, non-goals, rollback to

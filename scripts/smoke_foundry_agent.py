@@ -1,9 +1,11 @@
 import argparse
 import asyncio
+import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -67,6 +69,52 @@ SAFE_FAILURE_HINTS = {
         "RBAC, and agent availability."
     ),
 }
+SAFE_RESULT_HINTS = {
+    "missing_configuration": "Check required Foundry Agent environment settings.",
+    "sdk_unavailable": "Install the optional Azure AI Foundry Agent SDK packages.",
+    "authentication_failed": "Check Azure credential login and tenant access.",
+    "authorization_failed": "Check project RBAC permissions for the signed-in identity.",
+    "agent_not_found": "Check that the configured Foundry Agent still exists.",
+    "bad_request": "Check the Foundry Agent request configuration.",
+    "contract_invalid": "Check that the agent response matches the expected contract.",
+    "response_parse_failed": "Check that the agent returned valid structured JSON.",
+    "unknown_failure": "Check local settings, Azure login, RBAC, SDK compatibility, and agent availability.",
+}
+LIVE_RESULT_CATEGORY_BY_LEGACY_CATEGORY = {
+    "configuration": "missing_configuration",
+    "credential": "authentication_failed",
+    "authentication": "authentication_failed",
+    "authorization": "authorization_failed",
+    "not_found": "agent_not_found",
+    "bad_request": "bad_request",
+    "sdk_missing": "sdk_unavailable",
+    "parsing": "contract_invalid",
+    "unknown": "unknown_failure",
+}
+
+
+@dataclass(frozen=True)
+class FoundryAgentSmokeResult:
+    provider: str
+    mode: str
+    configured: bool
+    sdk_available: bool
+    attempted: bool
+    status: Literal["succeeded", "failed"]
+    safe_failure_category: str | None
+    next_step_hint: str | None
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "provider": self.provider,
+            "mode": self.mode,
+            "configured": self.configured,
+            "sdkAvailable": self.sdk_available,
+            "attempted": self.attempted,
+            "status": self.status,
+            "safeFailureCategory": self.safe_failure_category,
+            "nextStepHint": self.next_step_hint,
+        }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -86,9 +134,15 @@ def main(argv: list[str] | None = None) -> int:
         env_file_exit_code = _load_env_file(args.env_file)
         if env_file_exit_code != 0:
             return env_file_exit_code
-        print("Loaded Foundry Agent smoke environment file.")
+        if not args.json:
+            print("Loaded Foundry Agent smoke environment file.")
 
     settings = AppSettings()
+    if args.live and args.json:
+        result, exit_code = _run_live_json_smoke(settings)
+        _print_json_result(result)
+        return exit_code
+
     configuration_exit_code = _validate_foundry_agent_configuration(settings)
     if configuration_exit_code != 0:
         return configuration_exit_code
@@ -142,10 +196,111 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "this script process only. Existing shell environment variables win."
         ),
     )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=(
+            "Print a deterministic sanitized JSON result for --live manual "
+            "validation."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.check and args.live:
         parser.error("--check and --live cannot be used together")
+    if args.json and not args.live:
+        parser.error("--json is only supported with --live")
     return args
+
+
+def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult, int]:
+    sdk_available = foundry_agent_sdk_available()
+    if not _foundry_agent_configured(settings):
+        return (
+            _failed_live_result(
+                configured=False,
+                sdk_available=sdk_available,
+                attempted=False,
+                safe_failure_category="missing_configuration",
+            ),
+            2,
+        )
+
+    if not sdk_available:
+        return (
+            _failed_live_result(
+                configured=True,
+                sdk_available=False,
+                attempted=False,
+                safe_failure_category="sdk_unavailable",
+            ),
+            1,
+        )
+
+    try:
+        agent = create_nurse_intake_agent(settings)
+        asyncio.run(agent.analyze_intake(FICTIONAL_AGENT_INTAKE_TEXT))
+    except Exception as exc:
+        safe_category = _live_result_category(exc)
+        return (
+            _failed_live_result(
+                configured=True,
+                sdk_available=True,
+                attempted=True,
+                safe_failure_category=safe_category,
+            ),
+            1,
+        )
+
+    return (
+        FoundryAgentSmokeResult(
+            provider="foundry-agent",
+            mode="live",
+            configured=True,
+            sdk_available=True,
+            attempted=True,
+            status="succeeded",
+            safe_failure_category=None,
+            next_step_hint=None,
+        ),
+        0,
+    )
+
+
+def _failed_live_result(
+    *,
+    configured: bool,
+    sdk_available: bool,
+    attempted: bool,
+    safe_failure_category: str,
+) -> FoundryAgentSmokeResult:
+    return FoundryAgentSmokeResult(
+        provider="foundry-agent",
+        mode="live",
+        configured=configured,
+        sdk_available=sdk_available,
+        attempted=attempted,
+        status="failed",
+        safe_failure_category=safe_failure_category,
+        next_step_hint=SAFE_RESULT_HINTS[safe_failure_category],
+    )
+
+
+def _print_json_result(result: FoundryAgentSmokeResult) -> None:
+    print(json.dumps(result.to_json_dict(), separators=(",", ":")))
+
+
+def _foundry_agent_configured(settings: AppSettings) -> bool:
+    if settings.agent_provider_normalized not in FOUNDRY_AGENT_PROVIDER_VALUES:
+        return False
+    return build_nurse_intake_agent_status(settings).ready
+
+
+def _live_result_category(error: BaseException) -> str:
+    legacy_category = classify_live_agent_failure(error)
+    return LIVE_RESULT_CATEGORY_BY_LEGACY_CATEGORY.get(
+        legacy_category,
+        "unknown_failure",
+    )
 
 
 def _validate_foundry_agent_configuration(settings: AppSettings) -> int:

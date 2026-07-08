@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -66,6 +67,13 @@ class CategoryFailingAgent:
         raise self.error
 
 
+class ContractInvalidAgent:
+    async def analyze_intake(self, raw_text: str) -> SimpleNamespace:
+        raise FoundryExtractionContractError(
+            "raw model output: {\"patient\":\"secret\"}"
+        )
+
+
 def _patch_script_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -74,6 +82,10 @@ def _patch_script_env(
     env_file = tmp_path / ".env.foundry-agent.local"
     env_file.write_text(env_text)
     return env_file
+
+
+def _json_output(captured: pytest.CaptureFixture[str]) -> dict[str, object]:
+    return json.loads(captured.readouterr().out)
 
 
 def test_foundry_agent_smoke_script_requires_foundry_provider(
@@ -214,6 +226,170 @@ def test_foundry_agent_smoke_script_calls_agent_only_in_live_mode(
     assert "secret-agent" not in captured.out
     assert "instructions" not in captured.out.lower()
     assert captured.err == ""
+
+
+def test_foundry_agent_smoke_script_live_json_success_summary_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    fake_agent = FakeAgent()
+    _patch_settings(monkeypatch, _settings(agent_provider="foundry-agent"))
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(script, "create_nurse_intake_agent", lambda settings: fake_agent)
+
+    exit_code = script.main(["--live", "--json"])
+
+    payload = _json_output(capsys)
+    assert exit_code == 0
+    assert payload == {
+        "provider": "foundry-agent",
+        "mode": "live",
+        "configured": True,
+        "sdkAvailable": True,
+        "attempted": True,
+        "status": "succeeded",
+        "safeFailureCategory": None,
+        "nextStepHint": None,
+    }
+    assert fake_agent.calls == [script.FICTIONAL_AGENT_INTAKE_TEXT]
+
+
+def test_foundry_agent_smoke_script_live_json_authentication_failure_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            agent_provider="foundry-agent",
+            project_endpoint="https://secret-agent.services.ai.azure.com/api/projects/demo",
+            agent_id="secret-agent-id",
+        ),
+    )
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: CategoryFailingAgent(
+            StatusCodeError(401, "raw bearer token endpoint secret")
+        ),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["status"] == "failed"
+    assert payload["safeFailureCategory"] == "authentication_failed"
+    assert payload["nextStepHint"] == "Check Azure credential login and tenant access."
+    combined_output = captured.out + captured.err
+    assert "raw bearer token endpoint secret" not in combined_output
+    assert "https://secret-agent.services.ai.azure.com" not in combined_output
+    assert "secret-agent-id" not in combined_output
+    assert "Traceback" not in combined_output
+
+
+@pytest.mark.parametrize(
+    ("error", "safe_category"),
+    [
+        (StatusCodeError(403, "raw RBAC secret"), "authorization_failed"),
+        (StatusCodeError(404, "raw agent secret-agent-id"), "agent_not_found"),
+        (StatusCodeError(400, "raw Azure bad request detail"), "bad_request"),
+        (RuntimeError("unexpected raw exception secret"), "unknown_failure"),
+    ],
+)
+def test_foundry_agent_smoke_script_live_json_failures_map_to_safe_categories(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: BaseException,
+    safe_category: str,
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(monkeypatch, _settings(agent_provider="foundry-agent"))
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: CategoryFailingAgent(error),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["status"] == "failed"
+    assert payload["safeFailureCategory"] == safe_category
+    combined_output = captured.out + captured.err
+    assert "raw" not in combined_output
+    assert "secret" not in combined_output
+    assert "secret-agent-id" not in combined_output
+    assert "Traceback" not in combined_output
+
+
+def test_foundry_agent_smoke_script_live_json_contract_invalid_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(monkeypatch, _settings(agent_provider="foundry-agent"))
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: ContractInvalidAgent(),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["safeFailureCategory"] == "contract_invalid"
+    assert "raw model output" not in captured.out
+    assert "patient" not in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_foundry_agent_smoke_script_live_json_missing_configuration_not_attempted(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            agent_provider="foundry-agent",
+            project_endpoint=None,
+            agent_id=None,
+        ),
+    )
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: pytest.fail("Agent should not be created"),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 2
+    assert payload["provider"] == "foundry-agent"
+    assert payload["mode"] == "live"
+    assert payload["configured"] is False
+    assert payload["attempted"] is False
+    assert payload["status"] == "failed"
+    assert payload["safeFailureCategory"] == "missing_configuration"
+    assert "secret-agent" not in captured.out + captured.err
 
 
 def test_foundry_agent_smoke_script_returns_nonzero_on_agent_failure(

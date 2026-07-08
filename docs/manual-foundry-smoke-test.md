@@ -183,6 +183,12 @@ Example `--env-file` live command:
 python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live
 ```
 
+Example sanitized JSON live command:
+
+```bash
+python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live --json
+```
+
 `--live` remains manual and opt-in. It is the only mode intended to construct
 the Foundry Agent path and may call Azure. It uses the script's built-in
 fictional medication-refill intake only, does not send notifications, does not
@@ -190,22 +196,28 @@ write to Cosmos, does not call FastAPI routes, and does not require the FastAPI
 server to be running.
 In plain terms: --live remains manual and opt-in.
 
-If live validation fails, the script prints a sanitized failure category and a
-next-step hint. It does not print raw exception messages, stack traces, full
-endpoints, agent IDs, bearer tokens, prompts, instructions, connection strings,
-real patient/contact data, email addresses, phone numbers, or PHI.
+`--live --json` prints a deterministic sanitized result with these fields:
+`provider`, `mode`, `configured`, `sdkAvailable`, `attempted`, `status`,
+`safeFailureCategory`, and `nextStepHint`. It does not print raw exception
+messages, stack traces, full endpoints, agent IDs, bearer tokens, prompts,
+instructions, raw model output, connection strings, real patient/contact data,
+email addresses, phone numbers, or PHI.
+
+If live validation fails, the plain output path prints a sanitized failure
+category and a next-step hint. The JSON output path reports the same kind of
+safe result as structured data.
 
 Safe Foundry Agent live failure categories include:
 
-- configuration
-- credential
-- authentication
-- authorization
-- not_found
+- missing_configuration
+- sdk_unavailable
+- authentication_failed
+- authorization_failed
+- agent_not_found
 - bad_request
-- sdk_missing
-- parsing
-- unknown
+- contract_invalid
+- response_parse_failed
+- unknown_failure
 
 Do not claim live Foundry Agent behavior is verified unless this manual
 `--live` path has been run successfully in the intended Azure environment.
