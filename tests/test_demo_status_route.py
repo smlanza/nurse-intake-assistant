@@ -5,6 +5,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.app.main import app
+from src.app.services.nurse_intake_agent_preflight import (
+    FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
+)
 
 
 client = TestClient(app)
@@ -69,6 +72,8 @@ def test_demo_status_reports_default_mock_configuration(monkeypatch) -> None:
         "provider": "mock",
         "configured": True,
         "liveValidation": "not_attempted",
+        "manualValidationAvailable": False,
+        "manualValidationCommand": None,
         "missingSettings": [],
         "warnings": [],
     }
@@ -131,6 +136,8 @@ def test_demo_status_warns_when_foundry_agent_provider_is_configured(
         "provider": "foundry-agent",
         "configured": False,
         "liveValidation": "not_attempted",
+        "manualValidationAvailable": True,
+        "manualValidationCommand": FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
         "missingSettings": [
             (
                 "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT or "
@@ -177,6 +184,8 @@ def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
         "provider": "foundry-agent",
         "configured": True,
         "liveValidation": "not_attempted",
+        "manualValidationAvailable": True,
+        "manualValidationCommand": FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
         "missingSettings": [],
         "warnings": [
             "Foundry Agent readiness is configuration-only; live Azure validation was not attempted."
@@ -185,6 +194,70 @@ def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
     serialized = json.dumps(body)
     assert "fictional-foundry" not in serialized
     assert "fictional-agent-id" not in serialized
+
+
+def test_demo_status_foundry_agent_manual_validation_command_is_static_and_safe(
+    monkeypatch,
+) -> None:
+    _set_demo_status_settings(
+        monkeypatch,
+        agent_provider="foundry-agent",
+        azure_ai_foundry_agent_project_endpoint=(
+            "https://actual-endpoint.services.ai.azure.com/api/projects/demo"
+        ),
+        azure_ai_foundry_agent_id="actual-agent-id",
+        azure_ai_foundry_model_deployment_name="actual-deployment",
+        acs_email_connection_string="Endpoint=https://actual-secret/;AccessKey=secret",
+    )
+
+    response = client.get("/demo/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    agent_status = body["agentProviderStatus"]
+    assert agent_status["provider"] == "foundry-agent"
+    assert agent_status["manualValidationAvailable"] is True
+    assert agent_status["manualValidationCommand"] == (
+        "python scripts/smoke_foundry_agent.py "
+        "--env-file .env.foundry-agent.local --live --json"
+    )
+    serialized = json.dumps(body)
+    for unsafe_text in [
+        "https://actual-endpoint.services.ai.azure.com",
+        "actual-agent-id",
+        "actual-deployment",
+        "actual-secret",
+        "AccessKey",
+        "secret",
+        "bearer",
+        "token",
+    ]:
+        assert unsafe_text not in serialized
+
+
+def test_demo_status_foundry_agent_missing_settings_still_advertises_command(
+    monkeypatch,
+) -> None:
+    _set_demo_status_settings(
+        monkeypatch,
+        agent_provider="foundry-agent",
+        azure_ai_foundry_agent_project_endpoint=None,
+        azure_ai_foundry_agent_id=None,
+    )
+
+    response = client.get("/demo/status")
+
+    assert response.status_code == 200
+    agent_status = response.json()["agentProviderStatus"]
+    assert agent_status["manualValidationAvailable"] is True
+    assert "--live --json" in agent_status["manualValidationCommand"]
+    assert agent_status["missingSettings"] == [
+        (
+            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT or "
+            "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
+        ),
+        "AZURE_AI_FOUNDRY_AGENT_ID",
+    ]
 
 
 def test_demo_status_treats_foundry_agent_smoke_alias_as_foundry_agent(
@@ -302,6 +375,8 @@ def test_demo_status_warns_when_agent_provider_is_unsupported(monkeypatch) -> No
         "provider": "unsupported",
         "configured": False,
         "liveValidation": "not_attempted",
+        "manualValidationAvailable": False,
+        "manualValidationCommand": None,
         "missingSettings": [],
         "warnings": [
             "Unsupported AGENT_PROVIDER; restore AGENT_PROVIDER=mock for local demo readiness."

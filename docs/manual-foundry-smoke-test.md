@@ -203,6 +203,12 @@ messages, stack traces, full endpoints, agent IDs, bearer tokens, prompts,
 instructions, raw model output, connection strings, real patient/contact data,
 email addresses, phone numbers, or PHI.
 
+When `AGENT_PROVIDER=foundry-agent` or `AGENT_PROVIDER=foundry` is configured,
+`/demo/status` and `python scripts/preflight.py --foundry-agent` may show this
+same manual validation command as a static safe hint. Those readiness surfaces
+remain configuration-only: showing the command does not create a Foundry Agent
+client, invoke an agent, or call Azure.
+
 If live validation fails, the plain output path prints a sanitized failure
 category and a next-step hint. The JSON output path reports the same kind of
 safe result as structured data.

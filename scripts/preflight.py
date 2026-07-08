@@ -16,6 +16,7 @@ from scripts.smoke_foundry_extraction import foundry_live_sdk_available
 from scripts.smoke_speech_transcription import azure_speech_sdk_available
 from src.app.config.settings import AppSettings
 from src.app.services.nurse_intake_agent_preflight import (
+    FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
     build_nurse_intake_agent_status,
 )
 
@@ -207,7 +208,8 @@ def _check_foundry_agent(
         _sdk_next_step(
             foundry_agent_sdk_available,
             "Foundry Agent SDK package",
-        ),
+        )
+        + f" Manual validation command: {FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND}",
     )
 
 

@@ -463,6 +463,9 @@ def test_preflight_foundry_agent_passes_configured_provider_without_live_calls(
     import scripts.preflight as script
     import src.app.services.foundry_agent_client as agent_client
     import src.app.services.nurse_intake_agent_factory as agent_factory
+    from src.app.services.nurse_intake_agent_preflight import (
+        FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
+    )
 
     settings = _settings(
         agent_provider="foundry-agent",
@@ -491,6 +494,10 @@ def test_preflight_foundry_agent_passes_configured_provider_without_live_calls(
     assert "configuration-only" in captured.out
     assert "No Foundry Agent client was created" in captured.out
     assert "no Azure call was made" in captured.out
+    assert (
+        f"Manual validation command: {FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND}"
+        in captured.out
+    )
     assert "Optional Foundry Agent SDK package appears importable" in captured.out
     assert captured.out.count("Guidance:") == 1
     assert "secret-agent" not in combined_output

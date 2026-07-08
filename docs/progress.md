@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 707 passed
+- 709 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,15 +22,13 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent live JSON diagnostics now distinguish `response_parse_failed`
-  from `contract_invalid` while keeping all output sanitized.
-- The JSON result contract still reports provider, mode, configured, SDK
-  visibility, attempted, status, safe failure category, and next-step hint
-  without exposing endpoint URLs, agent IDs, prompts, raw model output, raw
-  exceptions, stack traces, bearer tokens, connection strings, access keys, or
-  real patient data.
-- Automated tests remain offline with fake failures only; no live Azure calls
-  were added to tests.
+- Foundry Agent readiness/status surfaces now advertise the sanitized manual
+  `--live --json` smoke command without calling Azure.
+- `/demo/status` and `scripts/preflight.py --foundry-agent` use the same static
+  safe command hint without exposing endpoint URLs, agent IDs, deployment
+  names, prompts, raw model output, tokens, connection strings, access keys, or
+  secret values.
+- Automated tests remain offline; no live Azure calls were added to tests.
 - No default provider changes, notification behavior changes,
   hosting/auth/Key Vault/Speech/phone intake/retry/durable processing,
   production frontend, or production clinical behavior was added.
@@ -258,6 +256,10 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 - `scripts/smoke_foundry_agent.py --live --json` now returns sanitized
   structured success/failure results for manual Azure validation, including
   distinct `response_parse_failed` and `contract_invalid` categories.
+- Foundry Agent readiness/status command-hint slice is complete.
+- `/demo/status` and `scripts/preflight.py --foundry-agent` now point operators
+  to the sanitized manual `--live --json` smoke command without creating Azure
+  clients, invoking an agent, or calling Azure.
 - Automated tests use fake agents/settings/failures only and remain offline; no
   live Azure calls were added to tests.
 - `AGENT_PROVIDER=mock` and all other mock/local defaults remain unchanged.

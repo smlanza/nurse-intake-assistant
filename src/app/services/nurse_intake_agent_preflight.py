@@ -6,6 +6,10 @@ from pydantic import BaseModel
 FOUNDRY_AGENT_CONFIGURATION_ONLY_WARNING = (
     "Foundry Agent readiness is configuration-only; live Azure validation was not attempted."
 )
+FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND = (
+    "python scripts/smoke_foundry_agent.py "
+    "--env-file .env.foundry-agent.local --live --json"
+)
 UNSUPPORTED_AGENT_PROVIDER_WARNING = (
     "Unsupported AGENT_PROVIDER; restore AGENT_PROVIDER=mock for local demo readiness."
 )
@@ -22,6 +26,8 @@ class AgentProviderStatus(BaseModel):
     provider: str
     configured: bool
     liveValidation: str
+    manualValidationAvailable: bool
+    manualValidationCommand: str | None
     missingSettings: list[str]
     warnings: list[str]
 
@@ -70,6 +76,8 @@ def build_agent_provider_status(settings: Any) -> AgentProviderStatus:
             provider="mock",
             configured=True,
             liveValidation="not_attempted",
+            manualValidationAvailable=False,
+            manualValidationCommand=None,
             missingSettings=[],
             warnings=[],
         )
@@ -80,6 +88,8 @@ def build_agent_provider_status(settings: Any) -> AgentProviderStatus:
             provider=provider,
             configured=not missing_settings,
             liveValidation="not_attempted",
+            manualValidationAvailable=True,
+            manualValidationCommand=FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
             missingSettings=missing_settings,
             warnings=[FOUNDRY_AGENT_CONFIGURATION_ONLY_WARNING],
         )
@@ -88,6 +98,8 @@ def build_agent_provider_status(settings: Any) -> AgentProviderStatus:
         provider="unsupported",
         configured=False,
         liveValidation="not_attempted",
+        manualValidationAvailable=False,
+        manualValidationCommand=None,
         missingSettings=[],
         warnings=[UNSUPPORTED_AGENT_PROVIDER_WARNING],
     )
