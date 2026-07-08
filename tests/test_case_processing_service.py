@@ -135,6 +135,18 @@ class InvalidNurseIntakeAgent:
         return self.agent_result
 
 
+class ExceptionNurseIntakeAgent:
+    provider = "foundry-agent"
+    agentMode = "foundry-agent"
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def analyze_intake(self, raw_text: str) -> object:
+        self.calls.append(raw_text)
+        raise RuntimeError("secret endpoint https://example.invalid raw response")
+
+
 def _agent_result(
     urgency: str = "Routine",
     summary: str = "Agent mapped summary.",
@@ -238,8 +250,13 @@ def test_agent_configured_intake_uses_agent_instead_of_ai_service() -> None:
     assert case.notificationEmailStatus == "Suppressed"
     assert case.notificationSmsStatus == "Suppressed"
     assert case.processing_trace.agent_used is True
+    assert case.processing_trace.agent_attempted is True
     assert case.processing_trace.ai_provider is None
     assert case.processing_trace.agent_provider == "mock"
+    assert case.processing_trace.agent_mode == "mock"
+    assert case.processing_trace.agent_output_valid is True
+    assert case.processing_trace.agent_fallback_used is False
+    assert case.processing_trace.agent_fallback_reason is None
     assert case.processing_trace.final_urgency_source == "agent"
     assert case.processing_trace.rules_urgency_override is False
     assert case.processing_trace.steps == [
@@ -257,7 +274,12 @@ def test_non_agent_processing_records_ai_processing_trace() -> None:
     case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
 
     assert case.processing_trace.agent_used is False
+    assert case.processing_trace.agent_attempted is False
     assert case.processing_trace.agent_provider is None
+    assert case.processing_trace.agent_mode is None
+    assert case.processing_trace.agent_output_valid is None
+    assert case.processing_trace.agent_fallback_used is False
+    assert case.processing_trace.agent_fallback_reason is None
     assert case.processing_trace.ai_provider == "mock"
     assert case.processing_trace.final_urgency_source == "ai"
     assert case.processing_trace.rules_urgency_override is False
@@ -316,6 +338,9 @@ def test_agent_configured_intake_preserves_red_flag_rules() -> None:
     assert "Red-flag rule match" in case.urgencyRationale
     assert case.processing_trace.rules_urgency_override is True
     assert case.processing_trace.final_urgency_source == "rules"
+    assert case.processing_trace.agent_attempted is True
+    assert case.processing_trace.agent_output_valid is True
+    assert case.processing_trace.agent_fallback_used is False
 
 
 def test_invalid_agent_output_creates_safe_fallback_case() -> None:
@@ -341,7 +366,12 @@ def test_invalid_agent_output_creates_safe_fallback_case() -> None:
     assert case.reviewStatus == "PendingReview"
     assert case.intakeComplete is False
     assert case.processing_trace.agent_used is True
+    assert case.processing_trace.agent_attempted is True
     assert case.processing_trace.agent_provider == "mock"
+    assert case.processing_trace.agent_mode == "mock"
+    assert case.processing_trace.agent_output_valid is False
+    assert case.processing_trace.agent_fallback_used is True
+    assert case.processing_trace.agent_fallback_reason == "invalid_agent_output"
     assert case.processing_trace.final_urgency_source == "unknown"
     assert case.processing_trace.rules_urgency_override is False
     assert case.processing_trace.warnings == [
@@ -372,9 +402,42 @@ def test_invalid_agent_output_still_allows_red_flag_rules_to_promote_urgency() -
     )
     assert case.processing_trace.rules_urgency_override is True
     assert case.processing_trace.final_urgency_source == "rules"
+    assert case.processing_trace.agent_attempted is True
+    assert case.processing_trace.agent_output_valid is False
+    assert case.processing_trace.agent_fallback_used is True
+    assert case.processing_trace.agent_fallback_reason == "invalid_agent_output"
     assert case.processing_trace.warnings == [
         "Agent output failed contract validation; safe fallback values were used."
     ]
+
+
+def test_agent_exception_creates_safe_fallback_case_without_raw_error() -> None:
+    agent = ExceptionNurseIntakeAgent()
+    service = CaseProcessingService(
+        ai_service=ExplodingAiService(),
+        nurse_intake_agent=agent,
+        suppress_notifications=True,
+    )
+
+    case = asyncio.run(service.process(ROUTINE_TEXT, "text-intake"))
+
+    assert agent.calls == [ROUTINE_TEXT]
+    assert case.summary == "Agent output could not be safely parsed. Nurse review required."
+    assert case.urgency == "Unknown"
+    assert case.aiUrgency == "Unknown"
+    assert case.ruleUrgency == "Routine"
+    assert case.intakeStatus == "NeedsFollowUp"
+    assert case.reviewStatus == "PendingReview"
+    assert case.processing_trace.agent_attempted is True
+    assert case.processing_trace.agent_provider == "foundry-agent"
+    assert case.processing_trace.agent_mode == "foundry-agent"
+    assert case.processing_trace.agent_output_valid is False
+    assert case.processing_trace.agent_fallback_used is True
+    assert case.processing_trace.agent_fallback_reason == "agent_execution_failed"
+    response_dump = case.model_dump_json()
+    assert "secret endpoint" not in response_dump
+    assert "https://example.invalid" not in response_dump
+    assert "raw response" not in response_dump
 
 
 def test_agent_configured_intake_saves_same_core_case_fields() -> None:

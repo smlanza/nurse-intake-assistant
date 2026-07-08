@@ -136,6 +136,9 @@ def test_text_intake_can_use_configured_nurse_intake_agent(
     assert case["sourceCallId"] == "agent-call-001"
     assert case["notificationEmailStatus"] == "Suppressed"
     assert case["notificationSmsStatus"] == "Suppressed"
+    assert case["processing_trace"]["agent_attempted"] is True
+    assert case["processing_trace"]["agent_output_valid"] is True
+    assert case["processing_trace"]["agent_fallback_used"] is False
     assert repository.saved_cases[-1]["summary"] == "Agent route summary."
 
 

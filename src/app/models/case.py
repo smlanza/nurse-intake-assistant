@@ -23,6 +23,7 @@ Urgency = Literal["Routine", "Urgent", "Unknown"]
 CaseType = Literal["phone-intake", "text-intake", "audio-upload"]
 UrgencySource = Literal["AI", "Rules", "RulesAndAI", "Unknown"]
 FinalUrgencySource = Literal["agent", "ai", "rules", "unknown"]
+AgentFallbackReason = Literal["invalid_agent_output", "agent_execution_failed"]
 NotificationStatus = Literal[
     "NotAttempted",
     "MockRecorded",
@@ -35,7 +36,12 @@ NotificationStatus = Literal[
 class ProcessingTrace(BaseModel):
     ai_provider: str | None = None
     agent_provider: str | None = None
+    agent_mode: str | None = None
     agent_used: bool = False
+    agent_attempted: bool = False
+    agent_output_valid: bool | None = None
+    agent_fallback_used: bool = False
+    agent_fallback_reason: AgentFallbackReason | None = None
     steps: list[str] = Field(default_factory=list)
     rules_urgency_override: bool = False
     final_urgency_source: FinalUrgencySource = "unknown"

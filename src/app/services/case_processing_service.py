@@ -41,6 +41,11 @@ class CaseProcessingService:
     _AGENT_CONTRACT_FALLBACK_RATIONALE = (
         "Agent output failed contract validation; safe fallback values were used."
     )
+    _AGENT_EXECUTION_FALLBACK_RATIONALE = (
+        "Agent execution failed; safe fallback values were used."
+    )
+    _SAFE_AGENT_PROVIDERS = {"mock", "foundry", "foundry-agent"}
+    _SAFE_AGENT_MODES = {"mock", "fake", "foundry-agent"}
     _SUPPORTED_CASE_TYPES: tuple[CaseType, ...] = (
         "text-intake",
         "phone-intake",
@@ -89,20 +94,35 @@ class CaseProcessingService:
         agent_result = None
         processing_trace_warnings: list[str] = []
         agent_contract_valid = True
+        agent_fallback_reason = None
         agent_used = self.nurse_intake_agent is not None
         if agent_used:
-            agent_result = await self.nurse_intake_agent.analyze_intake(raw_text)
-            validation_result = validate_nurse_intake_agent_result(agent_result)
-            if validation_result.is_valid:
-                extraction = agent_result.extraction
-                ai_urgency = agent_result.urgency
-            else:
+            try:
+                agent_result = await self.nurse_intake_agent.analyze_intake(raw_text)
+                validation_result = validate_nurse_intake_agent_result(agent_result)
+                if validation_result.is_valid:
+                    extraction = agent_result.extraction
+                    ai_urgency = agent_result.urgency
+                else:
+                    agent_contract_valid = False
+                    agent_fallback_reason = "invalid_agent_output"
+                    processing_trace_warnings.append(
+                        self._AGENT_CONTRACT_FALLBACK_RATIONALE
+                    )
+                    extraction = self._build_agent_contract_fallback_extraction()
+                    ai_urgency = self._build_agent_contract_fallback_urgency(
+                        self._AGENT_CONTRACT_FALLBACK_RATIONALE
+                    )
+            except Exception:
                 agent_contract_valid = False
+                agent_fallback_reason = "agent_execution_failed"
                 processing_trace_warnings.append(
-                    self._AGENT_CONTRACT_FALLBACK_RATIONALE
+                    self._AGENT_EXECUTION_FALLBACK_RATIONALE
                 )
                 extraction = self._build_agent_contract_fallback_extraction()
-                ai_urgency = self._build_agent_contract_fallback_urgency()
+                ai_urgency = self._build_agent_contract_fallback_urgency(
+                    self._AGENT_EXECUTION_FALLBACK_RATIONALE
+                )
         else:
             extraction = await self.ai_service.extract_and_summarize(raw_text)
             ai_urgency = await self.ai_service.classify_urgency(raw_text)
@@ -111,7 +131,7 @@ class CaseProcessingService:
         urgency_source = self._merge_urgency_source(ai_urgency, rule_result)
         final_urgency = self._merge_final_urgency(ai_urgency, rule_result)
         urgency_rationale = (
-            self._AGENT_CONTRACT_FALLBACK_RATIONALE
+            ai_urgency.urgency_rationale
             if not agent_contract_valid
             else self._build_urgency_rationale(
                 ai_urgency,
@@ -148,6 +168,8 @@ class CaseProcessingService:
             processing_trace=self._build_processing_trace(
                 agent_used=agent_used,
                 agent_contract_valid=agent_contract_valid,
+                agent_fallback_reason=agent_fallback_reason,
+                nurse_intake_agent=self.nurse_intake_agent,
                 agent_result=agent_result,
                 ai_urgency=ai_urgency,
                 rule_result=rule_result,
@@ -168,6 +190,8 @@ class CaseProcessingService:
         *,
         agent_used: bool,
         agent_contract_valid: bool,
+        agent_fallback_reason: str | None,
+        nurse_intake_agent: object | None,
         agent_result: object | None,
         ai_urgency: object,
         rule_result: RuleEvaluationResult,
@@ -189,9 +213,26 @@ class CaseProcessingService:
         return ProcessingTrace(
             ai_provider=None if agent_used else self._ai_provider_name(),
             agent_provider=(
-                self._agent_provider_name(agent_result) if agent_used else None
+                self._agent_provider_name(
+                    nurse_intake_agent=nurse_intake_agent,
+                    agent_result=agent_result,
+                )
+                if agent_used
+                else None
+            ),
+            agent_mode=(
+                self._agent_mode_name(
+                    nurse_intake_agent=nurse_intake_agent,
+                    agent_result=agent_result,
+                )
+                if agent_used
+                else None
             ),
             agent_used=agent_used,
+            agent_attempted=agent_used,
+            agent_output_valid=agent_contract_valid if agent_used else None,
+            agent_fallback_used=agent_used and not agent_contract_valid,
+            agent_fallback_reason=agent_fallback_reason,
             steps=list(self._AGENT_STEPS if agent_used else self._AI_STEPS),
             rules_urgency_override=rules_urgency_override,
             final_urgency_source=final_urgency_source,
@@ -210,11 +251,67 @@ class CaseProcessingService:
             return "foundry"
         return class_name
 
-    @staticmethod
-    def _agent_provider_name(agent_result: object | None) -> str | None:
+    @classmethod
+    def _agent_provider_name(
+        cls,
+        *,
+        nurse_intake_agent: object | None,
+        agent_result: object | None,
+    ) -> str | None:
         metadata = getattr(agent_result, "metadata", None)
         provider = getattr(metadata, "provider", None)
-        return provider if isinstance(provider, str) else None
+        safe_provider = cls._safe_agent_provider(provider)
+        if safe_provider is not None:
+            return safe_provider
+
+        provider = getattr(nurse_intake_agent, "provider", None)
+        safe_provider = cls._safe_agent_provider(provider)
+        if safe_provider is not None:
+            return safe_provider
+
+        settings = getattr(nurse_intake_agent, "settings", None)
+        provider = getattr(settings, "agent_provider_normalized", None)
+        safe_provider = cls._safe_agent_provider(provider)
+        if safe_provider is not None:
+            return safe_provider
+
+        return None
+
+    @classmethod
+    def _agent_mode_name(
+        cls,
+        *,
+        nurse_intake_agent: object | None,
+        agent_result: object | None,
+    ) -> str | None:
+        metadata = getattr(agent_result, "metadata", None)
+        mode = getattr(metadata, "agentMode", None)
+        safe_mode = cls._safe_agent_mode(mode)
+        if safe_mode is not None:
+            return safe_mode
+
+        mode = getattr(nurse_intake_agent, "agentMode", None)
+        safe_mode = cls._safe_agent_mode(mode)
+        if safe_mode is not None:
+            return safe_mode
+
+        provider = cls._agent_provider_name(
+            nurse_intake_agent=nurse_intake_agent,
+            agent_result=agent_result,
+        )
+        return "foundry-agent" if provider in {"foundry", "foundry-agent"} else None
+
+    @classmethod
+    def _safe_agent_provider(cls, provider: object) -> str | None:
+        if isinstance(provider, str) and provider in cls._SAFE_AGENT_PROVIDERS:
+            return provider
+        return None
+
+    @classmethod
+    def _safe_agent_mode(cls, mode: object) -> str | None:
+        if isinstance(mode, str) and mode in cls._SAFE_AGENT_MODES:
+            return mode
+        return None
 
     @staticmethod
     def _rules_override_urgency(
@@ -236,10 +333,10 @@ class CaseProcessingService:
         )
 
     @classmethod
-    def _build_agent_contract_fallback_urgency(cls) -> object:
+    def _build_agent_contract_fallback_urgency(cls, rationale: str) -> object:
         return SimpleNamespace(
             urgency="Unknown",
-            urgency_rationale=cls._AGENT_CONTRACT_FALLBACK_RATIONALE,
+            urgency_rationale=rationale,
             advisory_disclaimer="Nurse review required.",
         )
 

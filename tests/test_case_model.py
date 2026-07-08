@@ -50,6 +50,11 @@ def test_case_document_defaults_to_unknown_processing_trace() -> None:
     assert case.processing_trace.ai_provider is None
     assert case.processing_trace.agent_provider is None
     assert case.processing_trace.agent_used is False
+    assert case.processing_trace.agent_attempted is False
+    assert case.processing_trace.agent_mode is None
+    assert case.processing_trace.agent_output_valid is None
+    assert case.processing_trace.agent_fallback_used is False
+    assert case.processing_trace.agent_fallback_reason is None
     assert case.processing_trace.steps == []
     assert case.processing_trace.rules_urgency_override is False
     assert case.processing_trace.final_urgency_source == "unknown"

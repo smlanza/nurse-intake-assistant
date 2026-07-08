@@ -27,7 +27,8 @@ AI output is advisory only and requires human nurse review.
 ```text
 POST /intake/text or POST /intake/voicemail-transcript
 -> CaseProcessingService
--> AI provider
+-> Optional NurseIntakeAgent for explicit non-mock AGENT_PROVIDER
+-> AI provider when no agent is configured
 -> UrgencyRulesService
 -> Case repository
 -> Notification senders
@@ -45,6 +46,10 @@ POST /intake/text or POST /intake/voicemail-transcript
   selects the Foundry provider boundary, offline contract tests, fake-client
   seam, lazy live adapter, manual guide, and smoke CLI; live Foundry extraction
   has not been completed.
+- `AGENT_PROVIDER=mock` remains the default and does not attempt Foundry Agent
+  execution. `AGENT_PROVIDER=foundry-agent` explicitly routes intake through
+  the `NurseIntakeAgent` boundary where already supported, with contract
+  validation and safe fallback behavior.
 - `SPEECH_PROVIDER=mock` supports already-transcribed text through an offline
   boundary. `SPEECH_PROVIDER=azure` wires the Azure Speech scaffold and
   preflight guide/CLI; live audio transcription, upload, and processing are
@@ -58,6 +63,22 @@ POST /intake/text or POST /intake/voicemail-transcript
 - `scripts/preflight.py --all` runs consolidated offline-safe readiness checks
   for Foundry, Speech, ACS Email, and ACS SMS without live calls or sends.
 
+## Processing Trace Observability
+
+Saved and returned cases include `processing_trace` for diagnostic visibility
+into the local processing path. For the optional `NurseIntakeAgent` path, the
+trace records only safe structured values: `agent_attempted`, `agent_provider`,
+`agent_mode`, `agent_output_valid`, `agent_fallback_used`, and
+`agent_fallback_reason`. Safe fallback reasons include
+`invalid_agent_output` and `agent_execution_failed`.
+
+The trace is diagnostic only. It does not expose raw prompts, raw model
+responses, endpoint URLs, deployment names, credentials, stack traces,
+exception messages, PHI, or secrets. It also does not imply production
+clinical readiness or live Azure validation. Deterministic red-flag rules
+remain active after agent processing, and `final_urgency_source` remains
+`rules` when rules promote urgency.
+
 ## Mock vs Azure-Ready vs Deferred
 
 | Area | Current status | Notes |
@@ -66,6 +87,7 @@ POST /intake/text or POST /intake/voicemail-transcript
 | Voicemail transcript intake | Working in local mock mode | Accepts already-transcribed text only |
 | Nurse review | Working in local mock mode | Review queue, case detail, and review metadata are implemented |
 | Mock notifications | Working in local mock mode | Email/SMS records are inspectable without live sends |
+| NurseIntakeAgent trace | Working in local mock/offline tests | Diagnostic-only safe trace; no live Azure validation claim |
 | Cosmos | Azure-ready boundary with prior manual point-read smoke | Cross-partition list/summary work remains future |
 | ACS Email | Boundary implemented; live smoke complete | Keep credentials local and uncommitted |
 | ACS SMS | Boundary implemented; not final-delivery confirmed | Toll-free/regulatory workflow and delivery tracking remain deferred |

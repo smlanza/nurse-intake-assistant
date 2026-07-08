@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 690 passed
+- 693 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -23,14 +23,16 @@ Important constraints:
 
 Latest completed slice:
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
-- `NurseIntakeAgent` output is validated before `CaseProcessingService` trusts
-  summary, urgency, or handoff-note fields.
-- Invalid agent output does not crash intake processing; it creates safe
-  nurse-review fallback values and keeps deterministic red-flag rules active.
-- `processing_trace.final_urgency_source` is `unknown` for invalid agent
-  fallback unless red-flag rules promote urgency, in which case it is `rules`.
+- `processing_trace` now records safe structured fields for agent attempt,
+  provider/mode, output validity, fallback use, and fallback reason values
+  such as `invalid_agent_output` or `agent_execution_failed`.
+- Invalid agent output and agent exceptions do not expose raw model output,
+  prompts, endpoints, tokens, stack traces, or exception details; they create
+  safe nurse-review fallback values instead.
+- Red-flag rules still run after agent processing/fallback; when they promote
+  urgency, `final_urgency_source` remains `rules`.
 - Live Foundry Agent validation remains manual/opt-in and not claimed complete;
-  default mock demo behavior is unchanged.
+  default mock behavior is unchanged.
 
 ## Current Resume Point
 
