@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 702 passed
+- 707 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,15 +22,14 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent live smoke CLI now reports sanitized structured
-  success/failure results for manual Azure validation through
-  `scripts/smoke_foundry_agent.py --live --json`.
-- The JSON result contract reports provider, mode, configured, SDK visibility,
-  attempted, status, safe failure category, and next-step hint without exposing
-  endpoint URLs, agent IDs, deployment names, prompts, raw model output, raw
+- Foundry Agent live JSON diagnostics now distinguish `response_parse_failed`
+  from `contract_invalid` while keeping all output sanitized.
+- The JSON result contract still reports provider, mode, configured, SDK
+  visibility, attempted, status, safe failure category, and next-step hint
+  without exposing endpoint URLs, agent IDs, prompts, raw model output, raw
   exceptions, stack traces, bearer tokens, connection strings, access keys, or
   real patient data.
-- Automated tests remain offline with fake clients only; no live Azure calls
+- Automated tests remain offline with fake failures only; no live Azure calls
   were added to tests.
 - No default provider changes, notification behavior changes,
   hosting/auth/Key Vault/Speech/phone intake/retry/durable processing,
@@ -257,9 +256,10 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 - Foundry Agent live smoke result contract slice is complete.
 - `scripts/smoke_foundry_agent.py --live --json` now returns sanitized
-  structured success/failure results for manual Azure validation.
-- Automated tests use fake agents/settings only and remain offline; no live
-  Azure calls were added to tests.
+  structured success/failure results for manual Azure validation, including
+  distinct `response_parse_failed` and `contract_invalid` categories.
+- Automated tests use fake agents/settings/failures only and remain offline; no
+  live Azure calls were added to tests.
 - `AGENT_PROVIDER=mock` and all other mock/local defaults remain unchanged.
 - No notification behavior, hosting/auth/Key Vault, Speech, phone intake,
   retry/durable processing, production frontend, or production clinical

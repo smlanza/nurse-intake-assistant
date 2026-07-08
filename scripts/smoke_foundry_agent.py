@@ -21,6 +21,7 @@ from src.app.services.foundry_agent_client import (
 )
 from src.app.services.foundry_extraction_contract import (
     FoundryExtractionContractError,
+    FoundryExtractionParseError,
 )
 from src.app.services.nurse_intake_agent_factory import create_nurse_intake_agent
 from src.app.services.nurse_intake_agent_preflight import (
@@ -296,6 +297,12 @@ def _foundry_agent_configured(settings: AppSettings) -> bool:
 
 
 def _live_result_category(error: BaseException) -> str:
+    if any(
+        isinstance(candidate, FoundryExtractionParseError)
+        for candidate in _walk_exception_chain(error)
+    ):
+        return "response_parse_failed"
+
     legacy_category = classify_live_agent_failure(error)
     return LIVE_RESULT_CATEGORY_BY_LEGACY_CATEGORY.get(
         legacy_category,

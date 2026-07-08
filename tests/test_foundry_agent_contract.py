@@ -4,6 +4,7 @@ import pytest
 
 from src.app.services.foundry_extraction_contract import (
     FoundryExtractionContractError,
+    FoundryExtractionParseError,
 )
 from src.app.services.foundry_agent_contract import (
     build_foundry_agent_intake_instructions,
@@ -111,6 +112,21 @@ def test_foundry_agent_response_normalizer_rejects_malformed_json(
 
 
 @pytest.mark.parametrize(
+    "response",
+    [
+        "{not-json",
+        "```json\nnot-json\n```",
+        _json_response() + _json_response(),
+    ],
+)
+def test_foundry_agent_response_normalizer_raises_parse_error_for_unparseable_json(
+    response: str,
+) -> None:
+    with pytest.raises(FoundryExtractionParseError):
+        normalize_foundry_agent_intake_response(response)
+
+
+@pytest.mark.parametrize(
     ("mutator", "message"),
     [
         (lambda payload: payload.pop("extraction"), "missing required section"),
@@ -156,6 +172,16 @@ def test_foundry_agent_response_normalizer_rejects_contract_violations(
 
     with pytest.raises(FoundryExtractionContractError, match=message):
         normalize_foundry_agent_intake_response(_json_response(payload))
+
+
+def test_foundry_agent_response_normalizer_contract_violation_is_not_parse_error() -> None:
+    payload = _valid_agent_payload()
+    payload["urgency"]["urgency"] = "Emergency"
+
+    with pytest.raises(FoundryExtractionContractError) as exc:
+        normalize_foundry_agent_intake_response(_json_response(payload))
+
+    assert not isinstance(exc.value, FoundryExtractionParseError)
 
 
 def test_foundry_agent_response_normalizer_error_messages_are_sanitized() -> None:

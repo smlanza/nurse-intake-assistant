@@ -70,6 +70,10 @@ class FoundryExtractionContractError(ValueError):
         )
 
 
+class FoundryExtractionParseError(FoundryExtractionContractError):
+    """Raised when a Foundry structured extraction response is not parseable."""
+
+
 def build_foundry_structured_extraction_prompt(raw_text: str) -> str:
     """Build deterministic instructions for future Foundry structured extraction."""
 
@@ -131,7 +135,7 @@ def normalize_foundry_structured_extraction_response(
     try:
         payload = json.loads(model_response)
     except json.JSONDecodeError as exc:
-        raise _contract_error(
+        raise _parse_error(
             "Foundry structured extraction response was not valid JSON."
         ) from exc
 
@@ -278,3 +282,21 @@ def _contract_error(
             validation_issue_count=max(1, metadata.validation_issue_count),
         )
     return FoundryExtractionContractError(message, error_metadata)
+
+
+def _parse_error(
+    message: str,
+    metadata: FoundryExtractionNormalizationMetadata | None = None,
+) -> FoundryExtractionParseError:
+    if metadata is None:
+        error_metadata = FoundryExtractionNormalizationMetadata(
+            normalized=False,
+            validation_issue_count=1,
+        )
+    else:
+        error_metadata = replace(
+            metadata,
+            normalized=False,
+            validation_issue_count=max(1, metadata.validation_issue_count),
+        )
+    return FoundryExtractionParseError(message, error_metadata)

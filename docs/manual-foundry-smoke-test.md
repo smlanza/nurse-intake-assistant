@@ -219,6 +219,10 @@ Safe Foundry Agent live failure categories include:
 - response_parse_failed
 - unknown_failure
 
+For `--live --json`, `response_parse_failed` means the agent did not return
+parseable structured JSON. `contract_invalid` means the agent returned
+parseable structured data that did not match the expected extraction contract.
+
 Do not claim live Foundry Agent behavior is verified unless this manual
 `--live` path has been run successfully in the intended Azure environment.
 Passing `--check` means local configuration is present and no Azure call was

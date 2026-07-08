@@ -14,6 +14,7 @@ from src.app.services.foundry_extraction_contract import (
     FOUNDRY_ADVISORY_DISCLAIMER,
     FoundryExtractionContractError,
     FoundryExtractionNormalizationMetadata,
+    FoundryExtractionParseError,
     FoundryStructuredExtractionResult,
 )
 
@@ -98,7 +99,7 @@ def normalize_foundry_agent_intake_response(
     try:
         payload = json.loads(json_response)
     except json.JSONDecodeError as exc:
-        raise _agent_contract_error(
+        raise _agent_parse_error(
             "Foundry Agent response was not valid JSON."
         ) from exc
 
@@ -391,3 +392,23 @@ def _agent_contract_error(
             validation_issue_count=max(1, metadata.validation_issue_count),
         )
     return FoundryExtractionContractError(message, error_metadata)
+
+
+def _agent_parse_error(
+    message: str,
+    metadata: FoundryExtractionNormalizationMetadata | None = None,
+) -> FoundryExtractionParseError:
+    if metadata is None:
+        error_metadata = FoundryExtractionNormalizationMetadata(
+            provider="foundry-agent",
+            normalized=False,
+            validation_issue_count=1,
+            contract_version=FOUNDRY_AGENT_INTAKE_CONTRACT_VERSION,
+        )
+    else:
+        error_metadata = replace(
+            metadata,
+            normalized=False,
+            validation_issue_count=max(1, metadata.validation_issue_count),
+        )
+    return FoundryExtractionParseError(message, error_metadata)

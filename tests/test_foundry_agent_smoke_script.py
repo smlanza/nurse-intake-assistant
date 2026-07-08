@@ -5,7 +5,10 @@ from types import SimpleNamespace
 import pytest
 
 from src.app.services.foundry_agent_client import FoundryAgentClientError
-from src.app.services.foundry_extraction_contract import FoundryExtractionContractError
+from src.app.services.foundry_extraction_contract import (
+    FoundryExtractionContractError,
+    FoundryExtractionParseError,
+)
 
 
 def _settings(
@@ -71,6 +74,13 @@ class ContractInvalidAgent:
     async def analyze_intake(self, raw_text: str) -> SimpleNamespace:
         raise FoundryExtractionContractError(
             "raw model output: {\"patient\":\"secret\"}"
+        )
+
+
+class ParseFailingAgent:
+    async def analyze_intake(self, raw_text: str) -> SimpleNamespace:
+        raise FoundryExtractionParseError(
+            "raw model output: {malformed secret-agent-id}"
         )
 
 
@@ -356,6 +366,42 @@ def test_foundry_agent_smoke_script_live_json_contract_invalid_is_safe(
     assert "raw model output" not in captured.out
     assert "patient" not in captured.out
     assert "Traceback" not in captured.out + captured.err
+
+
+def test_foundry_agent_smoke_script_live_json_parse_failure_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            agent_provider="foundry-agent",
+            project_endpoint="https://secret-agent.services.ai.azure.com/api/projects/demo",
+            agent_id="secret-agent-id",
+        ),
+    )
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: ParseFailingAgent(),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["status"] == "failed"
+    assert payload["safeFailureCategory"] == "response_parse_failed"
+    combined_output = captured.out + captured.err
+    assert "raw model output" not in combined_output
+    assert "{malformed secret-agent-id}" not in combined_output
+    assert "https://secret-agent.services.ai.azure.com" not in combined_output
+    assert "secret-agent-id" not in combined_output
+    assert "Traceback" not in combined_output
 
 
 def test_foundry_agent_smoke_script_live_json_missing_configuration_not_attempted(
