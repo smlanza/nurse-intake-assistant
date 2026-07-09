@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 766 passed
+- 767 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,16 +22,15 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent live smoke adapter pivoted to the portal-supported project
-  responses agent-reference pattern for manual `--live --json` validation.
-- The opt-in live client now uses `AIProjectClient`, an agent-scoped OpenAI
-  Responses client, configured agent name/version, and fake-tested response
-  extraction for the existing Nurse Intake Agent parser.
+- Manual live Foundry Agent smoke passed using the portal-supported project
+  responses agent-reference path.
+- Sanitized result facts: `ok=true`, `category=success`,
+  `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`,
+  and `fields_present` included `extraction`, `urgency`, and `handoffNote`.
 - Automated tests remain offline and deterministic with fake clients only.
-- No live Azure success is claimed unless the manual `--live --json` path is
-  actually verified in the intended Azure environment.
-- `AGENT_PROVIDER=mock` remains the safe default and default mock behavior is
-  unchanged.
+- No live Azure behavior is claimed for `/demo` by default.
+- `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
+  review remains mandatory.
 - No secrets, raw Azure values, endpoint values, agent IDs, deployment names,
   tokens, raw model output, connection strings, real contact data, or real
   patient data are exposed by diagnostic output, check output, smoke JSON
@@ -67,7 +66,7 @@ Implemented but not live-confirmed:
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
-- Live Azure AI Foundry smoke testing or live Foundry extraction
+- Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path
 - Live Azure Speech transcription, audio upload, or audio processing
 - ACS phone intake/call automation, Key Vault, App Service hosting/auth,
   retry/durable processing, SMS delivery tracking, production frontend, or

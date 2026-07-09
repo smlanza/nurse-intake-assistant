@@ -89,10 +89,13 @@ def test_foundry_agent_local_env_example_documents_placeholders() -> None:
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT="
         "<your-foundry-agent-project-endpoint>"
     ) in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_NAME=nurse-agent" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_VERSION=2" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_ID=" in env_example
-    assert "not required for the project-responses smoke path" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME=<your-foundry-agent-name>" in env_example
+    assert (
+        "AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>"
+        in env_example
+    )
+    assert "project-responses agent name/version path" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_ID" not in env_example
     assert "Do not commit real values" in env_example
     assert "services.ai.azure.com/api/projects/" not in env_example
     assert "secret" not in env_example.lower()
@@ -541,8 +544,8 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "safe client error category" in doc
     assert "safe client error phase" in normalized_doc
     assert "project-responses agent-reference pattern" in normalized_doc
-    assert "AZURE_AI_FOUNDRY_AGENT_NAME=nurse-agent" in doc
-    assert "AZURE_AI_FOUNDRY_AGENT_VERSION=2" in doc
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME=<your-foundry-agent-name>" in doc
+    assert "AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>" in doc
     assert "`AZURE_AI_FOUNDRY_AGENT_ID` is not required" in doc
     assert "phase=response_creation" in doc
     assert "phase=response_extraction" in doc
@@ -557,6 +560,60 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "contract_invalid" in doc
     assert "does not make the app production clinical software" in normalized_doc
     assert "AGENT_PROVIDER=mock" in doc
+
+
+def test_manual_foundry_doc_has_sanitized_foundry_agent_success_example() -> None:
+    doc = (PROJECT_ROOT / "docs" / "manual-foundry-smoke-test.md").read_text()
+    progress = (PROJECT_ROOT / "docs" / "progress.md").read_text()
+    normalized_progress = " ".join(progress.split())
+
+    marker = "Sanitized successful result example:"
+    assert marker in doc
+    success_section = doc.split(marker, 1)[1].split("`--live --diagnose`", 1)[0]
+
+    for expected_text in [
+        '"ok": true',
+        '"category": "success"',
+        '"agent_attempted": true',
+        '"agent_output_valid": true',
+        '"fallback_used": false',
+        '"fields_present": ["extraction", "urgency", "handoffNote"]',
+    ]:
+        assert expected_text in success_section
+
+    for unsafe_text in [
+        "services.ai.azure.com/api/projects/",
+        "openai.azure.com",
+        "nurse-agent",
+        "agentVersion",
+        "AZURE_AI_FOUNDRY_AGENT_VERSION=2",
+        "AZURE_AI_FOUNDRY_AGENT_ID=",
+        "raw prompt",
+        "raw model output",
+        "raw agent response text",
+        "request_id",
+        "request ID value",
+        "Bearer ",
+        "secret-token",
+        "@",
+        "+1",
+        "555",
+        "DOB",
+    ]:
+        assert unsafe_text not in success_section
+
+    assert "Manual live Foundry Agent smoke passed" in progress
+    assert "`ok=true`" in progress
+    assert "`category=success`" in progress
+    assert "`agent_attempted=true`" in progress
+    assert "`agent_output_valid=true`" in progress
+    assert "`fallback_used=false`" in progress
+    assert "`extraction`, `urgency`, and `handoffNote`" in progress
+    assert "No live Azure behavior is claimed for `/demo` by default" in progress
+    assert "`AGENT_PROVIDER=mock` remains the safe local/demo default" in progress
+    assert "human nurse review remains mandatory" in normalized_progress
+    assert "demo defaults to live Azure" not in progress.lower()
+    assert "demo calls Azure by default" not in progress
 
 
 def test_readme_documents_smoke_scripts_are_explicitly_invoked_checks() -> None:
@@ -881,11 +938,16 @@ def test_progress_active_resume_links_archived_history() -> None:
 
 def test_progress_current_resume_point_keeps_live_azure_scope_honest() -> None:
     progress = (PROJECT_ROOT / "docs" / "progress.md").read_text()
+    normalized_progress = " ".join(progress.split())
 
     assert "## Current Resume Point" in progress
     assert "Safe to demo today" in progress
     assert "default demo mock/offline" in progress
-    assert "Live Azure AI Foundry smoke testing or live Foundry extraction" in progress
+    assert (
+        "Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path"
+        in normalized_progress
+    )
+    assert "Manual live Foundry Agent smoke passed" in progress
     assert "Live Azure Speech transcription, audio upload, or audio processing" in progress
 
 

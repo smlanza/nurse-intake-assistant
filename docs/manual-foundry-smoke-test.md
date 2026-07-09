@@ -144,8 +144,8 @@ Create a local `.env.foundry-agent.local` from
 ```bash
 AGENT_PROVIDER=foundry-agent
 AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=<your-foundry-agent-project-endpoint>
-AZURE_AI_FOUNDRY_AGENT_NAME=nurse-agent
-AZURE_AI_FOUNDRY_AGENT_VERSION=2
+AZURE_AI_FOUNDRY_AGENT_NAME=<your-foundry-agent-name>
+AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>
 ```
 
 The script also preserves the existing `AGENT_PROVIDER=foundry` smoke alias.
@@ -284,6 +284,28 @@ In plain terms: --live remains manual and opt-in.
 traces, full endpoints, agent IDs, agent names, agent versions, bearer tokens,
 prompts, instructions, raw model output, connection strings, real
 patient/contact data, email addresses, phone numbers, or PHI.
+
+Sanitized successful result example:
+
+```json
+{
+  "ok": true,
+  "mode": "live",
+  "provider": "foundry-agent",
+  "category": "success",
+  "message": "Live Foundry Agent smoke validation completed successfully.",
+  "agent_attempted": true,
+  "agent_output_valid": true,
+  "fallback_used": false,
+  "fields_present": ["extraction", "urgency", "handoffNote"],
+  "recommended_next_step": "No action needed for this manual smoke result."
+}
+```
+
+This example is intentionally sanitized. It does not include the project
+endpoint, agent name, agent version, agent ID, request ID, prompt text, raw
+agent response, token, contact data, or PHI. It confirms only the manual smoke
+result shape and does not make `/demo` call Azure.
 
 `--live --diagnose` calls the same live path and prints only sanitized
 troubleshooting metadata: provider, mode, category, whether the agent was
