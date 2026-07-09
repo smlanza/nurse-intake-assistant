@@ -267,10 +267,11 @@ phone numbers, or PHI.
 
 `--live --diagnose` calls the same live path and prints only sanitized
 troubleshooting metadata: provider, mode, category, whether the agent was
-attempted, safe exception class name, safe status code when detectable, and the
-recommended next step. It does not print endpoint URLs, agent IDs, tokens,
-stack traces, raw exception messages, raw prompts, raw model responses, request
-IDs, real contact values, or PHI.
+attempted, safe root-cause exception class name when detectable, safe status
+code from the exception chain when available, and the recommended next step. It
+does not print endpoint URLs, agent IDs, tokens, stack traces, raw exception
+messages, raw prompts, raw model responses, request IDs, real contact values,
+or PHI.
 
 When `AGENT_PROVIDER=foundry-agent` or `AGENT_PROVIDER=foundry` is configured,
 `/demo/status`, `/ops`, and `python scripts/preflight.py --foundry-agent` may
@@ -296,15 +297,16 @@ For `--live --json`, `response_parse_failed` means the agent did not return
 parseable structured JSON. `contract_invalid` means the agent returned
 parseable structured data that did not match the expected extraction contract
 or the parsed result violated the `NurseIntakeAgent` output contract.
-`authentication_or_authorization_failed` points to Azure login, tenant, or RBAC
-problems; local development may require `az login` for `DefaultAzureCredential`.
-`azure_request_failed` means the live request reached the Azure-facing path but
-failed with a non-auth request category such as bad request, missing resource,
-conflict, rate limit, or service error. `missing_configuration` means required
-environment variable names are missing. `sdk_unavailable` means the optional
-Foundry Agent SDK dependencies are not importable. `unexpected_error` is a
-sanitized catch-all for failures outside the known configuration, SDK, auth,
-request, parsing, and contract buckets.
+`authentication_or_authorization_failed` usually means `az login`, tenant,
+subscription, or RBAC needs investigation; local development may require
+`az login` for `DefaultAzureCredential`. `azure_request_failed` usually means
+endpoint, agent ID, SDK compatibility, agent availability, or request shape
+needs investigation. It may also represent a non-auth request category such as
+bad request, missing resource, conflict, rate limit, or service error.
+`missing_configuration` means required environment variable names are missing.
+`sdk_unavailable` means the optional Foundry Agent SDK dependencies are not
+importable. `unexpected_error` is a sanitized catch-all for failures outside
+the known configuration, SDK, auth, request, parsing, and contract buckets.
 
 `category=success` means the manual smoke command received an agent result that
 parsed and satisfied the local Nurse Intake Agent contract for the built-in

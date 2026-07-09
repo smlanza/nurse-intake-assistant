@@ -439,7 +439,7 @@ def _print_diagnostic_result(
     print(f"Category: {result.category}")
     print(f"Agent attempted: {str(result.agent_attempted).lower()}")
     print(f"Agent output valid: {_format_optional_bool(result.agent_output_valid)}")
-    print(f"Safe exception class: {_safe_exception_class_name(error)}")
+    print(f"Safe exception class: {_safe_diagnostic_exception_name(error)}")
     print(f"Safe status code: {_format_optional_status_code(_find_status_code(error))}")
     print(f"Recommended next step: {result.recommended_next_step}")
     print(
@@ -550,17 +550,6 @@ def _live_json_result_category(error: BaseException) -> str:
         for candidate in _walk_exception_chain(error)
     ):
         return "contract_invalid"
-    for candidate in _walk_exception_chain(error):
-        if isinstance(candidate, FoundryAgentClientError):
-            if candidate.category == FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY:
-                return "sdk_unavailable"
-            if candidate.category == FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY:
-                return "missing_configuration"
-            if candidate.category in {
-                FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
-                FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
-            }:
-                return "azure_request_failed"
 
     status_code = _find_status_code(error)
     if status_code in {401, 403}:
@@ -591,6 +580,18 @@ def _live_json_result_category(error: BaseException) -> str:
         or "httperror" in chain_class_text
     ):
         return "azure_request_failed"
+
+    for candidate in _walk_exception_chain(error):
+        if isinstance(candidate, FoundryAgentClientError):
+            if candidate.category == FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY:
+                return "sdk_unavailable"
+            if candidate.category == FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY:
+                return "missing_configuration"
+            if candidate.category in {
+                FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+                FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
+            }:
+                return "azure_request_failed"
 
     legacy_category = classify_live_agent_failure(error)
     return LIVE_RESULT_CATEGORY_BY_LEGACY_CATEGORY.get(
@@ -868,6 +869,20 @@ def _safe_exception_class_name(error: BaseException | None) -> str:
     if class_name.isidentifier():
         return class_name
     return "unknown"
+
+
+def _safe_root_exception_class_name(error: BaseException | None) -> str:
+    if error is None:
+        return "none"
+    chain = _walk_exception_chain(error)
+    for candidate in reversed(chain):
+        if not isinstance(candidate, FoundryAgentClientError):
+            return _safe_exception_class_name(candidate)
+    return _safe_exception_class_name(error)
+
+
+def _safe_diagnostic_exception_name(error: BaseException | None) -> str:
+    return _safe_root_exception_class_name(error)
 
 
 def _format_optional_status_code(status_code: int | None) -> str:

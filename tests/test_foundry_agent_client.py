@@ -228,3 +228,41 @@ def test_foundry_agent_live_client_setup_failure_is_sanitized(
     assert "secret-foundry" not in message
     assert "secret-token" not in message
     assert "raw credential" not in message
+
+
+def test_foundry_agent_live_client_request_failure_preserves_safe_cause() -> None:
+    from src.app.services.foundry_agent_client import (
+        FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+        FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+        AzureAiFoundryAgentLiveClient,
+        FoundryAgentClientError,
+        FoundryAgentRequest,
+    )
+
+    class FakeHttpResponseError(Exception):
+        status_code = 404
+
+    class FailingLiveClient(AzureAiFoundryAgentLiveClient):
+        def _get_agents_client(self):
+            return object()
+
+        async def _invoke_with_client(self, agents_client, request):
+            raise FakeHttpResponseError("raw endpoint and agent secret")
+
+    client = FailingLiveClient(
+        project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
+        agent_id="secret-agent-id",
+    )
+    request = FoundryAgentRequest(
+        intake_text="Fictional patient requests a refill.",
+        instructions="Return JSON only.",
+    )
+
+    with pytest.raises(FoundryAgentClientError) as exc:
+        asyncio.run(client.invoke_agent(request))
+
+    assert exc.value.category == FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY
+    assert str(exc.value) == FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE
+    assert isinstance(exc.value.__cause__, FakeHttpResponseError)
+    assert getattr(exc.value.__cause__, "status_code") == 404
+    assert "secret" not in str(exc.value)

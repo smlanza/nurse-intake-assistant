@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 753 passed
+- 757 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,10 +22,11 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent live diagnostic/classification hardening completed.
-- `scripts/smoke_foundry_agent.py --live --diagnose` now prints sanitized
-  troubleshooting metadata for the same live path used by `--live --json`.
-- Live JSON classification now maps more Azure SDK, credential, status-code,
+- Foundry Agent root-cause diagnostic hardening completed.
+- Exception wrapping now preserves safe cause information for diagnostics, and
+  `--live --diagnose` prefers a safe root-cause exception class plus safe status
+  code from the exception chain when available.
+- Live JSON classification now maps wrapped Azure SDK, credential, status-code,
   and Foundry Agent client-boundary failures into safe categories instead of
   falling back to `unexpected_error` whenever detectable.
 - Automated tests remain offline and deterministic.
@@ -259,21 +260,19 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
-- Foundry Agent live diagnostic/classification hardening completed.
-- `--diagnose` was added for sanitized live troubleshooting metadata.
+- Foundry Agent root-cause diagnostic hardening completed.
+- Exception wrapping now preserves safe cause information for diagnostics.
 - Automated tests remain offline; no live Azure success is claimed unless
   manually verified; default mock behavior is unchanged; no secrets/raw Azure
   values or production hosting/auth/Key Vault/Speech/phone/retry/frontend/
   clinical scope were added.
+- Foundry Agent live diagnostic/classification hardening completed.
+- `--diagnose` was added for sanitized live troubleshooting metadata.
 - Foundry Agent instruction pack slice completed.
 - Centralized/versioned instructions now align manual Azure Agent
   configuration with the local `NurseIntakeAgent` contract.
 - The `--print-agent-instructions` command is offline and does not call Azure,
   load Azure settings, create clients, or invoke agents.
-- Automated tests remain offline; no live Azure success is claimed unless
-  manually verified; default mock behavior is unchanged; no secrets/raw Azure
-  values or production hosting/auth/Key Vault/Speech/phone/retry/frontend/
-  clinical scope were added.
 - Foundry Agent environment readiness helper/check hardening completed.
 - The new check helper builds a sanitized offline readiness summary using fake
   settings in tests and never creates a Foundry Agent client.

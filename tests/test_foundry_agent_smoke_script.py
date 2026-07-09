@@ -148,6 +148,22 @@ def _json_output(captured: pytest.CaptureFixture[str]) -> dict[str, object]:
     return json.loads(captured.readouterr().out)
 
 
+def _chained_foundry_agent_error(
+    cause: BaseException,
+    category: str = "foundry-agent-request-failed",
+) -> FoundryAgentClientError:
+    try:
+        raise cause
+    except BaseException as exc:
+        try:
+            raise FoundryAgentClientError(
+                "safe wrapper message",
+                category=category,
+            ) from exc
+        except FoundryAgentClientError as wrapped:
+            return wrapped
+
+
 @pytest.mark.parametrize(
     "error",
     [
@@ -217,6 +233,39 @@ def test_live_json_result_category_unknown_stays_unexpected_error() -> None:
     assert script._live_json_result_category(RuntimeError("raw secret")) == (
         "unexpected_error"
     )
+
+
+def test_live_json_result_category_uses_chained_auth_cause() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    error = _chained_foundry_agent_error(
+        ClientAuthenticationError("raw token endpoint secret")
+    )
+
+    assert script._live_json_result_category(error) == (
+        "authentication_or_authorization_failed"
+    )
+
+
+def test_live_json_result_category_uses_chained_http_status() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    error = _chained_foundry_agent_error(
+        StatusCodeError(404, "raw endpoint secret")
+    )
+
+    assert script._live_json_result_category(error) == "azure_request_failed"
+    assert script._find_status_code(error) == 404
+
+
+def test_safe_diagnostic_exception_name_prefers_chained_root_cause() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    error = _chained_foundry_agent_error(
+        HttpResponseError("raw endpoint secret")
+    )
+
+    assert script._safe_diagnostic_exception_name(error) == "HttpResponseError"
 
 
 def test_foundry_agent_environment_readiness_reports_ready_when_present() -> None:
@@ -627,7 +676,9 @@ def test_foundry_agent_smoke_script_live_json_authentication_failure_is_safe(
         script,
         "create_nurse_intake_agent",
         lambda settings: CategoryFailingAgent(
-            StatusCodeError(401, "raw bearer token endpoint secret")
+            _chained_foundry_agent_error(
+                StatusCodeError(401, "raw bearer token endpoint secret")
+            )
         ),
     )
 

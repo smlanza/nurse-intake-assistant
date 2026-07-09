@@ -531,7 +531,9 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "--live --json" in doc
     assert "--live --diagnose" in doc
     assert "az login" in doc
-    assert "safe exception class name" in doc
+    assert "safe root-cause exception class name" in doc
+    assert "safe status code from the exception chain" in normalized_doc
+    assert "endpoint, agent ID, SDK compatibility, agent availability, or request shape" in normalized_doc
     assert "agent_output_valid" in doc
     assert "recommended_next_step" in doc
     assert "Do not claim live Foundry Agent behavior" in doc
