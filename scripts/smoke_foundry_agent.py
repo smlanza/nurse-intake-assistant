@@ -16,10 +16,12 @@ from src.app.config.settings import AppSettings
 from src.app.services.foundry_agent_client import (
     FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY,
     FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
+    FOUNDRY_AGENT_PHASE_AGENT_REFERENCE_CREATION,
     FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
     FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
     FOUNDRY_AGENT_PHASE_CREDENTIAL_CREATION,
     FOUNDRY_AGENT_PHASE_NOT_WIRED,
+    FOUNDRY_AGENT_PHASE_RESPONSE_CREATION,
     FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
     FOUNDRY_AGENT_PHASE_RESPONSE_PARSING,
     FOUNDRY_AGENT_PHASE_SDK_IMPORT,
@@ -54,7 +56,7 @@ FOUNDRY_AGENT_PROVIDER_VALUES = {"foundry", "foundry-agent"}
 SAFE_FAILURE_HINTS = {
     "configuration": (
         "Check AGENT_PROVIDER, the Foundry Agent project endpoint setting, "
-        "and the Foundry Agent ID setting."
+        "agent name setting, and agent version setting."
     ),
     "credential": (
         "Check local Azure credential setup for this manual smoke environment."
@@ -132,6 +134,8 @@ AGENT_PROVIDER_SETTING_NAME = "AGENT_PROVIDER"
 FOUNDRY_AGENT_ENDPOINT_SETTING_NAME = "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"
 FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME = "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
 FOUNDRY_AGENT_ID_SETTING_NAME = "AZURE_AI_FOUNDRY_AGENT_ID"
+FOUNDRY_AGENT_NAME_SETTING_NAME = "AZURE_AI_FOUNDRY_AGENT_NAME"
+FOUNDRY_AGENT_VERSION_SETTING_NAME = "AZURE_AI_FOUNDRY_AGENT_VERSION"
 SAFE_CLIENT_ERROR_CATEGORIES = frozenset(
     {
         FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY,
@@ -145,7 +149,9 @@ SAFE_CLIENT_ERROR_PHASES = frozenset(
         FOUNDRY_AGENT_PHASE_SDK_IMPORT,
         FOUNDRY_AGENT_PHASE_CREDENTIAL_CREATION,
         FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
+        FOUNDRY_AGENT_PHASE_AGENT_REFERENCE_CREATION,
         FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+        FOUNDRY_AGENT_PHASE_RESPONSE_CREATION,
         FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
         FOUNDRY_AGENT_PHASE_RESPONSE_PARSING,
         FOUNDRY_AGENT_PHASE_NOT_WIRED,
@@ -309,8 +315,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help=(
             "Print sanitized live troubleshooting metadata for --live without "
-            "raw exception messages, stack traces, endpoints, agent IDs, or "
-            "model output."
+            "raw exception messages, stack traces, endpoints, agent IDs, "
+            "agent names, agent versions, or model output."
         ),
     )
     parser.add_argument(
@@ -473,8 +479,9 @@ def _print_diagnostic_result(
     print(f"Client error phase: {_safe_client_error_phase(error)}")
     print(f"Recommended next step: {result.recommended_next_step}")
     print(
-        "Sanitized diagnostic only: no endpoint, agent ID, token, prompt text, "
-        "model response text, stack trace, request ID, email, phone, or PHI was printed."
+        "Sanitized diagnostic only: no endpoint, agent ID, agent name, agent "
+        "version, token, prompt text, model response text, stack trace, "
+        "request ID, email, phone, or PHI was printed."
     )
 
 
@@ -529,28 +536,25 @@ def build_foundry_agent_environment_readiness(
         settings,
         "azure_ai_foundry_agent_project_endpoint",
     )
-    fallback_endpoint_present = _has_setting(
-        settings,
-        "azure_ai_foundry_project_endpoint",
-    )
     if agent_endpoint_present:
         required_present.append(FOUNDRY_AGENT_ENDPOINT_SETTING_NAME)
-        if fallback_endpoint_present:
-            optional_present.append(FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME)
-    elif fallback_endpoint_present:
-        required_present.append(FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME)
     else:
-        required_missing.extend(
-            [
-                FOUNDRY_AGENT_ENDPOINT_SETTING_NAME,
-                FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME,
-            ]
-        )
+        required_missing.append(FOUNDRY_AGENT_ENDPOINT_SETTING_NAME)
 
-    if _has_setting(settings, "azure_ai_foundry_agent_id"):
-        required_present.append(FOUNDRY_AGENT_ID_SETTING_NAME)
+    if _has_setting(settings, "azure_ai_foundry_agent_name"):
+        required_present.append(FOUNDRY_AGENT_NAME_SETTING_NAME)
     else:
-        required_missing.append(FOUNDRY_AGENT_ID_SETTING_NAME)
+        required_missing.append(FOUNDRY_AGENT_NAME_SETTING_NAME)
+
+    if _has_setting(settings, "azure_ai_foundry_agent_version"):
+        required_present.append(FOUNDRY_AGENT_VERSION_SETTING_NAME)
+    else:
+        required_missing.append(FOUNDRY_AGENT_VERSION_SETTING_NAME)
+
+    if _has_setting(settings, "azure_ai_foundry_project_endpoint"):
+        optional_present.append(FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME)
+    if _has_setting(settings, "azure_ai_foundry_agent_id"):
+        optional_present.append(FOUNDRY_AGENT_ID_SETTING_NAME)
 
     ready = not required_missing and sdk_available
     return FoundryAgentEnvironmentReadiness(
@@ -617,7 +621,9 @@ def _live_json_result_category(error: BaseException) -> str:
                 return "sdk_unavailable"
             if candidate.phase in {
                 FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+                FOUNDRY_AGENT_PHASE_AGENT_REFERENCE_CREATION,
                 FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
+                FOUNDRY_AGENT_PHASE_RESPONSE_CREATION,
                 FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
                 FOUNDRY_AGENT_PHASE_NOT_WIRED,
             }:
@@ -770,8 +776,9 @@ def _format_setting_names(setting_names: list[str]) -> str:
 def _print_safe_live_failure_summary(failure_category: str) -> None:
     print(
         "Foundry Agent smoke test failed. Review local configuration and "
-        "provider setup; no endpoint, agent ID, prompt, instructions, token, "
-        "credential, raw exception, traceback, email, SMS, or PHI was printed.",
+        "provider setup; no endpoint, agent ID, agent name, agent version, "
+        "prompt, instructions, token, credential, raw exception, traceback, "
+        "email, SMS, or PHI was printed.",
         file=sys.stderr,
     )
 

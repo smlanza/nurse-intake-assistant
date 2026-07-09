@@ -110,13 +110,16 @@ def _missing_foundry_agent_settings(settings: Any) -> list[str]:
     project_endpoint = _settings_value(
         settings,
         "azure_ai_foundry_agent_project_endpoint",
-    ) or _settings_value(settings, "azure_ai_foundry_project_endpoint")
-    agent_id = _settings_value(settings, "azure_ai_foundry_agent_id")
+    )
+    agent_name = _settings_value(settings, "azure_ai_foundry_agent_name")
+    agent_version = _settings_value(settings, "azure_ai_foundry_agent_version")
 
     if project_endpoint is None:
         missing_settings.append("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT")
-    if agent_id is None:
-        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_ID")
+    if agent_name is None:
+        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_NAME")
+    if agent_version is None:
+        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_VERSION")
 
     return missing_settings
 
@@ -126,16 +129,16 @@ def _missing_foundry_agent_provider_settings(settings: Any) -> list[str]:
     project_endpoint = _settings_value(
         settings,
         "azure_ai_foundry_agent_project_endpoint",
-    ) or _settings_value(settings, "azure_ai_foundry_project_endpoint")
-    agent_id = _settings_value(settings, "azure_ai_foundry_agent_id")
+    )
+    agent_name = _settings_value(settings, "azure_ai_foundry_agent_name")
+    agent_version = _settings_value(settings, "azure_ai_foundry_agent_version")
 
     if project_endpoint is None:
-        missing_settings.append(
-            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT or "
-            "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
-        )
-    if agent_id is None:
-        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_ID")
+        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT")
+    if agent_name is None:
+        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_NAME")
+    if agent_version is None:
+        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_VERSION")
 
     return missing_settings
 

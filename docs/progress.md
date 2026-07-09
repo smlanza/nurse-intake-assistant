@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 763 passed
+- 766 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,11 +22,11 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Minimal SDK-backed Foundry Agent live invocation path completed for the
-  manual `scripts/smoke_foundry_agent.py --live --json` validation path.
-- The opt-in live client now creates a thread, posts fictional intake text,
-  processes a run for the configured agent, and extracts assistant text for the
-  existing Nurse Intake Agent parser.
+- Foundry Agent live smoke adapter pivoted to the portal-supported project
+  responses agent-reference pattern for manual `--live --json` validation.
+- The opt-in live client now uses `AIProjectClient`, an agent-scoped OpenAI
+  Responses client, configured agent name/version, and fake-tested response
+  extraction for the existing Nurse Intake Agent parser.
 - Automated tests remain offline and deterministic with fake clients only.
 - No live Azure success is claimed unless the manual `--live --json` path is
   actually verified in the intended Azure environment.
@@ -61,9 +61,9 @@ Implemented but not live-confirmed:
   explicit `AGENT_PROVIDER=foundry-agent` text-intake routing, and manual
   `scripts/smoke_foundry_agent.py` `--check`/`--live` smoke CLI with env-file
   isolation, fictional data only, safe diagnostics, strict response parsing,
-  a minimal SDK-backed live invocation path, sanitized `--live --json`
-  success/failure results for manual Azure validation, and no notification
-  effects
+  a project-responses agent-reference live smoke path, sanitized
+  `--live --json` success/failure results for manual Azure validation, and no
+  notification effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:
@@ -139,8 +139,8 @@ Provider settings:
   routes text intake through the `NurseIntakeAgent` boundary when explicitly
   configured. The Foundry Agent client boundary supports injected fakes and
   explicit opt-in live-client creation using
-  `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
-  `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`, plus `AZURE_AI_FOUNDRY_AGENT_ID`; missing
+  `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT`,
+  `AZURE_AI_FOUNDRY_AGENT_NAME`, and `AZURE_AI_FOUNDRY_AGENT_VERSION`; missing
   settings, SDK support, and response contract failures use sanitized
   diagnostics. `/demo/status` and `scripts/preflight.py --foundry-agent` report
   readiness without calling Azure. The manual smoke script also accepts the

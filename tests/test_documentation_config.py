@@ -54,7 +54,9 @@ def test_env_example_documents_foundry_agent_placeholders() -> None:
     assert "AGENT_PROVIDER=foundry-agent" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_ID=" in env_example
-    assert "offline-safe client boundary" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME=" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_VERSION=" in env_example
+    assert "agent name/version path" in env_example
     assert "Do not commit" in env_example
     assert "PHI" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_ID=agent-" not in env_example
@@ -87,7 +89,10 @@ def test_foundry_agent_local_env_example_documents_placeholders() -> None:
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT="
         "<your-foundry-agent-project-endpoint>"
     ) in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_ID=<your-foundry-agent-id>" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME=nurse-agent" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_VERSION=2" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_ID=" in env_example
+    assert "not required for the project-responses smoke path" in env_example
     assert "Do not commit real values" in env_example
     assert "services.ai.azure.com/api/projects/" not in env_example
     assert "secret" not in env_example.lower()
@@ -535,13 +540,13 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "safe status code from the exception chain" in normalized_doc
     assert "safe client error category" in doc
     assert "safe client error phase" in normalized_doc
-    assert (
-        "minimal SDK-backed Azure AI Foundry Agent invocation path"
-        in normalized_doc
-    )
-    assert "phase=agent_invocation" in doc
+    assert "project-responses agent-reference pattern" in normalized_doc
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME=nurse-agent" in doc
+    assert "AZURE_AI_FOUNDRY_AGENT_VERSION=2" in doc
+    assert "`AZURE_AI_FOUNDRY_AGENT_ID` is not required" in doc
+    assert "phase=response_creation" in doc
     assert "phase=response_extraction" in doc
-    assert "endpoint, agent ID, SDK compatibility, agent availability, or request shape" in normalized_doc
+    assert "project endpoint, agent name/version, SDK compatibility, agent availability, or request shape" in normalized_doc
     assert "agent_output_valid" in doc
     assert "recommended_next_step" in doc
     assert "Do not claim live Foundry Agent behavior" in doc

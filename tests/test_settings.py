@@ -264,6 +264,8 @@ def test_foundry_ai_settings_default_to_none(
     monkeypatch.delenv("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_ID", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_NAME", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_VERSION", raising=False)
     monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
     settings = AppSettings()
@@ -272,6 +274,8 @@ def test_foundry_ai_settings_default_to_none(
     assert settings.azure_ai_foundry_model_deployment_name is None
     assert settings.azure_ai_foundry_agent_project_endpoint is None
     assert settings.azure_ai_foundry_agent_id is None
+    assert settings.azure_ai_foundry_agent_name is None
+    assert settings.azure_ai_foundry_agent_version is None
     assert settings.azure_openai_endpoint is None
 
 
@@ -297,6 +301,8 @@ def test_foundry_ai_settings_trim_values(
         "  https://example-agent.services.ai.azure.com/api/projects/demo  ",
     )
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "  example-agent-id  ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "  example-agent-name  ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "  2  ")
 
     settings = AppSettings()
 
@@ -314,6 +320,8 @@ def test_foundry_ai_settings_trim_values(
         == "https://example-agent.services.ai.azure.com/api/projects/demo"
     )
     assert settings.azure_ai_foundry_agent_id == "example-agent-id"
+    assert settings.azure_ai_foundry_agent_name == "example-agent-name"
+    assert settings.azure_ai_foundry_agent_version == "2"
 
 
 def test_blank_foundry_ai_settings_are_none(
@@ -325,6 +333,8 @@ def test_blank_foundry_ai_settings_are_none(
     monkeypatch.setenv("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "   ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "   ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "   ")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "   ")
 
     settings = AppSettings()
@@ -333,6 +343,8 @@ def test_blank_foundry_ai_settings_are_none(
     assert settings.azure_ai_foundry_model_deployment_name is None
     assert settings.azure_ai_foundry_agent_project_endpoint is None
     assert settings.azure_ai_foundry_agent_id is None
+    assert settings.azure_ai_foundry_agent_name is None
+    assert settings.azure_ai_foundry_agent_version is None
     assert settings.azure_openai_endpoint is None
 
 

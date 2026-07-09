@@ -18,12 +18,16 @@ def _settings(
     ),
     foundry_project_endpoint: str | None = None,
     agent_id: str | None = "secret-agent-id",
+    agent_name: str | None = "secret-agent-name",
+    agent_version: str | None = "secret-agent-version",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         agent_provider_normalized=agent_provider,
         azure_ai_foundry_agent_project_endpoint=project_endpoint,
         azure_ai_foundry_project_endpoint=foundry_project_endpoint,
         azure_ai_foundry_agent_id=agent_id,
+        azure_ai_foundry_agent_name=agent_name,
+        azure_ai_foundry_agent_version=agent_version,
     )
 
 
@@ -313,10 +317,11 @@ def test_foundry_agent_environment_readiness_reports_ready_when_present() -> Non
     assert summary.required_settings_present == [
         "AGENT_PROVIDER",
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
-        "AZURE_AI_FOUNDRY_AGENT_ID",
+        "AZURE_AI_FOUNDRY_AGENT_NAME",
+        "AZURE_AI_FOUNDRY_AGENT_VERSION",
     ]
     assert summary.required_settings_missing == []
-    assert summary.optional_settings_present == []
+    assert summary.optional_settings_present == ["AZURE_AI_FOUNDRY_AGENT_ID"]
     assert summary.sdk_available is True
     assert summary.live_json_command_hint == (
         "python scripts/smoke_foundry_agent.py "
@@ -334,52 +339,45 @@ def test_foundry_agent_environment_readiness_reports_missing_endpoint_safely() -
             project_endpoint=None,
             foundry_project_endpoint=None,
             agent_id="secret-agent-id",
+            agent_name="secret-agent-name",
+            agent_version="secret-agent-version",
         ),
         sdk_available=True,
     )
 
     assert summary.ready is False
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in summary.required_settings_missing
-    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in summary.required_settings_missing
     combined_summary = str(summary)
     assert "secret-agent-id" not in combined_summary
+    assert "secret-agent-name" not in combined_summary
+    assert "secret-agent-version" not in combined_summary
     assert "https://secret-agent.services.ai.azure.com" not in combined_summary
 
 
-def test_foundry_agent_environment_readiness_reports_missing_agent_id_safely() -> None:
+def test_foundry_agent_environment_readiness_reports_missing_agent_name_safely() -> None:
     import scripts.smoke_foundry_agent as script
 
     summary = script.build_foundry_agent_environment_readiness(
-        _settings(agent_provider="foundry-agent", agent_id=None),
+        _settings(agent_provider="foundry-agent", agent_name=None),
         sdk_available=True,
     )
 
     assert summary.ready is False
-    assert "AZURE_AI_FOUNDRY_AGENT_ID" in summary.required_settings_missing
-    assert "secret-agent-id" not in str(summary)
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME" in summary.required_settings_missing
+    assert "secret-agent-name" not in str(summary)
 
 
-def test_foundry_agent_environment_readiness_accepts_project_endpoint_alias() -> None:
+def test_foundry_agent_environment_readiness_reports_missing_agent_version_safely() -> None:
     import scripts.smoke_foundry_agent as script
 
     summary = script.build_foundry_agent_environment_readiness(
-        _settings(
-            agent_provider="foundry",
-            project_endpoint=None,
-            foundry_project_endpoint=(
-                "https://fallback-secret.services.ai.azure.com/api/projects/demo"
-            ),
-            agent_id="secret-agent-id",
-        ),
+        _settings(agent_provider="foundry-agent", agent_version=None),
         sdk_available=True,
     )
 
-    assert summary.ready is True
-    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in summary.required_settings_present
-    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" not in (
-        summary.required_settings_missing
-    )
-    assert "fallback-secret" not in str(summary)
+    assert summary.ready is False
+    assert "AZURE_AI_FOUNDRY_AGENT_VERSION" in summary.required_settings_missing
+    assert "secret-agent-version" not in str(summary)
 
 
 def test_foundry_agent_environment_readiness_reports_sdk_without_client_creation(
@@ -434,7 +432,10 @@ def test_foundry_agent_smoke_script_reports_missing_preflight_settings(
 ) -> None:
     import scripts.smoke_foundry_agent as script
 
-    _patch_settings(monkeypatch, _settings(project_endpoint=None, agent_id=None))
+    _patch_settings(
+        monkeypatch,
+        _settings(project_endpoint=None, agent_name=None, agent_version=None),
+    )
     monkeypatch.setattr(
         script,
         "create_nurse_intake_agent",
@@ -447,8 +448,8 @@ def test_foundry_agent_smoke_script_reports_missing_preflight_settings(
     assert exit_code == 2
     assert "Required settings missing:" in captured.err
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in captured.err
-    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in captured.err
-    assert "AZURE_AI_FOUNDRY_AGENT_ID" in captured.err
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME" in captured.err
+    assert "AZURE_AI_FOUNDRY_AGENT_VERSION" in captured.err
     assert "secret-agent" not in captured.err
     assert captured.out == ""
 
@@ -515,6 +516,8 @@ def test_foundry_agent_smoke_script_check_output_is_sanitized(
                 "https://secret-agent.services.ai.azure.com/api/projects/demo"
             ),
             agent_id="secret-agent-id",
+            agent_name="secret-agent-name",
+            agent_version="secret-agent-version",
         ),
     )
     monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
@@ -525,9 +528,13 @@ def test_foundry_agent_smoke_script_check_output_is_sanitized(
     combined_output = captured.out + captured.err
     assert exit_code == 0
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in combined_output
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME" in combined_output
+    assert "AZURE_AI_FOUNDRY_AGENT_VERSION" in combined_output
     assert "AZURE_AI_FOUNDRY_AGENT_ID" in combined_output
     assert "https://secret-agent.services.ai.azure.com" not in combined_output
     assert "secret-agent-id" not in combined_output
+    assert "secret-agent-name" not in combined_output
+    assert "secret-agent-version" not in combined_output
     assert "bearer" not in combined_output.lower()
     assert "token" not in combined_output.lower()
     assert "Traceback" not in combined_output
@@ -609,6 +616,8 @@ def test_foundry_agent_smoke_script_print_agent_instructions_output_is_sanitized
         "https://secret-agent.services.ai.azure.com/api/projects/demo",
     )
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "secret-agent-id")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "secret-agent-name")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "secret-agent-version")
     monkeypatch.setenv("NURSE_NOTIFICATION_EMAIL", "real.person@example.com")
     monkeypatch.setenv("NURSE_NOTIFICATION_PHONE_NUMBER", "+1 555 555 0123")
 
@@ -620,6 +629,8 @@ def test_foundry_agent_smoke_script_print_agent_instructions_output_is_sanitized
     for unsafe_text in [
         "https://secret-agent.services.ai.azure.com",
         "secret-agent-id",
+        "secret-agent-name",
+        "secret-agent-version",
         "bearer",
         "token",
         "raw model output",
@@ -1200,6 +1211,8 @@ def test_foundry_agent_smoke_script_env_file_check_loads_missing_settings(
                 "AGENT_PROVIDER=foundry-agent",
                 "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=https://secret-agent.services.ai.azure.com/api/projects/demo",
                 "AZURE_AI_FOUNDRY_AGENT_ID=secret-agent-id",
+                "AZURE_AI_FOUNDRY_AGENT_NAME=secret-agent-name",
+                "AZURE_AI_FOUNDRY_AGENT_VERSION=secret-agent-version",
             ]
         ),
     )
@@ -1208,6 +1221,8 @@ def test_foundry_agent_smoke_script_env_file_check_loads_missing_settings(
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
         "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT",
         "AZURE_AI_FOUNDRY_AGENT_ID",
+        "AZURE_AI_FOUNDRY_AGENT_NAME",
+        "AZURE_AI_FOUNDRY_AGENT_VERSION",
     ]:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
@@ -1242,6 +1257,8 @@ def test_foundry_agent_smoke_script_shell_env_overrides_env_file(
                 "AGENT_PROVIDER=mock",
                 "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=https://file-secret.services.ai.azure.com/api/projects/demo",
                 "AZURE_AI_FOUNDRY_AGENT_ID=file-secret-agent-id",
+                "AZURE_AI_FOUNDRY_AGENT_NAME=file-secret-agent-name",
+                "AZURE_AI_FOUNDRY_AGENT_VERSION=file-secret-agent-version",
             ]
         ),
     )
@@ -1251,6 +1268,8 @@ def test_foundry_agent_smoke_script_shell_env_overrides_env_file(
         "https://shell-secret.services.ai.azure.com/api/projects/demo",
     )
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "shell-secret-agent-id")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "shell-secret-agent-name")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "shell-secret-agent-version")
     monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
 
     exit_code = script.main(["--env-file", str(env_file), "--check"])

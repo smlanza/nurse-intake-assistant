@@ -26,6 +26,8 @@ def _settings(
     agent_provider: str = "mock",
     agent_project_endpoint: str | None = None,
     agent_id: str | None = None,
+    agent_name: str | None = "secret-agent-name",
+    agent_version: str | None = "secret-agent-version",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         app_mode=app_mode,
@@ -51,6 +53,8 @@ def _settings(
         agent_provider_normalized=agent_provider,
         azure_ai_foundry_agent_project_endpoint=agent_project_endpoint,
         azure_ai_foundry_agent_id=agent_id,
+        azure_ai_foundry_agent_name=agent_name,
+        azure_ai_foundry_agent_version=agent_version,
     )
 
 
@@ -443,6 +447,8 @@ def test_preflight_all_does_not_print_configured_secret_or_contact_values(
     assert settings.nurse_notification_phone_number not in combined_output
     assert settings.azure_ai_foundry_agent_project_endpoint not in combined_output
     assert settings.azure_ai_foundry_agent_id not in combined_output
+    assert settings.azure_ai_foundry_agent_name not in combined_output
+    assert settings.azure_ai_foundry_agent_version not in combined_output
     assert "secret-foundry" not in combined_output
     assert "secret-model-deployment" not in combined_output
     assert "secret-speech" not in combined_output
@@ -503,6 +509,8 @@ def test_preflight_foundry_agent_passes_configured_provider_without_live_calls(
     assert "secret-agent" not in combined_output
     assert settings.azure_ai_foundry_agent_project_endpoint not in combined_output
     assert settings.azure_ai_foundry_agent_id not in combined_output
+    assert settings.azure_ai_foundry_agent_name not in combined_output
+    assert settings.azure_ai_foundry_agent_version not in combined_output
     assert captured.err == ""
 
 
@@ -516,7 +524,7 @@ def test_preflight_foundry_agent_accepts_foundry_alias(
         monkeypatch,
         _settings(
             agent_provider="foundry",
-            foundry_endpoint="https://fallback-foundry.services.ai.azure.com/api/projects/demo",
+            agent_project_endpoint="https://fallback-foundry.services.ai.azure.com/api/projects/demo",
             agent_id="secret-agent-id",
         ),
     )
@@ -584,7 +592,7 @@ def test_preflight_foundry_agent_reports_missing_endpoint_safely(
     assert captured.err == ""
 
 
-def test_preflight_foundry_agent_reports_missing_agent_id_safely(
+def test_preflight_foundry_agent_reports_missing_agent_name_safely(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -595,7 +603,7 @@ def test_preflight_foundry_agent_reports_missing_agent_id_safely(
         _settings(
             agent_provider="foundry-agent",
             agent_project_endpoint="https://secret-agent.services.ai.azure.com/api/projects/demo",
-            agent_id=None,
+            agent_name=None,
         ),
     )
     monkeypatch.setattr(
@@ -609,7 +617,7 @@ def test_preflight_foundry_agent_reports_missing_agent_id_safely(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "FAIL Foundry Agent" in captured.out
-    assert "AZURE_AI_FOUNDRY_AGENT_ID" in captured.out
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME" in captured.out
     assert "Set missing Foundry Agent variables or restore AGENT_PROVIDER=mock" in captured.out
     assert captured.out.count("Guidance:") == 1
     assert "secret-agent" not in captured.out

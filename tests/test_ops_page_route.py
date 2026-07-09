@@ -20,6 +20,8 @@ def _set_ops_settings(monkeypatch, **overrides) -> None:
         "azure_ai_foundry_agent_project_endpoint": None,
         "azure_ai_foundry_project_endpoint": None,
         "azure_ai_foundry_agent_id": None,
+        "azure_ai_foundry_agent_name": None,
+        "azure_ai_foundry_agent_version": None,
         "azure_ai_foundry_model_deployment_name": None,
         "acs_email_connection_string": None,
     }
@@ -80,6 +82,8 @@ def test_ops_page_shows_foundry_agent_manual_command_when_configured(
             "https://actual-endpoint.services.ai.azure.com/api/projects/demo"
         ),
         azure_ai_foundry_agent_id="actual-agent-id",
+        azure_ai_foundry_agent_name="actual-agent-name",
+        azure_ai_foundry_agent_version="actual-agent-version",
         azure_ai_foundry_model_deployment_name="actual-deployment",
         acs_email_connection_string="Endpoint=https://actual-secret/;AccessKey=secret",
     )
@@ -95,6 +99,8 @@ def test_ops_page_shows_foundry_agent_manual_command_when_configured(
     for unsafe_text in [
         "https://actual-endpoint.services.ai.azure.com",
         "actual-agent-id",
+        "actual-agent-name",
+        "actual-agent-version",
         "actual-deployment",
         "actual-secret",
         "AccessKey",
@@ -112,6 +118,8 @@ def test_ops_page_shows_foundry_agent_manual_command_when_settings_missing(
         agent_provider="foundry-agent",
         azure_ai_foundry_agent_project_endpoint=None,
         azure_ai_foundry_agent_id=None,
+        azure_ai_foundry_agent_name=None,
+        azure_ai_foundry_agent_version=None,
     )
 
     response = client.get("/ops")
@@ -121,7 +129,8 @@ def test_ops_page_shows_foundry_agent_manual_command_when_settings_missing(
     assert "Foundry Agent Manual Validation" in html
     assert FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND in html
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in html
-    assert "AZURE_AI_FOUNDRY_AGENT_ID" in html
+    assert "AZURE_AI_FOUNDRY_AGENT_NAME" in html
+    assert "AZURE_AI_FOUNDRY_AGENT_VERSION" in html
     assert "None" not in html
 
 

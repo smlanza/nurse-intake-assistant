@@ -14,6 +14,8 @@ class AppSettings:
     azure_ai_foundry_model_deployment_name: str | None
     azure_ai_foundry_agent_project_endpoint: str | None
     azure_ai_foundry_agent_id: str | None
+    azure_ai_foundry_agent_name: str | None
+    azure_ai_foundry_agent_version: str | None
     azure_openai_endpoint: str | None
     speech_provider: str
     speech_provider_normalized: str
@@ -54,6 +56,12 @@ class AppSettings:
         )
         self.azure_ai_foundry_agent_id = self._optional_env(
             "AZURE_AI_FOUNDRY_AGENT_ID"
+        )
+        self.azure_ai_foundry_agent_name = self._optional_env(
+            "AZURE_AI_FOUNDRY_AGENT_NAME"
+        )
+        self.azure_ai_foundry_agent_version = self._optional_env(
+            "AZURE_AI_FOUNDRY_AGENT_VERSION"
         )
         self.azure_openai_endpoint = self._optional_env("AZURE_OPENAI_ENDPOINT")
         self.speech_provider = os.getenv("SPEECH_PROVIDER", "mock")

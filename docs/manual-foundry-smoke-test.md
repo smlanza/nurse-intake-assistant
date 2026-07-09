@@ -144,11 +144,25 @@ Create a local `.env.foundry-agent.local` from
 ```bash
 AGENT_PROVIDER=foundry-agent
 AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=<your-foundry-agent-project-endpoint>
-AZURE_AI_FOUNDRY_AGENT_ID=<your-foundry-agent-id>
+AZURE_AI_FOUNDRY_AGENT_NAME=nurse-agent
+AZURE_AI_FOUNDRY_AGENT_VERSION=2
 ```
 
 The script also preserves the existing `AGENT_PROVIDER=foundry` smoke alias.
 Prefer `AGENT_PROVIDER=foundry-agent` for new manual checks.
+
+The Foundry Agent live smoke adapter follows the portal-supported
+project-responses agent-reference pattern for this hosted/prompt agent:
+
+- create an `AIProjectClient` with the Foundry Agent project endpoint
+- create an agent-scoped OpenAI Responses client for the configured agent name
+- pin the configured agent version on the response client query
+- send the existing fictional intake prompt through `responses.create`
+- parse the returned output text with the local `NurseIntakeAgent` contract
+
+`AZURE_AI_FOUNDRY_AGENT_ID` is not required for this project-responses path.
+Keep `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` as the Foundry project endpoint;
+do not replace it with an agent endpoint or model deployment endpoint.
 
 ## Foundry Agent Instruction Pack
 
@@ -193,7 +207,7 @@ python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --chec
 
 Shell environment variables override env-file values. The env file is loaded
 for the script process only and values are reported only as configured/missing.
-Endpoint values and agent IDs are not printed.
+Endpoint values, agent IDs, agent names, and agent versions are not printed.
 
 `--check` does not call Azure. No Foundry Agent client is created in --check
 mode, no agent invocation is made, no cases are persisted, and no email or SMS
@@ -216,9 +230,12 @@ The check summary reports only safe metadata:
 Required setting names for manual Foundry Agent live validation are:
 
 - `AGENT_PROVIDER`
-- `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
-  `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`
-- `AZURE_AI_FOUNDRY_AGENT_ID`
+- `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT`
+- `AZURE_AI_FOUNDRY_AGENT_NAME`
+- `AZURE_AI_FOUNDRY_AGENT_VERSION`
+
+`AZURE_AI_FOUNDRY_AGENT_ID` may remain in older local files for reference, but
+it is not required by this hosted/prompt agent smoke path.
 
 If the required settings and optional SDK package are visible, `--check`
 recommends running the manual live JSON validation command. If settings are
@@ -252,21 +269,21 @@ python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live
 
 `--live --json` is the primary live validation command. `--live` remains manual
 and opt-in. It is the only mode intended to construct the Foundry Agent path
-and may call Azure. It uses a minimal SDK-backed Azure AI Foundry Agent
-invocation path: create a thread, add the script's fictional medication-refill
-intake as the user message, process a run for the configured agent, and read
-the assistant text for the existing local Nurse Intake Agent parser. It does
-not send notifications, does not write to Cosmos, does not call FastAPI routes,
-and does not require the FastAPI server to be running.
+and may call Azure. It uses the minimal SDK-backed project-responses path:
+`AIProjectClient`, an agent-scoped OpenAI Responses client, the configured
+agent name/version reference, and `responses.create` with the script's
+fictional medication-refill intake. It does not send notifications, does not
+write to Cosmos, does not call FastAPI routes, and does not require the FastAPI
+server to be running.
 In plain terms: --live remains manual and opt-in.
 
 `--live --json` prints a deterministic sanitized result with these fields:
 `ok`, `mode`, `provider`, `category`, `message`, `agent_attempted`,
 `agent_output_valid`, `fallback_used`, `fields_present`, and
 `recommended_next_step`. It does not print raw exception messages, stack
-traces, full endpoints, agent IDs, bearer tokens, prompts, instructions, raw
-model output, connection strings, real patient/contact data, email addresses,
-phone numbers, or PHI.
+traces, full endpoints, agent IDs, agent names, agent versions, bearer tokens,
+prompts, instructions, raw model output, connection strings, real
+patient/contact data, email addresses, phone numbers, or PHI.
 
 `--live --diagnose` calls the same live path and prints only sanitized
 troubleshooting metadata: provider, mode, category, whether the agent was
@@ -274,10 +291,11 @@ attempted, safe root-cause exception class name when detectable, safe status
 code from the exception chain when available, safe client error category, safe
 client error phase, and the recommended next step. Client error phase is
 diagnostic-only and safe; expected values include labels such as `sdk_import`,
-`credential_creation`, `client_creation`, `agent_invocation`,
-`response_extraction`, `response_parsing`, or `unknown`. It does not print
-endpoint URLs, agent IDs, tokens, stack traces, raw exception messages, raw
-prompts, raw model responses, request IDs, real contact values, or PHI.
+`credential_creation`, `client_creation`, `agent_reference_creation`,
+`response_creation`, `response_extraction`, `response_parsing`, or `unknown`.
+It does not print endpoint URLs, agent IDs, agent names, agent versions,
+tokens, stack traces, raw exception messages, raw prompts, raw model responses,
+request IDs, real contact values, or PHI.
 
 When `AGENT_PROVIDER=foundry-agent` or `AGENT_PROVIDER=foundry` is configured,
 `/demo/status`, `/ops`, and `python scripts/preflight.py --foundry-agent` may
@@ -306,13 +324,15 @@ or the parsed result violated the `NurseIntakeAgent` output contract.
 `authentication_or_authorization_failed` usually means `az login`, tenant,
 subscription, or RBAC needs investigation; local development may require
 `az login` for `DefaultAzureCredential`. `azure_request_failed` usually means
-endpoint, agent ID, SDK compatibility, agent availability, or request shape
-needs investigation. It may also represent a non-auth request category such as
-bad request, missing resource, conflict, rate limit, or service error.
-If diagnostic output reports `phase=client_creation`, `phase=agent_invocation`,
-or `phase=response_extraction`, investigate SDK compatibility, request shape,
-agent availability, and assistant response extraction before changing app
-defaults.
+project endpoint, agent name/version, SDK compatibility, agent availability,
+or request shape needs investigation. It may also represent a non-auth request
+category such as bad request, missing resource, conflict, rate limit, or
+service error.
+If diagnostic output reports `phase=client_creation`,
+`phase=agent_reference_creation`, `phase=response_creation`, or
+`phase=response_extraction`, investigate SDK compatibility, project endpoint,
+agent reference, request shape, agent availability, and response extraction
+before changing app defaults.
 `missing_configuration` means required environment variable names are missing.
 `sdk_unavailable` means the optional Foundry Agent SDK dependencies are not
 importable. `unexpected_error` is a sanitized catch-all for failures outside

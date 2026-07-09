@@ -23,7 +23,9 @@ FOUNDRY_AGENT_NOT_WIRED_CATEGORY = "foundry-agent-not-wired"
 FOUNDRY_AGENT_PHASE_SDK_IMPORT = "sdk_import"
 FOUNDRY_AGENT_PHASE_CREDENTIAL_CREATION = "credential_creation"
 FOUNDRY_AGENT_PHASE_CLIENT_CREATION = "client_creation"
+FOUNDRY_AGENT_PHASE_AGENT_REFERENCE_CREATION = "agent_reference_creation"
 FOUNDRY_AGENT_PHASE_AGENT_INVOCATION = "agent_invocation"
+FOUNDRY_AGENT_PHASE_RESPONSE_CREATION = "response_creation"
 FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION = "response_extraction"
 FOUNDRY_AGENT_PHASE_RESPONSE_PARSING = "response_parsing"
 FOUNDRY_AGENT_PHASE_NOT_WIRED = "not_wired"
@@ -97,46 +99,52 @@ class FakeFoundryAgentClient:
 class AzureAiFoundryAgentLiveClient:
     """Opt-in live Azure AI Foundry Agent invocation boundary."""
 
-    def __init__(self, project_endpoint: str, agent_id: str) -> None:
+    def __init__(
+        self,
+        project_endpoint: str,
+        agent_name: str,
+        agent_version: str,
+    ) -> None:
         self.project_endpoint = project_endpoint
-        self.agent_id = agent_id
-        self._agents_client = None
+        self.agent_name = agent_name
+        self.agent_version = agent_version
+        self._responses_client = None
 
     async def invoke_agent(
         self,
         request: FoundryAgentRequest,
     ) -> FoundryAgentResponse:
         try:
-            agents_client = self._get_agents_client()
-            return await self._invoke_with_client(agents_client, request)
+            responses_client = self._get_responses_client()
+            return await self._invoke_with_client(responses_client, request)
         except FoundryAgentClientError:
             raise
         except Exception as exc:
             raise FoundryAgentClientError(
                 FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
                 category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
-                phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+                phase=FOUNDRY_AGENT_PHASE_RESPONSE_CREATION,
             ) from exc
 
-    def _get_agents_client(self):
-        if self._agents_client is None:
-            self._agents_client = _create_agents_client(self.project_endpoint)
-        return self._agents_client
+    def _get_responses_client(self):
+        if self._responses_client is None:
+            self._responses_client = _create_project_responses_client(
+                self.project_endpoint,
+                self.agent_name,
+                self.agent_version,
+            )
+        return self._responses_client
 
     async def _invoke_with_client(
         self,
-        agents_client: Any,
+        responses_client: Any,
         request: FoundryAgentRequest,
     ) -> FoundryAgentResponse:
-        thread_id = _create_agent_thread(agents_client)
-        _create_agent_message(
-            agents_client,
-            thread_id,
+        response = _create_project_agent_response(
+            responses_client,
             _build_agent_user_message(request),
         )
-        run = _process_agent_run(agents_client, thread_id, self.agent_id)
-        _raise_for_unsuccessful_run(run)
-        content = _extract_agent_response_text(agents_client, thread_id)
+        content = _extract_response_output_text(response)
 
         return FoundryAgentResponse(
             content=content,
@@ -165,12 +173,16 @@ def create_foundry_agent_client(
         return None
 
     project_endpoint = _required_agent_setting(
-        _agent_project_endpoint(settings),
+        settings.azure_ai_foundry_agent_project_endpoint,
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
     )
-    agent_id = _required_agent_setting(
-        settings.azure_ai_foundry_agent_id,
-        "AZURE_AI_FOUNDRY_AGENT_ID",
+    agent_name = _required_agent_setting(
+        settings.azure_ai_foundry_agent_name,
+        "AZURE_AI_FOUNDRY_AGENT_NAME",
+    )
+    agent_version = _required_agent_setting(
+        settings.azure_ai_foundry_agent_version,
+        "AZURE_AI_FOUNDRY_AGENT_VERSION",
     )
 
     if not foundry_agent_sdk_available():
@@ -182,7 +194,8 @@ def create_foundry_agent_client(
 
     return AzureAiFoundryAgentLiveClient(
         project_endpoint=project_endpoint,
-        agent_id=agent_id,
+        agent_name=agent_name,
+        agent_version=agent_version,
     )
 
 
@@ -191,8 +204,9 @@ def foundry_agent_sdk_available() -> bool:
 
     try:
         return (
-            find_spec("azure.ai.agents") is not None
+            find_spec("azure.ai.projects") is not None
             and find_spec("azure.identity") is not None
+            and find_spec("openai") is not None
         )
     except (ImportError, ModuleNotFoundError, ValueError):
         return False
@@ -241,6 +255,67 @@ def _create_agents_client(project_endpoint: str):
         ) from exc
 
 
+def _create_project_responses_client(
+    project_endpoint: str,
+    agent_name: str,
+    agent_version: str,
+):
+    try:
+        AIProjectClient = _get_ai_project_client_class()
+        DefaultAzureCredential = _get_default_credential_class()
+        try:
+            credential = DefaultAzureCredential()
+        except Exception as exc:
+            raise FoundryAgentClientError(
+                FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
+                category=FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
+                phase=FOUNDRY_AGENT_PHASE_CREDENTIAL_CREATION,
+            ) from exc
+        try:
+            project_client = AIProjectClient(
+                endpoint=project_endpoint,
+                credential=credential,
+                allow_preview=True,
+            )
+        except Exception as exc:
+            raise FoundryAgentClientError(
+                FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+                category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+                phase=FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
+            ) from exc
+        try:
+            return project_client.get_openai_client(
+                agent_name=agent_name,
+                default_query={"agentVersion": agent_version},
+            )
+        except Exception as exc:
+            raise FoundryAgentClientError(
+                FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+                category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+                phase=FOUNDRY_AGENT_PHASE_AGENT_REFERENCE_CREATION,
+            ) from exc
+    except FoundryAgentClientError:
+        raise
+    except Exception as exc:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
+        ) from exc
+
+
+def _get_ai_project_client_class():
+    try:
+        from azure.ai.projects import AIProjectClient
+    except ImportError as exc:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
+            category=FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_SDK_IMPORT,
+        ) from exc
+    return AIProjectClient
+
+
 def _get_agents_client_class():
     try:
         from azure.ai.agents import AgentsClient
@@ -276,89 +351,23 @@ def _build_agent_user_message(request: FoundryAgentRequest) -> str:
     )
 
 
-def _create_agent_thread(agents_client: Any) -> str:
-    try:
-        thread = agents_client.threads.create()
-    except Exception as exc:
-        raise FoundryAgentClientError(
-            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
-            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
-            phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
-        ) from exc
-
-    thread_id = _safe_object_value(thread, "id")
-    if not thread_id:
-        raise FoundryAgentClientError(
-            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
-            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
-            phase=FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
-        )
-    return thread_id
-
-
-def _create_agent_message(
-    agents_client: Any,
-    thread_id: str,
+def _create_project_agent_response(
+    responses_client: Any,
     content: str,
-) -> None:
-    try:
-        agents_client.messages.create(
-            thread_id=thread_id,
-            role="user",
-            content=content,
-        )
-    except Exception as exc:
-        raise FoundryAgentClientError(
-            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
-            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
-            phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
-        ) from exc
-
-
-def _process_agent_run(
-    agents_client: Any,
-    thread_id: str,
-    agent_id: str,
 ) -> Any:
     try:
-        return agents_client.runs.create_and_process(
-            thread_id=thread_id,
-            agent_id=agent_id,
-        )
+        return responses_client.responses.create(input=content)
     except Exception as exc:
         raise FoundryAgentClientError(
             FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
             category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
-            phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+            phase=FOUNDRY_AGENT_PHASE_RESPONSE_CREATION,
         ) from exc
 
 
-def _raise_for_unsuccessful_run(run: Any) -> None:
-    status = _safe_object_value(run, "status")
-    if status.casefold() in {"failed", "cancelled", "canceled", "expired"}:
-        raise FoundryAgentClientError(
-            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
-            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
-            phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
-        )
-
-
-def _extract_agent_response_text(agents_client: Any, thread_id: str) -> str:
+def _extract_response_output_text(response: Any) -> str:
     try:
-        text_content_reader = getattr(
-            agents_client.messages,
-            "get_last_message_text_by_role",
-            None,
-        )
-        if callable(text_content_reader):
-            content = _text_from_unknown_value(
-                text_content_reader(thread_id=thread_id, role="assistant")
-            )
-            if content:
-                return content
-
-        messages = agents_client.messages.list(thread_id=thread_id)
-        content = _text_from_message_collection(messages)
+        content = _text_from_responses_output(response)
     except Exception as exc:
         raise FoundryAgentClientError(
             FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
@@ -375,27 +384,24 @@ def _extract_agent_response_text(agents_client: Any, thread_id: str) -> str:
     return content
 
 
-def _text_from_message_collection(messages: Any) -> str:
-    for message in _iter_message_values(messages):
-        role = _safe_object_value(message, "role")
-        if role and role.casefold() != "assistant":
-            continue
-        content = _text_from_unknown_value(_value_at(message, "content"))
-        if content:
-            return content
+def _text_from_responses_output(response: Any) -> str:
+    output_text = _safe_object_value(response, "output_text")
+    if output_text:
+        return output_text
+
+    output = _value_at(response, "output")
+    if isinstance(output, (list, tuple)):
+        for item in output:
+            content = _text_from_unknown_value(_value_at(item, "content"))
+            if content:
+                return content
+            content = _text_from_unknown_value(item)
+            if content:
+                return content
+    content = _text_from_unknown_value(_value_at(response, "content"))
+    if content:
+        return content
     return ""
-
-
-def _iter_message_values(messages: Any):
-    data = _value_at(messages, "data")
-    iterable = data if data is not None else messages
-    if isinstance(iterable, dict):
-        iterable = iterable.values()
-
-    try:
-        yield from iterable
-    except TypeError:
-        return
 
 
 def _text_from_unknown_value(value: Any) -> str:

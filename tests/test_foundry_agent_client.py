@@ -91,6 +91,8 @@ def test_foundry_agent_factory_does_not_validate_settings_until_live_requested(
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_ID", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_NAME", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_VERSION", raising=False)
 
     client = create_foundry_agent_client(AppSettings())
 
@@ -110,6 +112,8 @@ def test_foundry_agent_factory_missing_live_settings_fail_safely(
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_ID", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_NAME", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_VERSION", raising=False)
 
     with pytest.raises(FoundryAgentClientError) as exc:
         create_foundry_agent_client(AppSettings(), enable_live=True)
@@ -124,7 +128,7 @@ def test_foundry_agent_factory_missing_live_settings_fail_safely(
     assert "credential" not in message.lower()
 
 
-def test_foundry_agent_factory_can_reuse_foundry_project_endpoint_for_live_agent(
+def test_foundry_agent_factory_uses_project_responses_agent_reference_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from src.app.services import foundry_agent_client
@@ -132,11 +136,12 @@ def test_foundry_agent_factory_can_reuse_foundry_project_endpoint_for_live_agent
 
     monkeypatch.setenv("AGENT_PROVIDER", "foundry-agent")
     monkeypatch.setenv(
-        "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
         "https://fictional-foundry.services.ai.azure.com/api/projects/demo",
     )
-    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", raising=False)
-    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "fictional-agent-id")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "fictional-agent")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "2")
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_ID", raising=False)
     monkeypatch.setattr(
         foundry_agent_client,
         "foundry_agent_sdk_available",
@@ -153,8 +158,9 @@ def test_foundry_agent_factory_can_reuse_foundry_project_endpoint_for_live_agent
         client.project_endpoint
         == "https://fictional-foundry.services.ai.azure.com/api/projects/demo"
     )
-    assert client.agent_id == "fictional-agent-id"
-    assert client._agents_client is None
+    assert client.agent_name == "fictional-agent"
+    assert client.agent_version == "2"
+    assert client._responses_client is None
 
 
 def test_foundry_agent_factory_missing_sdk_fails_with_safe_diagnostic(
@@ -168,10 +174,10 @@ def test_foundry_agent_factory_missing_sdk_fails_with_safe_diagnostic(
     )
 
     secret_endpoint = "https://secret-foundry.services.ai.azure.com/api/projects/demo"
-    secret_agent_id = "secret-agent-id"
     monkeypatch.setenv("AGENT_PROVIDER", "foundry-agent")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", secret_endpoint)
-    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", secret_agent_id)
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "secret-agent-name")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "secret-agent-version")
     monkeypatch.setattr(
         foundry_agent_client,
         "foundry_agent_sdk_available",
@@ -189,10 +195,134 @@ def test_foundry_agent_factory_missing_sdk_fails_with_safe_diagnostic(
     assert exc.value.phase == "sdk_import"
     assert message == FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE
     assert secret_endpoint not in message
-    assert secret_agent_id not in message
     assert "secret" not in message
     assert "token" not in message.lower()
     assert "credential" not in message.lower()
+
+
+def test_foundry_agent_sdk_probe_checks_project_responses_import_surface(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_agent_client
+
+    checked: list[str] = []
+
+    def fake_find_spec(name: str):
+        checked.append(name)
+        return object()
+
+    monkeypatch.setattr(foundry_agent_client, "find_spec", fake_find_spec)
+
+    assert foundry_agent_client.foundry_agent_sdk_available() is True
+    assert checked == ["azure.ai.projects", "azure.identity", "openai"]
+
+
+def test_create_project_responses_client_uses_agent_name_and_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_agent_client
+
+    class FakeCredential:
+        pass
+
+    class FakeAIProjectClient:
+        calls: list[dict[str, object]] = []
+
+        def __init__(self, *, endpoint, credential, allow_preview):
+            self.endpoint = endpoint
+            self.credential = credential
+            self.allow_preview = allow_preview
+            self.calls.append(
+                {
+                    "endpoint": endpoint,
+                    "credential_type": type(credential).__name__,
+                    "allow_preview": allow_preview,
+                }
+            )
+
+        def get_openai_client(self, *, agent_name, default_query):
+            self.calls.append(
+                {
+                    "agent_name": agent_name,
+                    "default_query": default_query,
+                }
+            )
+            return SimpleNamespace(responses=object())
+
+    monkeypatch.setattr(
+        foundry_agent_client,
+        "_get_ai_project_client_class",
+        lambda: FakeAIProjectClient,
+    )
+    monkeypatch.setattr(
+        foundry_agent_client,
+        "_get_default_credential_class",
+        lambda: FakeCredential,
+    )
+
+    responses_client = foundry_agent_client._create_project_responses_client(
+        "https://secret-foundry.services.ai.azure.com/api/projects/demo",
+        "secret-agent-name",
+        "secret-agent-version",
+    )
+
+    assert responses_client.responses is not None
+    assert FakeAIProjectClient.calls == [
+        {
+            "endpoint": "https://secret-foundry.services.ai.azure.com/api/projects/demo",
+            "credential_type": "FakeCredential",
+            "allow_preview": True,
+        },
+        {
+            "agent_name": "secret-agent-name",
+            "default_query": {"agentVersion": "secret-agent-version"},
+        },
+    ]
+
+
+def test_project_responses_client_reference_failure_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_agent_client
+    from src.app.services.foundry_agent_client import (
+        FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+        FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+        FoundryAgentClientError,
+    )
+
+    class FakeCredential:
+        pass
+
+    class FakeAIProjectClient:
+        def __init__(self, *, endpoint, credential, allow_preview):
+            pass
+
+        def get_openai_client(self, *, agent_name, default_query):
+            raise RuntimeError("raw secret-agent-name reference detail")
+
+    monkeypatch.setattr(
+        foundry_agent_client,
+        "_get_ai_project_client_class",
+        lambda: FakeAIProjectClient,
+    )
+    monkeypatch.setattr(
+        foundry_agent_client,
+        "_get_default_credential_class",
+        lambda: FakeCredential,
+    )
+
+    with pytest.raises(FoundryAgentClientError) as exc:
+        foundry_agent_client._create_project_responses_client(
+            "https://secret-foundry.services.ai.azure.com/api/projects/demo",
+            "secret-agent-name",
+            "secret-agent-version",
+        )
+
+    message = str(exc.value)
+    assert exc.value.category == FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY
+    assert exc.value.phase == "agent_reference_creation"
+    assert message == FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE
+    assert "secret" not in message
 
 
 def test_foundry_agent_live_client_setup_failure_is_sanitized(
@@ -247,15 +377,16 @@ def test_foundry_agent_live_client_request_failure_preserves_safe_cause() -> Non
         status_code = 404
 
     class FailingLiveClient(AzureAiFoundryAgentLiveClient):
-        def _get_agents_client(self):
+        def _get_responses_client(self):
             return object()
 
-        async def _invoke_with_client(self, agents_client, request):
+        async def _invoke_with_client(self, responses_client, request):
             raise FakeHttpResponseError("raw endpoint and agent secret")
 
     client = FailingLiveClient(
         project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
-        agent_id="secret-agent-id",
+        agent_name="secret-agent-name",
+        agent_version="secret-agent-version",
     )
     request = FoundryAgentRequest(
         intake_text="Fictional patient requests a refill.",
@@ -266,7 +397,7 @@ def test_foundry_agent_live_client_request_failure_preserves_safe_cause() -> Non
         asyncio.run(client.invoke_agent(request))
 
     assert exc.value.category == FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY
-    assert exc.value.phase == "agent_invocation"
+    assert exc.value.phase == "response_creation"
     assert str(exc.value) == FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE
     assert isinstance(exc.value.__cause__, FakeHttpResponseError)
     assert getattr(exc.value.__cause__, "status_code") == 404
@@ -279,56 +410,23 @@ def test_foundry_agent_live_client_invokes_fake_sdk_boundary_successfully() -> N
         FoundryAgentRequest,
     )
 
-    class FakeThreads:
-        def create(self):
-            return SimpleNamespace(id="fictional-thread-id")
-
-    class FakeMessages:
+    class FakeResponses:
         def __init__(self) -> None:
             self.created: list[dict[str, str]] = []
 
-        def create(self, *, thread_id: str, role: str, content: str):
-            self.created.append(
-                {
-                    "thread_id": thread_id,
-                    "role": role,
-                    "content": content,
-                }
-            )
-
-        def get_last_message_text_by_role(self, *, thread_id: str, role: str):
-            assert thread_id == "fictional-thread-id"
-            assert role == "assistant"
+        def create(self, *, input: str):
+            self.created.append({"input": input})
             return SimpleNamespace(
-                text=SimpleNamespace(
-                    value='{"patientName":"Fictional Pat","symptoms":["refill"]}'
-                )
+                output_text='{"patientName":"Fictional Pat","symptoms":["refill"]}'
             )
-
-    class FakeRuns:
-        def __init__(self) -> None:
-            self.created: list[dict[str, str]] = []
-
-        def create_and_process(self, *, thread_id: str, agent_id: str):
-            self.created.append(
-                {
-                    "thread_id": thread_id,
-                    "agent_id": agent_id,
-                }
-            )
-            return SimpleNamespace(status="completed")
 
     client = AzureAiFoundryAgentLiveClient(
         project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
-        agent_id="secret-agent-id",
+        agent_name="secret-agent-name",
+        agent_version="secret-agent-version",
     )
-    messages = FakeMessages()
-    runs = FakeRuns()
-    client._agents_client = SimpleNamespace(
-        threads=FakeThreads(),
-        messages=messages,
-        runs=runs,
-    )
+    responses = FakeResponses()
+    client._responses_client = SimpleNamespace(responses=responses)
     request = FoundryAgentRequest(
         intake_text="Fictional patient requests a refill.",
         instructions="Return JSON only.",
@@ -341,16 +439,8 @@ def test_foundry_agent_live_client_invokes_fake_sdk_boundary_successfully() -> N
         "provider": "foundry-agent",
         "agentMode": "live",
     }
-    assert runs.created == [
-        {
-            "thread_id": "fictional-thread-id",
-            "agent_id": "secret-agent-id",
-        }
-    ]
-    assert messages.created[0]["thread_id"] == "fictional-thread-id"
-    assert messages.created[0]["role"] == "user"
-    assert "Return JSON only." in messages.created[0]["content"]
-    assert "Fictional patient requests a refill." in messages.created[0]["content"]
+    assert "Return JSON only." in responses.created[0]["input"]
+    assert "Fictional patient requests a refill." in responses.created[0]["input"]
 
 
 def test_foundry_agent_live_client_invocation_failure_is_sanitized() -> None:
@@ -365,24 +455,18 @@ def test_foundry_agent_live_client_invocation_failure_is_sanitized() -> None:
     class FakeHttpResponseError(Exception):
         status_code = 403
 
-    class FakeThreads:
-        def create(self):
-            return SimpleNamespace(id="fictional-thread-id")
-
-    class FakeMessages:
-        def create(self, *, thread_id: str, role: str, content: str):
+    class FakeResponses:
+        def create(self, *, input: str):
             raise FakeHttpResponseError(
-                "raw endpoint https://secret.example and secret-agent-id"
+                "raw endpoint https://secret.example and secret-agent-name"
             )
 
     client = AzureAiFoundryAgentLiveClient(
         project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
-        agent_id="secret-agent-id",
+        agent_name="secret-agent-name",
+        agent_version="secret-agent-version",
     )
-    client._agents_client = SimpleNamespace(
-        threads=FakeThreads(),
-        messages=FakeMessages(),
-    )
+    client._responses_client = SimpleNamespace(responses=FakeResponses())
     request = FoundryAgentRequest(
         intake_text="Fictional patient requests a refill.",
         instructions="Return JSON only.",
@@ -393,7 +477,7 @@ def test_foundry_agent_live_client_invocation_failure_is_sanitized() -> None:
 
     message = str(exc.value)
     assert exc.value.category == FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY
-    assert exc.value.phase == "agent_invocation"
+    assert exc.value.phase == "response_creation"
     assert message == FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE
     assert isinstance(exc.value.__cause__, FakeHttpResponseError)
     assert getattr(exc.value.__cause__, "status_code") == 403
@@ -410,35 +494,16 @@ def test_foundry_agent_live_client_missing_assistant_text_is_sanitized() -> None
         FoundryAgentRequest,
     )
 
-    class FakeThreads:
-        def create(self):
-            return SimpleNamespace(id="fictional-thread-id")
-
-    class FakeMessages:
-        def create(self, *, thread_id: str, role: str, content: str):
-            return None
-
-        def list(self, *, thread_id: str):
-            return [
-                SimpleNamespace(
-                    role="user",
-                    content="raw fictional user prompt that should not leak",
-                )
-            ]
-
-    class FakeRuns:
-        def create_and_process(self, *, thread_id: str, agent_id: str):
-            return SimpleNamespace(status="completed")
+    class FakeResponses:
+        def create(self, *, input: str):
+            return SimpleNamespace(output=[])
 
     client = AzureAiFoundryAgentLiveClient(
         project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
-        agent_id="secret-agent-id",
+        agent_name="secret-agent-name",
+        agent_version="secret-agent-version",
     )
-    client._agents_client = SimpleNamespace(
-        threads=FakeThreads(),
-        messages=FakeMessages(),
-        runs=FakeRuns(),
-    )
+    client._responses_client = SimpleNamespace(responses=FakeResponses())
     request = FoundryAgentRequest(
         intake_text="Fictional patient requests a refill.",
         instructions="Return JSON only.",

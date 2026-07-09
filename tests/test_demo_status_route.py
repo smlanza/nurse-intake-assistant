@@ -34,6 +34,8 @@ def _set_demo_status_settings(monkeypatch, **overrides) -> None:
         "azure_ai_foundry_agent_project_endpoint": None,
         "azure_ai_foundry_project_endpoint": None,
         "azure_ai_foundry_agent_id": None,
+        "azure_ai_foundry_agent_name": None,
+        "azure_ai_foundry_agent_version": None,
         "demo_suppress_notifications": False,
     }
     values.update(overrides)
@@ -129,7 +131,8 @@ def test_demo_status_warns_when_foundry_agent_provider_is_configured(
         "mode": "configuration-only",
         "missingSettings": [
             "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
-            "AZURE_AI_FOUNDRY_AGENT_ID",
+            "AZURE_AI_FOUNDRY_AGENT_NAME",
+            "AZURE_AI_FOUNDRY_AGENT_VERSION",
         ],
     }
     assert body["agentProviderStatus"] == {
@@ -139,11 +142,9 @@ def test_demo_status_warns_when_foundry_agent_provider_is_configured(
         "manualValidationAvailable": True,
         "manualValidationCommand": FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
         "missingSettings": [
-            (
-                "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT or "
-                "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
-            ),
-            "AZURE_AI_FOUNDRY_AGENT_ID",
+            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+            "AZURE_AI_FOUNDRY_AGENT_NAME",
+            "AZURE_AI_FOUNDRY_AGENT_VERSION",
         ],
         "warnings": [
             "Foundry Agent readiness is configuration-only; live Azure validation was not attempted."
@@ -168,6 +169,8 @@ def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
             "https://fictional-foundry.services.ai.azure.com/api/projects/demo"
         ),
         azure_ai_foundry_agent_id="fictional-agent-id",
+        azure_ai_foundry_agent_name="fictional-agent-name",
+        azure_ai_foundry_agent_version="2",
     )
 
     response = client.get("/demo/status")
@@ -194,6 +197,7 @@ def test_demo_status_reports_foundry_agent_ready_when_configuration_is_present(
     serialized = json.dumps(body)
     assert "fictional-foundry" not in serialized
     assert "fictional-agent-id" not in serialized
+    assert "fictional-agent-name" not in serialized
 
 
 def test_demo_status_foundry_agent_manual_validation_command_is_static_and_safe(
@@ -206,6 +210,8 @@ def test_demo_status_foundry_agent_manual_validation_command_is_static_and_safe(
             "https://actual-endpoint.services.ai.azure.com/api/projects/demo"
         ),
         azure_ai_foundry_agent_id="actual-agent-id",
+        azure_ai_foundry_agent_name="actual-agent-name",
+        azure_ai_foundry_agent_version="actual-agent-version",
         azure_ai_foundry_model_deployment_name="actual-deployment",
         acs_email_connection_string="Endpoint=https://actual-secret/;AccessKey=secret",
     )
@@ -225,6 +231,8 @@ def test_demo_status_foundry_agent_manual_validation_command_is_static_and_safe(
     for unsafe_text in [
         "https://actual-endpoint.services.ai.azure.com",
         "actual-agent-id",
+        "actual-agent-name",
+        "actual-agent-version",
         "actual-deployment",
         "actual-secret",
         "AccessKey",
@@ -243,6 +251,8 @@ def test_demo_status_foundry_agent_missing_settings_still_advertises_command(
         agent_provider="foundry-agent",
         azure_ai_foundry_agent_project_endpoint=None,
         azure_ai_foundry_agent_id=None,
+        azure_ai_foundry_agent_name=None,
+        azure_ai_foundry_agent_version=None,
     )
 
     response = client.get("/demo/status")
@@ -252,11 +262,9 @@ def test_demo_status_foundry_agent_missing_settings_still_advertises_command(
     assert agent_status["manualValidationAvailable"] is True
     assert "--live --json" in agent_status["manualValidationCommand"]
     assert agent_status["missingSettings"] == [
-        (
-            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT or "
-            "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
-        ),
-        "AZURE_AI_FOUNDRY_AGENT_ID",
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_NAME",
+        "AZURE_AI_FOUNDRY_AGENT_VERSION",
     ]
 
 
@@ -291,6 +299,8 @@ def test_demo_status_does_not_create_foundry_agent_client(monkeypatch) -> None:
             "https://fictional-foundry.services.ai.azure.com/api/projects/demo"
         ),
         azure_ai_foundry_agent_id="fictional-agent-id",
+        azure_ai_foundry_agent_name="fictional-agent-name",
+        azure_ai_foundry_agent_version="2",
     )
     monkeypatch.setattr(
         foundry_agent_client,
@@ -330,6 +340,8 @@ def test_demo_status_does_not_construct_live_foundry_agent_client_on_app_import(
         "https://fictional-foundry.services.ai.azure.com/api/projects/demo",
     )
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "fictional-agent-id")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "fictional-agent-name")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "2")
     monkeypatch.setattr(
         foundry_agent_client,
         "AzureAiFoundryAgentLiveClient",

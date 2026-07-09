@@ -12,6 +12,8 @@ def test_mock_agent_preflight_reports_ready() -> None:
             azure_ai_foundry_agent_project_endpoint=None,
             azure_ai_foundry_project_endpoint=None,
             azure_ai_foundry_agent_id=None,
+            azure_ai_foundry_agent_name=None,
+            azure_ai_foundry_agent_version=None,
         )
     )
 
@@ -32,6 +34,8 @@ def test_foundry_agent_preflight_reports_missing_settings() -> None:
             azure_ai_foundry_agent_project_endpoint=None,
             azure_ai_foundry_project_endpoint=None,
             azure_ai_foundry_agent_id=None,
+            azure_ai_foundry_agent_name=None,
+            azure_ai_foundry_agent_version=None,
         )
     )
 
@@ -40,7 +44,8 @@ def test_foundry_agent_preflight_reports_missing_settings() -> None:
     assert status.mode == "configuration-only"
     assert status.missingSettings == [
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
-        "AZURE_AI_FOUNDRY_AGENT_ID",
+        "AZURE_AI_FOUNDRY_AGENT_NAME",
+        "AZURE_AI_FOUNDRY_AGENT_VERSION",
     ]
 
 
@@ -56,7 +61,9 @@ def test_foundry_agent_preflight_reports_ready_when_required_settings_present() 
                 "https://fictional-foundry.services.ai.azure.com/api/projects/demo"
             ),
             azure_ai_foundry_project_endpoint=None,
-            azure_ai_foundry_agent_id="fictional-agent-id",
+            azure_ai_foundry_agent_id=None,
+            azure_ai_foundry_agent_name="fictional-agent-name",
+            azure_ai_foundry_agent_version="2",
         )
     )
 
@@ -66,7 +73,7 @@ def test_foundry_agent_preflight_reports_ready_when_required_settings_present() 
     assert status.missingSettings == []
 
 
-def test_foundry_agent_preflight_can_reuse_foundry_project_endpoint() -> None:
+def test_foundry_agent_preflight_requires_agent_project_endpoint() -> None:
     from src.app.services.nurse_intake_agent_preflight import (
         build_nurse_intake_agent_status,
     )
@@ -78,12 +85,14 @@ def test_foundry_agent_preflight_can_reuse_foundry_project_endpoint() -> None:
             azure_ai_foundry_project_endpoint=(
                 "https://fictional-foundry.services.ai.azure.com/api/projects/demo"
             ),
-            azure_ai_foundry_agent_id="fictional-agent-id",
+            azure_ai_foundry_agent_id=None,
+            azure_ai_foundry_agent_name="fictional-agent-name",
+            azure_ai_foundry_agent_version="2",
         )
     )
 
-    assert status.ready is True
-    assert status.missingSettings == []
+    assert status.ready is False
+    assert status.missingSettings == ["AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"]
 
 
 def test_agent_preflight_does_not_probe_foundry_sdk(
@@ -107,7 +116,9 @@ def test_agent_preflight_does_not_probe_foundry_sdk(
                 "https://fictional-foundry.services.ai.azure.com/api/projects/demo"
             ),
             azure_ai_foundry_project_endpoint=None,
-            azure_ai_foundry_agent_id="fictional-agent-id",
+            azure_ai_foundry_agent_id=None,
+            azure_ai_foundry_agent_name="fictional-agent-name",
+            azure_ai_foundry_agent_version="2",
         )
     )
 
