@@ -115,6 +115,7 @@ def test_foundry_agent_factory_missing_live_settings_fail_safely(
 
     message = str(exc.value)
     assert exc.value.category == FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY
+    assert exc.value.phase == "unknown"
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in message
     assert "project-endpoint-secret" not in message
     assert "agent-id-secret" not in message
@@ -184,6 +185,7 @@ def test_foundry_agent_factory_missing_sdk_fails_with_safe_diagnostic(
 
     message = str(exc.value)
     assert exc.value.category == FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY
+    assert exc.value.phase == "sdk_import"
     assert message == FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE
     assert secret_endpoint not in message
     assert secret_agent_id not in message
@@ -224,6 +226,7 @@ def test_foundry_agent_live_client_setup_failure_is_sanitized(
 
     message = str(exc.value)
     assert exc.value.category == FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY
+    assert exc.value.phase == "credential_creation"
     assert message == FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE
     assert "secret-foundry" not in message
     assert "secret-token" not in message
@@ -262,7 +265,37 @@ def test_foundry_agent_live_client_request_failure_preserves_safe_cause() -> Non
         asyncio.run(client.invoke_agent(request))
 
     assert exc.value.category == FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY
+    assert exc.value.phase == "agent_invocation"
     assert str(exc.value) == FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE
     assert isinstance(exc.value.__cause__, FakeHttpResponseError)
     assert getattr(exc.value.__cause__, "status_code") == 404
+    assert "secret" not in str(exc.value)
+
+
+def test_foundry_agent_live_client_not_wired_failure_has_safe_phase() -> None:
+    from src.app.services.foundry_agent_client import (
+        FOUNDRY_AGENT_CLIENT_NOT_WIRED_MESSAGE,
+        FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
+        AzureAiFoundryAgentLiveClient,
+        FoundryAgentClientError,
+        FoundryAgentRequest,
+    )
+
+    client = AzureAiFoundryAgentLiveClient(
+        project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
+        agent_id="secret-agent-id",
+    )
+    client._agents_client = object()
+    request = FoundryAgentRequest(
+        intake_text="Fictional patient requests a refill.",
+        instructions="Return JSON only.",
+    )
+
+    with pytest.raises(FoundryAgentClientError) as exc:
+        asyncio.run(client.invoke_agent(request))
+
+    assert exc.value.category == FOUNDRY_AGENT_NOT_WIRED_CATEGORY
+    assert exc.value.phase == "not_wired"
+    assert str(exc.value) == FOUNDRY_AGENT_CLIENT_NOT_WIRED_MESSAGE
+    assert exc.value.__cause__ is None
     assert "secret" not in str(exc.value)

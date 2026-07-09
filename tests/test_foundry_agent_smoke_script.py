@@ -151,6 +151,7 @@ def _json_output(captured: pytest.CaptureFixture[str]) -> dict[str, object]:
 def _chained_foundry_agent_error(
     cause: BaseException,
     category: str = "foundry-agent-request-failed",
+    phase: str = "agent_invocation",
 ) -> FoundryAgentClientError:
     try:
         raise cause
@@ -159,6 +160,7 @@ def _chained_foundry_agent_error(
             raise FoundryAgentClientError(
                 "safe wrapper message",
                 category=category,
+                phase=phase,
             ) from exc
         except FoundryAgentClientError as wrapped:
             return wrapped
@@ -266,6 +268,35 @@ def test_safe_diagnostic_exception_name_prefers_chained_root_cause() -> None:
     )
 
     assert script._safe_diagnostic_exception_name(error) == "HttpResponseError"
+
+
+def test_client_error_diagnostic_helpers_report_safe_category_and_phase() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    error = FoundryAgentClientError(
+        "raw endpoint secret",
+        category="foundry-agent-request-failed",
+        phase="agent_invocation",
+    )
+
+    assert script._safe_client_error_category(error) == "foundry-agent-request-failed"
+    assert script._safe_client_error_phase(error) == "agent_invocation"
+    assert script._live_json_result_category(error) == "azure_request_failed"
+
+
+def test_client_error_diagnostic_helpers_report_not_wired_phase() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    error = FoundryAgentClientError(
+        "raw endpoint secret",
+        category="foundry-agent-not-wired",
+        phase="not_wired",
+    )
+
+    assert script._safe_client_error_category(error) == "foundry-agent-not-wired"
+    assert script._safe_client_error_phase(error) == "not_wired"
+    assert script._safe_diagnostic_exception_name(error) == "FoundryAgentClientError"
+    assert script._live_json_result_category(error) == "azure_request_failed"
 
 
 def test_foundry_agent_environment_readiness_reports_ready_when_present() -> None:
@@ -719,7 +750,9 @@ def test_foundry_agent_smoke_script_live_diagnose_output_is_sanitized(
         script,
         "create_nurse_intake_agent",
         lambda settings: CategoryFailingAgent(
-            StatusCodeError(401, "raw bearer token endpoint secret")
+            _chained_foundry_agent_error(
+                StatusCodeError(401, "raw bearer token endpoint secret")
+            )
         ),
     )
 
@@ -735,6 +768,8 @@ def test_foundry_agent_smoke_script_live_diagnose_output_is_sanitized(
     assert "Agent attempted: true" in captured.out
     assert "Safe exception class: StatusCodeError" in captured.out
     assert "Safe status code: 401" in captured.out
+    assert "Client error category: foundry-agent-request-failed" in captured.out
+    assert "Client error phase: agent_invocation" in captured.out
     assert "raw bearer token endpoint secret" not in combined_output
     assert "https://secret-agent.services.ai.azure.com" not in combined_output
     assert "secret-agent-id" not in combined_output
@@ -743,6 +778,42 @@ def test_foundry_agent_smoke_script_live_diagnose_output_is_sanitized(
     assert "Traceback" not in combined_output
     assert "taylor quinn" not in combined_output.lower()
     assert "demo-callback-002" not in combined_output
+
+
+def test_foundry_agent_smoke_script_live_diagnose_reports_direct_client_phase(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(monkeypatch, _settings(agent_provider="foundry-agent"))
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: CategoryFailingAgent(
+            FoundryAgentClientError(
+                "raw endpoint and agent secret",
+                category="foundry-agent-not-wired",
+                phase="not_wired",
+            )
+        ),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    combined_output = captured.out + captured.err
+    assert exit_code == 1
+    assert "Category: azure_request_failed" in captured.out
+    assert "Safe exception class: FoundryAgentClientError" in captured.out
+    assert "Safe status code: none" in captured.out
+    assert "Client error category: foundry-agent-not-wired" in captured.out
+    assert "Client error phase: not_wired" in captured.out
+    assert "raw endpoint and agent secret" not in combined_output
+    assert "secret-agent-id" not in combined_output
+    assert "https://secret-agent.services.ai.azure.com" not in combined_output
+    assert "Traceback" not in combined_output
 
 
 @pytest.mark.parametrize(

@@ -16,6 +16,14 @@ from src.app.config.settings import AppSettings
 from src.app.services.foundry_agent_client import (
     FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY,
     FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
+    FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+    FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
+    FOUNDRY_AGENT_PHASE_CREDENTIAL_CREATION,
+    FOUNDRY_AGENT_PHASE_NOT_WIRED,
+    FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
+    FOUNDRY_AGENT_PHASE_RESPONSE_PARSING,
+    FOUNDRY_AGENT_PHASE_SDK_IMPORT,
+    FOUNDRY_AGENT_PHASE_UNKNOWN,
     FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
     FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
     FoundryAgentClientError,
@@ -124,6 +132,26 @@ AGENT_PROVIDER_SETTING_NAME = "AGENT_PROVIDER"
 FOUNDRY_AGENT_ENDPOINT_SETTING_NAME = "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"
 FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME = "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
 FOUNDRY_AGENT_ID_SETTING_NAME = "AZURE_AI_FOUNDRY_AGENT_ID"
+SAFE_CLIENT_ERROR_CATEGORIES = frozenset(
+    {
+        FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY,
+        FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
+        FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+        FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
+    }
+)
+SAFE_CLIENT_ERROR_PHASES = frozenset(
+    {
+        FOUNDRY_AGENT_PHASE_SDK_IMPORT,
+        FOUNDRY_AGENT_PHASE_CREDENTIAL_CREATION,
+        FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
+        FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+        FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
+        FOUNDRY_AGENT_PHASE_RESPONSE_PARSING,
+        FOUNDRY_AGENT_PHASE_NOT_WIRED,
+        FOUNDRY_AGENT_PHASE_UNKNOWN,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -441,6 +469,8 @@ def _print_diagnostic_result(
     print(f"Agent output valid: {_format_optional_bool(result.agent_output_valid)}")
     print(f"Safe exception class: {_safe_diagnostic_exception_name(error)}")
     print(f"Safe status code: {_format_optional_status_code(_find_status_code(error))}")
+    print(f"Client error category: {_safe_client_error_category(error)}")
+    print(f"Client error phase: {_safe_client_error_phase(error)}")
     print(f"Recommended next step: {result.recommended_next_step}")
     print(
         "Sanitized diagnostic only: no endpoint, agent ID, token, prompt text, "
@@ -583,6 +613,15 @@ def _live_json_result_category(error: BaseException) -> str:
 
     for candidate in _walk_exception_chain(error):
         if isinstance(candidate, FoundryAgentClientError):
+            if candidate.phase == FOUNDRY_AGENT_PHASE_SDK_IMPORT:
+                return "sdk_unavailable"
+            if candidate.phase in {
+                FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+                FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
+                FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
+                FOUNDRY_AGENT_PHASE_NOT_WIRED,
+            }:
+                return "azure_request_failed"
             if candidate.category == FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY:
                 return "sdk_unavailable"
             if candidate.category == FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY:
@@ -883,6 +922,35 @@ def _safe_root_exception_class_name(error: BaseException | None) -> str:
 
 def _safe_diagnostic_exception_name(error: BaseException | None) -> str:
     return _safe_root_exception_class_name(error)
+
+
+def _safe_client_error_category(error: BaseException | None) -> str:
+    client_error = _first_client_error(error)
+    if client_error is None:
+        return "none"
+    category = getattr(client_error, "category", None)
+    if category in SAFE_CLIENT_ERROR_CATEGORIES:
+        return category
+    return "unknown"
+
+
+def _safe_client_error_phase(error: BaseException | None) -> str:
+    client_error = _first_client_error(error)
+    if client_error is None:
+        return "none"
+    phase = getattr(client_error, "phase", None)
+    if phase in SAFE_CLIENT_ERROR_PHASES:
+        return phase
+    return "unknown"
+
+
+def _first_client_error(error: BaseException | None) -> FoundryAgentClientError | None:
+    if error is None:
+        return None
+    for candidate in _walk_exception_chain(error):
+        if isinstance(candidate, FoundryAgentClientError):
+            return candidate
+    return None
 
 
 def _format_optional_status_code(status_code: int | None) -> str:

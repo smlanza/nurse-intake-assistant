@@ -268,8 +268,12 @@ phone numbers, or PHI.
 `--live --diagnose` calls the same live path and prints only sanitized
 troubleshooting metadata: provider, mode, category, whether the agent was
 attempted, safe root-cause exception class name when detectable, safe status
-code from the exception chain when available, and the recommended next step. It
-does not print endpoint URLs, agent IDs, tokens, stack traces, raw exception
+code from the exception chain when available, safe client error category, safe
+client error phase, and the recommended next step. Client error phase is
+diagnostic-only and safe; expected values include labels such as `sdk_import`,
+`credential_creation`, `client_creation`, `agent_invocation`,
+`response_extraction`, `response_parsing`, `not_wired`, or `unknown`. It does
+not print endpoint URLs, agent IDs, tokens, stack traces, raw exception
 messages, raw prompts, raw model responses, request IDs, real contact values,
 or PHI.
 
@@ -303,6 +307,9 @@ subscription, or RBAC needs investigation; local development may require
 endpoint, agent ID, SDK compatibility, agent availability, or request shape
 needs investigation. It may also represent a non-auth request category such as
 bad request, missing resource, conflict, rate limit, or service error.
+If diagnostic output reports `phase=not_wired`, `phase=client_creation`, or
+`phase=agent_invocation`, investigate SDK compatibility, request shape, agent
+availability, and the live adapter implementation before changing app defaults.
 `missing_configuration` means required environment variable names are missing.
 `sdk_unavailable` means the optional Foundry Agent SDK dependencies are not
 importable. `unexpected_error` is a sanitized catch-all for failures outside

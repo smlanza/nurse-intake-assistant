@@ -20,6 +20,14 @@ FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY = (
 FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY = "foundry-agent-sdk-unavailable"
 FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY = "foundry-agent-request-failed"
 FOUNDRY_AGENT_NOT_WIRED_CATEGORY = "foundry-agent-not-wired"
+FOUNDRY_AGENT_PHASE_SDK_IMPORT = "sdk_import"
+FOUNDRY_AGENT_PHASE_CREDENTIAL_CREATION = "credential_creation"
+FOUNDRY_AGENT_PHASE_CLIENT_CREATION = "client_creation"
+FOUNDRY_AGENT_PHASE_AGENT_INVOCATION = "agent_invocation"
+FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION = "response_extraction"
+FOUNDRY_AGENT_PHASE_RESPONSE_PARSING = "response_parsing"
+FOUNDRY_AGENT_PHASE_NOT_WIRED = "not_wired"
+FOUNDRY_AGENT_PHASE_UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -50,9 +58,16 @@ class FoundryAgentClient(Protocol):
 class FoundryAgentClientError(RuntimeError):
     """Safe diagnostic for Foundry Agent client setup or invocation failures."""
 
-    def __init__(self, message: str, *, category: str) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        category: str,
+        phase: str = FOUNDRY_AGENT_PHASE_UNKNOWN,
+    ) -> None:
         super().__init__(message)
         self.category = category
+        self.phase = phase
 
 
 class FakeFoundryAgentClient:
@@ -100,6 +115,7 @@ class AzureAiFoundryAgentLiveClient:
             raise FoundryAgentClientError(
                 FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
                 category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+                phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
             ) from exc
 
     def _get_agents_client(self):
@@ -115,6 +131,7 @@ class AzureAiFoundryAgentLiveClient:
         raise FoundryAgentClientError(
             FOUNDRY_AGENT_CLIENT_NOT_WIRED_MESSAGE,
             category=FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_NOT_WIRED,
         )
 
 
@@ -148,6 +165,7 @@ def create_foundry_agent_client(
         raise FoundryAgentClientError(
             FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
             category=FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_SDK_IMPORT,
         )
 
     return AzureAiFoundryAgentLiveClient(
@@ -180,6 +198,7 @@ def _required_agent_setting(value: str | None, name: str) -> str:
         raise FoundryAgentClientError(
             f"{name} is required for explicit Azure AI Foundry Agent client creation.",
             category=FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_UNKNOWN,
         )
     return value
 
@@ -188,16 +207,25 @@ def _create_agents_client(project_endpoint: str):
     try:
         AgentsClient = _get_agents_client_class()
         DefaultAzureCredential = _get_default_credential_class()
+        try:
+            credential = DefaultAzureCredential()
+        except Exception as exc:
+            raise FoundryAgentClientError(
+                FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
+                category=FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
+                phase=FOUNDRY_AGENT_PHASE_CREDENTIAL_CREATION,
+            ) from exc
         return AgentsClient(
             endpoint=project_endpoint,
-            credential=DefaultAzureCredential(),
+            credential=credential,
         )
     except FoundryAgentClientError:
         raise
     except Exception as exc:
         raise FoundryAgentClientError(
-            FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
-            category=FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_CLIENT_CREATION,
         ) from exc
 
 
@@ -208,6 +236,7 @@ def _get_agents_client_class():
         raise FoundryAgentClientError(
             FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
             category=FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_SDK_IMPORT,
         ) from exc
     return AgentsClient
 
@@ -219,5 +248,6 @@ def _get_default_credential_class():
         raise FoundryAgentClientError(
             FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
             category=FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_SDK_IMPORT,
         ) from exc
     return DefaultAzureCredential

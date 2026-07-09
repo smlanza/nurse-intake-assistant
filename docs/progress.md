@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 757 passed
+- 761 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,13 +22,12 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent root-cause diagnostic hardening completed.
-- Exception wrapping now preserves safe cause information for diagnostics, and
-  `--live --diagnose` prefers a safe root-cause exception class plus safe status
-  code from the exception chain when available.
-- Live JSON classification now maps wrapped Azure SDK, credential, status-code,
-  and Foundry Agent client-boundary failures into safe categories instead of
-  falling back to `unexpected_error` whenever detectable.
+- Foundry Agent client phase diagnostics completed.
+- Direct `FoundryAgentClientError` diagnostics now expose safe category/phase
+  metadata when available, so `--live --diagnose` can distinguish client
+  boundary phases such as `agent_invocation` and `not_wired`.
+- Exception wrapping still preserves safe cause information for diagnostics,
+  including root-cause class and status code when available.
 - Automated tests remain offline and deterministic.
 - No live Azure success is claimed unless the manual `--live --json` path is
   actually verified in the intended Azure environment.
@@ -260,6 +259,13 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
+- Foundry Agent client phase diagnostics completed.
+- Direct `FoundryAgentClientError` diagnostics now expose safe category/phase
+  metadata when available.
+- Automated tests remain offline; no live Azure success is claimed unless
+  manually verified; default mock behavior is unchanged; no secrets/raw Azure
+  values or production hosting/auth/Key Vault/Speech/phone/retry/frontend/
+  clinical scope were added.
 - Foundry Agent root-cause diagnostic hardening completed.
 - Exception wrapping now preserves safe cause information for diagnostics.
 - Automated tests remain offline; no live Azure success is claimed unless
