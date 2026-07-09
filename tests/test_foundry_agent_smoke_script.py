@@ -63,6 +63,46 @@ class StatusCodeError(Exception):
         self.status_code = status_code
 
 
+class StatusAttributeError(Exception):
+    def __init__(self, status: int, message: str = "raw secret message") -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class ResponseStatusError(Exception):
+    def __init__(self, status_code: int, message: str = "raw secret message") -> None:
+        super().__init__(message)
+        self.response = SimpleNamespace(status_code=status_code)
+
+
+class CredentialUnavailableError(Exception):
+    pass
+
+
+class ClientAuthenticationError(Exception):
+    pass
+
+
+class AuthenticationRequiredError(Exception):
+    pass
+
+
+class AuthorizationFailedError(Exception):
+    pass
+
+
+class ForbiddenError(Exception):
+    pass
+
+
+class HttpResponseError(Exception):
+    pass
+
+
+class ServiceRequestError(Exception):
+    pass
+
+
 class CategoryFailingAgent:
     def __init__(self, error: BaseException) -> None:
         self.error = error
@@ -106,6 +146,77 @@ def _patch_script_env(
 
 def _json_output(captured: pytest.CaptureFixture[str]) -> dict[str, object]:
     return json.loads(captured.readouterr().out)
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        StatusCodeError(401),
+        StatusCodeError(403),
+        StatusAttributeError(401),
+        ResponseStatusError(403),
+        CredentialUnavailableError("raw token endpoint secret"),
+        ClientAuthenticationError("raw token endpoint secret"),
+        AuthenticationRequiredError("raw token endpoint secret"),
+        AuthorizationFailedError("raw token endpoint secret"),
+        ForbiddenError("raw token endpoint secret"),
+    ],
+)
+def test_live_json_result_category_detects_auth_failures(error: BaseException) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    assert script._live_json_result_category(error) == (
+        "authentication_or_authorization_failed"
+    )
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        StatusCodeError(400),
+        StatusCodeError(404),
+        StatusCodeError(409),
+        StatusCodeError(429),
+        StatusCodeError(500),
+        StatusAttributeError(503),
+        ResponseStatusError(404),
+        HttpResponseError("raw endpoint request secret"),
+        ServiceRequestError("raw endpoint request secret"),
+        FoundryAgentClientError(
+            "secret not wired",
+            category="foundry-agent-not-wired",
+        ),
+        FoundryAgentClientError(
+            "secret request failure",
+            category="foundry-agent-request-failed",
+        ),
+    ],
+)
+def test_live_json_result_category_detects_azure_request_failures(
+    error: BaseException,
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    assert script._live_json_result_category(error) == "azure_request_failed"
+
+
+def test_live_json_result_category_detects_sdk_client_construction_failure() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    error = FoundryAgentClientError(
+        "secret SDK import detail",
+        category="foundry-agent-sdk-unavailable",
+    )
+
+    assert script._live_json_result_category(error) == "sdk_unavailable"
+
+
+def test_live_json_result_category_unknown_stays_unexpected_error() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    assert script._live_json_result_category(RuntimeError("raw secret")) == (
+        "unexpected_error"
+    )
 
 
 def test_foundry_agent_environment_readiness_reports_ready_when_present() -> None:
@@ -536,6 +647,51 @@ def test_foundry_agent_smoke_script_live_json_authentication_failure_is_safe(
     assert "https://secret-agent.services.ai.azure.com" not in combined_output
     assert "secret-agent-id" not in combined_output
     assert "Traceback" not in combined_output
+
+
+def test_foundry_agent_smoke_script_live_diagnose_output_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            agent_provider="foundry-agent",
+            project_endpoint="https://secret-agent.services.ai.azure.com/api/projects/demo",
+            agent_id="secret-agent-id",
+        ),
+    )
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: CategoryFailingAgent(
+            StatusCodeError(401, "raw bearer token endpoint secret")
+        ),
+    )
+
+    exit_code = script.main(["--live", "--diagnose"])
+
+    captured = capsys.readouterr()
+    combined_output = captured.out + captured.err
+    assert exit_code == 1
+    assert "Foundry Agent live diagnostic result" in captured.out
+    assert "Provider: foundry-agent" in captured.out
+    assert "Mode: live" in captured.out
+    assert "Category: authentication_or_authorization_failed" in captured.out
+    assert "Agent attempted: true" in captured.out
+    assert "Safe exception class: StatusCodeError" in captured.out
+    assert "Safe status code: 401" in captured.out
+    assert "raw bearer token endpoint secret" not in combined_output
+    assert "https://secret-agent.services.ai.azure.com" not in combined_output
+    assert "secret-agent-id" not in combined_output
+    assert "raw prompt" not in combined_output.lower()
+    assert "raw model" not in combined_output.lower()
+    assert "Traceback" not in combined_output
+    assert "taylor quinn" not in combined_output.lower()
+    assert "demo-callback-002" not in combined_output
 
 
 @pytest.mark.parametrize(

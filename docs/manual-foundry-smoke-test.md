@@ -244,11 +244,17 @@ Example sanitized JSON live command:
 python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live --json
 ```
 
-`--live` remains manual and opt-in. It is the only mode intended to construct
-the Foundry Agent path and may call Azure. It uses the script's built-in
-fictional medication-refill intake only, does not send notifications, does not
-write to Cosmos, does not call FastAPI routes, and does not require the FastAPI
-server to be running.
+Optional sanitized diagnostic command after live JSON fails:
+
+```bash
+python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live --diagnose
+```
+
+`--live --json` is the primary live validation command. `--live` remains manual
+and opt-in. It is the only mode intended to construct the Foundry Agent path
+and may call Azure. It uses the script's built-in fictional medication-refill
+intake only, does not send notifications, does not write to Cosmos, does not
+call FastAPI routes, and does not require the FastAPI server to be running.
 In plain terms: --live remains manual and opt-in.
 
 `--live --json` prints a deterministic sanitized result with these fields:
@@ -258,6 +264,13 @@ In plain terms: --live remains manual and opt-in.
 traces, full endpoints, agent IDs, bearer tokens, prompts, instructions, raw
 model output, connection strings, real patient/contact data, email addresses,
 phone numbers, or PHI.
+
+`--live --diagnose` calls the same live path and prints only sanitized
+troubleshooting metadata: provider, mode, category, whether the agent was
+attempted, safe exception class name, safe status code when detectable, and the
+recommended next step. It does not print endpoint URLs, agent IDs, tokens,
+stack traces, raw exception messages, raw prompts, raw model responses, request
+IDs, real contact values, or PHI.
 
 When `AGENT_PROVIDER=foundry-agent` or `AGENT_PROVIDER=foundry` is configured,
 `/demo/status`, `/ops`, and `python scripts/preflight.py --foundry-agent` may
@@ -284,8 +297,12 @@ parseable structured JSON. `contract_invalid` means the agent returned
 parseable structured data that did not match the expected extraction contract
 or the parsed result violated the `NurseIntakeAgent` output contract.
 `authentication_or_authorization_failed` points to Azure login, tenant, or RBAC
-problems. `azure_request_failed` means the live request reached the Azure-facing
-path but failed with a non-auth request category. `unexpected_error` is a
+problems; local development may require `az login` for `DefaultAzureCredential`.
+`azure_request_failed` means the live request reached the Azure-facing path but
+failed with a non-auth request category such as bad request, missing resource,
+conflict, rate limit, or service error. `missing_configuration` means required
+environment variable names are missing. `sdk_unavailable` means the optional
+Foundry Agent SDK dependencies are not importable. `unexpected_error` is a
 sanitized catch-all for failures outside the known configuration, SDK, auth,
 request, parsing, and contract buckets.
 

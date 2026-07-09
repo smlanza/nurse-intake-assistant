@@ -529,6 +529,9 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "fictional data only" in normalized_doc
     assert "default local demo remains mock/offline" in normalized_doc
     assert "--live --json" in doc
+    assert "--live --diagnose" in doc
+    assert "az login" in doc
+    assert "safe exception class name" in doc
     assert "agent_output_valid" in doc
     assert "recommended_next_step" in doc
     assert "Do not claim live Foundry Agent behavior" in doc

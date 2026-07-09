@@ -15,6 +15,8 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.app.config.settings import AppSettings
 from src.app.services.foundry_agent_client import (
     FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY,
+    FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
+    FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
     FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY,
     FoundryAgentClientError,
     foundry_agent_sdk_available,
@@ -204,6 +206,10 @@ def main(argv: list[str] | None = None) -> int:
         result, exit_code = _run_live_json_smoke(settings)
         _print_json_result(result)
         return exit_code
+    if args.live and args.diagnose:
+        result, exit_code, error = _run_live_smoke(settings)
+        _print_diagnostic_result(result, error)
+        return exit_code
 
     if args.check:
         readiness = build_foundry_agent_environment_readiness(
@@ -271,6 +277,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--diagnose",
+        action="store_true",
+        help=(
+            "Print sanitized live troubleshooting metadata for --live without "
+            "raw exception messages, stack traces, endpoints, agent IDs, or "
+            "model output."
+        ),
+    )
+    parser.add_argument(
         "--print-agent-instructions",
         action="store_true",
         help=(
@@ -283,12 +298,23 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         parser.error("--print-agent-instructions cannot be combined with --check or --live")
     if args.check and args.live:
         parser.error("--check and --live cannot be used together")
+    if args.diagnose and not args.live:
+        parser.error("--diagnose is only supported with --live")
+    if args.json and args.diagnose:
+        parser.error("--json and --diagnose cannot be used together")
     if args.json and not args.live:
         parser.error("--json is only supported with --live")
     return args
 
 
 def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult, int]:
+    result, exit_code, _ = _run_live_smoke(settings)
+    return result, exit_code
+
+
+def _run_live_smoke(
+    settings: AppSettings,
+) -> tuple[FoundryAgentSmokeResult, int, BaseException | None]:
     sdk_available = foundry_agent_sdk_available()
     if not _foundry_agent_configured(settings):
         return (
@@ -298,6 +324,7 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
                 agent_output_valid=None,
             ),
             2,
+            None,
         )
 
     if not sdk_available:
@@ -308,6 +335,7 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
                 agent_output_valid=None,
             ),
             1,
+            None,
         )
 
     try:
@@ -321,6 +349,7 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
                 agent_output_valid=None,
             ),
             1,
+            exc,
         )
 
     try:
@@ -338,6 +367,7 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
                 ),
             ),
             1,
+            exc,
         )
 
     validation_result = validate_nurse_intake_agent_result(agent_result)
@@ -351,6 +381,7 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
                 fields_present=fields_present,
             ),
             1,
+            None,
         )
 
     return (
@@ -367,6 +398,7 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
             recommended_next_step=SAFE_RESULT_HINTS["success"],
         ),
         0,
+        None,
     )
 
 
@@ -395,6 +427,25 @@ def _failed_live_result(
 
 def _print_json_result(result: FoundryAgentSmokeResult) -> None:
     print(json.dumps(result.to_json_dict(), separators=(",", ":")))
+
+
+def _print_diagnostic_result(
+    result: FoundryAgentSmokeResult,
+    error: BaseException | None,
+) -> None:
+    print("Foundry Agent live diagnostic result")
+    print("Provider: foundry-agent")
+    print("Mode: live")
+    print(f"Category: {result.category}")
+    print(f"Agent attempted: {str(result.agent_attempted).lower()}")
+    print(f"Agent output valid: {_format_optional_bool(result.agent_output_valid)}")
+    print(f"Safe exception class: {_safe_exception_class_name(error)}")
+    print(f"Safe status code: {_format_optional_status_code(_find_status_code(error))}")
+    print(f"Recommended next step: {result.recommended_next_step}")
+    print(
+        "Sanitized diagnostic only: no endpoint, agent ID, token, prompt text, "
+        "model response text, stack trace, request ID, email, phone, or PHI was printed."
+    )
 
 
 def _print_agent_instruction_pack() -> None:
@@ -499,6 +550,17 @@ def _live_json_result_category(error: BaseException) -> str:
         for candidate in _walk_exception_chain(error)
     ):
         return "contract_invalid"
+    for candidate in _walk_exception_chain(error):
+        if isinstance(candidate, FoundryAgentClientError):
+            if candidate.category == FOUNDRY_AGENT_SDK_UNAVAILABLE_CATEGORY:
+                return "sdk_unavailable"
+            if candidate.category == FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY:
+                return "missing_configuration"
+            if candidate.category in {
+                FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+                FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
+            }:
+                return "azure_request_failed"
 
     status_code = _find_status_code(error)
     if status_code in {401, 403}:
@@ -512,11 +574,22 @@ def _live_json_result_category(error: BaseException) -> str:
     if (
         "credential" in chain_class_text
         or "authentication" in chain_class_text
+        or "authenticationrequired" in chain_class_text
         or "authorization" in chain_class_text
         or "forbidden" in chain_class_text
     ):
         return "authentication_or_authorization_failed"
-    if "azure" in chain_class_text and "request" in chain_class_text:
+    if (
+        ("azure" in chain_class_text and "request" in chain_class_text)
+        or "httpresponseerror" in chain_class_text
+        or "resourcenotfound" in chain_class_text
+        or "resourcemodified" in chain_class_text
+        or "toomanyrequests" in chain_class_text
+        or "servicerequest" in chain_class_text
+        or "serviceresponse" in chain_class_text
+        or "requestfailed" in chain_class_text
+        or "httperror" in chain_class_text
+    ):
         return "azure_request_failed"
 
     legacy_category = classify_live_agent_failure(error)
@@ -760,16 +833,51 @@ def classify_live_agent_failure(error: BaseException) -> str:
     return "unknown"
 
 
-def _find_status_code(error: BaseException) -> int | None:
+def _find_status_code(error: BaseException | None) -> int | None:
+    if error is None:
+        return None
     for candidate in _walk_exception_chain(error):
-        status_code = getattr(candidate, "status_code", None)
-        if isinstance(status_code, int):
+        status_code = _coerce_status_code(getattr(candidate, "status_code", None))
+        if status_code is not None:
             return status_code
+        status = _coerce_status_code(getattr(candidate, "status", None))
+        if status is not None:
+            return status
         response = getattr(candidate, "response", None)
-        response_status_code = getattr(response, "status_code", None)
-        if isinstance(response_status_code, int):
+        response_status_code = _coerce_status_code(getattr(response, "status_code", None))
+        if response_status_code is not None:
             return response_status_code
+        response_status = _coerce_status_code(getattr(response, "status", None))
+        if response_status is not None:
+            return response_status
     return None
+
+
+def _coerce_status_code(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdecimal():
+        return int(value)
+    return None
+
+
+def _safe_exception_class_name(error: BaseException | None) -> str:
+    if error is None:
+        return "none"
+    class_name = error.__class__.__name__
+    if class_name.isidentifier():
+        return class_name
+    return "unknown"
+
+
+def _format_optional_status_code(status_code: int | None) -> str:
+    return str(status_code) if status_code is not None else "none"
+
+
+def _format_optional_bool(value: bool | None) -> str:
+    if value is None:
+        return "null"
+    return str(value).lower()
 
 
 def _walk_exception_chain(

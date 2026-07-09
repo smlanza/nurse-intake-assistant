@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 730 passed
+- 753 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,14 +22,12 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent instruction pack slice completed.
-- Centralized/versioned instructions now align manual Azure Agent
-  configuration with the local `NurseIntakeAgent` contract.
-- `python scripts/smoke_foundry_agent.py --print-agent-instructions` prints a
-  safe copyable instruction pack, expected JSON shape, fictional test input,
-  and manual validation reminders.
-- The print command is offline and does not call Azure, load Azure settings,
-  create clients, or invoke agents.
+- Foundry Agent live diagnostic/classification hardening completed.
+- `scripts/smoke_foundry_agent.py --live --diagnose` now prints sanitized
+  troubleshooting metadata for the same live path used by `--live --json`.
+- Live JSON classification now maps more Azure SDK, credential, status-code,
+  and Foundry Agent client-boundary failures into safe categories instead of
+  falling back to `unexpected_error` whenever detectable.
 - Automated tests remain offline and deterministic.
 - No live Azure success is claimed unless the manual `--live --json` path is
   actually verified in the intended Azure environment.
@@ -37,8 +35,8 @@ Latest completed slice:
   unchanged.
 - No secrets, raw Azure values, endpoint values, agent IDs, deployment names,
   tokens, raw model output, connection strings, real contact data, or real
-  patient data are exposed by the instruction pack, check output, smoke JSON
-  output, or docs.
+  patient data are exposed by diagnostic output, check output, smoke JSON
+  output, instruction output, or docs.
 - No hosting, auth, Key Vault, Speech, phone intake, durable retry, production
   frontend, or production clinical behavior was added.
 
@@ -261,6 +259,12 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
+- Foundry Agent live diagnostic/classification hardening completed.
+- `--diagnose` was added for sanitized live troubleshooting metadata.
+- Automated tests remain offline; no live Azure success is claimed unless
+  manually verified; default mock behavior is unchanged; no secrets/raw Azure
+  values or production hosting/auth/Key Vault/Speech/phone/retry/frontend/
+  clinical scope were added.
 - Foundry Agent instruction pack slice completed.
 - Centralized/versioned instructions now align manual Azure Agent
   configuration with the local `NurseIntakeAgent` contract.
