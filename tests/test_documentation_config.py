@@ -524,13 +524,16 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "fictional data only" in normalized_doc
     assert "default local demo remains mock/offline" in normalized_doc
     assert "--live --json" in doc
-    assert "safeFailureCategory" in doc
+    assert "agent_output_valid" in doc
+    assert "recommended_next_step" in doc
     assert "Do not claim live Foundry Agent behavior" in doc
-    assert "authorization_failed" in doc
-    assert "agent_not_found" in doc
-    assert "bad_request" in doc
+    assert "authentication_or_authorization_failed" in doc
+    assert "azure_request_failed" in doc
+    assert "unexpected_error" in doc
     assert "sdk_unavailable" in doc
     assert "contract_invalid" in doc
+    assert "does not make the app production clinical software" in normalized_doc
+    assert "AGENT_PROVIDER=mock" in doc
 
 
 def test_readme_documents_smoke_scripts_are_explicitly_invoked_checks() -> None:

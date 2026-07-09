@@ -197,11 +197,12 @@ server to be running.
 In plain terms: --live remains manual and opt-in.
 
 `--live --json` prints a deterministic sanitized result with these fields:
-`provider`, `mode`, `configured`, `sdkAvailable`, `attempted`, `status`,
-`safeFailureCategory`, and `nextStepHint`. It does not print raw exception
-messages, stack traces, full endpoints, agent IDs, bearer tokens, prompts,
-instructions, raw model output, connection strings, real patient/contact data,
-email addresses, phone numbers, or PHI.
+`ok`, `mode`, `provider`, `category`, `message`, `agent_attempted`,
+`agent_output_valid`, `fallback_used`, `fields_present`, and
+`recommended_next_step`. It does not print raw exception messages, stack
+traces, full endpoints, agent IDs, bearer tokens, prompts, instructions, raw
+model output, connection strings, real patient/contact data, email addresses,
+phone numbers, or PHI.
 
 When `AGENT_PROVIDER=foundry-agent` or `AGENT_PROVIDER=foundry` is configured,
 `/demo/status`, `/ops`, and `python scripts/preflight.py --foundry-agent` may
@@ -217,22 +218,40 @@ Safe Foundry Agent live failure categories include:
 
 - missing_configuration
 - sdk_unavailable
-- authentication_failed
-- authorization_failed
-- agent_not_found
-- bad_request
+- authentication_or_authorization_failed
+- azure_request_failed
 - contract_invalid
 - response_parse_failed
-- unknown_failure
+- unexpected_error
 
 For `--live --json`, `response_parse_failed` means the agent did not return
 parseable structured JSON. `contract_invalid` means the agent returned
-parseable structured data that did not match the expected extraction contract.
+parseable structured data that did not match the expected extraction contract
+or the parsed result violated the `NurseIntakeAgent` output contract.
+`authentication_or_authorization_failed` points to Azure login, tenant, or RBAC
+problems. `azure_request_failed` means the live request reached the Azure-facing
+path but failed with a non-auth request category. `unexpected_error` is a
+sanitized catch-all for failures outside the known configuration, SDK, auth,
+request, parsing, and contract buckets.
+
+`category=success` means the manual smoke command received an agent result that
+parsed and satisfied the local Nurse Intake Agent contract for the built-in
+fictional medication-refill intake. It does not make the app production
+clinical software, does not remove the nurse-review requirement, does not
+enable `/demo` to call Azure, and does not validate hosting, auth, Key Vault,
+Speech, phone intake, durable retry, ACS delivery, or production frontend
+behavior.
 
 Do not claim live Foundry Agent behavior is verified unless this manual
 `--live` path has been run successfully in the intended Azure environment.
 Passing `--check` means local configuration is present and no Azure call was
 made.
+
+After any manual live check, return the local demo to mock/offline mode:
+
+```bash
+AGENT_PROVIDER=mock
+```
 
 ## Troubleshoot With Diagnose
 

@@ -24,6 +24,9 @@ from src.app.services.foundry_extraction_contract import (
     FoundryExtractionParseError,
 )
 from src.app.services.nurse_intake_agent_factory import create_nurse_intake_agent
+from src.app.services.nurse_intake_agent_contract import (
+    validate_nurse_intake_agent_result,
+)
 from src.app.services.nurse_intake_agent_preflight import (
     build_nurse_intake_agent_status,
 )
@@ -73,48 +76,81 @@ SAFE_FAILURE_HINTS = {
 SAFE_RESULT_HINTS = {
     "missing_configuration": "Check required Foundry Agent environment settings.",
     "sdk_unavailable": "Install the optional Azure AI Foundry Agent SDK packages.",
-    "authentication_failed": "Check Azure credential login and tenant access.",
-    "authorization_failed": "Check project RBAC permissions for the signed-in identity.",
-    "agent_not_found": "Check that the configured Foundry Agent still exists.",
-    "bad_request": "Check the Foundry Agent request configuration.",
+    "authentication_or_authorization_failed": (
+        "Check Azure login, tenant access, and project RBAC permissions."
+    ),
+    "azure_request_failed": (
+        "Check local Foundry Agent settings, SDK compatibility, and agent availability."
+    ),
     "contract_invalid": "Check that the agent response matches the expected contract.",
     "response_parse_failed": "Check that the agent returned valid structured JSON.",
-    "unknown_failure": "Check local settings, Azure login, RBAC, SDK compatibility, and agent availability.",
+    "unexpected_error": (
+        "Check local settings and rerun with a clean manual smoke environment."
+    ),
+    "success": "No action needed for this manual smoke result.",
+}
+SAFE_RESULT_MESSAGES = {
+    "success": "Live Foundry Agent smoke validation completed successfully.",
+    "missing_configuration": "Required Foundry Agent configuration is missing.",
+    "sdk_unavailable": "The optional Foundry Agent SDK is unavailable.",
+    "authentication_or_authorization_failed": (
+        "Azure authentication or authorization failed."
+    ),
+    "azure_request_failed": "The Azure Foundry Agent request failed.",
+    "response_parse_failed": "The agent response could not be parsed as JSON.",
+    "contract_invalid": (
+        "The parsed agent response did not satisfy the Nurse Intake Agent contract."
+    ),
+    "unexpected_error": "The live smoke path failed unexpectedly.",
 }
 LIVE_RESULT_CATEGORY_BY_LEGACY_CATEGORY = {
     "configuration": "missing_configuration",
-    "credential": "authentication_failed",
-    "authentication": "authentication_failed",
-    "authorization": "authorization_failed",
-    "not_found": "agent_not_found",
-    "bad_request": "bad_request",
+    "credential": "authentication_or_authorization_failed",
+    "authentication": "authentication_or_authorization_failed",
+    "authorization": "authentication_or_authorization_failed",
+    "not_found": "azure_request_failed",
+    "bad_request": "azure_request_failed",
     "sdk_missing": "sdk_unavailable",
     "parsing": "contract_invalid",
-    "unknown": "unknown_failure",
+    "unknown": "unexpected_error",
 }
+LIVE_JSON_CATEGORIES = frozenset(SAFE_RESULT_MESSAGES)
 
 
 @dataclass(frozen=True)
 class FoundryAgentSmokeResult:
     provider: str
     mode: str
-    configured: bool
-    sdk_available: bool
-    attempted: bool
-    status: Literal["succeeded", "failed"]
-    safe_failure_category: str | None
-    next_step_hint: str | None
+    ok: bool
+    category: Literal[
+        "success",
+        "missing_configuration",
+        "sdk_unavailable",
+        "authentication_or_authorization_failed",
+        "azure_request_failed",
+        "response_parse_failed",
+        "contract_invalid",
+        "unexpected_error",
+    ]
+    message: str
+    agent_attempted: bool
+    agent_output_valid: bool | None
+    fallback_used: bool
+    fields_present: list[str]
+    recommended_next_step: str
 
     def to_json_dict(self) -> dict[str, object]:
         return {
-            "provider": self.provider,
+            "ok": self.ok,
             "mode": self.mode,
-            "configured": self.configured,
-            "sdkAvailable": self.sdk_available,
-            "attempted": self.attempted,
-            "status": self.status,
-            "safeFailureCategory": self.safe_failure_category,
-            "nextStepHint": self.next_step_hint,
+            "provider": self.provider,
+            "category": self.category,
+            "message": self.message,
+            "agent_attempted": self.agent_attempted,
+            "agent_output_valid": self.agent_output_valid,
+            "fallback_used": self.fallback_used,
+            "fields_present": self.fields_present,
+            "recommended_next_step": self.recommended_next_step,
         }
 
 
@@ -218,10 +254,9 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
     if not _foundry_agent_configured(settings):
         return (
             _failed_live_result(
-                configured=False,
-                sdk_available=sdk_available,
-                attempted=False,
-                safe_failure_category="missing_configuration",
+                category="missing_configuration",
+                agent_attempted=False,
+                agent_output_valid=None,
             ),
             2,
         )
@@ -229,39 +264,68 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
     if not sdk_available:
         return (
             _failed_live_result(
-                configured=True,
-                sdk_available=False,
-                attempted=False,
-                safe_failure_category="sdk_unavailable",
+                category="sdk_unavailable",
+                agent_attempted=False,
+                agent_output_valid=None,
             ),
             1,
         )
 
     try:
         agent = create_nurse_intake_agent(settings)
-        asyncio.run(agent.analyze_intake(FICTIONAL_AGENT_INTAKE_TEXT))
     except Exception as exc:
-        safe_category = _live_result_category(exc)
+        safe_category = _live_json_result_category(exc)
         return (
             _failed_live_result(
-                configured=True,
-                sdk_available=True,
-                attempted=True,
-                safe_failure_category=safe_category,
+                category=safe_category,
+                agent_attempted=False,
+                agent_output_valid=None,
+            ),
+            1,
+        )
+
+    try:
+        agent_result = asyncio.run(agent.analyze_intake(FICTIONAL_AGENT_INTAKE_TEXT))
+    except Exception as exc:
+        safe_category = _live_json_result_category(exc)
+        return (
+            _failed_live_result(
+                category=safe_category,
+                agent_attempted=True,
+                agent_output_valid=(
+                    False
+                    if safe_category in {"response_parse_failed", "contract_invalid"}
+                    else None
+                ),
+            ),
+            1,
+        )
+
+    validation_result = validate_nurse_intake_agent_result(agent_result)
+    fields_present = _agent_result_fields_present(agent_result)
+    if not validation_result.is_valid:
+        return (
+            _failed_live_result(
+                category="contract_invalid",
+                agent_attempted=True,
+                agent_output_valid=False,
+                fields_present=fields_present,
             ),
             1,
         )
 
     return (
         FoundryAgentSmokeResult(
-            provider="foundry-agent",
             mode="live",
-            configured=True,
-            sdk_available=True,
-            attempted=True,
-            status="succeeded",
-            safe_failure_category=None,
-            next_step_hint=None,
+            provider="foundry-agent",
+            ok=True,
+            category="success",
+            message=SAFE_RESULT_MESSAGES["success"],
+            agent_attempted=True,
+            agent_output_valid=True,
+            fallback_used=_result_fallback_used(agent_result),
+            fields_present=fields_present,
+            recommended_next_step=SAFE_RESULT_HINTS["success"],
         ),
         0,
     )
@@ -269,20 +333,24 @@ def _run_live_json_smoke(settings: AppSettings) -> tuple[FoundryAgentSmokeResult
 
 def _failed_live_result(
     *,
-    configured: bool,
-    sdk_available: bool,
-    attempted: bool,
-    safe_failure_category: str,
+    category: str,
+    agent_attempted: bool,
+    agent_output_valid: bool | None,
+    fields_present: list[str] | None = None,
 ) -> FoundryAgentSmokeResult:
+    if category not in LIVE_JSON_CATEGORIES:
+        category = "unexpected_error"
     return FoundryAgentSmokeResult(
-        provider="foundry-agent",
         mode="live",
-        configured=configured,
-        sdk_available=sdk_available,
-        attempted=attempted,
-        status="failed",
-        safe_failure_category=safe_failure_category,
-        next_step_hint=SAFE_RESULT_HINTS[safe_failure_category],
+        provider="foundry-agent",
+        ok=False,
+        category=category,  # type: ignore[arg-type]
+        message=SAFE_RESULT_MESSAGES[category],
+        agent_attempted=agent_attempted,
+        agent_output_valid=agent_output_valid,
+        fallback_used=False,
+        fields_present=fields_present or [],
+        recommended_next_step=SAFE_RESULT_HINTS[category],
     )
 
 
@@ -296,18 +364,56 @@ def _foundry_agent_configured(settings: AppSettings) -> bool:
     return build_nurse_intake_agent_status(settings).ready
 
 
-def _live_result_category(error: BaseException) -> str:
+def _live_json_result_category(error: BaseException) -> str:
     if any(
         isinstance(candidate, FoundryExtractionParseError)
         for candidate in _walk_exception_chain(error)
     ):
         return "response_parse_failed"
+    if any(
+        isinstance(candidate, FoundryExtractionContractError)
+        for candidate in _walk_exception_chain(error)
+    ):
+        return "contract_invalid"
+
+    status_code = _find_status_code(error)
+    if status_code in {401, 403}:
+        return "authentication_or_authorization_failed"
+    if status_code is not None:
+        return "azure_request_failed"
+
+    chain_class_text = " ".join(
+        candidate.__class__.__name__ for candidate in _walk_exception_chain(error)
+    ).casefold()
+    if (
+        "credential" in chain_class_text
+        or "authentication" in chain_class_text
+        or "authorization" in chain_class_text
+        or "forbidden" in chain_class_text
+    ):
+        return "authentication_or_authorization_failed"
+    if "azure" in chain_class_text and "request" in chain_class_text:
+        return "azure_request_failed"
 
     legacy_category = classify_live_agent_failure(error)
     return LIVE_RESULT_CATEGORY_BY_LEGACY_CATEGORY.get(
         legacy_category,
-        "unknown_failure",
+        "unexpected_error",
     )
+
+
+def _agent_result_fields_present(agent_result: object) -> list[str]:
+    fields = []
+    for field_name in ("extraction", "urgency", "handoffNote"):
+        if hasattr(agent_result, field_name):
+            fields.append(field_name)
+    return fields
+
+
+def _result_fallback_used(agent_result: object) -> bool:
+    metadata = getattr(agent_result, "metadata", None)
+    fallback_used = getattr(metadata, "fallback_used", False)
+    return bool(fallback_used)
 
 
 def _validate_foundry_agent_configuration(settings: AppSettings) -> int:

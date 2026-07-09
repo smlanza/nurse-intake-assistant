@@ -77,6 +77,15 @@ class ContractInvalidAgent:
         )
 
 
+class ContractInvalidResultAgent:
+    async def analyze_intake(self, raw_text: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            extraction=SimpleNamespace(summary="   "),
+            urgency=SimpleNamespace(urgency="Routine"),
+            handoffNote="Demo handoff note.",
+        )
+
+
 class ParseFailingAgent:
     async def analyze_intake(self, raw_text: str) -> SimpleNamespace:
         raise FoundryExtractionParseError(
@@ -254,14 +263,16 @@ def test_foundry_agent_smoke_script_live_json_success_summary_is_sanitized(
     payload = _json_output(capsys)
     assert exit_code == 0
     assert payload == {
-        "provider": "foundry-agent",
+        "ok": True,
         "mode": "live",
-        "configured": True,
-        "sdkAvailable": True,
-        "attempted": True,
-        "status": "succeeded",
-        "safeFailureCategory": None,
-        "nextStepHint": None,
+        "provider": "foundry-agent",
+        "category": "success",
+        "message": "Live Foundry Agent smoke validation completed successfully.",
+        "agent_attempted": True,
+        "agent_output_valid": True,
+        "fallback_used": False,
+        "fields_present": ["extraction", "urgency", "handoffNote"],
+        "recommended_next_step": "No action needed for this manual smoke result.",
     }
     assert fake_agent.calls == [script.FICTIONAL_AGENT_INTAKE_TEXT]
 
@@ -294,9 +305,12 @@ def test_foundry_agent_smoke_script_live_json_authentication_failure_is_safe(
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert exit_code == 1
-    assert payload["status"] == "failed"
-    assert payload["safeFailureCategory"] == "authentication_failed"
-    assert payload["nextStepHint"] == "Check Azure credential login and tenant access."
+    assert payload["ok"] is False
+    assert payload["category"] == "authentication_or_authorization_failed"
+    assert (
+        payload["recommended_next_step"]
+        == "Check Azure login, tenant access, and project RBAC permissions."
+    )
     combined_output = captured.out + captured.err
     assert "raw bearer token endpoint secret" not in combined_output
     assert "https://secret-agent.services.ai.azure.com" not in combined_output
@@ -307,10 +321,13 @@ def test_foundry_agent_smoke_script_live_json_authentication_failure_is_safe(
 @pytest.mark.parametrize(
     ("error", "safe_category"),
     [
-        (StatusCodeError(403, "raw RBAC secret"), "authorization_failed"),
-        (StatusCodeError(404, "raw agent secret-agent-id"), "agent_not_found"),
-        (StatusCodeError(400, "raw Azure bad request detail"), "bad_request"),
-        (RuntimeError("unexpected raw exception secret"), "unknown_failure"),
+        (
+            StatusCodeError(403, "raw RBAC secret"),
+            "authentication_or_authorization_failed",
+        ),
+        (StatusCodeError(404, "raw agent secret-agent-id"), "azure_request_failed"),
+        (StatusCodeError(400, "raw Azure bad request detail"), "azure_request_failed"),
+        (RuntimeError("unexpected raw exception secret"), "unexpected_error"),
     ],
 )
 def test_foundry_agent_smoke_script_live_json_failures_map_to_safe_categories(
@@ -334,8 +351,8 @@ def test_foundry_agent_smoke_script_live_json_failures_map_to_safe_categories(
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert exit_code == 1
-    assert payload["status"] == "failed"
-    assert payload["safeFailureCategory"] == safe_category
+    assert payload["ok"] is False
+    assert payload["category"] == safe_category
     combined_output = captured.out + captured.err
     assert "raw" not in combined_output
     assert "secret" not in combined_output
@@ -362,9 +379,38 @@ def test_foundry_agent_smoke_script_live_json_contract_invalid_is_safe(
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert exit_code == 1
-    assert payload["safeFailureCategory"] == "contract_invalid"
+    assert payload["category"] == "contract_invalid"
+    assert payload["agent_output_valid"] is False
     assert "raw model output" not in captured.out
     assert "patient" not in captured.out
+    assert "Traceback" not in captured.out + captured.err
+
+
+def test_foundry_agent_smoke_script_live_json_contract_invalid_result_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(monkeypatch, _settings(agent_provider="foundry-agent"))
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: ContractInvalidResultAgent(),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["category"] == "contract_invalid"
+    assert payload["agent_attempted"] is True
+    assert payload["agent_output_valid"] is False
+    assert payload["fields_present"] == ["extraction", "urgency", "handoffNote"]
+    assert "summary" not in captured.out
     assert "Traceback" not in captured.out + captured.err
 
 
@@ -394,8 +440,9 @@ def test_foundry_agent_smoke_script_live_json_parse_failure_is_safe(
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert exit_code == 1
-    assert payload["status"] == "failed"
-    assert payload["safeFailureCategory"] == "response_parse_failed"
+    assert payload["ok"] is False
+    assert payload["category"] == "response_parse_failed"
+    assert payload["agent_output_valid"] is False
     combined_output = captured.out + captured.err
     assert "raw model output" not in combined_output
     assert "{malformed secret-agent-id}" not in combined_output
@@ -431,11 +478,101 @@ def test_foundry_agent_smoke_script_live_json_missing_configuration_not_attempte
     assert exit_code == 2
     assert payload["provider"] == "foundry-agent"
     assert payload["mode"] == "live"
-    assert payload["configured"] is False
-    assert payload["attempted"] is False
-    assert payload["status"] == "failed"
-    assert payload["safeFailureCategory"] == "missing_configuration"
+    assert payload["ok"] is False
+    assert payload["agent_attempted"] is False
+    assert payload["agent_output_valid"] is None
+    assert payload["category"] == "missing_configuration"
     assert "secret-agent" not in captured.out + captured.err
+
+
+def test_foundry_agent_smoke_script_live_json_sdk_unavailable_not_attempted(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(monkeypatch, _settings(agent_provider="foundry-agent"))
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: False)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: pytest.fail("Agent should not be created"),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["category"] == "sdk_unavailable"
+    assert payload["agent_attempted"] is False
+    assert payload["agent_output_valid"] is None
+    assert "secret-agent" not in captured.out + captured.err
+
+
+def test_foundry_agent_smoke_script_live_json_sdk_construction_failure_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(monkeypatch, _settings(agent_provider="foundry-agent"))
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: (_ for _ in ()).throw(
+            FoundryAgentClientError(
+                "secret SDK detail",
+                category="foundry-agent-sdk-unavailable",
+            )
+        ),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 1
+    assert payload["ok"] is False
+    assert payload["category"] == "sdk_unavailable"
+    assert payload["agent_attempted"] is False
+    assert "secret SDK detail" not in captured.out + captured.err
+
+
+def test_foundry_agent_smoke_script_live_json_schema_is_stable_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(monkeypatch, _settings(agent_provider="foundry-agent"))
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: CategoryFailingAgent(StatusCodeError(500)),
+    )
+
+    exit_code = script.main(["--live", "--json"])
+
+    payload = _json_output(capsys)
+    assert exit_code == 1
+    assert list(payload) == [
+        "ok",
+        "mode",
+        "provider",
+        "category",
+        "message",
+        "agent_attempted",
+        "agent_output_valid",
+        "fallback_used",
+        "fields_present",
+        "recommended_next_step",
+    ]
+    assert payload["category"] == "azure_request_failed"
+    assert payload["agent_output_valid"] is None
 
 
 def test_foundry_agent_smoke_script_returns_nonzero_on_agent_failure(

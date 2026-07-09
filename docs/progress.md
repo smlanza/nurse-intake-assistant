@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 713 passed
+- 717 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,16 +22,23 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Ops/readiness page now displays the static Foundry Agent manual
-  `--live --json` validation command when Foundry Agent mode is selected.
-- The page remains configuration-only and does not call Azure, create Foundry
-  Agent clients, invoke agents, or expose endpoint URLs, agent IDs, deployment
-  names, prompts, raw model output, tokens, connection strings, access keys, or
-  secret values.
-- Automated tests remain offline; no live Azure calls were added to tests.
-- No default provider changes, notification behavior changes,
-  hosting/auth/Key Vault/Speech/phone intake/retry/durable processing,
-  production frontend, or production clinical behavior was added.
+- Foundry Agent live validation hardening slice completed.
+- `scripts/smoke_foundry_agent.py --live --json` now returns a stable,
+  sanitized schema that distinguishes success, missing configuration, SDK
+  unavailability, Azure authentication/authorization failures, Azure request
+  failures, response parse failures, Nurse Intake Agent contract violations,
+  and unexpected errors.
+- Automated tests remain offline and deterministic; fake settings, fake agents,
+  and fake failures cover the smoke result categories.
+- No live Azure success is claimed unless the manual `--live --json` path is
+  actually verified in the intended Azure environment.
+- `AGENT_PROVIDER=mock` remains the safe default and default mock behavior is
+  unchanged.
+- No secrets, endpoint values, agent IDs, deployment names, tokens, raw prompts,
+  raw model output, connection strings, real contact data, or real patient data
+  are exposed by the smoke JSON output or docs.
+- No hosting, auth, Key Vault, Speech, phone intake, durable retry, production
+  frontend, or production clinical behavior was added.
 
 ## Current Resume Point
 
@@ -252,6 +259,22 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
+- Foundry Agent live validation hardening slice completed.
+- The manual `--live --json` smoke result uses safe fields only: `ok`, `mode`,
+  `provider`, `category`, `message`, `agent_attempted`, `agent_output_valid`,
+  `fallback_used`, `fields_present`, and `recommended_next_step`.
+- The JSON path distinguishes `success`, `missing_configuration`,
+  `sdk_unavailable`, `authentication_or_authorization_failed`,
+  `azure_request_failed`, `response_parse_failed`, `contract_invalid`, and
+  `unexpected_error`.
+- Automated tests remain offline and deterministic, with fake clients/settings
+  only; no live Azure calls were added to tests.
+- No live Azure success is claimed unless actually manually verified.
+- Default `AGENT_PROVIDER=mock` behavior is unchanged.
+- No secrets or raw Azure values are exposed in API responses, logs, progress
+  docs, or smoke JSON output.
+- No hosting/auth/Key Vault/Speech/phone/retry/frontend/clinical production
+  scope was added.
 - Foundry Agent live smoke result contract slice is complete.
 - `scripts/smoke_foundry_agent.py --live --json` now returns sanitized
   structured success/failure results for manual Azure validation, including
