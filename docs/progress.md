@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 717 passed
+- 723 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,21 +22,22 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent live validation hardening slice completed.
-- `scripts/smoke_foundry_agent.py --live --json` now returns a stable,
-  sanitized schema that distinguishes success, missing configuration, SDK
-  unavailability, Azure authentication/authorization failures, Azure request
-  failures, response parse failures, Nurse Intake Agent contract violations,
-  and unexpected errors.
-- Automated tests remain offline and deterministic; fake settings, fake agents,
-  and fake failures cover the smoke result categories.
+- Foundry Agent environment readiness helper/check hardening completed.
+- `scripts/smoke_foundry_agent.py --check` now prints a sanitized readiness
+  summary with provider, check mode, present/missing required setting names,
+  optional setting names when applicable, SDK visibility, a static
+  `--live --json` command hint, and a safe recommended next step.
+- Check mode remains offline and does not create Azure clients, invoke agents,
+  or call Azure.
+- Automated tests remain offline and deterministic.
 - No live Azure success is claimed unless the manual `--live --json` path is
   actually verified in the intended Azure environment.
 - `AGENT_PROVIDER=mock` remains the safe default and default mock behavior is
   unchanged.
-- No secrets, endpoint values, agent IDs, deployment names, tokens, raw prompts,
-  raw model output, connection strings, real contact data, or real patient data
-  are exposed by the smoke JSON output or docs.
+- No secrets, raw Azure values, endpoint values, agent IDs, deployment names,
+  tokens, raw prompts, raw model output, connection strings, real contact data,
+  or real patient data are exposed by the check output, smoke JSON output, or
+  docs.
 - No hosting, auth, Key Vault, Speech, phone intake, durable retry, production
   frontend, or production clinical behavior was added.
 
@@ -259,6 +260,17 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
+- Foundry Agent environment readiness helper/check hardening completed.
+- The new check helper builds a sanitized offline readiness summary using fake
+  settings in tests and never creates a Foundry Agent client.
+- Check mode remains offline and does not create Azure clients, invoke agents,
+  or call Azure.
+- Automated tests remain offline and deterministic.
+- No live Azure success is claimed unless manually verified.
+- Default mock behavior is unchanged.
+- No secrets or raw Azure values are exposed.
+- No hosting/auth/Key Vault/Speech/phone/retry/frontend/clinical production
+  scope was added.
 - Foundry Agent live validation hardening slice completed.
 - The manual `--live --json` smoke result uses safe fields only: `ok`, `mode`,
   `provider`, `category`, `message`, `agent_attempted`, `agent_output_valid`,

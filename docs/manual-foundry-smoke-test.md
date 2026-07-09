@@ -168,8 +168,34 @@ Endpoint values and agent IDs are not printed.
 
 `--check` does not call Azure. No Foundry Agent client is created in --check
 mode, no agent invocation is made, no cases are persisted, and no email or SMS
-is sent. It validates required settings and reports optional SDK visibility.
+is sent. It validates required settings, reports optional SDK visibility, and
+prints a sanitized environment readiness summary.
 In plain terms: --check does not call Azure.
+
+The check summary reports only safe metadata:
+
+- provider
+- mode: `check`
+- ready/not-ready status through the message text
+- required setting names present
+- required setting names missing
+- optional setting names present, when applicable
+- SDK availability
+- the static `--live --json` command hint
+- a sanitized recommended next step
+
+Required setting names for manual Foundry Agent live validation are:
+
+- `AGENT_PROVIDER`
+- `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` or
+  `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT`
+- `AZURE_AI_FOUNDRY_AGENT_ID`
+
+If the required settings and optional SDK package are visible, `--check`
+recommends running the manual live JSON validation command. If settings are
+missing, it recommends adding only the missing variable names. If the SDK is
+not visible, it recommends installing the optional SDK dependencies without
+changing local mock/demo behavior.
 
 Example `--live` command:
 
@@ -245,7 +271,7 @@ behavior.
 Do not claim live Foundry Agent behavior is verified unless this manual
 `--live` path has been run successfully in the intended Azure environment.
 Passing `--check` means local configuration is present and no Azure call was
-made.
+made. Live verification still requires running `--live --json` manually.
 
 After any manual live check, return the local demo to mock/offline mode:
 

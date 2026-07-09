@@ -16,12 +16,13 @@ def _settings(
     project_endpoint: str | None = (
         "https://secret-agent.services.ai.azure.com/api/projects/demo"
     ),
+    foundry_project_endpoint: str | None = None,
     agent_id: str | None = "secret-agent-id",
 ) -> SimpleNamespace:
     return SimpleNamespace(
         agent_provider_normalized=agent_provider,
         azure_ai_foundry_agent_project_endpoint=project_endpoint,
-        azure_ai_foundry_project_endpoint=None,
+        azure_ai_foundry_project_endpoint=foundry_project_endpoint,
         azure_ai_foundry_agent_id=agent_id,
     )
 
@@ -107,6 +108,113 @@ def _json_output(captured: pytest.CaptureFixture[str]) -> dict[str, object]:
     return json.loads(captured.readouterr().out)
 
 
+def test_foundry_agent_environment_readiness_reports_ready_when_present() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    summary = script.build_foundry_agent_environment_readiness(
+        _settings(agent_provider="foundry-agent"),
+        sdk_available=True,
+    )
+
+    assert summary.provider == "foundry-agent"
+    assert summary.mode == "check"
+    assert summary.ready is True
+    assert summary.required_settings_present == [
+        "AGENT_PROVIDER",
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_ID",
+    ]
+    assert summary.required_settings_missing == []
+    assert summary.optional_settings_present == []
+    assert summary.sdk_available is True
+    assert summary.live_json_command_hint == (
+        "python scripts/smoke_foundry_agent.py "
+        "--env-file .env.foundry-agent.local --live --json"
+    )
+    assert "manual live JSON validation" in summary.recommended_next_step
+
+
+def test_foundry_agent_environment_readiness_reports_missing_endpoint_safely() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    summary = script.build_foundry_agent_environment_readiness(
+        _settings(
+            agent_provider="foundry-agent",
+            project_endpoint=None,
+            foundry_project_endpoint=None,
+            agent_id="secret-agent-id",
+        ),
+        sdk_available=True,
+    )
+
+    assert summary.ready is False
+    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in summary.required_settings_missing
+    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in summary.required_settings_missing
+    combined_summary = str(summary)
+    assert "secret-agent-id" not in combined_summary
+    assert "https://secret-agent.services.ai.azure.com" not in combined_summary
+
+
+def test_foundry_agent_environment_readiness_reports_missing_agent_id_safely() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    summary = script.build_foundry_agent_environment_readiness(
+        _settings(agent_provider="foundry-agent", agent_id=None),
+        sdk_available=True,
+    )
+
+    assert summary.ready is False
+    assert "AZURE_AI_FOUNDRY_AGENT_ID" in summary.required_settings_missing
+    assert "secret-agent-id" not in str(summary)
+
+
+def test_foundry_agent_environment_readiness_accepts_project_endpoint_alias() -> None:
+    import scripts.smoke_foundry_agent as script
+
+    summary = script.build_foundry_agent_environment_readiness(
+        _settings(
+            agent_provider="foundry",
+            project_endpoint=None,
+            foundry_project_endpoint=(
+                "https://fallback-secret.services.ai.azure.com/api/projects/demo"
+            ),
+            agent_id="secret-agent-id",
+        ),
+        sdk_available=True,
+    )
+
+    assert summary.ready is True
+    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in summary.required_settings_present
+    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" not in (
+        summary.required_settings_missing
+    )
+    assert "fallback-secret" not in str(summary)
+
+
+def test_foundry_agent_environment_readiness_reports_sdk_without_client_creation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: pytest.fail("Agent should not be created by readiness helper"),
+    )
+
+    summary = script.build_foundry_agent_environment_readiness(
+        _settings(agent_provider="foundry-agent"),
+        sdk_available=False,
+    )
+
+    assert summary.ready is False
+    assert summary.required_settings_missing == []
+    assert summary.sdk_available is False
+    assert "Install the optional Azure AI Foundry Agent SDK" in (
+        summary.recommended_next_step
+    )
+
+
 def test_foundry_agent_smoke_script_requires_foundry_provider(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -124,9 +232,8 @@ def test_foundry_agent_smoke_script_requires_foundry_provider(
 
     captured = capsys.readouterr()
     assert exit_code == 2
-    assert "AGENT_PROVIDER=foundry-agent" in captured.err
-    assert "AGENT_PROVIDER=foundry" in captured.err
-    assert "AGENT_PROVIDER=mock" in captured.err
+    assert "Foundry Agent smoke-test environment check needs attention" in captured.err
+    assert "Required settings missing: AGENT_PROVIDER" in captured.err
     assert captured.out == ""
 
 
@@ -147,7 +254,9 @@ def test_foundry_agent_smoke_script_reports_missing_preflight_settings(
 
     captured = capsys.readouterr()
     assert exit_code == 2
+    assert "Required settings missing:" in captured.err
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in captured.err
+    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in captured.err
     assert "AZURE_AI_FOUNDRY_AGENT_ID" in captured.err
     assert "secret-agent" not in captured.err
     assert captured.out == ""
@@ -174,6 +283,8 @@ def test_foundry_agent_smoke_script_check_does_not_create_agent_or_live_client(
     assert "preflight passed" in captured.out
     assert "No Foundry Agent client was created" in captured.out
     assert "No Azure call was made" in captured.out
+    assert "Live JSON command hint:" in captured.out
+    assert "--live --json" in captured.out
     assert "Optional Foundry Agent SDK package appears importable" in captured.out
     assert "secret-agent" not in captured.out
     assert captured.err == ""
@@ -192,9 +303,47 @@ def test_foundry_agent_smoke_script_check_reports_sdk_visibility_unavailable(
 
     captured = capsys.readouterr()
     assert exit_code == 0
+    assert "environment check needs attention" in captured.out
     assert "Optional Foundry Agent SDK package is not importable" in captured.out
+    assert "Install the optional Azure AI Foundry Agent SDK" in captured.out
     assert "No Azure call was made" in captured.out
     assert captured.err == ""
+
+
+def test_foundry_agent_smoke_script_check_output_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    _patch_settings(
+        monkeypatch,
+        _settings(
+            agent_provider="foundry-agent",
+            project_endpoint=(
+                "https://secret-agent.services.ai.azure.com/api/projects/demo"
+            ),
+            agent_id="secret-agent-id",
+        ),
+    )
+    monkeypatch.setattr(script, "foundry_agent_sdk_available", lambda: True)
+
+    exit_code = script.main(["--check"])
+
+    captured = capsys.readouterr()
+    combined_output = captured.out + captured.err
+    assert exit_code == 0
+    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in combined_output
+    assert "AZURE_AI_FOUNDRY_AGENT_ID" in combined_output
+    assert "https://secret-agent.services.ai.azure.com" not in combined_output
+    assert "secret-agent-id" not in combined_output
+    assert "bearer" not in combined_output.lower()
+    assert "token" not in combined_output.lower()
+    assert "Traceback" not in combined_output
+    assert "raw prompt" not in combined_output.lower()
+    assert "raw model" not in combined_output.lower()
+    assert "taylor quinn" not in combined_output.lower()
+    assert "demo-callback-002" not in combined_output
 
 
 def test_foundry_agent_smoke_script_default_does_not_call_live_agent(

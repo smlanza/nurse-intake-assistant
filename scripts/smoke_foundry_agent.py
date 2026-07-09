@@ -28,6 +28,7 @@ from src.app.services.nurse_intake_agent_contract import (
     validate_nurse_intake_agent_result,
 )
 from src.app.services.nurse_intake_agent_preflight import (
+    FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
     build_nurse_intake_agent_status,
 )
 
@@ -115,6 +116,10 @@ LIVE_RESULT_CATEGORY_BY_LEGACY_CATEGORY = {
     "unknown": "unexpected_error",
 }
 LIVE_JSON_CATEGORIES = frozenset(SAFE_RESULT_MESSAGES)
+AGENT_PROVIDER_SETTING_NAME = "AGENT_PROVIDER"
+FOUNDRY_AGENT_ENDPOINT_SETTING_NAME = "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"
+FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME = "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT"
+FOUNDRY_AGENT_ID_SETTING_NAME = "AZURE_AI_FOUNDRY_AGENT_ID"
 
 
 @dataclass(frozen=True)
@@ -154,6 +159,19 @@ class FoundryAgentSmokeResult:
         }
 
 
+@dataclass(frozen=True)
+class FoundryAgentEnvironmentReadiness:
+    provider: str
+    mode: Literal["check"]
+    ready: bool
+    required_settings_present: list[str]
+    required_settings_missing: list[str]
+    optional_settings_present: list[str]
+    sdk_available: bool
+    live_json_command_hint: str
+    recommended_next_step: str
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run an opt-in manual Azure AI Foundry Agent smoke test."""
 
@@ -180,13 +198,17 @@ def main(argv: list[str] | None = None) -> int:
         _print_json_result(result)
         return exit_code
 
+    if args.check:
+        readiness = build_foundry_agent_environment_readiness(
+            settings,
+            sdk_available=foundry_agent_sdk_available(),
+        )
+        _print_check_readiness(readiness)
+        return 0 if not readiness.required_settings_missing else 2
+
     configuration_exit_code = _validate_foundry_agent_configuration(settings)
     if configuration_exit_code != 0:
         return configuration_exit_code
-
-    if args.check:
-        _print_check_success()
-        return 0
 
     try:
         agent = create_nurse_intake_agent(settings)
@@ -364,6 +386,69 @@ def _foundry_agent_configured(settings: AppSettings) -> bool:
     return build_nurse_intake_agent_status(settings).ready
 
 
+def build_foundry_agent_environment_readiness(
+    settings: Any,
+    *,
+    sdk_available: bool,
+) -> FoundryAgentEnvironmentReadiness:
+    """Build a sanitized offline Foundry Agent live-smoke readiness summary."""
+
+    provider = _safe_provider_name(
+        getattr(settings, "agent_provider_normalized", "mock")
+    )
+    required_present: list[str] = []
+    required_missing: list[str] = []
+    optional_present: list[str] = []
+
+    if provider in FOUNDRY_AGENT_PROVIDER_VALUES:
+        required_present.append(AGENT_PROVIDER_SETTING_NAME)
+    else:
+        required_missing.append(AGENT_PROVIDER_SETTING_NAME)
+
+    agent_endpoint_present = _has_setting(
+        settings,
+        "azure_ai_foundry_agent_project_endpoint",
+    )
+    fallback_endpoint_present = _has_setting(
+        settings,
+        "azure_ai_foundry_project_endpoint",
+    )
+    if agent_endpoint_present:
+        required_present.append(FOUNDRY_AGENT_ENDPOINT_SETTING_NAME)
+        if fallback_endpoint_present:
+            optional_present.append(FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME)
+    elif fallback_endpoint_present:
+        required_present.append(FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME)
+    else:
+        required_missing.extend(
+            [
+                FOUNDRY_AGENT_ENDPOINT_SETTING_NAME,
+                FOUNDRY_PROJECT_ENDPOINT_SETTING_NAME,
+            ]
+        )
+
+    if _has_setting(settings, "azure_ai_foundry_agent_id"):
+        required_present.append(FOUNDRY_AGENT_ID_SETTING_NAME)
+    else:
+        required_missing.append(FOUNDRY_AGENT_ID_SETTING_NAME)
+
+    ready = not required_missing and sdk_available
+    return FoundryAgentEnvironmentReadiness(
+        provider=provider,
+        mode="check",
+        ready=ready,
+        required_settings_present=required_present,
+        required_settings_missing=required_missing,
+        optional_settings_present=optional_present,
+        sdk_available=sdk_available,
+        live_json_command_hint=FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
+        recommended_next_step=_check_recommended_next_step(
+            required_missing,
+            sdk_available,
+        ),
+    )
+
+
 def _live_json_result_category(error: BaseException) -> str:
     if any(
         isinstance(candidate, FoundryExtractionParseError)
@@ -416,6 +501,38 @@ def _result_fallback_used(agent_result: object) -> bool:
     return bool(fallback_used)
 
 
+def _safe_provider_name(value: object) -> str:
+    provider = str(value or "mock").strip().lower() or "mock"
+    if provider in {"mock", "foundry", "foundry-agent"}:
+        return provider
+    return "unsupported"
+
+
+def _has_setting(settings: Any, attribute_name: str) -> bool:
+    value = getattr(settings, attribute_name, None)
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _check_recommended_next_step(
+    missing_settings: list[str],
+    sdk_available: bool,
+) -> str:
+    if missing_settings:
+        return (
+            "Add missing Foundry Agent setting name(s): "
+            f"{', '.join(missing_settings)}."
+        )
+    if not sdk_available:
+        return (
+            "Install the optional Azure AI Foundry Agent SDK dependencies before "
+            "manual live JSON validation."
+        )
+    return (
+        "Run the manual live JSON validation command from a configured "
+        "developer shell."
+    )
+
+
 def _validate_foundry_agent_configuration(settings: AppSettings) -> int:
     provider = settings.agent_provider_normalized
     if provider not in FOUNDRY_AGENT_PROVIDER_VALUES:
@@ -446,18 +563,56 @@ def _print_configuration_error(message: str) -> None:
     )
 
 
-def _print_check_success() -> None:
-    sdk_message = (
-        "Optional Foundry Agent SDK package appears importable."
-        if foundry_agent_sdk_available()
-        else "Optional Foundry Agent SDK package is not importable."
+def _print_check_readiness(readiness: FoundryAgentEnvironmentReadiness) -> None:
+    stream = sys.stdout if not readiness.required_settings_missing else sys.stderr
+    if readiness.ready:
+        print(
+            "Foundry Agent smoke-test preflight passed. Required configuration "
+            "and optional SDK visibility are present.",
+            file=stream,
+        )
+    else:
+        print("Foundry Agent smoke-test environment check needs attention.", file=stream)
+    print("Mode: check", file=stream)
+    print(f"Provider: {readiness.provider}", file=stream)
+    print(
+        "Required settings present: "
+        f"{_format_setting_names(readiness.required_settings_present)}",
+        file=stream,
     )
     print(
-        "Foundry Agent smoke-test preflight passed. Required configuration is "
-        "present. No Foundry Agent client was created. No Azure call was made."
+        "Required settings missing: "
+        f"{_format_setting_names(readiness.required_settings_missing)}",
+        file=stream,
     )
-    print(sdk_message)
-    print("Restore AGENT_PROVIDER=mock after any manual Foundry Agent smoke test.")
+    print(
+        "Optional settings present: "
+        f"{_format_setting_names(readiness.optional_settings_present)}",
+        file=stream,
+    )
+    sdk_message = (
+        "Optional Foundry Agent SDK package appears importable."
+        if readiness.sdk_available
+        else "Optional Foundry Agent SDK package is not importable."
+    )
+    print(sdk_message, file=stream)
+    print(
+        "No Foundry Agent client was created. No Azure call was made.",
+        file=stream,
+    )
+    print(
+        f"Live JSON command hint: {readiness.live_json_command_hint}",
+        file=stream,
+    )
+    print(f"Recommended next step: {readiness.recommended_next_step}", file=stream)
+    print(
+        "Restore AGENT_PROVIDER=mock after any manual Foundry Agent smoke test.",
+        file=stream,
+    )
+
+
+def _format_setting_names(setting_names: list[str]) -> str:
+    return ", ".join(setting_names) if setting_names else "none"
 
 
 def _print_safe_live_failure_summary(failure_category: str) -> None:
