@@ -535,8 +535,12 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "safe status code from the exception chain" in normalized_doc
     assert "safe client error category" in doc
     assert "safe client error phase" in normalized_doc
-    assert "phase=not_wired" in doc
+    assert (
+        "minimal SDK-backed Azure AI Foundry Agent invocation path"
+        in normalized_doc
+    )
     assert "phase=agent_invocation" in doc
+    assert "phase=response_extraction" in doc
     assert "endpoint, agent ID, SDK compatibility, agent availability, or request shape" in normalized_doc
     assert "agent_output_valid" in doc
     assert "recommended_next_step" in doc

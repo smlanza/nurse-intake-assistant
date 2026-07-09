@@ -252,9 +252,12 @@ python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live
 
 `--live --json` is the primary live validation command. `--live` remains manual
 and opt-in. It is the only mode intended to construct the Foundry Agent path
-and may call Azure. It uses the script's built-in fictional medication-refill
-intake only, does not send notifications, does not write to Cosmos, does not
-call FastAPI routes, and does not require the FastAPI server to be running.
+and may call Azure. It uses a minimal SDK-backed Azure AI Foundry Agent
+invocation path: create a thread, add the script's fictional medication-refill
+intake as the user message, process a run for the configured agent, and read
+the assistant text for the existing local Nurse Intake Agent parser. It does
+not send notifications, does not write to Cosmos, does not call FastAPI routes,
+and does not require the FastAPI server to be running.
 In plain terms: --live remains manual and opt-in.
 
 `--live --json` prints a deterministic sanitized result with these fields:
@@ -272,10 +275,9 @@ code from the exception chain when available, safe client error category, safe
 client error phase, and the recommended next step. Client error phase is
 diagnostic-only and safe; expected values include labels such as `sdk_import`,
 `credential_creation`, `client_creation`, `agent_invocation`,
-`response_extraction`, `response_parsing`, `not_wired`, or `unknown`. It does
-not print endpoint URLs, agent IDs, tokens, stack traces, raw exception
-messages, raw prompts, raw model responses, request IDs, real contact values,
-or PHI.
+`response_extraction`, `response_parsing`, or `unknown`. It does not print
+endpoint URLs, agent IDs, tokens, stack traces, raw exception messages, raw
+prompts, raw model responses, request IDs, real contact values, or PHI.
 
 When `AGENT_PROVIDER=foundry-agent` or `AGENT_PROVIDER=foundry` is configured,
 `/demo/status`, `/ops`, and `python scripts/preflight.py --foundry-agent` may
@@ -307,9 +309,10 @@ subscription, or RBAC needs investigation; local development may require
 endpoint, agent ID, SDK compatibility, agent availability, or request shape
 needs investigation. It may also represent a non-auth request category such as
 bad request, missing resource, conflict, rate limit, or service error.
-If diagnostic output reports `phase=not_wired`, `phase=client_creation`, or
-`phase=agent_invocation`, investigate SDK compatibility, request shape, agent
-availability, and the live adapter implementation before changing app defaults.
+If diagnostic output reports `phase=client_creation`, `phase=agent_invocation`,
+or `phase=response_extraction`, investigate SDK compatibility, request shape,
+agent availability, and assistant response extraction before changing app
+defaults.
 `missing_configuration` means required environment variable names are missing.
 `sdk_unavailable` means the optional Foundry Agent SDK dependencies are not
 importable. `unexpected_error` is a sanitized catch-all for failures outside

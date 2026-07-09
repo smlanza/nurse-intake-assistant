@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 761 passed
+- 763 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
@@ -22,13 +22,12 @@ Important constraints:
   addresses, provider credentials, or real patient data
 
 Latest completed slice:
-- Foundry Agent client phase diagnostics completed.
-- Direct `FoundryAgentClientError` diagnostics now expose safe category/phase
-  metadata when available, so `--live --diagnose` can distinguish client
-  boundary phases such as `agent_invocation` and `not_wired`.
-- Exception wrapping still preserves safe cause information for diagnostics,
-  including root-cause class and status code when available.
-- Automated tests remain offline and deterministic.
+- Minimal SDK-backed Foundry Agent live invocation path completed for the
+  manual `scripts/smoke_foundry_agent.py --live --json` validation path.
+- The opt-in live client now creates a thread, posts fictional intake text,
+  processes a run for the configured agent, and extracts assistant text for the
+  existing Nurse Intake Agent parser.
+- Automated tests remain offline and deterministic with fake clients only.
 - No live Azure success is claimed unless the manual `--live --json` path is
   actually verified in the intended Azure environment.
 - `AGENT_PROVIDER=mock` remains the safe default and default mock behavior is
@@ -62,8 +61,9 @@ Implemented but not live-confirmed:
   explicit `AGENT_PROVIDER=foundry-agent` text-intake routing, and manual
   `scripts/smoke_foundry_agent.py` `--check`/`--live` smoke CLI with env-file
   isolation, fictional data only, safe diagnostics, strict response parsing,
-  sanitized `--live --json` success/failure results for manual Azure
-  validation, and no notification effects
+  a minimal SDK-backed live invocation path, sanitized `--live --json`
+  success/failure results for manual Azure validation, and no notification
+  effects
 - Speech transcription provider boundary with mock provider and Azure scaffold
 
 Do not claim as complete:

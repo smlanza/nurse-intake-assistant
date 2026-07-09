@@ -95,7 +95,7 @@ class FakeFoundryAgentClient:
 
 
 class AzureAiFoundryAgentLiveClient:
-    """Opt-in scaffold for future live Azure AI Foundry Agent invocation."""
+    """Opt-in live Azure AI Foundry Agent invocation boundary."""
 
     def __init__(self, project_endpoint: str, agent_id: str) -> None:
         self.project_endpoint = project_endpoint
@@ -128,10 +128,22 @@ class AzureAiFoundryAgentLiveClient:
         agents_client: Any,
         request: FoundryAgentRequest,
     ) -> FoundryAgentResponse:
-        raise FoundryAgentClientError(
-            FOUNDRY_AGENT_CLIENT_NOT_WIRED_MESSAGE,
-            category=FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
-            phase=FOUNDRY_AGENT_PHASE_NOT_WIRED,
+        thread_id = _create_agent_thread(agents_client)
+        _create_agent_message(
+            agents_client,
+            thread_id,
+            _build_agent_user_message(request),
+        )
+        run = _process_agent_run(agents_client, thread_id, self.agent_id)
+        _raise_for_unsuccessful_run(run)
+        content = _extract_agent_response_text(agents_client, thread_id)
+
+        return FoundryAgentResponse(
+            content=content,
+            metadata={
+                "provider": "foundry-agent",
+                "agentMode": "live",
+            },
         )
 
 
@@ -251,3 +263,176 @@ def _get_default_credential_class():
             phase=FOUNDRY_AGENT_PHASE_SDK_IMPORT,
         ) from exc
     return DefaultAzureCredential
+
+
+def _build_agent_user_message(request: FoundryAgentRequest) -> str:
+    return "\n\n".join(
+        [
+            request.instructions,
+            "Fictional patient intake text:",
+            request.intake_text,
+            "Return only the JSON object required by the instructions.",
+        ]
+    )
+
+
+def _create_agent_thread(agents_client: Any) -> str:
+    try:
+        thread = agents_client.threads.create()
+    except Exception as exc:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+        ) from exc
+
+    thread_id = _safe_object_value(thread, "id")
+    if not thread_id:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
+        )
+    return thread_id
+
+
+def _create_agent_message(
+    agents_client: Any,
+    thread_id: str,
+    content: str,
+) -> None:
+    try:
+        agents_client.messages.create(
+            thread_id=thread_id,
+            role="user",
+            content=content,
+        )
+    except Exception as exc:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+        ) from exc
+
+
+def _process_agent_run(
+    agents_client: Any,
+    thread_id: str,
+    agent_id: str,
+) -> Any:
+    try:
+        return agents_client.runs.create_and_process(
+            thread_id=thread_id,
+            agent_id=agent_id,
+        )
+    except Exception as exc:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+        ) from exc
+
+
+def _raise_for_unsuccessful_run(run: Any) -> None:
+    status = _safe_object_value(run, "status")
+    if status.casefold() in {"failed", "cancelled", "canceled", "expired"}:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_AGENT_INVOCATION,
+        )
+
+
+def _extract_agent_response_text(agents_client: Any, thread_id: str) -> str:
+    try:
+        text_content_reader = getattr(
+            agents_client.messages,
+            "get_last_message_text_by_role",
+            None,
+        )
+        if callable(text_content_reader):
+            content = _text_from_unknown_value(
+                text_content_reader(thread_id=thread_id, role="assistant")
+            )
+            if content:
+                return content
+
+        messages = agents_client.messages.list(thread_id=thread_id)
+        content = _text_from_message_collection(messages)
+    except Exception as exc:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
+        ) from exc
+
+    if not content:
+        raise FoundryAgentClientError(
+            FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+            category=FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+            phase=FOUNDRY_AGENT_PHASE_RESPONSE_EXTRACTION,
+        )
+    return content
+
+
+def _text_from_message_collection(messages: Any) -> str:
+    for message in _iter_message_values(messages):
+        role = _safe_object_value(message, "role")
+        if role and role.casefold() != "assistant":
+            continue
+        content = _text_from_unknown_value(_value_at(message, "content"))
+        if content:
+            return content
+    return ""
+
+
+def _iter_message_values(messages: Any):
+    data = _value_at(messages, "data")
+    iterable = data if data is not None else messages
+    if isinstance(iterable, dict):
+        iterable = iterable.values()
+
+    try:
+        yield from iterable
+    except TypeError:
+        return
+
+
+def _text_from_unknown_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        for key in ("value", "text", "content"):
+            content = _text_from_unknown_value(value.get(key))
+            if content:
+                return content
+        return ""
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            content = _text_from_unknown_value(item)
+            if content:
+                return content
+        return ""
+
+    for key in ("value", "text", "content"):
+        content = _text_from_unknown_value(_value_at(value, key))
+        if content:
+            return content
+    return ""
+
+
+def _safe_object_value(value: Any, name: str) -> str:
+    raw_value = _value_at(value, name)
+    if raw_value is None:
+        return ""
+    return str(raw_value).strip()
+
+
+def _value_at(value: Any, name: str) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value.get(name)
+    return getattr(value, name, None)

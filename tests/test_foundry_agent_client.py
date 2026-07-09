@@ -1,5 +1,6 @@
 import asyncio
 import importlib
+from types import SimpleNamespace
 
 import pytest
 
@@ -272,20 +273,116 @@ def test_foundry_agent_live_client_request_failure_preserves_safe_cause() -> Non
     assert "secret" not in str(exc.value)
 
 
-def test_foundry_agent_live_client_not_wired_failure_has_safe_phase() -> None:
+def test_foundry_agent_live_client_invokes_fake_sdk_boundary_successfully() -> None:
     from src.app.services.foundry_agent_client import (
-        FOUNDRY_AGENT_CLIENT_NOT_WIRED_MESSAGE,
-        FOUNDRY_AGENT_NOT_WIRED_CATEGORY,
         AzureAiFoundryAgentLiveClient,
-        FoundryAgentClientError,
         FoundryAgentRequest,
     )
+
+    class FakeThreads:
+        def create(self):
+            return SimpleNamespace(id="fictional-thread-id")
+
+    class FakeMessages:
+        def __init__(self) -> None:
+            self.created: list[dict[str, str]] = []
+
+        def create(self, *, thread_id: str, role: str, content: str):
+            self.created.append(
+                {
+                    "thread_id": thread_id,
+                    "role": role,
+                    "content": content,
+                }
+            )
+
+        def get_last_message_text_by_role(self, *, thread_id: str, role: str):
+            assert thread_id == "fictional-thread-id"
+            assert role == "assistant"
+            return SimpleNamespace(
+                text=SimpleNamespace(
+                    value='{"patientName":"Fictional Pat","symptoms":["refill"]}'
+                )
+            )
+
+    class FakeRuns:
+        def __init__(self) -> None:
+            self.created: list[dict[str, str]] = []
+
+        def create_and_process(self, *, thread_id: str, agent_id: str):
+            self.created.append(
+                {
+                    "thread_id": thread_id,
+                    "agent_id": agent_id,
+                }
+            )
+            return SimpleNamespace(status="completed")
 
     client = AzureAiFoundryAgentLiveClient(
         project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
         agent_id="secret-agent-id",
     )
-    client._agents_client = object()
+    messages = FakeMessages()
+    runs = FakeRuns()
+    client._agents_client = SimpleNamespace(
+        threads=FakeThreads(),
+        messages=messages,
+        runs=runs,
+    )
+    request = FoundryAgentRequest(
+        intake_text="Fictional patient requests a refill.",
+        instructions="Return JSON only.",
+    )
+
+    response = asyncio.run(client.invoke_agent(request))
+
+    assert response.content == '{"patientName":"Fictional Pat","symptoms":["refill"]}'
+    assert response.metadata == {
+        "provider": "foundry-agent",
+        "agentMode": "live",
+    }
+    assert runs.created == [
+        {
+            "thread_id": "fictional-thread-id",
+            "agent_id": "secret-agent-id",
+        }
+    ]
+    assert messages.created[0]["thread_id"] == "fictional-thread-id"
+    assert messages.created[0]["role"] == "user"
+    assert "Return JSON only." in messages.created[0]["content"]
+    assert "Fictional patient requests a refill." in messages.created[0]["content"]
+
+
+def test_foundry_agent_live_client_invocation_failure_is_sanitized() -> None:
+    from src.app.services.foundry_agent_client import (
+        FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+        FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+        AzureAiFoundryAgentLiveClient,
+        FoundryAgentClientError,
+        FoundryAgentRequest,
+    )
+
+    class FakeHttpResponseError(Exception):
+        status_code = 403
+
+    class FakeThreads:
+        def create(self):
+            return SimpleNamespace(id="fictional-thread-id")
+
+    class FakeMessages:
+        def create(self, *, thread_id: str, role: str, content: str):
+            raise FakeHttpResponseError(
+                "raw endpoint https://secret.example and secret-agent-id"
+            )
+
+    client = AzureAiFoundryAgentLiveClient(
+        project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
+        agent_id="secret-agent-id",
+    )
+    client._agents_client = SimpleNamespace(
+        threads=FakeThreads(),
+        messages=FakeMessages(),
+    )
     request = FoundryAgentRequest(
         intake_text="Fictional patient requests a refill.",
         instructions="Return JSON only.",
@@ -294,8 +391,65 @@ def test_foundry_agent_live_client_not_wired_failure_has_safe_phase() -> None:
     with pytest.raises(FoundryAgentClientError) as exc:
         asyncio.run(client.invoke_agent(request))
 
-    assert exc.value.category == FOUNDRY_AGENT_NOT_WIRED_CATEGORY
-    assert exc.value.phase == "not_wired"
-    assert str(exc.value) == FOUNDRY_AGENT_CLIENT_NOT_WIRED_MESSAGE
-    assert exc.value.__cause__ is None
-    assert "secret" not in str(exc.value)
+    message = str(exc.value)
+    assert exc.value.category == FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY
+    assert exc.value.phase == "agent_invocation"
+    assert message == FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE
+    assert isinstance(exc.value.__cause__, FakeHttpResponseError)
+    assert getattr(exc.value.__cause__, "status_code") == 403
+    assert "secret" not in message
+    assert "endpoint" not in message.lower()
+
+
+def test_foundry_agent_live_client_missing_assistant_text_is_sanitized() -> None:
+    from src.app.services.foundry_agent_client import (
+        FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE,
+        FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY,
+        AzureAiFoundryAgentLiveClient,
+        FoundryAgentClientError,
+        FoundryAgentRequest,
+    )
+
+    class FakeThreads:
+        def create(self):
+            return SimpleNamespace(id="fictional-thread-id")
+
+    class FakeMessages:
+        def create(self, *, thread_id: str, role: str, content: str):
+            return None
+
+        def list(self, *, thread_id: str):
+            return [
+                SimpleNamespace(
+                    role="user",
+                    content="raw fictional user prompt that should not leak",
+                )
+            ]
+
+    class FakeRuns:
+        def create_and_process(self, *, thread_id: str, agent_id: str):
+            return SimpleNamespace(status="completed")
+
+    client = AzureAiFoundryAgentLiveClient(
+        project_endpoint="https://secret-foundry.services.ai.azure.com/api/projects/demo",
+        agent_id="secret-agent-id",
+    )
+    client._agents_client = SimpleNamespace(
+        threads=FakeThreads(),
+        messages=FakeMessages(),
+        runs=FakeRuns(),
+    )
+    request = FoundryAgentRequest(
+        intake_text="Fictional patient requests a refill.",
+        instructions="Return JSON only.",
+    )
+
+    with pytest.raises(FoundryAgentClientError) as exc:
+        asyncio.run(client.invoke_agent(request))
+
+    message = str(exc.value)
+    assert exc.value.category == FOUNDRY_AGENT_REQUEST_FAILED_CATEGORY
+    assert exc.value.phase == "response_extraction"
+    assert message == FOUNDRY_AGENT_CLIENT_REQUEST_FAILED_MESSAGE
+    assert "secret" not in message
+    assert "raw fictional user prompt" not in message
