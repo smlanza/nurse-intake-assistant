@@ -236,4 +236,4 @@ def test_foundry_agent_instructions_include_advisory_nurse_review_boundary() -> 
     instructions = build_foundry_agent_intake_instructions()
 
     assert "advisory only" in instructions
-    assert "requires nurse review" in instructions
+    assert "requires human nurse review" in instructions

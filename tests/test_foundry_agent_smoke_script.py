@@ -365,7 +365,78 @@ def test_foundry_agent_smoke_script_default_does_not_call_live_agent(
     assert exit_code == 2
     assert "--check" in captured.err
     assert "--live" in captured.err
+    assert "--print-agent-instructions" in captured.err
     assert captured.out == ""
+
+
+def test_foundry_agent_smoke_script_prints_agent_instructions_without_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    monkeypatch.setattr(
+        script,
+        "AppSettings",
+        lambda: pytest.fail("Settings should not be loaded for instruction printing"),
+    )
+    monkeypatch.setattr(
+        script,
+        "create_nurse_intake_agent",
+        lambda settings: pytest.fail("Agent should not be created"),
+    )
+    monkeypatch.setattr(
+        script,
+        "foundry_agent_sdk_available",
+        lambda: pytest.fail("SDK should not be checked"),
+    )
+
+    exit_code = script.main(["--print-agent-instructions"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Foundry Agent Instruction Pack" in captured.out
+    assert "Instruction version: foundry-agent-intake-v1" in captured.out
+    assert "Return JSON only" in captured.out
+    assert "Expected JSON shape:" in captured.out
+    assert "Fictional test input:" in captured.out
+    assert "python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --check" in captured.out
+    assert "--live --json" in captured.out
+    assert "mock/offline by default" in captured.out
+    assert "Restore AGENT_PROVIDER=mock" in captured.out
+    assert captured.err == ""
+
+
+def test_foundry_agent_smoke_script_print_agent_instructions_output_is_sanitized(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent as script
+
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+        "https://secret-agent.services.ai.azure.com/api/projects/demo",
+    )
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "secret-agent-id")
+    monkeypatch.setenv("NURSE_NOTIFICATION_EMAIL", "real.person@example.com")
+    monkeypatch.setenv("NURSE_NOTIFICATION_PHONE_NUMBER", "+1 555 555 0123")
+
+    exit_code = script.main(["--print-agent-instructions"])
+
+    captured = capsys.readouterr()
+    combined_output = captured.out + captured.err
+    assert exit_code == 0
+    for unsafe_text in [
+        "https://secret-agent.services.ai.azure.com",
+        "secret-agent-id",
+        "bearer",
+        "token",
+        "raw model output",
+        "real.person@example.com",
+        "+1 555 555 0123",
+        "Traceback",
+    ]:
+        assert unsafe_text not in combined_output
 
 
 def test_foundry_agent_smoke_script_calls_agent_only_in_live_mode(

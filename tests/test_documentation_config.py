@@ -507,6 +507,11 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     normalized_doc = " ".join(doc.split())
 
     assert "Foundry Agent Smoke CLI" in doc
+    assert "python scripts/smoke_foundry_agent.py --print-agent-instructions" in doc
+    assert "versioned instruction pack" in normalized_doc
+    assert "safe to copy into Azure AI Foundry Agent configuration" in normalized_doc
+    assert "local `NurseIntakeAgent` output contract" in doc
+    assert "Human nurse review remains mandatory" in doc
     assert "python scripts/smoke_foundry_agent.py --check" in doc
     assert "python scripts/smoke_foundry_agent.py --live" in doc
     assert (

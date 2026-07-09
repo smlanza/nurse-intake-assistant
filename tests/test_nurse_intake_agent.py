@@ -2,6 +2,8 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from src.app.services.nurse_intake_agent import (
     FoundryNurseIntakeAgent,
     MockNurseIntakeAgent,
@@ -123,4 +125,25 @@ def test_foundry_nurse_intake_agent_sends_contract_instructions_to_client() -> N
     assert "patient" in request.instructions
     assert "urgency_rationale" in request.instructions
     assert "Do not invent missing patient demographics" in request.instructions
-    assert "requires nurse review" in request.instructions
+    assert "requires human nurse review" in request.instructions
+
+
+def test_foundry_nurse_intake_agent_uses_centralized_instruction_builder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.nurse_intake_agent as agent_module
+
+    client = RecordingFoundryAgentClient()
+    monkeypatch.setattr(
+        agent_module,
+        "build_nurse_intake_agent_instructions",
+        lambda: "centralized-test-instructions",
+    )
+    agent = FoundryNurseIntakeAgent(
+        settings=SimpleNamespace(agent_provider_normalized="foundry-agent"),
+        client=client,
+    )
+
+    asyncio.run(agent.analyze_intake("Demo patient asks for a refill."))
+
+    assert client.requests[0].instructions == "centralized-test-instructions"

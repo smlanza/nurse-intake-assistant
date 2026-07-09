@@ -27,17 +27,19 @@ from src.app.services.nurse_intake_agent_factory import create_nurse_intake_agen
 from src.app.services.nurse_intake_agent_contract import (
     validate_nurse_intake_agent_result,
 )
+from src.app.services.nurse_intake_agent_instructions import (
+    NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
+    build_nurse_intake_agent_expected_json_shape,
+    build_nurse_intake_agent_fictional_test_input,
+    build_nurse_intake_agent_instructions,
+)
 from src.app.services.nurse_intake_agent_preflight import (
     FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
     build_nurse_intake_agent_status,
 )
 
 
-FICTIONAL_AGENT_INTAKE_TEXT = (
-    "Demo patient Taylor Quinn requests a nurse callback about a routine "
-    "medication refill. Callback number is demo-callback-002. No chest pain, "
-    "shortness of breath, fainting, or severe symptoms reported."
-)
+FICTIONAL_AGENT_INTAKE_TEXT = build_nurse_intake_agent_fictional_test_input()
 FOUNDRY_AGENT_PROVIDER_VALUES = {"foundry", "foundry-agent"}
 SAFE_FAILURE_HINTS = {
     "configuration": (
@@ -177,9 +179,14 @@ def main(argv: list[str] | None = None) -> int:
 
     args = _parse_args(argv)
 
+    if args.print_agent_instructions:
+        _print_agent_instruction_pack()
+        return 0
+
     if not args.check and not args.live:
         print(
-            "Foundry Agent smoke mode is explicit; rerun with --check or --live.",
+            "Foundry Agent smoke mode is explicit; rerun with --check, --live, "
+            "or --print-agent-instructions.",
             file=sys.stderr,
         )
         print("No Foundry Agent client was created. No Azure call was made.", file=sys.stderr)
@@ -263,7 +270,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "validation."
         ),
     )
+    parser.add_argument(
+        "--print-agent-instructions",
+        action="store_true",
+        help=(
+            "Print versioned copyable Foundry Agent instructions without "
+            "loading settings, creating clients, or calling Azure."
+        ),
+    )
     args = parser.parse_args(argv)
+    if args.print_agent_instructions and (args.check or args.live):
+        parser.error("--print-agent-instructions cannot be combined with --check or --live")
     if args.check and args.live:
         parser.error("--check and --live cannot be used together")
     if args.json and not args.live:
@@ -378,6 +395,28 @@ def _failed_live_result(
 
 def _print_json_result(result: FoundryAgentSmokeResult) -> None:
     print(json.dumps(result.to_json_dict(), separators=(",", ":")))
+
+
+def _print_agent_instruction_pack() -> None:
+    print("Foundry Agent Instruction Pack")
+    print(f"Instruction version: {NURSE_INTAKE_AGENT_INSTRUCTION_VERSION}")
+    print()
+    print("Copyable agent instructions:")
+    print(build_nurse_intake_agent_instructions())
+    print()
+    print("Expected JSON shape:")
+    print(build_nurse_intake_agent_expected_json_shape())
+    print()
+    print("Fictional test input:")
+    print(build_nurse_intake_agent_fictional_test_input())
+    print()
+    print("Manual validation commands:")
+    print("python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --check")
+    print(FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND)
+    print()
+    print("The local demo remains mock/offline by default.")
+    print("Human nurse review remains mandatory before clinical action.")
+    print("Restore AGENT_PROVIDER=mock after manual validation.")
 
 
 def _foundry_agent_configured(settings: AppSettings) -> bool:

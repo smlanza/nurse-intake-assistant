@@ -150,6 +150,35 @@ AZURE_AI_FOUNDRY_AGENT_ID=<your-foundry-agent-id>
 The script also preserves the existing `AGENT_PROVIDER=foundry` smoke alias.
 Prefer `AGENT_PROVIDER=foundry-agent` for new manual checks.
 
+## Foundry Agent Instruction Pack
+
+Before configuring the Azure AI Foundry Agent, print the versioned instruction
+pack:
+
+```bash
+python scripts/smoke_foundry_agent.py --print-agent-instructions
+```
+
+This command is offline. It does not load Azure settings, does not require an
+env file, does not create a Foundry Agent client, does not invoke an agent, and
+does not call Azure.
+
+The printed instructions are safe to copy into Azure AI Foundry Agent
+configuration. They include:
+
+- instruction version
+- copyable agent instructions
+- expected JSON shape for the local `NurseIntakeAgent` contract
+- fictional test input
+- safe manual validation command reminders
+
+The instruction pack is intended to align manual Azure Agent configuration with
+the local `NurseIntakeAgent` output contract. Live verification still requires
+running `--live --json` manually after `--check` passes.
+
+The instruction pack and smoke success do not make the app production clinical
+software. Human nurse review remains mandatory before clinical action.
+
 Example `--check` command:
 
 ```bash
