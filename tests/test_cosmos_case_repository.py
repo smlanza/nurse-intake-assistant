@@ -44,6 +44,27 @@ class SyncFakeCosmosContainer:
         return self.read_result
 
 
+class FakeQueryCosmosContainer:
+    def __init__(self, query_results: list[dict[str, Any]]) -> None:
+        self.query_results = query_results
+        self.query_calls: list[dict[str, Any]] = []
+
+    def query_items(
+        self,
+        query: str,
+        parameters: list[dict[str, Any]],
+        enable_cross_partition_query: bool,
+    ) -> list[dict[str, Any]]:
+        self.query_calls.append(
+            {
+                "query": query,
+                "parameters": parameters,
+                "enable_cross_partition_query": enable_cross_partition_query,
+            }
+        )
+        return self.query_results
+
+
 def build_case(case_id: str = "case-123") -> CaseDocument:
     now = datetime.now(timezone.utc)
     return CaseDocument(
@@ -194,6 +215,67 @@ def test_cosmos_repository_idempotency_lookup_is_not_implemented() -> None:
         assert "cross-partition" in str(error)
     else:
         raise AssertionError("Expected Cosmos idempotency lookup to be explicit")
+
+
+def test_cosmos_repository_lists_cross_partition_cases_newest_first() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    newest = build_case("newest")
+    oldest = build_case("oldest")
+    container = FakeQueryCosmosContainer(
+        [newest.model_dump(mode="json"), oldest.model_dump(mode="json")]
+    )
+    repository = CosmosCaseRepository(container=container)
+
+    cases = asyncio.run(repository.list_cases())
+
+    assert cases == [newest, oldest]
+    assert len(container.query_calls) == 1
+    query_call = container.query_calls[0]
+    assert "ORDER BY c.createdUtc DESC" in query_call["query"]
+    assert query_call["parameters"] == []
+    assert query_call["enable_cross_partition_query"] is True
+
+
+def test_cosmos_repository_parameterizes_supported_queue_filters() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    cases = asyncio.run(
+        repository.list_cases(review_status="PendingReview", urgency="Urgent")
+    )
+
+    assert cases == []
+    query_call = container.query_calls[0]
+    assert "c.reviewStatus = @reviewStatus" in query_call["query"]
+    assert "c.urgency = @urgency" in query_call["query"]
+    assert "PendingReview" not in query_call["query"]
+    assert "Urgent" not in query_call["query"]
+    assert query_call["parameters"] == [
+        {"name": "@reviewStatus", "value": "PendingReview"},
+        {"name": "@urgency", "value": "Urgent"},
+    ]
+
+
+def test_cosmos_repository_rejects_filters_outside_initial_list_subset() -> None:
+    from src.app.services.cosmos_case_repository import (
+        CaseListNotSupportedError,
+        CosmosCaseRepository,
+    )
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    try:
+        asyncio.run(repository.list_cases(source_system="local-demo"))
+    except CaseListNotSupportedError as error:
+        assert "source_system" in str(error)
+    else:
+        raise AssertionError("Expected unsupported Cosmos filters to be explicit")
+
+    assert container.query_calls == []
 
 
 def test_cosmos_repository_satisfies_case_repository_protocol() -> None:

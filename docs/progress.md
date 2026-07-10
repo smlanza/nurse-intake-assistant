@@ -5,12 +5,11 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 767 passed
+- 771 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow
-covering intake processing, deterministic mock AI extraction, urgency
-classification, nurse review, mock notification inspection, and a local demo UI.
+The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering
+intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
 
 Important constraints:
 - Local mock/demo only
@@ -18,25 +17,20 @@ Important constraints:
 - No live Azure integration in the demo page
 - Mock mode sends no real email or SMS
 - AI output requires human nurse review
-- Do not commit secrets, connection strings, real phone numbers, real email
-  addresses, provider credentials, or real patient data
+- Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Manual live Foundry Agent smoke passed using the portal-supported project
-  responses agent-reference path.
-- Sanitized result facts: `ok=true`, `category=success`,
-  `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`,
-  and `fields_present` included `extraction`, `urgency`, and `handoffNote`.
-- Automated tests remain offline and deterministic with fake clients only.
-- No live Azure behavior is claimed for `/demo` by default.
-- `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
-  review remains mandatory.
-- No secrets, raw Azure values, endpoint values, agent IDs, deployment names,
-  tokens, raw model output, connection strings, real contact data, or real
-  patient data are exposed by diagnostic output, check output, smoke JSON
-  output, instruction output, or docs.
-- No hosting, auth, Key Vault, Speech, phone intake, durable retry, production
-  frontend, or production clinical behavior was added.
+- Cosmos case list/query parity foundation is complete.
+- `CosmosCaseRepository.list_cases(...)` queries existing `/createdDate`
+  partitions newest-first and supports parameterized `reviewStatus`/`urgency` filters.
+- Route pagination, response shapes, mock defaults, and in-memory behavior are unchanged;
+  unsupported Cosmos filters remain explicit deferred gaps.
+- Fake-container tests remain offline/deterministic; no live Cosmos list validation is claimed.
+- No secrets or out-of-scope production, hosting, auth, notification, or clinical changes were added.
+- Manual live Foundry Agent smoke passed previously: `ok=true`, `category=success`,
+  `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields
+  included `extraction`, `urgency`, and `handoffNote`.
+- No live Azure behavior is claimed for `/demo` by default; `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse review remains mandatory.
 
 ## Current Resume Point
 
@@ -49,7 +43,9 @@ Safe to demo today:
   boundary
 
 Implemented but not live-confirmed:
-- Cosmos repository boundary and manual Cosmos point-read path
+- Cosmos repository boundary, manual Cosmos point-read path, and offline-tested
+  basic cross-partition case listing with newest-first ordering plus optional
+  review-status and urgency filters
 - ACS Email/SMS boundaries, ACS Email smoke testing, offline-safe ACS
   Email/SMS `--check` preflights, and consolidated `scripts/preflight.py --all`
   with Foundry Agent readiness are complete; ACS SMS handset delivery tracking
@@ -103,8 +99,8 @@ pipeline through `POST /intake/voicemail-transcript`.
 - Demo: `GET /demo`, `GET /demo/status`, `POST /demo/seed`, `POST /demo/reset`.
 - Intake: `POST /intake/text`, `POST /intake/voicemail-transcript`.
 - Cases: `GET /cases`, `GET /cases/summary`, `GET /cases/{case_id}`, and
-  `GET /cases/{case_id}/handoff-note`, with filters and Cosmos point-read
-  lookup where already supported.
+  `GET /cases/{case_id}/handoff-note`, with mock-mode filters, basic Cosmos
+  list support, and Cosmos point-read lookup where already supported.
 - Notifications: `GET /notifications/email`, `GET /notifications/sms`.
 
 Primary demo documentation:
@@ -127,6 +123,10 @@ Safe local defaults:
 Provider settings:
 - `APP_MODE=mock` uses `InMemoryCaseRepository`.
 - `APP_MODE=cosmos` uses `CosmosCaseRepository` and requires Cosmos settings.
+  Basic cross-partition case listing supports newest-first ordering and optional
+  review-status and urgency filters. Cosmos list parity for the remaining mock
+  filters, full summary parity/optimized aggregation, efficient server-side
+  pagination, idempotency-key lookup, and live list validation remain deferred.
 - `AI_PROVIDER=mock` uses deterministic local mock extraction.
 - `AI_PROVIDER=foundry` is a tested provider boundary and requires
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and

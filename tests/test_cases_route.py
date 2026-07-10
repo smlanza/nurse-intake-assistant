@@ -251,6 +251,39 @@ def test_list_cases_applies_limit_and_offset_together(
     assert [case["id"] for case in response.json()] == ["middle", "older"]
 
 
+def test_list_cases_applies_existing_pagination_to_cosmos_query_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    class FakeQueryContainer:
+        def query_items(
+            self,
+            query: str,
+            parameters: list[dict[str, object]],
+            enable_cross_partition_query: bool,
+        ) -> list[dict[str, object]]:
+            assert "ORDER BY c.createdUtc DESC" in query
+            assert parameters == []
+            assert enable_cross_partition_query is True
+            return [
+                case.model_dump(mode="json")
+                for case in (
+                    build_queue_case("newest", created_date="2026-06-26"),
+                    build_queue_case("middle", created_date="2026-06-25"),
+                    build_queue_case("oldest", created_date="2026-06-24"),
+                )
+            ]
+
+    repository = CosmosCaseRepository(container=FakeQueryContainer())
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get("/cases?offset=1&limit=1")
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["middle"]
+
+
 def test_list_cases_applies_pagination_after_existing_filters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

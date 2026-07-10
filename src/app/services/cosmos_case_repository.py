@@ -77,12 +77,60 @@ class CosmosCaseRepository:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:
-        raise CaseListNotSupportedError(
-            "Case list queries are not implemented for Cosmos-backed storage yet."
+        unsupported_filters = {
+            "intake_status": intake_status,
+            "intake_complete": intake_complete,
+            "source_system": source_system,
+            "case_type": case_type,
+            "notification_email_status": notification_email_status,
+            "notification_sms_status": notification_sms_status,
+            "notification_sms_delivery_confirmed": (
+                notification_sms_delivery_confirmed
+            ),
+            "from_date": from_date,
+            "to_date": to_date,
+        }
+        requested_unsupported_filters = [
+            name for name, value in unsupported_filters.items() if value is not None
+        ]
+        if requested_unsupported_filters:
+            raise CaseListNotSupportedError(
+                "Cosmos case list queries do not yet support filters: "
+                + ", ".join(requested_unsupported_filters)
+            )
+
+        predicates: list[str] = []
+        parameters: list[dict[str, Any]] = []
+        if review_status is not None:
+            predicates.append("c.reviewStatus = @reviewStatus")
+            parameters.append({"name": "@reviewStatus", "value": review_status})
+        if urgency is not None:
+            predicates.append("c.urgency = @urgency")
+            parameters.append({"name": "@urgency", "value": urgency})
+
+        query = "SELECT * FROM c"
+        if predicates:
+            query += " WHERE " + " AND ".join(predicates)
+        query += " ORDER BY c.createdUtc DESC"
+
+        query_results = await _maybe_await(
+            self.container.query_items(
+                query=query,
+                parameters=parameters,
+                enable_cross_partition_query=True,
+            )
         )
+        stored_cases = await _collect_items(query_results)
+        return [CaseDocument.model_validate(stored_case) for stored_case in stored_cases]
 
 
 async def _maybe_await(value: Any) -> Any:
     if inspect.isawaitable(value):
         return await value
     return value
+
+
+async def _collect_items(items: Any) -> list[Any]:
+    if hasattr(items, "__aiter__"):
+        return [item async for item in items]
+    return list(items)
