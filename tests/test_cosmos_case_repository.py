@@ -278,6 +278,25 @@ def test_cosmos_repository_parameterizes_intake_status_filter() -> None:
     assert query_call["enable_cross_partition_query"] is True
 
 
+def test_cosmos_repository_parameterizes_source_system_filter() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    cases = asyncio.run(repository.list_cases(source_system="local-demo"))
+
+    assert cases == []
+    query_call = container.query_calls[0]
+    assert "c.sourceSystem = @sourceSystem" in query_call["query"]
+    assert "ORDER BY c.createdUtc DESC" in query_call["query"]
+    assert "local-demo" not in query_call["query"]
+    assert query_call["parameters"] == [
+        {"name": "@sourceSystem", "value": "local-demo"},
+    ]
+    assert query_call["enable_cross_partition_query"] is True
+
+
 def test_cosmos_repository_parameterizes_date_filters() -> None:
     from src.app.services.cosmos_case_repository import CosmosCaseRepository
 
@@ -334,7 +353,7 @@ def test_cosmos_repository_combines_supported_queue_and_date_filters() -> None:
     ]
 
 
-def test_cosmos_repository_combines_all_supported_queue_filters() -> None:
+def test_cosmos_repository_combines_supported_filters() -> None:
     from src.app.services.cosmos_case_repository import CosmosCaseRepository
 
     container = FakeQueryCosmosContainer([])
@@ -345,6 +364,7 @@ def test_cosmos_repository_combines_all_supported_queue_filters() -> None:
             review_status="PendingReview",
             urgency="Urgent",
             intake_status="NeedsFollowUp",
+            source_system="local-demo",
             from_date=date(2026, 6, 24),
             to_date=date(2026, 6, 26),
         )
@@ -355,12 +375,14 @@ def test_cosmos_repository_combines_all_supported_queue_filters() -> None:
     assert "c.reviewStatus = @reviewStatus" in query_call["query"]
     assert "c.urgency = @urgency" in query_call["query"]
     assert "c.intakeStatus = @intakeStatus" in query_call["query"]
+    assert "c.sourceSystem = @sourceSystem" in query_call["query"]
     assert "c.createdDate >= @fromDate" in query_call["query"]
     assert "c.createdDate <= @toDate" in query_call["query"]
     assert query_call["parameters"] == [
         {"name": "@reviewStatus", "value": "PendingReview"},
         {"name": "@urgency", "value": "Urgent"},
         {"name": "@intakeStatus", "value": "NeedsFollowUp"},
+        {"name": "@sourceSystem", "value": "local-demo"},
         {"name": "@fromDate", "value": "2026-06-24"},
         {"name": "@toDate", "value": "2026-06-26"},
     ]
@@ -376,9 +398,9 @@ def test_cosmos_repository_rejects_filters_outside_initial_list_subset() -> None
     repository = CosmosCaseRepository(container=container)
 
     try:
-        asyncio.run(repository.list_cases(source_system="local-demo"))
+        asyncio.run(repository.list_cases(case_type="text-intake"))
     except CaseListNotSupportedError as error:
-        assert "source_system" in str(error)
+        assert "case_type" in str(error)
     else:
         raise AssertionError("Expected unsupported Cosmos filters to be explicit")
 
