@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 781 passed
+- 782 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering
@@ -20,12 +20,12 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Cosmos case list notification-SMS-status filter parity is complete.
+- Cosmos case list SMS-delivery-confirmed filter parity is complete.
 - `CosmosCaseRepository.list_cases(...)` queries existing `/createdDate`
-  partitions newest-first with parameterized review-status, urgency, intake-status, intake-complete, source-system, case-type, notification-email-status, notification-SMS-status, and date filters.
+  partitions newest-first and now supports every filter in the repository contract.
 - Route pagination, response shapes, mock defaults, and in-memory behavior are unchanged;
-  unsupported Cosmos filters remain explicit deferred gaps.
-- Fake tests cover the flat persisted SMS-status field offline; no live Cosmos validation is claimed.
+  optimized pagination and summary aggregation remain deferred.
+- Fake tests cover true/false delivery parameters offline; no live Cosmos validation is claimed.
 - No secrets or out-of-scope production, hosting, auth, notification, or clinical changes were added.
 - Manual live Foundry Agent smoke passed previously: `ok=true`, `category=success`,
   `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields
@@ -45,7 +45,7 @@ Safe to demo today:
 Implemented but not live-confirmed:
 - Cosmos repository boundary, manual Cosmos point-read path, and offline-tested
   cross-partition case listing with newest-first ordering plus optional review,
-  urgency, intake-status, intake-complete, source-system, case-type, notification-email-status, notification-SMS-status, and inclusive date filters
+  review-status, urgency, intake-status, intake-complete, source-system, case-type, notification-email-status, notification-SMS-status, SMS-delivery-confirmed, and inclusive date filters
 - ACS Email/SMS boundaries, ACS Email smoke testing, offline-safe ACS
   Email/SMS `--check` preflights, and consolidated `scripts/preflight.py --all`
   with Foundry Agent readiness are complete; ACS SMS handset delivery tracking
@@ -124,8 +124,8 @@ Provider settings:
 - `APP_MODE=mock` uses `InMemoryCaseRepository`.
 - `APP_MODE=cosmos` uses `CosmosCaseRepository` and requires Cosmos settings.
   Basic cross-partition listing supports newest-first ordering plus optional
-  review-status, urgency, intake-status, intake-complete, source-system, case-type, notification-email-status, notification-SMS-status, and date filters. Remaining mock/Cosmos
-  filters, full summary parity/optimized aggregation, efficient server-side
+  all filters across the repository contract. Full summary parity/optimized
+  aggregation and efficient server-side
   pagination, idempotency-key lookup, and live list validation remain deferred.
 - `AI_PROVIDER=mock` uses deterministic local mock extraction.
 - `AI_PROVIDER=foundry` is a tested provider boundary and requires

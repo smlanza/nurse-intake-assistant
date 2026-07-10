@@ -77,20 +77,6 @@ class CosmosCaseRepository:
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> list[CaseDocument]:
-        unsupported_filters = {
-            "notification_sms_delivery_confirmed": (
-                notification_sms_delivery_confirmed
-            ),
-        }
-        requested_unsupported_filters = [
-            name for name, value in unsupported_filters.items() if value is not None
-        ]
-        if requested_unsupported_filters:
-            raise CaseListNotSupportedError(
-                "Cosmos case list queries do not yet support filters: "
-                + ", ".join(requested_unsupported_filters)
-            )
-
         predicates: list[str] = []
         parameters: list[dict[str, Any]] = []
         if review_status is not None:
@@ -129,6 +115,17 @@ class CosmosCaseRepository:
                 {
                     "name": "@notificationSmsStatus",
                     "value": notification_sms_status,
+                }
+            )
+        if notification_sms_delivery_confirmed is not None:
+            predicates.append(
+                "c.notificationSmsDeliveryConfirmed = "
+                "@notificationSmsDeliveryConfirmed"
+            )
+            parameters.append(
+                {
+                    "name": "@notificationSmsDeliveryConfirmed",
+                    "value": notification_sms_delivery_confirmed,
                 }
             )
         if from_date is not None:
