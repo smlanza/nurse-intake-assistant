@@ -78,7 +78,6 @@ class CosmosCaseRepository:
         to_date: date | None = None,
     ) -> list[CaseDocument]:
         unsupported_filters = {
-            "notification_email_status": notification_email_status,
             "notification_sms_status": notification_sms_status,
             "notification_sms_delivery_confirmed": (
                 notification_sms_delivery_confirmed
@@ -115,6 +114,16 @@ class CosmosCaseRepository:
         if case_type is not None:
             predicates.append("c.caseType = @caseType")
             parameters.append({"name": "@caseType", "value": case_type})
+        if notification_email_status is not None:
+            predicates.append(
+                "c.notificationEmailStatus = @notificationEmailStatus"
+            )
+            parameters.append(
+                {
+                    "name": "@notificationEmailStatus",
+                    "value": notification_email_status,
+                }
+            )
         if from_date is not None:
             predicates.append("c.createdDate >= @fromDate")
             parameters.append({"name": "@fromDate", "value": from_date.isoformat()})

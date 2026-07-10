@@ -352,6 +352,29 @@ def test_cosmos_repository_parameterizes_intake_complete_filter_false() -> None:
     ]
 
 
+def test_cosmos_repository_parameterizes_notification_email_status_filter() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    cases = asyncio.run(
+        repository.list_cases(notification_email_status="Accepted")
+    )
+
+    assert cases == []
+    query_call = container.query_calls[0]
+    assert "c.notificationEmailStatus = @notificationEmailStatus" in query_call[
+        "query"
+    ]
+    assert "ORDER BY c.createdUtc DESC" in query_call["query"]
+    assert "Accepted" not in query_call["query"]
+    assert query_call["parameters"] == [
+        {"name": "@notificationEmailStatus", "value": "Accepted"},
+    ]
+    assert query_call["enable_cross_partition_query"] is True
+
+
 def test_cosmos_repository_parameterizes_date_filters() -> None:
     from src.app.services.cosmos_case_repository import CosmosCaseRepository
 
@@ -422,6 +445,7 @@ def test_cosmos_repository_combines_supported_filters() -> None:
             intake_complete=True,
             source_system="local-demo",
             case_type="text-intake",
+            notification_email_status="Accepted",
             from_date=date(2026, 6, 24),
             to_date=date(2026, 6, 26),
         )
@@ -435,6 +459,9 @@ def test_cosmos_repository_combines_supported_filters() -> None:
     assert "c.intakeComplete = @intakeComplete" in query_call["query"]
     assert "c.sourceSystem = @sourceSystem" in query_call["query"]
     assert "c.caseType = @caseType" in query_call["query"]
+    assert "c.notificationEmailStatus = @notificationEmailStatus" in query_call[
+        "query"
+    ]
     assert "c.createdDate >= @fromDate" in query_call["query"]
     assert "c.createdDate <= @toDate" in query_call["query"]
     assert query_call["parameters"] == [
@@ -444,6 +471,7 @@ def test_cosmos_repository_combines_supported_filters() -> None:
         {"name": "@intakeComplete", "value": True},
         {"name": "@sourceSystem", "value": "local-demo"},
         {"name": "@caseType", "value": "text-intake"},
+        {"name": "@notificationEmailStatus", "value": "Accepted"},
         {"name": "@fromDate", "value": "2026-06-24"},
         {"name": "@toDate", "value": "2026-06-26"},
     ]
@@ -459,9 +487,9 @@ def test_cosmos_repository_rejects_filters_outside_initial_list_subset() -> None
     repository = CosmosCaseRepository(container=container)
 
     try:
-        asyncio.run(repository.list_cases(notification_email_status="Accepted"))
+        asyncio.run(repository.list_cases(notification_sms_status="Accepted"))
     except CaseListNotSupportedError as error:
-        assert "notification_email_status" in str(error)
+        assert "notification_sms_status" in str(error)
     else:
         raise AssertionError("Expected unsupported Cosmos filters to be explicit")
 
