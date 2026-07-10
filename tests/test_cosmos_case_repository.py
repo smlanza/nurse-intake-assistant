@@ -316,6 +316,42 @@ def test_cosmos_repository_parameterizes_case_type_filter() -> None:
     assert query_call["enable_cross_partition_query"] is True
 
 
+def test_cosmos_repository_parameterizes_intake_complete_filter_true() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    cases = asyncio.run(repository.list_cases(intake_complete=True))
+
+    assert cases == []
+    query_call = container.query_calls[0]
+    assert "c.intakeComplete = @intakeComplete" in query_call["query"]
+    assert "ORDER BY c.createdUtc DESC" in query_call["query"]
+    for literal in ("True", "False", "true", "false"):
+        assert literal not in query_call["query"]
+    assert query_call["parameters"] == [
+        {"name": "@intakeComplete", "value": True},
+    ]
+    assert query_call["enable_cross_partition_query"] is True
+
+
+def test_cosmos_repository_parameterizes_intake_complete_filter_false() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    cases = asyncio.run(repository.list_cases(intake_complete=False))
+
+    assert cases == []
+    query_call = container.query_calls[0]
+    assert "c.intakeComplete = @intakeComplete" in query_call["query"]
+    assert query_call["parameters"] == [
+        {"name": "@intakeComplete", "value": False},
+    ]
+
+
 def test_cosmos_repository_parameterizes_date_filters() -> None:
     from src.app.services.cosmos_case_repository import CosmosCaseRepository
 
@@ -383,6 +419,7 @@ def test_cosmos_repository_combines_supported_filters() -> None:
             review_status="PendingReview",
             urgency="Urgent",
             intake_status="NeedsFollowUp",
+            intake_complete=True,
             source_system="local-demo",
             case_type="text-intake",
             from_date=date(2026, 6, 24),
@@ -395,6 +432,7 @@ def test_cosmos_repository_combines_supported_filters() -> None:
     assert "c.reviewStatus = @reviewStatus" in query_call["query"]
     assert "c.urgency = @urgency" in query_call["query"]
     assert "c.intakeStatus = @intakeStatus" in query_call["query"]
+    assert "c.intakeComplete = @intakeComplete" in query_call["query"]
     assert "c.sourceSystem = @sourceSystem" in query_call["query"]
     assert "c.caseType = @caseType" in query_call["query"]
     assert "c.createdDate >= @fromDate" in query_call["query"]
@@ -403,6 +441,7 @@ def test_cosmos_repository_combines_supported_filters() -> None:
         {"name": "@reviewStatus", "value": "PendingReview"},
         {"name": "@urgency", "value": "Urgent"},
         {"name": "@intakeStatus", "value": "NeedsFollowUp"},
+        {"name": "@intakeComplete", "value": True},
         {"name": "@sourceSystem", "value": "local-demo"},
         {"name": "@caseType", "value": "text-intake"},
         {"name": "@fromDate", "value": "2026-06-24"},
