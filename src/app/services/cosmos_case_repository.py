@@ -87,8 +87,6 @@ class CosmosCaseRepository:
             "notification_sms_delivery_confirmed": (
                 notification_sms_delivery_confirmed
             ),
-            "from_date": from_date,
-            "to_date": to_date,
         }
         requested_unsupported_filters = [
             name for name, value in unsupported_filters.items() if value is not None
@@ -107,6 +105,12 @@ class CosmosCaseRepository:
         if urgency is not None:
             predicates.append("c.urgency = @urgency")
             parameters.append({"name": "@urgency", "value": urgency})
+        if from_date is not None:
+            predicates.append("c.createdDate >= @fromDate")
+            parameters.append({"name": "@fromDate", "value": from_date.isoformat()})
+        if to_date is not None:
+            predicates.append("c.createdDate <= @toDate")
+            parameters.append({"name": "@toDate", "value": to_date.isoformat()})
 
         query = "SELECT * FROM c"
         if predicates:

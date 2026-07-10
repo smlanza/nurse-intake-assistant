@@ -1,5 +1,5 @@
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 from src.app.models.case import CaseDocument
@@ -256,6 +256,62 @@ def test_cosmos_repository_parameterizes_supported_queue_filters() -> None:
     assert query_call["parameters"] == [
         {"name": "@reviewStatus", "value": "PendingReview"},
         {"name": "@urgency", "value": "Urgent"},
+    ]
+
+
+def test_cosmos_repository_parameterizes_date_filters() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    cases = asyncio.run(
+        repository.list_cases(
+            from_date=date(2026, 6, 24),
+            to_date=date(2026, 6, 26),
+        )
+    )
+
+    assert cases == []
+    query_call = container.query_calls[0]
+    assert "c.createdDate >= @fromDate" in query_call["query"]
+    assert "c.createdDate <= @toDate" in query_call["query"]
+    assert "ORDER BY c.createdUtc DESC" in query_call["query"]
+    assert "2026-06-24" not in query_call["query"]
+    assert "2026-06-26" not in query_call["query"]
+    assert query_call["parameters"] == [
+        {"name": "@fromDate", "value": "2026-06-24"},
+        {"name": "@toDate", "value": "2026-06-26"},
+    ]
+    assert query_call["enable_cross_partition_query"] is True
+
+
+def test_cosmos_repository_combines_supported_queue_and_date_filters() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    cases = asyncio.run(
+        repository.list_cases(
+            review_status="PendingReview",
+            urgency="Urgent",
+            from_date=date(2026, 6, 24),
+            to_date=date(2026, 6, 26),
+        )
+    )
+
+    assert cases == []
+    query_call = container.query_calls[0]
+    assert "c.reviewStatus = @reviewStatus" in query_call["query"]
+    assert "c.urgency = @urgency" in query_call["query"]
+    assert "c.createdDate >= @fromDate" in query_call["query"]
+    assert "c.createdDate <= @toDate" in query_call["query"]
+    assert query_call["parameters"] == [
+        {"name": "@reviewStatus", "value": "PendingReview"},
+        {"name": "@urgency", "value": "Urgent"},
+        {"name": "@fromDate", "value": "2026-06-24"},
+        {"name": "@toDate", "value": "2026-06-26"},
     ]
 
 
