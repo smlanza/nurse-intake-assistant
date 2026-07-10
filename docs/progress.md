@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 782 passed
+- 783 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering
@@ -20,12 +20,12 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Cosmos case list SMS-delivery-confirmed filter parity is complete.
-- `CosmosCaseRepository.list_cases(...)` queries existing `/createdDate`
-  partitions newest-first and now supports every filter in the repository contract.
-- Route pagination, response shapes, mock defaults, and in-memory behavior are unchanged;
-  optimized pagination and summary aggregation remain deferred.
-- Fake tests cover true/false delivery parameters offline; no live Cosmos validation is claimed.
+- Route-level Cosmos full-filter pass-through smoke coverage is complete.
+- A fake-container `GET /cases` test proves every repository filter reaches the
+  parameterized cross-partition query and returns the existing response shape.
+- Route-level `offset`/`limit`, mock defaults, and in-memory behavior are unchanged;
+  no production code change was required.
+- Automated coverage remains offline/deterministic; no live Cosmos validation is claimed.
 - No secrets or out-of-scope production, hosting, auth, notification, or clinical changes were added.
 - Manual live Foundry Agent smoke passed previously: `ok=true`, `category=success`,
   `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields
@@ -44,8 +44,8 @@ Safe to demo today:
 
 Implemented but not live-confirmed:
 - Cosmos repository boundary, manual Cosmos point-read path, and offline-tested
-  cross-partition case listing with newest-first ordering plus optional review,
-  review-status, urgency, intake-status, intake-complete, source-system, case-type, notification-email-status, notification-SMS-status, SMS-delivery-confirmed, and inclusive date filters
+  cross-partition case listing plus a route smoke covering all repository filters,
+  parameterization, response shaping, and route-level pagination
 - ACS Email/SMS boundaries, ACS Email smoke testing, offline-safe ACS
   Email/SMS `--check` preflights, and consolidated `scripts/preflight.py --all`
   with Foundry Agent readiness are complete; ACS SMS handset delivery tracking

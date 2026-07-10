@@ -284,6 +284,100 @@ def test_list_cases_applies_existing_pagination_to_cosmos_query_results(
     assert [case["id"] for case in response.json()] == ["middle"]
 
 
+def test_list_cases_passes_full_filter_set_to_cosmos_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    class FakeQueryContainer:
+        def __init__(self) -> None:
+            self.query_calls: list[dict[str, object]] = []
+
+        def query_items(
+            self,
+            query: str,
+            parameters: list[dict[str, object]],
+            enable_cross_partition_query: bool,
+        ) -> list[dict[str, object]]:
+            self.query_calls.append(
+                {
+                    "query": query,
+                    "parameters": parameters,
+                    "enable_cross_partition_query": enable_cross_partition_query,
+                }
+            )
+            return [
+                case.model_dump(mode="json")
+                for case in (
+                    build_queue_case("newest", created_date="2026-06-26"),
+                    build_queue_case("older", created_date="2026-06-25"),
+                )
+            ]
+
+    container = FakeQueryContainer()
+    repository = CosmosCaseRepository(container=container)
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases?reviewStatus=PendingReview&urgency=Urgent"
+        "&intakeStatus=NeedsFollowUp&intakeComplete=true"
+        "&sourceSystem=local-demo&caseType=text-intake"
+        "&notificationEmailStatus=Accepted&notificationSmsStatus=Accepted"
+        "&notificationSmsDeliveryConfirmed=true"
+        "&fromDate=2026-06-24&toDate=2026-06-26&offset=1&limit=1"
+    )
+
+    assert response.status_code == 200
+    assert [case["id"] for case in response.json()] == ["older"]
+    assert len(container.query_calls) == 1
+    query_call = container.query_calls[0]
+    query = query_call["query"]
+    assert isinstance(query, str)
+    for predicate in (
+        "c.reviewStatus = @reviewStatus",
+        "c.urgency = @urgency",
+        "c.intakeStatus = @intakeStatus",
+        "c.intakeComplete = @intakeComplete",
+        "c.sourceSystem = @sourceSystem",
+        "c.caseType = @caseType",
+        "c.notificationEmailStatus = @notificationEmailStatus",
+        "c.notificationSmsStatus = @notificationSmsStatus",
+        "c.notificationSmsDeliveryConfirmed = @notificationSmsDeliveryConfirmed",
+        "c.createdDate >= @fromDate",
+        "c.createdDate <= @toDate",
+        "ORDER BY c.createdUtc DESC",
+    ):
+        assert predicate in query
+    for literal in (
+        "PendingReview",
+        "NeedsFollowUp",
+        "local-demo",
+        "text-intake",
+        "Accepted",
+        "2026-06-24",
+        "2026-06-26",
+        "true",
+        "false",
+        "True",
+        "False",
+    ):
+        assert literal not in query
+    assert query_call["parameters"] == [
+        {"name": "@reviewStatus", "value": "PendingReview"},
+        {"name": "@urgency", "value": "Urgent"},
+        {"name": "@intakeStatus", "value": "NeedsFollowUp"},
+        {"name": "@intakeComplete", "value": True},
+        {"name": "@sourceSystem", "value": "local-demo"},
+        {"name": "@caseType", "value": "text-intake"},
+        {"name": "@notificationEmailStatus", "value": "Accepted"},
+        {"name": "@notificationSmsStatus", "value": "Accepted"},
+        {"name": "@notificationSmsDeliveryConfirmed", "value": True},
+        {"name": "@fromDate", "value": "2026-06-24"},
+        {"name": "@toDate", "value": "2026-06-26"},
+    ]
+    assert query_call["enable_cross_partition_query"] is True
+
+
 def test_list_cases_applies_pagination_after_existing_filters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
