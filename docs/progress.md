@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 823 passed
+- 852 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
@@ -19,18 +19,11 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Programmatic Foundry prompt-agent version deployment is implemented from the
-  centralized versioned Nurse Intake Agent instructions.
-- The explicit CLI uses the current `azure-ai-projects` 2.x `create_version()`
-  and project Responses API agent-reference path, then validates existing contracts.
-- `--check` and all fake-client tests are offline; `--live --json` creates and
-  invokes one new version with fictional data and remains pending manual execution.
-- No secrets or out-of-scope production, hosting, auth, notification, or clinical changes were added.
-- Manual live Foundry Agent smoke passed previously: `ok=true`, `category=success`,
-  `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields
-  included `extraction`, `urgency`, and `handoffNote`.
+- Manual live Foundry Agent smoke passed: `ok=true`, `category=success`, `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields included `extraction`, `urgency`, and `handoffNote`.
 - No live Azure behavior is claimed for `/demo` by default; `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse review remains mandatory.
-- Reusable Foundry infrastructure slice: shared account/project/model module; optional `deployFoundry=false` full-stack integration; disposable Foundry-only path; injected-runner offline check, what-if, and explicit live modes; no pytest Azure calls, agent/env/cleanup automation, or changed nurse-review/non-production boundary; live deployment remains pending.
+- Live Foundry-only deployment and read-only verification succeeded: AIServices account, project, and model provisioning were `Succeeded`; endpoint format was valid; Azure returned qualified `<account>/<project>`.
+- Verified model metadata: `gpt-5-mini`, version `2025-08-07`, format `OpenAI`, SKU `GlobalStandard`.
+- No prompt agent was created, no model inference ran, application behavior did not change, nurse review remains mandatory, and no production clinical claim is made.
 
 ## Current Resume Point
 
@@ -42,24 +35,25 @@ Safe to demo today:
 - Local mock demo safety banner, readiness status panel, and human nurse review
   boundary
 
-Implemented but not live-confirmed:
-- Cosmos repository boundary, manual Cosmos point-read path, and offline-tested
-  cross-partition case listing and summary routes covering all repository filters,
-  parameterization, response shaping, list pagination, and application-side counting
-- ACS Email/SMS boundaries, ACS Email smoke testing, offline-safe ACS
-  Email/SMS `--check` preflights, and consolidated `scripts/preflight.py --all`
-  with Foundry Agent readiness are complete; ACS SMS handset delivery tracking
-  is deferred
-- Foundry provider boundary, structured extraction contract, fake-client seam,
-  lazy live adapter, manual smoke guide, smoke CLI, and `--check` mode
-- Foundry Agent client boundary, fake-client seam, lazy live adapter scaffold,
-  explicit `AGENT_PROVIDER=foundry-agent` text-intake routing, and manual
-  `scripts/smoke_foundry_agent.py` `--check`/`--live` smoke CLI with env-file
-  isolation, fictional data only, safe diagnostics, strict response parsing,
-  a project-responses agent-reference live smoke path, sanitized
-  `--live --json` success/failure results for manual Azure validation, and no
-  notification effects
-- Speech transcription provider boundary with mock provider and Azure scaffold
+Authoritative Foundry infrastructure for future TDD slices:
+- `infra/main.bicep`: authoritative full application entry point; Foundry remains optional through `deployFoundry=false` by default.
+- `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
+- `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
+- `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
+- `scripts/deploy_foundry_infra.py`: approved deployment boundary; `scripts/verify_foundry_infra.py`: approved read-only verification boundary.
+
+Future-slice rules:
+- Future TDD slices requiring Foundry infrastructure must extend or reuse this implementation rather than create another `main.bicep`, duplicate resources, or return to portal-only creation.
+- Do not add a parallel subscription-scope Foundry stack unless subscription-scope resources are genuinely required.
+- Do not refactor Cosmos, Storage, Log Analytics, or Application Insights merely to add a Foundry feature.
+- Keep infrastructure deployment separate from prompt-agent creation; keep prompt-agent creation separate from application startup and intake requests.
+- Keep environment-file updates manual unless explicitly and safely introduced by a future TDD slice.
+- Keep cleanup manual and explicit; never automatically delete resource groups.
+
+Approved daily Foundry workflow:
+```text
+edit ignored infra/foundry-only.bicepparam -> compile Bicep parameters -> deploy_foundry_infra.py --check -> create/reuse disposable resource group -> deploy_foundry_infra.py --what-if --json -> deploy_foundry_infra.py --live --json -> verify_foundry_infra.py --json -> optionally run the separate prompt-agent workflow -> manually delete the resource group after review
+```
 
 Do not claim as complete:
 - Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path
@@ -68,10 +62,7 @@ Do not claim as complete:
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move:
-- With Azure credentials/model deployment, use `docs/manual-foundry-smoke-test.md`.
-- If staying offline, prefer docs, smoke guides, or provider preflight checks
-  while keeping the default demo mock/offline.
+Recommended next move: Resume by deciding whether to use the verified Foundry infrastructure to run the existing programmatic prompt-agent deployment and invocation workflow. Do not redesign or recreate the infrastructure first; begin from the existing architecture and scripts, not manual portal provisioning.
 
 ## Current Working Local Pipeline
 

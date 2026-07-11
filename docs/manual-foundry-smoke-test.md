@@ -20,6 +20,11 @@ az group delete --name <resource-group-name> --yes --no-wait
 Tests remain offline, nurse review stays mandatory, and no production clinical
 claim is made.
 
+The Foundry-only deployment and subsequent read-only verification succeeded for
+the AIServices account, project, endpoint format, and model deployment. Azure
+returned the project resource name as `<account>/<project>`. No agent was
+created, no inference ran, and cleanup remains a manual operator decision.
+
 Use this checklist for the manual Azure OpenAI / Foundry structured extraction
 smoke test. The current automated test suite must remain offline and must not
 call Azure.

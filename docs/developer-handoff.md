@@ -520,6 +520,13 @@ or cleans up. Operators supply subscription-valid model, version, provider,
 SKU, capacity, region, and quota values, then copy safe outputs manually.
 Pytest never calls Azure.
 
+The first live Foundry-only deployment and read-only infrastructure verification
+succeeded for the AIServices account, project, endpoint format, and model
+deployment. The project `show` response used the qualified
+`<account>/<project>` resource name. No agent or model inference was run, no
+application runtime path changed, and cleanup remains manual. Mandatory nurse
+review and the non-production clinical boundary are unchanged.
+
 Provision where practical:
 
 ```text
