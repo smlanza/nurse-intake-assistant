@@ -171,6 +171,27 @@ async def list_cases(
 
 @router.get("/summary", response_model=CaseQueueSummary)
 async def get_case_summary(
+    reviewStatus: Annotated[
+        ReviewStatus | None,
+        Query(description="Filter summary counts by nurse review status."),
+    ] = None,
+    urgency: Annotated[
+        Urgency | None,
+        Query(description="Filter summary counts by urgency classification."),
+    ] = None,
+    intakeStatus: Annotated[
+        IntakeStatus | None,
+        Query(description="Filter summary counts by intake completion status."),
+    ] = None,
+    intakeComplete: Annotated[
+        bool | None,
+        Query(
+            description=(
+                "Filter summary counts by whether all required intake fields "
+                "are present."
+            )
+        ),
+    ] = None,
     sourceSystem: Annotated[
         str | None,
         Query(
@@ -224,6 +245,10 @@ async def get_case_summary(
 
     try:
         cases = await case_repository.list_cases(
+            review_status=reviewStatus,
+            urgency=urgency,
+            intake_status=intakeStatus,
+            intake_complete=intakeComplete,
             source_system=_clean_optional_query_filter(sourceSystem),
             case_type=_clean_optional_query_filter(caseType),
             notification_email_status=_clean_optional_query_filter(

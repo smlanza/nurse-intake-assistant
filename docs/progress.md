@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 783 passed
+- 784 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering
@@ -20,11 +20,11 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Route-level Cosmos full-filter pass-through smoke coverage is complete.
-- A fake-container `GET /cases` test proves every repository filter reaches the
-  parameterized cross-partition query and returns the existing response shape.
-- Route-level `offset`/`limit`, mock defaults, and in-memory behavior are unchanged;
-  no production code change was required.
+- Cosmos full-filter pass-through parity is complete for `GET /cases` and
+  `GET /cases/summary`; fake-container route tests cover parameterized
+  cross-partition queries, real booleans, and unchanged response shapes.
+- Summary counts still use complete list results and application-side counting;
+  server-side pagination and optimized aggregation remain deferred.
 - Automated coverage remains offline/deterministic; no live Cosmos validation is claimed.
 - No secrets or out-of-scope production, hosting, auth, notification, or clinical changes were added.
 - Manual live Foundry Agent smoke passed previously: `ok=true`, `category=success`,
@@ -44,8 +44,8 @@ Safe to demo today:
 
 Implemented but not live-confirmed:
 - Cosmos repository boundary, manual Cosmos point-read path, and offline-tested
-  cross-partition case listing plus a route smoke covering all repository filters,
-  parameterization, response shaping, and route-level pagination
+  cross-partition case listing and summary routes covering all repository filters,
+  parameterization, response shaping, list pagination, and application-side counting
 - ACS Email/SMS boundaries, ACS Email smoke testing, offline-safe ACS
   Email/SMS `--check` preflights, and consolidated `scripts/preflight.py --all`
   with Foundry Agent readiness are complete; ACS SMS handset delivery tracking
@@ -99,8 +99,8 @@ pipeline through `POST /intake/voicemail-transcript`.
 - Demo: `GET /demo`, `GET /demo/status`, `POST /demo/seed`, `POST /demo/reset`.
 - Intake: `POST /intake/text`, `POST /intake/voicemail-transcript`.
 - Cases: `GET /cases`, `GET /cases/summary`, `GET /cases/{case_id}`, and
-  `GET /cases/{case_id}/handoff-note`, with mock-mode filters, basic Cosmos
-  list support, and Cosmos point-read lookup where already supported.
+  `GET /cases/{case_id}/handoff-note`, with mock filters, offline-tested Cosmos
+  full-filter list/summary parity, and point-read lookup where supported.
 - Notifications: `GET /notifications/email`, `GET /notifications/sms`.
 
 Primary demo documentation:
@@ -124,9 +124,10 @@ Provider settings:
 - `APP_MODE=mock` uses `InMemoryCaseRepository`.
 - `APP_MODE=cosmos` uses `CosmosCaseRepository` and requires Cosmos settings.
   Basic cross-partition listing supports newest-first ordering plus optional
-  all filters across the repository contract. Full summary parity/optimized
-  aggregation and efficient server-side
-  pagination, idempotency-key lookup, and live list validation remain deferred.
+  all filters across the repository contract. The summary route has the same
+  offline-tested filter parity and counts the returned cases in the application.
+  Server-side aggregation/pagination, idempotency lookup, and live list/summary
+  validation remain deferred.
 - `AI_PROVIDER=mock` uses deterministic local mock extraction.
 - `AI_PROVIDER=foundry` is a tested provider boundary and requires
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and
@@ -233,9 +234,9 @@ Completed work by feature area:
   verification and carrier/Azure regulatory workflow completion.
 - Future enhancement: capture ACS message id/status or delivery report
   semantics for confirmed handset delivery status.
-- Cosmos cross-partition list/summary/query filtering remains a future
-  enhancement; current Cosmos support is strongest for point reads by
-  `createdDate`.
+- Cosmos list/summary filter parity is covered offline with fakes and no Azure
+  calls. Server-side pagination/aggregation and live list/summary validation
+  remain deferred; only the prior point-read smoke used `createdDate`.
 - Cosmos cross-partition voicemail idempotency lookup remains a future
   enhancement.
 

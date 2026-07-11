@@ -1622,6 +1622,131 @@ def test_case_summary_returns_zero_counts_when_no_cases_exist(
     }
 
 
+def test_case_summary_passes_full_filter_set_to_cosmos_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    class FakeQueryContainer:
+        def __init__(self) -> None:
+            self.query_calls: list[dict[str, object]] = []
+
+        def query_items(
+            self,
+            query: str,
+            parameters: list[dict[str, object]],
+            enable_cross_partition_query: bool,
+        ) -> list[dict[str, object]]:
+            self.query_calls.append(
+                {
+                    "query": query,
+                    "parameters": parameters,
+                    "enable_cross_partition_query": enable_cross_partition_query,
+                }
+            )
+            return [
+                with_notification_statuses(
+                    build_queue_case(
+                        "urgent-follow-up",
+                        urgency="Urgent",
+                        intake_status="NeedsFollowUp",
+                        intake_complete=False,
+                    ),
+                    email_status="Failed",
+                    sms_status="Accepted",
+                ).model_dump(mode="json"),
+                with_notification_statuses(
+                    build_queue_case("routine-complete", review_status="Reviewed"),
+                    email_status="Accepted",
+                    sms_status="MockRecorded",
+                    sms_delivery_confirmed=True,
+                ).model_dump(mode="json"),
+            ]
+
+    container = FakeQueryContainer()
+    repository = CosmosCaseRepository(container=container)
+    local_client = create_local_cases_client(monkeypatch, repository)
+
+    response = local_client.get(
+        "/cases/summary?reviewStatus=PendingReview&urgency=Urgent"
+        "&intakeStatus=NeedsFollowUp&intakeComplete=false"
+        "&sourceSystem=voicemail-transcript&caseType=phone-intake"
+        "&notificationEmailStatus=Failed&notificationSmsStatus=Accepted"
+        "&notificationSmsDeliveryConfirmed=false"
+        "&fromDate=2026-06-24&toDate=2026-06-26&offset=1&limit=1"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total": 2,
+        "pendingReview": 1,
+        "reviewed": 1,
+        "urgent": 1,
+        "routine": 1,
+        "pendingUrgent": 1,
+        "completeIntakes": 1,
+        "needsFollowUpIntakes": 1,
+        "emailMockRecorded": 0,
+        "emailAccepted": 1,
+        "emailFailed": 1,
+        "emailSuppressed": 0,
+        "smsMockRecorded": 1,
+        "smsAccepted": 1,
+        "smsFailed": 0,
+        "smsSuppressed": 0,
+        "smsDeliveryConfirmed": 1,
+    }
+    assert len(container.query_calls) == 1
+    query_call = container.query_calls[0]
+    query = query_call["query"]
+    assert isinstance(query, str)
+    for predicate in (
+        "c.reviewStatus = @reviewStatus",
+        "c.urgency = @urgency",
+        "c.intakeStatus = @intakeStatus",
+        "c.intakeComplete = @intakeComplete",
+        "c.sourceSystem = @sourceSystem",
+        "c.caseType = @caseType",
+        "c.notificationEmailStatus = @notificationEmailStatus",
+        "c.notificationSmsStatus = @notificationSmsStatus",
+        "c.notificationSmsDeliveryConfirmed = @notificationSmsDeliveryConfirmed",
+        "c.createdDate >= @fromDate",
+        "c.createdDate <= @toDate",
+        "ORDER BY c.createdUtc DESC",
+    ):
+        assert predicate in query
+    for literal in (
+        "PendingReview",
+        "Urgent",
+        "NeedsFollowUp",
+        "voicemail-transcript",
+        "phone-intake",
+        "Failed",
+        "Accepted",
+        "2026-06-24",
+        "2026-06-26",
+        "true",
+        "false",
+        "True",
+        "False",
+    ):
+        assert literal not in query
+    assert query_call["parameters"] == [
+        {"name": "@reviewStatus", "value": "PendingReview"},
+        {"name": "@urgency", "value": "Urgent"},
+        {"name": "@intakeStatus", "value": "NeedsFollowUp"},
+        {"name": "@intakeComplete", "value": False},
+        {"name": "@sourceSystem", "value": "voicemail-transcript"},
+        {"name": "@caseType", "value": "phone-intake"},
+        {"name": "@notificationEmailStatus", "value": "Failed"},
+        {"name": "@notificationSmsStatus", "value": "Accepted"},
+        {"name": "@notificationSmsDeliveryConfirmed", "value": False},
+        {"name": "@fromDate", "value": "2026-06-24"},
+        {"name": "@toDate", "value": "2026-06-26"},
+    ]
+    assert query_call["enable_cross_partition_query"] is True
+
+
 def test_case_summary_returns_queue_counts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
