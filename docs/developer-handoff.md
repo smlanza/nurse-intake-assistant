@@ -512,6 +512,14 @@ Prefer Key Vault references and managed identity for Azure-hosted deployment.
 
 ## 15. Bicep Resource List
 
+The existing full stack keeps Foundry off by default; `foundry-only.bicep` is
+the daily disposable path. Both reuse `infra/modules/foundry.bicep`. The offline
+check only performs local CLI/Bicep checks, what-if requires an existing group,
+and live creates or reuses it. None creates an agent, edits environment files,
+or cleans up. Operators supply subscription-valid model, version, provider,
+SKU, capacity, region, and quota values, then copy safe outputs manually.
+Pytest never calls Azure.
+
 Provision where practical:
 
 ```text

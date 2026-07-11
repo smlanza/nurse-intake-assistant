@@ -81,6 +81,12 @@ Run the test suite:
 python -m pytest
 ```
 
+For disposable daily Foundry validation, use `infra/foundry-only.bicep`; the
+existing full-stack `infra/main.bicep` keeps Foundry optional and disabled by
+default. Begin with the offline `scripts/deploy_foundry_infra.py --check`
+workflow in [`infra/README.md`](infra/README.md). Infrastructure deployment
+never creates the prompt agent or edits local environment files.
+
 Use safe mock defaults:
 
 ```bash

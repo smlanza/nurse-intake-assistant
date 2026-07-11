@@ -1,6 +1,9 @@
 # Nurse Intake Assistant Infrastructure
 
-This folder contains the minimal Bicep baseline for a Phase 1 MVP demo deployment.
+This folder contains the application infrastructure and a reusable Microsoft
+Foundry module. `main.bicep` remains the backward-compatible full-stack entry
+point; Foundry is disabled there by default. `foundry-only.bicep` is the
+recommended lightweight entry point for disposable daily agent validation.
 
 ## Resources
 
@@ -14,7 +17,43 @@ This folder contains the minimal Bicep baseline for a Phase 1 MVP demo deploymen
 - Log Analytics workspace
 - Application Insights resource connected to the workspace
 
-The template does not create Azure AI Foundry, Speech, ACS Email, ACS SMS, Key Vault, App Service, private networking, managed identities, or CI/CD resources yet.
+The full template creates no Foundry resources unless `deployFoundry=true`.
+Neither entry point creates Speech, ACS, Key Vault, App Service, private
+networking, or production clinical infrastructure.
+
+## Disposable Foundry Workflow
+
+Copy `foundry-only.example.bicepparam` to the ignored
+`foundry-only.bicepparam` and replace every placeholder with a model name,
+version, publisher format, SKU, capacity, region, and quota combination valid
+for the subscription. No model or SKU is selected automatically.
+
+```bash
+python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --check
+python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <existing-resource-group> --location <location> --what-if --json
+python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --live --json
+```
+
+`--check` runs local CLI/version/Bicep build checks only. `--what-if` makes no
+changes and requires an existing resource group. Only `--live` creates or
+reuses the group and deploys Foundry. Both templates reuse
+`modules/foundry.bicep`. Live returns only the safe project endpoint and model
+deployment name; it does not edit an environment file or create the Nurse
+Intake Agent. Update `.env.foundry-agent.local` manually before running the
+separate agent deployment CLI.
+
+Cleanup is manual and explicit:
+
+```bash
+az group delete \
+  --name <resource-group-name> \
+  --yes \
+  --no-wait
+```
+
+Pytest uses fake runners and never calls Azure. No secrets are stored in Bicep
+or examples. Mandatory nurse review remains unchanged, and this is not
+production clinical infrastructure.
 
 ## Parameters
 

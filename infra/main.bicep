@@ -19,6 +19,20 @@ param cosmosDatabaseName string = 'nurse-intake'
 @description('Cosmos SQL container name for case documents.')
 param cosmosContainerName string = 'cases'
 
+@description('Deploy Microsoft Foundry resources with the full application stack.')
+param deployFoundry bool = false
+
+param foundryProjectName string = 'nurse-intake-project'
+param foundryProjectDisplayName string = 'Nurse Intake Assistant'
+param foundryProjectDescription string = 'Microsoft Foundry project for the Nurse Intake Assistant.'
+param modelDeploymentName string = 'configure-when-foundry-enabled'
+param modelName string = 'configure-when-foundry-enabled'
+param modelVersion string = 'configure-when-foundry-enabled'
+param modelPublisherFormat string = 'OpenAI'
+param modelSkuName string = 'GlobalStandard'
+param modelCapacity int = 1
+param foundryTags object = {}
+
 var suffix = uniqueString(resourceGroup().id, projectName, environmentName)
 var cosmosAccountName = toLower('${projectName}-${environmentName}-${suffix}')
 var storageAccountName = 'st${suffix}'
@@ -125,9 +139,32 @@ resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+module foundry 'modules/foundry.bicep' = if (deployFoundry) {
+  name: 'foundry'
+  params: {
+    location: location
+    projectName: projectName
+    environmentName: environmentName
+    foundryProjectName: foundryProjectName
+    foundryProjectDisplayName: foundryProjectDisplayName
+    foundryProjectDescription: foundryProjectDescription
+    modelDeploymentName: modelDeploymentName
+    modelName: modelName
+    modelVersion: modelVersion
+    modelPublisherFormat: modelPublisherFormat
+    modelSkuName: modelSkuName
+    modelCapacity: modelCapacity
+    tags: foundryTags
+  }
+}
+
 output cosmosAccountName string = cosmosAccount.name
 output cosmosEndpoint string = cosmosAccount.properties.documentEndpoint
 output databaseName string = cosmosDatabaseName
 output containerName string = cosmosContainerName
 output applicationInsightsName string = applicationInsights.name
 output applicationInsightsConnectionString string = applicationInsights.properties.ConnectionString
+output foundryResourceName string = deployFoundry ? foundry!.outputs.foundryResourceName : ''
+output foundryProjectName string = deployFoundry ? foundry!.outputs.foundryProjectName : ''
+output foundryProjectEndpoint string = deployFoundry ? foundry!.outputs.foundryProjectEndpoint : ''
+output modelDeploymentName string = deployFoundry ? foundry!.outputs.modelDeploymentName : ''

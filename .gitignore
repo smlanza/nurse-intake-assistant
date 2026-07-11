@@ -47,6 +47,7 @@ local.settings.json
 # Azure AI Foundry / Secrets
 secrets.json
 config.local.json
+infra/foundry-only.bicepparam
 
 # Terraform (if used later)
 .terraform/

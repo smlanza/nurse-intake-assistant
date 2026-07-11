@@ -277,6 +277,14 @@ connection strings.
 
 ## 9. Infrastructure Architecture
 
+Two resource-group-scoped entry points reuse one
+`infra/modules/foundry.bicep` module. `main.bicep` preserves Cosmos DB, Storage,
+Log Analytics, and Application Insights and adds Foundry only when
+`deployFoundry=true` (default `false`). `foundry-only.bicep` deploys only an
+AIServices account, child project, and explicitly parameterized model for
+disposable validation. Agent creation remains separate. Outputs contain no
+credentials or resource IDs.
+
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
 

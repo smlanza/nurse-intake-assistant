@@ -1,5 +1,25 @@
 # Manual Foundry Smoke Test
 
+## Disposable Foundry Infrastructure
+
+The recommended daily path deploys only one Foundry resource, one project, and
+one explicitly configured model deployment through `infra/foundry-only.bicep`.
+It reuses the same module as optional Foundry support in `infra/main.bicep`.
+
+Run the infrastructure CLI in this order: offline `--check`; optional
+non-mutating `--what-if` against an existing resource group; explicit
+`--live --json`. Live creates or reuses the group but does not create the Nurse
+Intake Agent, edit `.env.foundry-agent.local`, or clean up. Copy the returned
+endpoint and deployment name manually. Model/version/provider/SKU/region/quota
+values must be valid for the subscription.
+
+```bash
+az group delete --name <resource-group-name> --yes --no-wait
+```
+
+Tests remain offline, nurse review stays mandatory, and no production clinical
+claim is made.
+
 Use this checklist for the manual Azure OpenAI / Foundry structured extraction
 smoke test. The current automated test suite must remain offline and must not
 call Azure.

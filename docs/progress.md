@@ -5,11 +5,10 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 797 passed
+- 823 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering
-intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
+The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
 
 Important constraints:
 - Local mock/demo only
@@ -31,6 +30,7 @@ Latest completed slice:
   `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields
   included `extraction`, `urgency`, and `handoffNote`.
 - No live Azure behavior is claimed for `/demo` by default; `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse review remains mandatory.
+- Reusable Foundry infrastructure slice: shared account/project/model module; optional `deployFoundry=false` full-stack integration; disposable Foundry-only path; injected-runner offline check, what-if, and explicit live modes; no pytest Azure calls, agent/env/cleanup automation, or changed nurse-review/non-production boundary; live deployment remains pending.
 
 ## Current Resume Point
 
