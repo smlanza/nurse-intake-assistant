@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 784 passed
+- 786 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering
@@ -20,12 +20,12 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Cosmos full-filter pass-through parity is complete for `GET /cases` and
-  `GET /cases/summary`; fake-container route tests cover parameterized
-  cross-partition queries, real booleans, and unchanged response shapes.
-- Summary counts still use complete list results and application-side counting;
-  server-side pagination and optimized aggregation remain deferred.
-- Automated coverage remains offline/deterministic; no live Cosmos validation is claimed.
+- Cosmos voicemail `idempotencyKey` lookup is now a parameterized, newest-first,
+  cross-partition `TOP 1` query covered offline with fake containers.
+- Mock and Cosmos repositories now share the lookup contract: sequential repeats
+  return the saved case without duplicate processing, saves, or notifications.
+- Tests make no Azure calls; live idempotency validation, concurrent exactly-once
+  guarantees, server-side list pagination, and summary aggregation remain deferred.
 - No secrets or out-of-scope production, hosting, auth, notification, or clinical changes were added.
 - Manual live Foundry Agent smoke passed previously: `ok=true`, `category=success`,
   `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields
@@ -126,8 +126,8 @@ Provider settings:
   Basic cross-partition listing supports newest-first ordering plus optional
   all filters across the repository contract. The summary route has the same
   offline-tested filter parity and counts the returned cases in the application.
-  Server-side aggregation/pagination, idempotency lookup, and live list/summary
-  validation remain deferred.
+  Server-side aggregation/pagination, live list/summary/idempotency validation,
+  and concurrent exactly-once processing remain deferred.
 - `AI_PROVIDER=mock` uses deterministic local mock extraction.
 - `AI_PROVIDER=foundry` is a tested provider boundary and requires
   `AZURE_AI_FOUNDRY_PROJECT_ENDPOINT` and
@@ -237,8 +237,8 @@ Completed work by feature area:
 - Cosmos list/summary filter parity is covered offline with fakes and no Azure
   calls. Server-side pagination/aggregation and live list/summary validation
   remain deferred; only the prior point-read smoke used `createdDate`.
-- Cosmos cross-partition voicemail idempotency lookup remains a future
-  enhancement.
+- Cosmos voicemail idempotency lookup supports sequential retries offline; live
+  validation and atomic concurrent exactly-once guarantees remain deferred.
 
 ## Not Yet Implemented / Deferred Scope
 

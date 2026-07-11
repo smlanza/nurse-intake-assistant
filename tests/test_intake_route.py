@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -534,6 +536,81 @@ def test_voicemail_transcript_repeated_idempotency_key_returns_existing_case() -
     assert second_response.status_code == 200
     assert second_response.json()["id"] == first_response.json()["id"]
     assert len(client.get("/cases").json()) == 1
+
+
+def test_voicemail_transcript_cosmos_idempotency_lookup_short_circuits_processing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.routes.intake as intake_route
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    now = datetime.now(timezone.utc)
+    existing_case = CaseDocument(
+        id="existing-voicemail-case",
+        createdDate=now.date().isoformat(),
+        createdUtc=now,
+        lastStatusUpdatedUtc=now,
+        caseType="phone-intake",
+        idempotencyKey="voicemail-key-123",
+        summary="Existing sequential voicemail intake.",
+        processingStatus="Completed",
+    )
+
+    class FakeQueryContainer:
+        def __init__(self) -> None:
+            self.query_calls: list[dict[str, object]] = []
+            self.upserted_items: list[dict[str, object]] = []
+
+        def query_items(
+            self,
+            query: str,
+            parameters: list[dict[str, object]],
+            enable_cross_partition_query: bool,
+        ) -> list[dict[str, object]]:
+            self.query_calls.append(
+                {
+                    "query": query,
+                    "parameters": parameters,
+                    "enable_cross_partition_query": enable_cross_partition_query,
+                }
+            )
+            return [existing_case.model_dump(mode="json")]
+
+        def upsert_item(self, body: dict[str, object]) -> dict[str, object]:
+            self.upserted_items.append(body)
+            return body
+
+    class ProcessingMustNotRun:
+        async def process(self, raw_text: str, case_type: str) -> CaseDocument:
+            raise AssertionError("Repeated voicemail intake must not be processed")
+
+    container = FakeQueryContainer()
+    repository = CosmosCaseRepository(container=container)
+    monkeypatch.setattr(intake_route, "case_repository", repository)
+    monkeypatch.setattr(intake_route, "case_processing_service", ProcessingMustNotRun())
+    test_app = FastAPI()
+    test_app.include_router(intake_route.router)
+    local_client = TestClient(test_app)
+
+    response = local_client.post(
+        "/intake/voicemail-transcript",
+        json={
+            "transcript": "This repeated fictional voicemail must not be processed.",
+            "idempotencyKey": "voicemail-key-123",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["id"] == "existing-voicemail-case"
+    assert container.upserted_items == []
+    assert len(container.query_calls) == 1
+    query_call = container.query_calls[0]
+    assert "c.idempotencyKey = @idempotencyKey" in query_call["query"]
+    assert "voicemail-key-123" not in query_call["query"]
+    assert query_call["parameters"] == [
+        {"name": "@idempotencyKey", "value": "voicemail-key-123"}
+    ]
+    assert query_call["enable_cross_partition_query"] is True
 
 
 def test_voicemail_transcript_repeated_idempotency_key_avoids_duplicate_notifications() -> None:

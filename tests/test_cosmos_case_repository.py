@@ -203,18 +203,45 @@ def test_cosmos_repository_returns_none_when_case_is_missing() -> None:
     assert retrieved_case is None
 
 
-def test_cosmos_repository_idempotency_lookup_is_not_implemented() -> None:
+def test_cosmos_repository_returns_case_for_idempotency_key_lookup() -> None:
     from src.app.services.cosmos_case_repository import CosmosCaseRepository
 
-    repository = CosmosCaseRepository(container=FakeCosmosContainer())
+    case = build_case("existing-voicemail-case")
+    case.idempotencyKey = "voicemail-key-123"
+    container = FakeQueryCosmosContainer([case.model_dump(mode="json")])
+    repository = CosmosCaseRepository(container=container)
 
-    try:
-        asyncio.run(repository.get_by_idempotency_key("voicemail-key-123"))
-    except NotImplementedError as error:
-        assert "idempotencyKey" in str(error)
-        assert "cross-partition" in str(error)
-    else:
-        raise AssertionError("Expected Cosmos idempotency lookup to be explicit")
+    retrieved_case = asyncio.run(
+        repository.get_by_idempotency_key("voicemail-key-123")
+    )
+
+    assert isinstance(retrieved_case, CaseDocument)
+    assert retrieved_case == case
+    assert len(container.query_calls) == 1
+    query_call = container.query_calls[0]
+    query = query_call["query"]
+    assert "SELECT TOP 1 *" in query
+    assert "c.idempotencyKey = @idempotencyKey" in query
+    assert "ORDER BY c.createdUtc DESC" in query
+    assert "voicemail-key-123" not in query
+    assert query_call["parameters"] == [
+        {
+            "name": "@idempotencyKey",
+            "value": "voicemail-key-123",
+        }
+    ]
+    assert query_call["enable_cross_partition_query"] is True
+
+
+def test_cosmos_repository_returns_none_for_missing_idempotency_key() -> None:
+    from src.app.services.cosmos_case_repository import CosmosCaseRepository
+
+    container = FakeQueryCosmosContainer([])
+    repository = CosmosCaseRepository(container=container)
+
+    retrieved_case = asyncio.run(repository.get_by_idempotency_key("missing-key"))
+
+    assert retrieved_case is None
 
 
 def test_cosmos_repository_lists_cross_partition_cases_newest_first() -> None:
