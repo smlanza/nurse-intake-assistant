@@ -1,0 +1,3 @@
+# Optional packages for explicit Foundry Agent deployment and live validation.
+azure-ai-projects>=2.3.0,<3
+azure-identity

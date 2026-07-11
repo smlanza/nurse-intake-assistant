@@ -28,6 +28,12 @@ The implementation should prioritize demoability, cost control, and clear Azure 
   and passes `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME` as the model parameter.
 - Foundry/Azure OpenAI live extraction is not wired into the default demo; the
   app remains mock-first unless explicit manual provider settings are used.
+- Prompt-agent configuration is reproducible from the centralized instructions
+  through `scripts/deploy_foundry_agent.py`. Its `--check` mode is offline;
+  explicit `--live --json` uses `azure-ai-projects` 2.x
+  `PromptAgentDefinition`, `agents.create_version()`, and the project Responses
+  API agent reference to create and validate one new version with fictional data.
+  It is never called during app startup or intake, and live acceptance remains manual.
 - Azure Speech remains scaffolded with offline/manual preflight only; no live
   audio transcription or phone intake is part of the default demo.
 - ACS Email/SMS have provider scaffolds and offline-safe preflight/manual smoke

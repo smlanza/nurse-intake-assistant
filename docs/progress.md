@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 786 passed
+- 797 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering
@@ -20,12 +20,12 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Cosmos voicemail `idempotencyKey` lookup is now a parameterized, newest-first,
-  cross-partition `TOP 1` query covered offline with fake containers.
-- Mock and Cosmos repositories now share the lookup contract: sequential repeats
-  return the saved case without duplicate processing, saves, or notifications.
-- Tests make no Azure calls; live idempotency validation, concurrent exactly-once
-  guarantees, server-side list pagination, and summary aggregation remain deferred.
+- Programmatic Foundry prompt-agent version deployment is implemented from the
+  centralized versioned Nurse Intake Agent instructions.
+- The explicit CLI uses the current `azure-ai-projects` 2.x `create_version()`
+  and project Responses API agent-reference path, then validates existing contracts.
+- `--check` and all fake-client tests are offline; `--live --json` creates and
+  invokes one new version with fictional data and remains pending manual execution.
 - No secrets or out-of-scope production, hosting, auth, notification, or clinical changes were added.
 - Manual live Foundry Agent smoke passed previously: `ok=true`, `category=success`,
   `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields

@@ -164,6 +164,65 @@ project-responses agent-reference pattern for this hosted/prompt agent:
 Keep `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` as the Foundry project endpoint;
 do not replace it with an agent endpoint or model deployment endpoint.
 
+## Programmatic Prompt-Agent Version Deployment
+
+Install the optional current Foundry project SDK without changing the default
+mock-demo dependencies:
+
+```bash
+python -m pip install -r requirements-foundry-agent.txt
+```
+
+The explicit deployment workflow uses `azure-ai-projects` 2.x:
+
+```text
+centralized build_nurse_intake_agent_instructions()
+-> PromptAgentDefinition
+-> AIProjectClient.agents.create_version()
+-> AIProjectClient.get_openai_client()
+-> responses.create(... agent_reference ...)
+-> existing parser and Nurse Intake Agent contract validation
+```
+
+First run the completely offline readiness check. It reads configuration and
+checks SDK visibility, but creates no credential/client/version and calls no
+Azure service:
+
+```bash
+python scripts/deploy_foundry_agent.py \
+  --env-file .env.foundry-agent.local \
+  --check
+```
+
+The model setting is `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`; a deployment run
+does not require `AZURE_AI_FOUNDRY_AGENT_VERSION` because it creates a new
+version. Automated tests inject fake clients and make no Azure calls.
+
+Manual acceptance is explicit, uses only the centralized fictional input,
+creates a new agent version on every run, invokes it once, and may incur model
+usage charges:
+
+```bash
+python scripts/deploy_foundry_agent.py \
+  --env-file .env.foundry-agent.local \
+  --live \
+  --json
+```
+
+The command prints exactly one sanitized JSON result: lifecycle booleans, the
+created version, instruction version, safe category, and fields present. It
+never prints endpoints, credentials, agent names/IDs, instructions, fictional
+input, raw model output, or contact data. Do not claim success until an operator
+runs the live command and receives `category=success`.
+
+This workflow never runs during application import/startup or intake requests.
+It does not provide production deployment or clinical readiness. Human nurse
+review remains mandatory. After manual validation, restore:
+
+```bash
+AGENT_PROVIDER=mock
+```
+
 ## Foundry Agent Instruction Pack
 
 Before configuring the Azure AI Foundry Agent, print the versioned instruction
