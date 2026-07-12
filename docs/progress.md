@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 852 passed
+- 856 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
@@ -19,6 +19,35 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
+- Programmatic prompt-agent provisioning now uses the configured Foundry
+  project endpoint, agent name, `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`, and
+  centralized `foundry-agent-intake-v1` instructions. It creates a missing
+  agent, reuses an identical latest version, or creates one updated immutable
+  version when the model/instructions changed. Repeated identical runs do not
+  create duplicates.
+- Provisioning and invocation are separate: `deploy_foundry_agent.py` never
+  creates a Responses client or invokes the agent. Offline `--check` creates no
+  client and makes no Azure call; live provisioning requires explicit
+  `--live --json` and emits sanitized lifecycle/presence metadata only.
+- Live provisioning was not run in this slice, so no new created/reused/updated
+  outcome is claimed. The separate invocation smoke was not rerun; the prior
+  verified baseline remains `ok=true`, `category=success`,
+  `agent_attempted=true`, `agent_output_valid=true`, and
+  `fallback_used=false`.
+- Automated tests remained offline with injected fake SDK clients. No Bicep
+  resources were added or duplicated; `infra/main.bicep`,
+  `infra/modules/foundry.bicep`, and `infra/foundry-only.bicep` remain the
+  authoritative existing infrastructure.
+- Environment-file updates and resource-group cleanup remain manual. All local
+  mock defaults, notification behavior, and mandatory human nurse review remain
+  unchanged.
+- The existing Foundry manual guide now documents the complete separated
+  workflow: infrastructure verification, offline provisioning readiness,
+  explicit live prompt-agent provisioning, separate live invocation, restoration
+  of all providers to mock/offline defaults, and manual disposable-resource
+  cleanup. No new live provisioning or invocation validation was performed or
+  reviewed for this documentation correction, so no new live success is
+  claimed.
 - Manual live Foundry Agent smoke passed: `ok=true`, `category=success`, `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields included `extraction`, `urgency`, and `handoffNote`.
 - No live Azure behavior is claimed for `/demo` by default; `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse review remains mandatory.
 - Live Foundry-only deployment and read-only verification succeeded: AIServices account, project, and model provisioning were `Succeeded`; endpoint format was valid; Azure returned qualified `<account>/<project>`.
@@ -62,7 +91,11 @@ Do not claim as complete:
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Resume by deciding whether to use the verified Foundry infrastructure to run the existing programmatic prompt-agent deployment and invocation workflow. Do not redesign or recreate the infrastructure first; begin from the existing architecture and scripts, not manual portal provisioning.
+Recommended next move: Run the documented manual offline provisioning check,
+then explicit live provisioning against the verified disposable Foundry project.
+Review the sanitized result, set the resulting version manually, and run the
+separate existing fictional-data invocation smoke. Do not redesign or recreate
+the infrastructure first.
 
 ## Current Working Local Pipeline
 
@@ -250,96 +283,30 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
-- Foundry Agent client phase diagnostics completed.
-- Direct `FoundryAgentClientError` diagnostics now expose safe category/phase
-  metadata when available.
-- Automated tests remain offline; no live Azure success is claimed unless
-  manually verified; default mock behavior is unchanged; no secrets/raw Azure
-  values or production hosting/auth/Key Vault/Speech/phone/retry/frontend/
-  clinical scope were added.
-- Foundry Agent root-cause diagnostic hardening completed.
-- Exception wrapping now preserves safe cause information for diagnostics.
-- Automated tests remain offline; no live Azure success is claimed unless
-  manually verified; default mock behavior is unchanged; no secrets/raw Azure
-  values or production hosting/auth/Key Vault/Speech/phone/retry/frontend/
-  clinical scope were added.
-- Foundry Agent live diagnostic/classification hardening completed.
-- `--diagnose` was added for sanitized live troubleshooting metadata.
-- Foundry Agent instruction pack slice completed.
-- Centralized/versioned instructions now align manual Azure Agent
-  configuration with the local `NurseIntakeAgent` contract.
-- The `--print-agent-instructions` command is offline and does not call Azure,
-  load Azure settings, create clients, or invoke agents.
-- Foundry Agent environment readiness helper/check hardening completed.
-- The new check helper builds a sanitized offline readiness summary using fake
-  settings in tests and never creates a Foundry Agent client.
-- Check mode remains offline and does not create Azure clients, invoke agents,
-  or call Azure; automated tests remain offline and deterministic.
-- Foundry Agent live validation hardening slice completed.
-- The manual `--live --json` smoke result uses safe fields only: `ok`, `mode`,
-  `provider`, `category`, `message`, `agent_attempted`, `agent_output_valid`,
-  `fallback_used`, `fields_present`, and `recommended_next_step`.
-- The JSON path distinguishes `success`, `missing_configuration`,
-  `sdk_unavailable`, `authentication_or_authorization_failed`,
-  `azure_request_failed`, `response_parse_failed`, `contract_invalid`, and
-  `unexpected_error`.
-- Automated tests remain offline with fake clients/settings only, default
-  `AGENT_PROVIDER=mock` is unchanged, and no live Azure success is claimed
-  unless manually verified.
-- Foundry Agent live smoke result contract slice is complete.
-- `scripts/smoke_foundry_agent.py --live --json` now returns sanitized
-  structured success/failure results for manual Azure validation, including
-  distinct `response_parse_failed` and `contract_invalid` categories.
-- Foundry Agent readiness/status command-hint slice is complete.
-- `/demo/status` and `scripts/preflight.py --foundry-agent` now point operators
-  to the sanitized manual `--live --json` smoke command without creating Azure
-  clients, invoking an agent, or calling Azure.
-- Ops/readiness command-hint slice is complete.
-- `/ops` now displays the same static Foundry Agent manual validation command
-  when Foundry Agent mode is selected, and remains configuration-only.
-- Automated tests use fake agents/settings/failures only and remain offline; no
-  live Azure calls were added to tests.
-- `AGENT_PROVIDER=mock` and all other mock/local defaults remain unchanged.
-- No notification behavior, hosting/auth/Key Vault, Speech, phone intake,
-  retry/durable processing, production frontend, or production clinical
-  behavior was added.
+- Idempotent programmatic Foundry prompt-agent provisioning is implemented by
+  extending the existing deployment service and CLI.
+- The configured endpoint, agent name, model deployment, and centralized
+  instruction pack flow through an injected SDK seam. Missing definitions are
+  created, exact definitions are reused, and changed definitions create one
+  updated immutable version without repeated duplicates.
+- Provisioning never invokes the agent. The existing
+  `scripts/smoke_foundry_agent.py --live --json` command remains the separate
+  manual invocation boundary.
+- The latest full suite is 856 passed with 1 existing
+  FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
+  offline.
+- Live provisioning and a new invocation smoke were deferred in this slice, so
+  no new Azure success or created/reused/updated outcome is claimed.
+- No Bicep resources were duplicated. Ignored environment-file updates and
+  resource-group cleanup remain manual. `APP_MODE=mock`, `AI_PROVIDER=mock`,
+  `AGENT_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and
+  `SPEECH_PROVIDER=mock` remain unchanged, as does mandatory human nurse review.
+- Earlier Foundry Agent diagnostics, instruction-pack, readiness/status,
+  sanitized smoke-result, and contract-validation slices remain implemented.
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
-- Recent completed milestones include demo readiness checklist docs, Azure
-  OpenAI/Foundry diagnostics, Speech and Foundry env-file smoke isolation,
-  Foundry live smoke safe diagnostics, Foundry manual smoke hardening, handoff
-  note OpenAPI/demo display, nurse handoff note route/formatter, and system
-  overview documentation.
-- Detailed earlier slice notes are archived in
-  `docs/archive/progress-2026-06.md` or covered by the reference docs below.
-- Azure Speech smoke-test guide / CLI preflight scaffold slice is complete.
-- `docs/manual-speech-smoke-test.md` documents prerequisites, safe placeholder
-  settings, `--check` usage, preflight meaning, non-goals, rollback to
-  `SPEECH_PROVIDER=mock`, and fictional-data-only safety notes.
-- `python scripts/smoke_speech_transcription.py --check` validates
-  `SPEECH_PROVIDER=azure`, `AZURE_SPEECH_ENDPOINT`, and `AZURE_SPEECH_REGION`
-  without creating a Speech client, processing audio, or making Azure calls.
-- Optional Azure Speech SDK package visibility is reported gracefully and is not
-  required for normal local tests.
-- Automated tests remain offline and deterministic.
-- No live Azure Speech transcription, audio upload endpoint, phone intake, API
-  contract changes, notification semantic changes, hosting, auth, Key Vault,
-  retry logic, or frontend framework was added for the Speech smoke-test
-  preflight slice.
-- Earlier completed slice details are archived in
-  `docs/archive/progress-2026-06.md`.
-- Recent completed milestones include:
-  - Azure Speech transcription provider boundary
-  - Foundry structured extraction contract, fake-client seam, lazy live adapter,
-    manual smoke guide, smoke CLI, and preflight/check mode
-  - AI-103 mapping refresh
-  - Architecture documentation refresh
-  - Progress workflow testing guidance
-  - Manual local mock demo cleanup
-  - Progress documentation compaction/archive split
-- These earlier slices preserved the same safety boundary: no production
-  clinical use, no live Azure claims unless manually verified, no API contract
-  changes unless explicitly scoped, and no hosting/auth/Key Vault/phone intake
-  expansion.
+- Earlier Speech, demo, handoff-note, documentation, and provider-boundary
+  milestones are summarized in `docs/archive/progress-2026-06.md` and the
+  reference guides below.
 
 ## Reference Docs
 

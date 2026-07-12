@@ -29,116 +29,80 @@ def test_check_is_offline_and_reports_sanitized_readiness(
         lambda: pytest.fail("check mode must not construct a client or credential"),
     )
 
-    exit_code = script.main(["--check"])
+    exit_code = script.main(["--check", "--json"])
 
     output = capsys.readouterr().out
     readiness = json.loads(output)
     assert exit_code == 0
     assert readiness["ready"] is True
+    assert readiness["azure_call_made"] is False
+    assert readiness["agent_created"] is False
+    assert readiness["agent_invoked"] is False
     assert readiness["instruction_version"] == "foundry-agent-intake-v1"
     assert "secret.example" not in output
     assert "secret-agent-name" not in output
+    assert "gpt-demo" not in output
 
 
-def test_live_json_creates_and_invokes_once_with_only_safe_output(
+def test_live_json_provisions_without_invoking_and_prints_only_safe_metadata(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     import scripts.deploy_foundry_agent as script
     from src.app.services.foundry_agent_deployment import (
-        FoundryAgentDeployment,
+        FoundryAgentDeploymentResult,
     )
 
-    create_calls: list[dict[str, object]] = []
-    response_calls: list[dict[str, object]] = []
-    valid_output = json.dumps(
-        {
-            "extraction": {
-                "patient": {
-                    "name": "Taylor Quinn",
-                    "date_of_birth": None,
-                    "callback_number": "demo-callback-002",
-                },
-                "reason_for_calling": "routine medication refill",
-                "symptoms": [],
-                "summary": "Fictional patient requests a routine refill.",
-                "missing_fields": ["date_of_birth"],
-                "uncertain_fields": [],
-            },
-            "urgency": {
-                "urgency": "Routine",
-                "urgency_rationale": "No urgent symptoms were reported.",
-                "advisory_disclaimer": "Advisory only; nurse review is required.",
-            },
-        }
-    )
+    requests: list[object] = []
 
-    class FakeResponses:
-        def create(self, **kwargs: object) -> SimpleNamespace:
-            response_calls.append(kwargs)
-            return SimpleNamespace(output_text=valid_output)
-
-    class FakeProjectClient:
-        agents: "FakeProjectClient"
-
-        def __init__(self) -> None:
-            self.agents = self
-
-        def create_version(self, **kwargs: object) -> SimpleNamespace:
-            create_calls.append(kwargs)
-            return SimpleNamespace(name="secret-agent-name", version="8")
-
-        def get_openai_client(self) -> SimpleNamespace:
-            return SimpleNamespace(responses=FakeResponses())
-
-    deployment = FoundryAgentDeployment(
-        project_client_factory=lambda endpoint: FakeProjectClient(),
-        prompt_agent_definition_factory=lambda **kwargs: SimpleNamespace(**kwargs),
-    )
+    class FakeDeployment:
+        def provision(self, request: object) -> FoundryAgentDeploymentResult:
+            requests.append(request)
+            return FoundryAgentDeploymentResult.success(agent_reused=True)
 
     monkeypatch.setattr(script, "AppSettings", _settings)
-    monkeypatch.setattr(script, "_create_deployment_service", lambda: deployment)
+    monkeypatch.setattr(script, "_create_deployment_service", FakeDeployment)
 
     exit_code = script.main(["--live", "--json"])
 
     output = capsys.readouterr().out
     payload = json.loads(output)
+    request = requests[0]
     assert exit_code == 0
-    assert len(create_calls) == 1
-    assert len(response_calls) == 1
-    assert response_calls[0]["extra_body"] == {
-        "agent_reference": {
-            "name": "secret-agent-name",
-            "version": "8",
-            "type": "agent_reference",
-        }
-    }
+    assert request.project_endpoint == "https://secret.example/api/projects/demo"
+    assert request.agent_name == "secret-agent-name"
+    assert request.model_deployment_name == "gpt-demo"
+    assert "foundry-agent-intake-v1" in request.instructions
     assert set(payload) == {
         "ok",
         "mode",
         "operation",
         "category",
+        "message",
         "agent_created",
-        "agent_invoked",
-        "agent_output_valid",
-        "created_version",
+        "agent_reused",
+        "agent_updated",
+        "agent_name_present",
+        "agent_version_present",
+        "model_deployment_name_present",
         "instruction_version",
-        "fields_present",
+        "agent_invoked",
         "recommended_next_step",
     }
-    assert payload["created_version"] == "8"
-    assert payload["agent_created"] is True
-    assert payload["agent_invoked"] is True
-    assert payload["agent_output_valid"] is True
+    assert payload["agent_reused"] is True
+    assert payload["agent_invoked"] is False
+    assert payload["agent_name_present"] is True
+    assert payload["agent_version_present"] is True
+    assert payload["model_deployment_name_present"] is True
     for unsafe_value in (
         "secret.example",
         "secret-agent-name",
         "gpt-demo",
-        "demo-callback-002",
-        "Taylor Quinn",
-        "Instruction version",
-        "token",
-        "agent-id",
+        "credential",
+        "Bearer",
+        "secret-token",
+        "access-token",
+        "patient prompt",
         "Traceback",
         "@",
     ):
@@ -166,3 +130,11 @@ def test_live_json_missing_configuration_is_sanitized(
     assert exit_code == 2
     assert payload["category"] == "missing_configuration"
     assert payload["agent_created"] is False
+    assert payload["agent_invoked"] is False
+
+
+def test_live_execution_requires_explicit_live_mode() -> None:
+    import scripts.deploy_foundry_agent as script
+
+    with pytest.raises(SystemExit):
+        script.main([])

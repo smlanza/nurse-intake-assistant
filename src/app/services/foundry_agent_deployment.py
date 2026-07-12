@@ -1,17 +1,7 @@
 from dataclasses import dataclass
 from importlib.util import find_spec
-from types import SimpleNamespace
 from typing import Any, Callable, Literal
 
-from src.app.services.foundry_agent_client import _extract_response_output_text
-from src.app.services.foundry_agent_contract import (
-    FoundryExtractionContractError,
-    FoundryExtractionParseError,
-    normalize_foundry_agent_intake_response,
-)
-from src.app.services.nurse_intake_agent_contract import (
-    validate_nurse_intake_agent_result,
-)
 from src.app.services.nurse_intake_agent_instructions import (
     NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
 )
@@ -22,15 +12,15 @@ DeploymentCategory = Literal[
     "missing_configuration",
     "sdk_unavailable",
     "authentication_or_authorization_failed",
-    "agent_version_creation_failed",
-    "agent_invocation_failed",
-    "response_parse_failed",
-    "contract_invalid",
+    "agent_provisioning_failed",
     "unexpected_error",
 ]
-DEPLOYMENT_OPERATION = "create_and_validate_agent_version"
+DEPLOYMENT_OPERATION = "provision_prompt_agent"
+DEPLOYMENT_SUCCESS_MESSAGE = "Foundry prompt-agent provisioning completed."
+DEPLOYMENT_FAILURE_MESSAGE = "Foundry prompt-agent provisioning did not complete."
 DEPLOYMENT_NEXT_STEP = (
-    "Run the existing Foundry Agent intake smoke or restore AGENT_PROVIDER=mock."
+    "Review the agent name and version in Foundry, update the ignored local "
+    "environment file manually, then run the separate Foundry Agent smoke command."
 )
 
 
@@ -40,7 +30,6 @@ class FoundryAgentDeploymentRequest:
     agent_name: str
     model_deployment_name: str
     instructions: str
-    fictional_validation_input: str
 
 
 @dataclass(frozen=True)
@@ -49,32 +38,42 @@ class FoundryAgentDeploymentResult:
     mode: Literal["live"]
     operation: str
     category: DeploymentCategory
+    message: str
     agent_created: bool
-    agent_invoked: bool
-    agent_output_valid: bool | None
-    created_version: str | None
+    agent_reused: bool
+    agent_updated: bool
+    agent_name_present: bool
+    agent_version_present: bool
+    model_deployment_name_present: bool
     instruction_version: str
-    fields_present: list[str]
+    agent_invoked: bool
     recommended_next_step: str
 
     @classmethod
     def success(
         cls,
         *,
-        created_version: str,
-        fields_present: list[str],
+        agent_created: bool = False,
+        agent_reused: bool = False,
+        agent_updated: bool = False,
+        agent_name_present: bool = True,
+        agent_version_present: bool = True,
+        model_deployment_name_present: bool = True,
     ) -> "FoundryAgentDeploymentResult":
         return cls(
             ok=True,
             mode="live",
             operation=DEPLOYMENT_OPERATION,
             category="success",
-            agent_created=True,
-            agent_invoked=True,
-            agent_output_valid=True,
-            created_version=created_version,
+            message=DEPLOYMENT_SUCCESS_MESSAGE,
+            agent_created=agent_created,
+            agent_reused=agent_reused,
+            agent_updated=agent_updated,
+            agent_name_present=agent_name_present,
+            agent_version_present=agent_version_present,
+            model_deployment_name_present=model_deployment_name_present,
             instruction_version=NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
-            fields_present=fields_present,
+            agent_invoked=False,
             recommended_next_step=DEPLOYMENT_NEXT_STEP,
         )
 
@@ -83,22 +82,23 @@ class FoundryAgentDeploymentResult:
         cls,
         category: DeploymentCategory,
         *,
-        agent_created: bool = False,
-        agent_invoked: bool = False,
-        agent_output_valid: bool | None = None,
-        created_version: str | None = None,
+        agent_name_present: bool = False,
+        model_deployment_name_present: bool = False,
     ) -> "FoundryAgentDeploymentResult":
         return cls(
             ok=False,
             mode="live",
             operation=DEPLOYMENT_OPERATION,
             category=category,
-            agent_created=agent_created,
-            agent_invoked=agent_invoked,
-            agent_output_valid=agent_output_valid,
-            created_version=created_version,
+            message=DEPLOYMENT_FAILURE_MESSAGE,
+            agent_created=False,
+            agent_reused=False,
+            agent_updated=False,
+            agent_name_present=agent_name_present,
+            agent_version_present=False,
+            model_deployment_name_present=model_deployment_name_present,
             instruction_version=NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
-            fields_present=[],
+            agent_invoked=False,
             recommended_next_step=DEPLOYMENT_NEXT_STEP,
         )
 
@@ -108,18 +108,21 @@ class FoundryAgentDeploymentResult:
             "mode": self.mode,
             "operation": self.operation,
             "category": self.category,
+            "message": self.message,
             "agent_created": self.agent_created,
-            "agent_invoked": self.agent_invoked,
-            "agent_output_valid": self.agent_output_valid,
-            "created_version": self.created_version,
+            "agent_reused": self.agent_reused,
+            "agent_updated": self.agent_updated,
+            "agent_name_present": self.agent_name_present,
+            "agent_version_present": self.agent_version_present,
+            "model_deployment_name_present": self.model_deployment_name_present,
             "instruction_version": self.instruction_version,
-            "fields_present": self.fields_present,
+            "agent_invoked": self.agent_invoked,
             "recommended_next_step": self.recommended_next_step,
         }
 
 
 class FoundryAgentDeployment:
-    """Explicit prompt-agent version deployment and validation boundary."""
+    """Explicit, idempotent prompt-agent provisioning boundary."""
 
     def __init__(
         self,
@@ -134,96 +137,72 @@ class FoundryAgentDeployment:
             prompt_agent_definition_factory or _create_prompt_agent_definition
         )
 
-    def create_and_validate(
+    def provision(
         self,
         request: FoundryAgentDeploymentRequest,
     ) -> FoundryAgentDeploymentResult:
         try:
             project_client = self.project_client_factory(request.project_endpoint)
+        except Exception as exc:
+            return FoundryAgentDeploymentResult.failure(
+                _category_for_exception(exc, "agent_provisioning_failed"),
+                agent_name_present=bool(request.agent_name),
+                model_deployment_name_present=bool(request.model_deployment_name),
+            )
+
+        try:
+            existing_version = _latest_version(
+                project_client.agents,
+                request.agent_name,
+            )
+        except Exception as exc:
+            if _status_code(exc) == 404:
+                existing_version = None
+            else:
+                return FoundryAgentDeploymentResult.failure(
+                    _category_for_exception(exc, "agent_provisioning_failed"),
+                    agent_name_present=bool(request.agent_name),
+                    model_deployment_name_present=bool(
+                        request.model_deployment_name
+                    ),
+                )
+
+        if existing_version is not None and _definition_matches(
+            existing_version,
+            request,
+        ):
+            return FoundryAgentDeploymentResult.success(agent_reused=True)
+
+        try:
             definition = self.prompt_agent_definition_factory(
                 model=request.model_deployment_name,
                 instructions=request.instructions,
             )
-            created_agent = project_client.agents.create_version(
+            provisioned_version = project_client.agents.create_version(
                 agent_name=request.agent_name,
                 definition=definition,
             )
-            created_name = _object_value(created_agent, "name")
-            created_version = _object_value(created_agent, "version")
-            if not created_name or not created_version:
-                raise ValueError("Created agent version did not expose name and version.")
+            provisioned_name = _object_value(provisioned_version, "name")
+            provisioned_version_name = _object_value(
+                provisioned_version,
+                "version",
+            )
+            if not provisioned_name or not provisioned_version_name:
+                raise ValueError(
+                    "Provisioned agent version did not expose safe presence metadata."
+                )
         except Exception as exc:
             return FoundryAgentDeploymentResult.failure(
-                _category_for_exception(exc, "agent_version_creation_failed")
-            )
-
-        try:
-            openai_client = project_client.get_openai_client()
-            response = openai_client.responses.create(
-                input=request.fictional_validation_input,
-                extra_body={
-                    "agent_reference": {
-                        "name": created_name,
-                        "version": created_version,
-                        "type": "agent_reference",
-                    }
-                },
-            )
-            output_text = _extract_response_output_text(response)
-        except Exception as exc:
-            return FoundryAgentDeploymentResult.failure(
-                _category_for_exception(exc, "agent_invocation_failed"),
-                agent_created=True,
-                created_version=created_version,
-                agent_output_valid=False,
-            )
-
-        try:
-            structured_result = normalize_foundry_agent_intake_response(output_text)
-        except FoundryExtractionParseError:
-            return FoundryAgentDeploymentResult.failure(
-                "response_parse_failed",
-                agent_created=True,
-                agent_invoked=True,
-                agent_output_valid=False,
-                created_version=created_version,
-            )
-        except FoundryExtractionContractError:
-            return FoundryAgentDeploymentResult.failure(
-                "contract_invalid",
-                agent_created=True,
-                agent_invoked=True,
-                agent_output_valid=False,
-                created_version=created_version,
-            )
-        except Exception:
-            return FoundryAgentDeploymentResult.failure(
-                "unexpected_error",
-                agent_created=True,
-                agent_invoked=True,
-                agent_output_valid=False,
-                created_version=created_version,
-            )
-
-        validation = validate_nurse_intake_agent_result(
-            SimpleNamespace(
-                extraction=structured_result.extraction,
-                urgency=structured_result.urgency,
-                handoffNote="Application-side nurse handoff formatting available.",
-            )
-        )
-        if not validation.is_valid:
-            return FoundryAgentDeploymentResult.failure(
-                "contract_invalid",
-                agent_created=True,
-                agent_invoked=True,
-                agent_output_valid=False,
-                created_version=created_version,
+                _category_for_exception(exc, "agent_provisioning_failed"),
+                agent_name_present=bool(request.agent_name),
+                model_deployment_name_present=bool(request.model_deployment_name),
             )
 
         return FoundryAgentDeploymentResult.success(
-            created_version=created_version,
-            fields_present=["extraction", "urgency"],
+            agent_created=existing_version is None,
+            agent_updated=existing_version is not None,
+            agent_name_present=bool(provisioned_name),
+            agent_version_present=bool(provisioned_version_name),
         )
 
 
@@ -232,7 +211,6 @@ def foundry_agent_deployment_sdk_available() -> bool:
         return (
             find_spec("azure.ai.projects") is not None
             and find_spec("azure.identity") is not None
-            and find_spec("openai") is not None
         )
     except (ImportError, ModuleNotFoundError, ValueError):
         return False
@@ -254,11 +232,30 @@ def _create_prompt_agent_definition(**kwargs: str) -> Any:
     return PromptAgentDefinition(**kwargs)
 
 
-def _object_value(value: Any, name: str) -> str:
+def _latest_version(agents: Any, agent_name: str) -> Any | None:
+    versions = agents.list_versions(agent_name, limit=1, order="desc")
+    return next(iter(versions), None)
+
+
+def _definition_matches(
+    existing_version: Any,
+    request: FoundryAgentDeploymentRequest,
+) -> bool:
+    definition = _raw_object_value(existing_version, "definition")
+    return bool(definition) and (
+        _object_value(definition, "model") == request.model_deployment_name
+        and _object_value(definition, "instructions") == request.instructions
+    )
+
+
+def _raw_object_value(value: Any, name: str) -> Any:
     if isinstance(value, dict):
-        raw_value = value.get(name)
-    else:
-        raw_value = getattr(value, name, None)
+        return value.get(name)
+    return getattr(value, name, None)
+
+
+def _object_value(value: Any, name: str) -> str:
+    raw_value = _raw_object_value(value, name)
     return str(raw_value).strip() if raw_value is not None else ""
 
 

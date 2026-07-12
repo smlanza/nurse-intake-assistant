@@ -189,7 +189,7 @@ project-responses agent-reference pattern for this hosted/prompt agent:
 Keep `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` as the Foundry project endpoint;
 do not replace it with an agent endpoint or model deployment endpoint.
 
-## Programmatic Prompt-Agent Version Deployment
+## Programmatic Prompt-Agent Provisioning And Separate Invocation
 
 Install the optional current Foundry project SDK without changing the default
 mock-demo dependencies:
@@ -198,15 +198,15 @@ mock-demo dependencies:
 python -m pip install -r requirements-foundry-agent.txt
 ```
 
-The explicit deployment workflow uses `azure-ai-projects` 2.x:
+The explicit provisioning workflow uses `azure-ai-projects` 2.x:
 
 ```text
 centralized build_nurse_intake_agent_instructions()
 -> PromptAgentDefinition
--> AIProjectClient.agents.create_version()
--> AIProjectClient.get_openai_client()
--> responses.create(... agent_reference ...)
--> existing parser and Nurse Intake Agent contract validation
+-> AIProjectClient.agents.list_versions(... latest ...)
+-> reuse an identical model/instruction definition
+   OR AIProjectClient.agents.create_version() for a missing/changed definition
+-> sanitized provisioning result (no invocation)
 ```
 
 First run the completely offline readiness check. It reads configuration and
@@ -214,33 +214,133 @@ checks SDK visibility, but creates no credential/client/version and calls no
 Azure service:
 
 ```bash
-python scripts/deploy_foundry_agent.py \
-  --env-file .env.foundry-agent.local \
-  --check
+python scripts/deploy_foundry_agent.py --check --json
 ```
 
-The model setting is `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`; a deployment run
-does not require `AZURE_AI_FOUNDRY_AGENT_VERSION` because it creates a new
-version. Automated tests inject fake clients and make no Azure calls.
+The model setting is `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`. Provisioning
+does not require `AZURE_AI_FOUNDRY_AGENT_VERSION`: it reuses the latest version
+when the configured model and centralized/versioned instructions match,
+creates the agent when no version exists, and creates one updated immutable
+version when the definition changed. Repeated identical runs do not create
+duplicate versions. Automated tests inject fake clients and make no Azure
+calls.
 
-Manual acceptance is explicit, uses only the centralized fictional input,
-creates a new agent version on every run, invokes it once, and may incur model
-usage charges:
+Live provisioning is explicitly opt-in and never invokes the agent:
 
 ```bash
-python scripts/deploy_foundry_agent.py \
-  --env-file .env.foundry-agent.local \
-  --live \
-  --json
+python scripts/deploy_foundry_agent.py --live --json
 ```
 
-The command prints exactly one sanitized JSON result: lifecycle booleans, the
-created version, instruction version, safe category, and fields present. It
-never prints endpoints, credentials, agent names/IDs, instructions, fictional
-input, raw model output, or contact data. Do not claim success until an operator
-runs the live command and receives `category=success`.
+The command prints exactly one sanitized JSON result with safe lifecycle and
+presence booleans, the instruction version, a safe category/message, and the
+recommended separate smoke step. It never prints endpoints, credentials,
+agent names/IDs, model deployment names, instructions, prompts, SDK response
+objects, raw exception bodies, or stack traces. Do not claim live provisioning
+success until an operator runs the command and reviews `category=success`.
 
-This workflow never runs during application import/startup or intake requests.
+Use this exact manual sequence with the ignored local files and fictional
+intake data only:
+
+```bash
+python scripts/verify_foundry_infra.py --json
+python scripts/deploy_foundry_agent.py --check --json
+python scripts/deploy_foundry_agent.py --live --json
+python scripts/smoke_foundry_agent.py --live --json
+```
+
+These are four separate operator-controlled boundaries: read-only
+infrastructure verification, offline provisioning validation, explicitly
+opt-in prompt-agent provisioning, and explicitly opt-in invocation. Supply the
+required verified infrastructure arguments and manually managed ignored local
+environment values described below when running them.
+
+`deploy_foundry_agent.py --check --json` is fully offline: it creates no Azure
+client and makes no Azure call. `deploy_foundry_agent.py --live --json` is the
+only prompt-agent provisioning operation; it may create, reuse, or update an
+immutable Foundry prompt-agent version, but it never invokes the agent.
+Invocation remains the separate, explicit
+`smoke_foundry_agent.py --live --json` operation.
+
+Use fictional intake data only. Human nurse review remains mandatory, and this
+workflow does not establish production clinical readiness. Never commit
+secrets, credentials, access or bearer tokens, raw endpoints, real contact
+information, or patient data.
+
+1. Populate ignored `infra/foundry-only.bicepparam`, then deploy or reuse the
+   disposable infrastructure through the approved commands:
+
+   ```bash
+   python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --check
+   python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <existing-resource-group> --location <location> --what-if --json
+   python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --live --json
+   ```
+
+2. Run read-only infrastructure verification with the sanitized deployment
+   outputs:
+
+   ```bash
+   python scripts/verify_foundry_infra.py --resource-group <resource-group> --project-endpoint <verified-project-endpoint> --model-deployment-name <verified-model-deployment-name> --json
+   ```
+
+3. Manually populate ignored `.env.foundry-agent.local` with
+   `AGENT_PROVIDER=foundry-agent`, the verified project endpoint in
+   `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT`, the verified model deployment in
+   `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`, the intended agent name in
+   `AZURE_AI_FOUNDRY_AGENT_NAME`, and an existing
+   `AZURE_AI_FOUNDRY_AGENT_VERSION` when required. Environment-file updates are
+   always manual; no script in this workflow modifies the file automatically.
+   Keep all application, AI, notification, and Speech providers at their mock
+   defaults.
+
+4. Run the offline provisioning check:
+
+   ```bash
+   python scripts/deploy_foundry_agent.py --check --json
+   ```
+
+5. Run explicit live provisioning:
+
+   ```bash
+   python scripts/deploy_foundry_agent.py --live --json
+   ```
+
+6. Review only the single sanitized JSON result. Provisioning may create a
+   missing agent version, reuse an identical immutable version, or create one
+   updated immutable version when the definition changed. It never invokes the
+   agent. Confirm `ok=true`, `category=success`, `agent_invoked=false`, and
+   exactly one of `agent_created`, `agent_reused`, or `agent_updated` is true.
+
+7. In Foundry, inspect the resulting agent name/version and manually set
+   `AZURE_AI_FOUNDRY_AGENT_NAME` and `AZURE_AI_FOUNDRY_AGENT_VERSION` in the
+   ignored local environment file when required. The provisioning script does
+   not edit environment files or print raw identifiers.
+
+8. Invoke through the existing, separate fictional-data smoke boundary:
+
+   ```bash
+   python scripts/smoke_foundry_agent.py --live --json
+   ```
+
+9. Confirm the invocation reports `ok=true`, `category=success`,
+   `agent_attempted=true`, `agent_output_valid=true`, and
+   `fallback_used=false`.
+
+10. Restore `AGENT_PROVIDER=mock`, `APP_MODE=mock`, `AI_PROVIDER=mock`,
+    `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and `SPEECH_PROVIDER=mock`
+    after validation.
+
+11. After review, manually delete the disposable resource group when it is no
+    longer needed:
+
+    ```bash
+    az group delete --name <resource-group-name> --yes --no-wait
+    ```
+
+Do not automate environment-file mutation or resource-group deletion.
+Disposable resource-group deletion is always a manual, explicit operator
+action.
+
+Provisioning never runs during application import/startup or intake requests.
 It does not provide production deployment or clinical readiness. Human nurse
 review remains mandatory. After manual validation, restore:
 

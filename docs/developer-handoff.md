@@ -31,9 +31,11 @@ The implementation should prioritize demoability, cost control, and clear Azure 
 - Prompt-agent configuration is reproducible from the centralized instructions
   through `scripts/deploy_foundry_agent.py`. Its `--check` mode is offline;
   explicit `--live --json` uses `azure-ai-projects` 2.x
-  `PromptAgentDefinition`, `agents.create_version()`, and the project Responses
-  API agent reference to create and validate one new version with fictional data.
-  It is never called during app startup or intake, and live acceptance remains manual.
+  `PromptAgentDefinition` plus latest-version inspection to idempotently create,
+  reuse, or update the configured prompt agent. Provisioning never invokes the
+  agent; `scripts/smoke_foundry_agent.py --live --json` remains the separate
+  fictional-data invocation boundary. Neither command runs during app startup
+  or intake, and live acceptance remains manual.
 - Azure Speech remains scaffolded with offline/manual preflight only; no live
   audio transcription or phone intake is part of the default demo.
 - ACS Email/SMS have provider scaffolds and offline-safe preflight/manual smoke

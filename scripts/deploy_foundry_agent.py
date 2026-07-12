@@ -17,7 +17,6 @@ from src.app.services.foundry_agent_deployment import (
 )
 from src.app.services.nurse_intake_agent_instructions import (
     NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
-    build_nurse_intake_agent_fictional_test_input,
     build_nurse_intake_agent_instructions,
 )
 
@@ -53,8 +52,12 @@ def main(argv: list[str] | None = None) -> int:
                     "required_settings_missing": missing,
                     "sdk_available": sdk_available,
                     "azure_call_made": False,
+                    "agent_created": False,
+                    "agent_reused": False,
+                    "agent_updated": False,
+                    "agent_invoked": False,
                     "recommended_next_step": (
-                        "Run --live --json with fictional data when ready."
+                        "Run --live --json when ready. Provisioning does not invoke the agent."
                         if ready
                         else "Install the optional SDK and check required settings."
                     ),
@@ -74,9 +77,8 @@ def main(argv: list[str] | None = None) -> int:
         agent_name=settings.azure_ai_foundry_agent_name,
         model_deployment_name=settings.azure_ai_foundry_model_deployment_name,
         instructions=build_nurse_intake_agent_instructions(),
-        fictional_validation_input=build_nurse_intake_agent_fictional_test_input(),
     )
-    result = _create_deployment_service().create_and_validate(request)
+    result = _create_deployment_service().provision(request)
     print(json.dumps(result.to_json_dict(), sort_keys=True))
     return 0 if result.ok else 1
 
@@ -84,8 +86,8 @@ def main(argv: list[str] | None = None) -> int:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Explicitly create a new Microsoft Foundry prompt-agent version and "
-            "validate it once using fictional data only."
+            "Explicitly create, update, or reuse the Microsoft Foundry prompt "
+            "agent without invoking it."
         )
     )
     modes = parser.add_mutually_exclusive_group(required=True)
@@ -98,14 +100,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--live",
         action="store_true",
         help=(
-            "Create a new Foundry Agent version and invoke it once; may incur "
-            "Azure model usage charges and uses fictional data only."
+            "Create, update, or reuse the Foundry prompt agent without invoking "
+            "it; may make Azure management calls."
         ),
     )
     parser.add_argument(
         "--json",
         action="store_true",
-        help="Print exactly one sanitized JSON result (required with --live).",
+        help="Print exactly one sanitized JSON result; required with --live.",
     )
     parser.add_argument(
         "--env-file",
@@ -114,8 +116,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.live and not args.json:
         parser.error("--live requires --json")
-    if args.check and args.json:
-        parser.error("--json is only supported with --live")
     return args
 
 

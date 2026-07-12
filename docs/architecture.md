@@ -110,16 +110,16 @@ lazy SDK imports and client construction. The existing manual Foundry Agent
 invocation smoke has succeeded, while programmatic agent-version creation and
 validation remain pending explicit operator execution. Automated tests remain offline.
 
-The separate prompt-agent lifecycle boundary makes instruction deployment
+The separate prompt-agent lifecycle boundary makes instruction provisioning
 reproducible without changing runtime routing. An explicit operator CLI builds
-`PromptAgentDefinition` from the centralized versioned instructions, calls the
-current Foundry project SDK `agents.create_version()`, then invokes the created
-agent name once through the project Responses API `agent_reference`. The
-response is parsed and validated by existing application contracts, and only a
-sanitized result is emitted. `--check` is offline; only `--live --json` creates
-a version and incurs one fictional-data invocation. Automated tests use fakes,
-and no deployment occurs at import, startup, `/demo`, or intake time. This is
-not a production clinical deployment; nurse review remains mandatory.
+`PromptAgentDefinition` from the centralized versioned instructions, inspects
+the latest version through the current Foundry project SDK, reuses an identical
+definition, or creates one version for a missing/changed definition. Only a
+sanitized result is emitted. `--check` is offline; only `--live --json` makes
+provisioning calls. Provisioning never invokes the agent; invocation remains a
+separate explicit smoke command. Automated tests use fakes, and no provisioning
+occurs at import, startup, `/demo`, or intake time. This is not a production
+clinical deployment; nurse review remains mandatory.
 
 The service also evaluates local red-flag rules from
 `src/app/config/red_flags.yaml`. Rule detection is deterministic and includes
