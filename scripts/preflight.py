@@ -1,4 +1,5 @@
 import argparse
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,10 @@ from scripts.smoke_acs_email import acs_email_sdk_available
 from scripts.smoke_acs_sms import acs_sms_sdk_available
 from scripts.smoke_foundry_agent import foundry_agent_sdk_available
 from scripts.smoke_foundry_extraction import foundry_live_sdk_available
+from scripts.smoke_foundry_agent_intake import (
+    FOUNDRY_AGENT_INTAKE_LIVE_COMMAND,
+    build_foundry_agent_intake_readiness,
+)
 from scripts.smoke_speech_transcription import azure_speech_sdk_available
 from src.app.config.settings import AppSettings
 from src.app.services.nurse_intake_agent_preflight import (
@@ -44,6 +49,10 @@ def main(argv: list[str] | None = None) -> int:
         results = run_all_checks(settings)
     elif args.foundry_agent:
         results = [_check_foundry_agent(settings, explicit=True)]
+    elif args.foundry_agent_intake:
+        payload = _check_foundry_agent_intake(settings)
+        print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
+        return 0 if payload["ready"] else 1
     else:
         print(
             "Run consolidated provider readiness checks with --all or a specific "
@@ -61,6 +70,7 @@ def run_all_checks(settings: AppSettings) -> list[PreflightResult]:
         _check_cosmos(settings),
         _check_foundry(settings),
         _check_foundry_agent(settings),
+        _check_foundry_agent_intake_legacy(settings),
         _check_speech(settings),
         _check_acs_email(settings),
         _check_acs_sms(settings),
@@ -78,10 +88,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--all",
         action="store_true",
         help=(
-            "Run Cosmos, Foundry, Foundry Agent, Speech, ACS Email, and ACS "
-            "SMS readiness checks without creating Azure clients, making Azure "
-            "calls, processing audio, calling models or agents, reading or "
-            "writing repositories, or sending notifications."
+            "Run Cosmos, Foundry, Foundry Agent, Foundry Agent Intake, Speech, "
+            "ACS Email, and ACS SMS readiness checks without creating Azure "
+            "clients, making Azure calls, processing intake or audio, calling "
+            "models or agents, reading or writing repositories, or sending "
+            "notifications."
         ),
     )
     parser.add_argument(
@@ -93,7 +104,102 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "Foundry Agent client, invoking an agent, or making an Azure call."
         ),
     )
-    return parser.parse_args(argv)
+    parser.add_argument(
+        "--foundry-agent-intake",
+        action="store_true",
+        help=(
+            "Run the application-level Foundry Agent intake readiness check "
+            "without creating a client, processing intake, or calling Azure."
+        ),
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the Foundry Agent intake readiness result as sanitized JSON.",
+    )
+    args = parser.parse_args(argv)
+    if args.foundry_agent_intake and not args.json:
+        parser.error("--foundry-agent-intake requires --json")
+    if args.json and not args.foundry_agent_intake:
+        parser.error("--json is only supported with --foundry-agent-intake")
+    if args.foundry_agent_intake and (args.all or args.foundry_agent):
+        parser.error(
+            "--foundry-agent-intake cannot be combined with --all or --foundry-agent"
+        )
+    return args
+
+
+def _check_foundry_agent_intake(settings: AppSettings) -> dict[str, object]:
+    readiness = build_foundry_agent_intake_readiness(settings)
+    if readiness.category == "success":
+        next_step = (
+            "Run the static manual command only for later fictional-data validation."
+        )
+    elif readiness.category == "missing_configuration":
+        next_step = "Add the missing setting names in the ignored local environment file."
+    else:
+        next_step = (
+            "Restore mock application and notification providers and suppress notifications."
+        )
+    return {
+        "ok": readiness.ready,
+        "check": "foundry_agent_intake",
+        "category": readiness.category,
+        "ready": readiness.ready,
+        "required_settings_missing": readiness.required_settings_missing,
+        "unsafe_settings": readiness.unsafe_settings,
+        "azure_call_made": False,
+        "agent_client_created": False,
+        "intake_processed": False,
+        "case_saved": False,
+        "notifications_recorded": False,
+        "manual_command": FOUNDRY_AGENT_INTAKE_LIVE_COMMAND,
+        "recommended_next_step": next_step,
+    }
+
+
+def _check_foundry_agent_intake_legacy(
+    settings: AppSettings,
+) -> PreflightResult:
+    provider = getattr(settings, "agent_provider_normalized", "mock")
+    if provider == "mock":
+        return _skip(
+            "Foundry Agent Intake",
+            "AGENT_PROVIDER is mock.",
+            "Keep AGENT_PROVIDER=mock for local demo.",
+        )
+
+    readiness = build_foundry_agent_intake_readiness(settings)
+    if readiness.category == "missing_configuration":
+        return _fail(
+            "Foundry Agent Intake",
+            readiness.required_settings_missing,
+            "Set missing Foundry Agent intake variables or restore AGENT_PROVIDER=mock.",
+        )
+    if readiness.category == "unsafe_application_configuration":
+        return PreflightResult(
+            name="Foundry Agent Intake",
+            status=FAIL,
+            message=(
+                "Unsafe application settings: "
+                f"{', '.join(readiness.unsafe_settings)}."
+            ),
+            next_step=(
+                "Restore mock application and notification providers and "
+                "suppress notifications."
+            ),
+        )
+
+    return _pass(
+        "Foundry Agent Intake",
+        (
+            "Application-level Foundry Agent intake readiness is present. "
+            "No Foundry Agent intake client was created, no intake was "
+            "processed, no case was saved, no notification was recorded, and "
+            "no Azure call was made."
+        ),
+        f"Manual validation command: {FOUNDRY_AGENT_INTAKE_LIVE_COMMAND}",
+    )
 
 
 def _check_cosmos(settings: AppSettings) -> PreflightResult:

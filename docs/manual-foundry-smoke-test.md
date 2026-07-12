@@ -367,6 +367,29 @@ boundaries:
 Run the application-level offline readiness check first:
 
 ```bash
+python scripts/preflight.py --all
+```
+
+The legacy-formatted consolidated `--all` workflow includes Foundry Agent
+Intake readiness alongside the six existing provider checks. Default mock agent
+posture is reported as `SKIP`; an explicitly configured safe posture reports
+`PASS`; missing or unsafe posture reports `FAIL` with setting names only.
+
+For the standalone sanitized JSON readiness result, run:
+
+```bash
+python scripts/preflight.py --foundry-agent-intake --json
+```
+
+The consolidated preflight command uses the same pure readiness calculation as
+the intake smoke CLI. It returns only missing/unsafe setting names, static
+manual guidance, and false side-effect flags. It creates no credential or
+Foundry client, processes no intake, saves no case, records no notification,
+and makes no Azure call.
+
+The equivalent dedicated readiness command is:
+
+```bash
 python scripts/smoke_foundry_agent_intake.py --check --json
 ```
 

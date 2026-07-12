@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 866 passed
+- 872 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
@@ -19,6 +19,20 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
+- `scripts/preflight.py --foundry-agent-intake --json` now exposes the
+  application-level Foundry Agent intake readiness check through the existing
+  consolidated preflight entry point. It reuses the smoke CLI's pure readiness
+  helper and returns only missing/unsafe setting names, false side-effect flags,
+  and the static later manual command.
+- `scripts/preflight.py --all` now includes the same intake readiness as a
+  seventh legacy-formatted check alongside Cosmos, Foundry extraction, direct
+  Foundry Agent, Speech, ACS Email, and ACS SMS. Default mock agent posture is
+  skipped; explicitly configured missing/unsafe intake posture fails with safe
+  setting names only.
+- The integration is readiness-only and completely offline: no credential or
+  client is constructed, no intake is processed, no case or notification is
+  created, and no Azure call is made. No live Azure command was run or reviewed;
+  mock defaults and mandatory human nurse review remain unchanged.
 - `scripts/smoke_foundry_agent_intake.py` adds the explicit application-level
   Foundry Agent text-intake smoke boundary. Its `--check --json` mode validates
   required setting names and the safe mock/suppressed posture without creating
@@ -300,6 +314,10 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
+- The consolidated preflight CLI includes the additive JSON-only
+  `--foundry-agent-intake` selection and includes the same readiness check in
+  `--all`. Existing provider behavior and the legacy text formatting contract
+  remain unchanged; `--all` now reports seven checks.
 - The application-level Foundry Agent text-intake smoke CLI and its offline
   fake-agent test seam are implemented without changing route, intake response,
   urgency, nurse-review, notification, provisioning, or direct-smoke contracts.
@@ -315,7 +333,7 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 - Provisioning never invokes the agent. The existing
   `scripts/smoke_foundry_agent.py --live --json` command remains the separate
   manual invocation boundary.
-- The latest full suite is 866 passed with 1 existing
+- The latest full suite is 872 passed with 1 existing
   FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
   offline.
 - Live provisioning and a new invocation smoke were deferred in this slice, so

@@ -24,6 +24,9 @@ from src.app.services.nurse_intake_agent_instructions import (
 
 
 FICTIONAL_INTAKE_TEXT = build_nurse_intake_agent_fictional_test_input()
+FOUNDRY_AGENT_INTAKE_LIVE_COMMAND = (
+    "python scripts/smoke_foundry_agent_intake.py --live --json"
+)
 REQUIRED_SETTINGS = (
     ("AGENT_PROVIDER", "agent_provider_normalized"),
     (
@@ -117,24 +120,35 @@ class ApplicationIntakeSmokeResult:
         }
 
 
+@dataclass(frozen=True)
+class FoundryAgentIntakeReadiness:
+    ready: bool
+    category: Literal[
+        "success",
+        "missing_configuration",
+        "unsafe_application_configuration",
+    ]
+    required_settings_missing: list[str]
+    unsafe_settings: list[str]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.env_file is not None and not _load_env_file(args.env_file):
         return 2
 
     settings = AppSettings()
-    missing = _missing_configuration(settings)
-    unsafe = _unsafe_application_settings(settings)
+    readiness = build_foundry_agent_intake_readiness(settings)
 
     if args.check:
-        payload = _check_result(missing=missing, unsafe=unsafe)
+        payload = _check_result(readiness)
         _print_json(payload)
         return 0 if payload["ready"] else 2
 
-    if missing:
+    if readiness.required_settings_missing:
         _print_json(_empty_live_result("missing_configuration").to_json_dict())
         return 2
-    if unsafe:
+    if readiness.unsafe_settings:
         _print_json(
             _empty_live_result(
                 "unsafe_application_configuration"
@@ -196,36 +210,49 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return args
 
 
-def _check_result(
-    *,
-    missing: list[str],
-    unsafe: list[str],
-) -> dict[str, object]:
+def build_foundry_agent_intake_readiness(
+    settings: Any,
+) -> FoundryAgentIntakeReadiness:
+    """Return sanitized, side-effect-free application smoke readiness."""
+
+    missing = _missing_configuration(settings)
+    unsafe = _unsafe_application_settings(settings)
     if missing:
         category = "missing_configuration"
     elif unsafe:
         category = "unsafe_application_configuration"
     else:
         category = "success"
+    return FoundryAgentIntakeReadiness(
+        ready=category == "success",
+        category=category,
+        required_settings_missing=missing,
+        unsafe_settings=unsafe,
+    )
+
+
+def _check_result(
+    readiness: FoundryAgentIntakeReadiness,
+) -> dict[str, object]:
     return {
-        "ok": category == "success",
-        "ready": category == "success",
+        "ok": readiness.ready,
+        "ready": readiness.ready,
         "mode": "check",
-        "category": category,
-        "message": SAFE_MESSAGES[category],
+        "category": readiness.category,
+        "message": SAFE_MESSAGES[readiness.category],
         "required_settings_present": [
             setting_name
             for setting_name, _ in REQUIRED_SETTINGS
-            if setting_name not in missing
+            if setting_name not in readiness.required_settings_missing
         ],
-        "required_settings_missing": missing,
-        "unsafe_application_settings": unsafe,
+        "required_settings_missing": readiness.required_settings_missing,
+        "unsafe_application_settings": readiness.unsafe_settings,
         "client_created": False,
         "intake_processed": False,
         "case_saved": False,
         "notifications_recorded": False,
         "azure_call_made": False,
-        "recommended_next_step": SAFE_NEXT_STEPS[category],
+        "recommended_next_step": SAFE_NEXT_STEPS[readiness.category],
     }
 
 
