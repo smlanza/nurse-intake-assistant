@@ -429,12 +429,34 @@ It never prints the case identifier, fictional demographics or callback data,
 raw intake, symptoms, summary, prompt/instructions, raw agent output, endpoint,
 credential/token, SDK response, full exception, or stack trace.
 
-`category=success` requires a completed route, a valid attempted agent result,
-no fallback, an in-memory saved case, `review_status=PendingReview`, and
-suppressed notifications. An agent exception or invalid result remains a safe
-application outcome but is reported as `category=safe_fallback_used`, never as
-full live-agent success. The existing fallback and deterministic red-flag
-rules are not bypassed.
+`category=success` requires every application-level postcondition: the route
+completed successfully; the agent was attempted; agent output was valid; no
+fallback was used; the in-memory case was saved; intake status is `Complete`
+or `NeedsFollowUp`; review status remains `PendingReview`; urgency, the handoff
+note, and the processing trace are present; the trace contains the required
+agent attempt/validity/fallback metadata; and both notification channels remain
+suppressed.
+
+Unsuccessful live outcomes are classified without printing response bodies or
+exception details:
+
+- `route_request_failed`: the route returned a non-success result, raised an
+  expected request-level exception, or could not produce a usable response.
+- `agent_not_attempted`: route processing completed and a valid processing
+  trace proves the configured agent was not attempted.
+- `safe_fallback_used`: the agent was attempted, its output was invalid or it
+  raised, and the existing fallback still saved the case safely with pending
+  nurse review and suppressed notifications.
+- `response_contract_invalid`: a required response, persistence, status,
+  urgency, handoff-note, trace, nurse-review, or notification-suppression
+  postcondition is absent or invalid.
+- `unexpected_error`: an otherwise unclassified internal smoke-runner error.
+
+An agent exception or invalid result can therefore remain a safe application
+outcome, but safe fallback is never reported as full live-agent success. If a
+fallback result also violates a required safe postcondition, it is classified
+as `response_contract_invalid`. The existing fallback and deterministic
+red-flag rules are not bypassed.
 
 No live application-level smoke was run for this implementation slice. Do not
 claim success until an operator runs the explicit live command with fictional

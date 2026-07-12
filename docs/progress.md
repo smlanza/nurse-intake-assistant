@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 872 passed
+- 901 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
@@ -19,6 +19,24 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
+- The application-level Foundry Agent intake smoke now classifies unsuccessful
+  live outcomes explicitly as `route_request_failed`, `agent_not_attempted`,
+  `safe_fallback_used`, `response_contract_invalid`, or `unexpected_error`, in
+  addition to readiness categories. All serialized outcomes retain the strict
+  safe-key contract and omit response bodies, exception details, identifiers,
+  patient/intake content, endpoints, model/agent values, credentials, and
+  tokens.
+- Full `success` now requires a usable completed route, a valid attempted agent
+  result without fallback, a saved case, an acceptable intake status,
+  `PendingReview`, present urgency/handoff/processing-trace metadata, and
+  suppressed email/SMS notifications. Safe fallback requires its own safe
+  persistence/review/suppression postconditions and is never reported as full
+  success; an incomplete fallback result is `response_contract_invalid`.
+- Focused tests use only fake agents, fake route outcomes, dependency seams, and
+  the in-memory repository. The full suite remains offline; no live Azure
+  command or application-level smoke was run or reviewed, so no new live
+  success is claimed. Mock/offline defaults and mandatory human nurse review
+  remain unchanged.
 - `scripts/preflight.py --foundry-agent-intake --json` now exposes the
   application-level Foundry Agent intake readiness check through the existing
   consolidated preflight entry point. It reuses the smoke CLI's pure readiness
@@ -33,23 +51,6 @@ Latest completed slice:
   client is constructed, no intake is processed, no case or notification is
   created, and no Azure call is made. No live Azure command was run or reviewed;
   mock defaults and mandatory human nurse review remain unchanged.
-- `scripts/smoke_foundry_agent_intake.py` adds the explicit application-level
-  Foundry Agent text-intake smoke boundary. Its `--check --json` mode validates
-  required setting names and the safe mock/suppressed posture without creating
-  clients, processing intake, saving cases, recording notifications, or calling
-  Azure.
-- Explicit `--live --json` uses only the centralized fictional intake and the
-  existing in-process `POST /intake/text` route boundary, lazy Foundry Agent
-  adapter, deterministic safeguards, in-memory repository, pending nurse review,
-  and suppressed notification statuses. It accepts no arbitrary intake text.
-- The strict sanitized JSON contract exposes only operational attempt/validity/
-  fallback, persistence, status, presence, and suppression metadata. Full
-  `success` is distinct from `safe_fallback_used` after invalid agent output or
-  an agent exception; the existing safe fallback is preserved.
-- Automated coverage uses fake agents and remains completely offline. No live
-  application-level command was run or reviewed, so no live success is claimed.
-  `APP_MODE=mock`, `AI_PROVIDER=mock`, `AGENT_PROVIDER=mock`, notification mock
-  defaults, and mandatory human nurse review remain unchanged.
 - Programmatic prompt-agent provisioning now uses the configured Foundry
   project endpoint, agent name, `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`, and
   centralized `foundry-agent-intake-v1` instructions. It creates a missing
@@ -333,7 +334,7 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 - Provisioning never invokes the agent. The existing
   `scripts/smoke_foundry_agent.py --live --json` command remains the separate
   manual invocation boundary.
-- The latest full suite is 872 passed with 1 existing
+- The latest full suite is 901 passed with 1 existing
   FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
   offline.
 - Live provisioning and a new invocation smoke were deferred in this slice, so

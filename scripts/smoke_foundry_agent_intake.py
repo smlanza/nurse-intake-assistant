@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
+from starlette.exceptions import HTTPException
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -163,10 +167,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        case, case_saved, handoff_note_present = _run_intake_route(agent)
-    except Exception:
+        route_result = _run_intake_route(agent)
+    except (HTTPException, RequestValidationError, ValidationError):
         _print_json(_empty_live_result("route_request_failed").to_json_dict())
         return 1
+    except Exception:
+        _print_json(_empty_live_result("unexpected_error").to_json_dict())
+        return 1
+
+    route_values = _usable_route_result(route_result)
+    if route_values is None:
+        _print_json(_empty_live_result("route_request_failed").to_json_dict())
+        return 1
+    case, case_saved, handoff_note_present = route_values
 
     result = _result_from_case(
         case,
@@ -283,10 +296,23 @@ def _result_from_case(
     handoff_note_present: bool,
 ) -> ApplicationIntakeSmokeResult:
     trace = getattr(case, "processing_trace", None)
-    agent_attempted = bool(getattr(trace, "agent_attempted", False))
-    agent_output_valid = getattr(trace, "agent_output_valid", None)
-    fallback_used = bool(getattr(trace, "agent_fallback_used", False))
     processing_trace_present = trace is not None
+    missing = object()
+    attempted_value = getattr(trace, "agent_attempted", missing)
+    output_valid_value = getattr(trace, "agent_output_valid", missing)
+    fallback_value = getattr(trace, "agent_fallback_used", missing)
+    trace_metadata_valid = (
+        isinstance(attempted_value, bool)
+        and (isinstance(output_valid_value, bool) or output_valid_value is None)
+        and isinstance(fallback_value, bool)
+    )
+    agent_attempted = attempted_value if isinstance(attempted_value, bool) else False
+    agent_output_valid = (
+        output_valid_value
+        if isinstance(output_valid_value, bool) or output_valid_value is None
+        else None
+    )
+    fallback_used = fallback_value if isinstance(fallback_value, bool) else False
     notifications_suppressed = (
         getattr(case, "notificationEmailStatus", None) == "Suppressed"
         and getattr(case, "notificationSmsStatus", None) == "Suppressed"
@@ -298,21 +324,28 @@ def _result_from_case(
         "Urgent",
         "Unknown",
     }
-
-    if not agent_attempted:
-        category: SmokeCategory = "agent_not_attempted"
-    elif fallback_used:
-        category = "safe_fallback_used"
-    elif agent_output_valid is not True:
-        category = "response_contract_invalid"
-    elif not (
-        case_saved
+    safe_application_postconditions = (
+        case_saved is True
+        and intake_status in {"Complete", "NeedsFollowUp"}
         and review_status == "PendingReview"
-        and notifications_suppressed
-        and processing_trace_present
-        and handoff_note_present
         and urgency_present
+        and handoff_note_present is True
+        and processing_trace_present
+        and trace_metadata_valid
+        and notifications_suppressed
+    )
+
+    if not safe_application_postconditions:
+        category: SmokeCategory = "response_contract_invalid"
+    elif not agent_attempted and (
+        fallback_used or agent_output_valid not in {False, None}
     ):
+        category = "response_contract_invalid"
+    elif not agent_attempted:
+        category = "agent_not_attempted"
+    elif fallback_used and agent_output_valid is False:
+        category = "safe_fallback_used"
+    elif fallback_used or agent_output_valid is not True:
         category = "response_contract_invalid"
     else:
         category = "success"
@@ -323,9 +356,7 @@ def _result_from_case(
         category=category,
         message=SAFE_MESSAGES[category],
         agent_attempted=agent_attempted,
-        agent_output_valid=(
-            agent_output_valid if isinstance(agent_output_valid, bool) else None
-        ),
+        agent_output_valid=agent_output_valid,
         fallback_used=fallback_used,
         case_saved=case_saved,
         intake_status=intake_status,
@@ -340,6 +371,22 @@ def _result_from_case(
 
 def _run_intake_route(agent: object) -> tuple[Any, bool, bool]:
     return asyncio.run(_run_intake_route_async(agent))
+
+
+def _usable_route_result(
+    result: object,
+) -> tuple[Any, bool, bool] | None:
+    if not isinstance(result, tuple) or len(result) != 3:
+        return None
+    case, case_saved, handoff_note_present = result
+    if case is None:
+        return None
+    if not isinstance(case_saved, bool) or not isinstance(
+        handoff_note_present,
+        bool,
+    ):
+        return None
+    return case, case_saved, handoff_note_present
 
 
 async def _run_intake_route_async(agent: object) -> tuple[Any, bool, bool]:
