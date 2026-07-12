@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 856 passed
+- 866 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
@@ -19,6 +19,23 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
+- `scripts/smoke_foundry_agent_intake.py` adds the explicit application-level
+  Foundry Agent text-intake smoke boundary. Its `--check --json` mode validates
+  required setting names and the safe mock/suppressed posture without creating
+  clients, processing intake, saving cases, recording notifications, or calling
+  Azure.
+- Explicit `--live --json` uses only the centralized fictional intake and the
+  existing in-process `POST /intake/text` route boundary, lazy Foundry Agent
+  adapter, deterministic safeguards, in-memory repository, pending nurse review,
+  and suppressed notification statuses. It accepts no arbitrary intake text.
+- The strict sanitized JSON contract exposes only operational attempt/validity/
+  fallback, persistence, status, presence, and suppression metadata. Full
+  `success` is distinct from `safe_fallback_used` after invalid agent output or
+  an agent exception; the existing safe fallback is preserved.
+- Automated coverage uses fake agents and remains completely offline. No live
+  application-level command was run or reviewed, so no live success is claimed.
+  `APP_MODE=mock`, `AI_PROVIDER=mock`, `AGENT_PROVIDER=mock`, notification mock
+  defaults, and mandatory human nurse review remain unchanged.
 - Programmatic prompt-agent provisioning now uses the configured Foundry
   project endpoint, agent name, `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`, and
   centralized `foundry-agent-intake-v1` instructions. It creates a missing
@@ -283,6 +300,12 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 
 ## Current Slice Completed
 
+- The application-level Foundry Agent text-intake smoke CLI and its offline
+  fake-agent test seam are implemented without changing route, intake response,
+  urgency, nurse-review, notification, provisioning, or direct-smoke contracts.
+- Check mode is configuration-only. Live mode is explicit, requires JSON, uses
+  fixed fictional data, refuses Cosmos/real notification providers, and returns
+  `safe_fallback_used` instead of false success when application fallback occurs.
 - Idempotent programmatic Foundry prompt-agent provisioning is implemented by
   extending the existing deployment service and CLI.
 - The configured endpoint, agent name, model deployment, and centralized
@@ -292,7 +315,7 @@ Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, r
 - Provisioning never invokes the agent. The existing
   `scripts/smoke_foundry_agent.py --live --json` command remains the separate
   manual invocation boundary.
-- The latest full suite is 856 passed with 1 existing
+- The latest full suite is 866 passed with 1 existing
   FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
   offline.
 - Live provisioning and a new invocation smoke were deferred in this slice, so

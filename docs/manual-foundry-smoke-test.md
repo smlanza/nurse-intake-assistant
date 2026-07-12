@@ -348,6 +348,78 @@ review remains mandatory. After manual validation, restore:
 AGENT_PROVIDER=mock
 ```
 
+## Application-Level Foundry Agent Text-Intake Smoke
+
+The Foundry workflow has four deliberately separate operator-controlled
+boundaries:
+
+1. `deploy_foundry_infra.py` and `verify_foundry_infra.py` deploy and verify
+   the disposable Foundry infrastructure.
+2. `deploy_foundry_agent.py` creates, reuses, or updates the immutable prompt
+   agent version without invoking it.
+3. `smoke_foundry_agent.py` invokes and validates the configured agent in
+   isolation.
+4. `smoke_foundry_agent_intake.py` sends one centrally defined fictional
+   intake through the existing application-level `POST /intake/text` route
+   boundary, in-memory case repository, deterministic safeguards, processing
+   trace, nurse-review state, and notification-suppression logic.
+
+Run the application-level offline readiness check first:
+
+```bash
+python scripts/smoke_foundry_agent_intake.py --check --json
+```
+
+Check mode validates only setting presence and safe application posture. It
+does not create a credential or Foundry client, process an intake, create a
+case, record a notification, or call Azure. The required manual posture is:
+
+```bash
+APP_MODE=mock
+AI_PROVIDER=mock
+AGENT_PROVIDER=foundry-agent
+EMAIL_PROVIDER=mock
+SMS_PROVIDER=mock
+DEMO_SUPPRESS_NOTIFICATIONS=true
+```
+
+The ignored local environment file must also contain the verified Foundry
+Agent project endpoint, agent name, and agent version. Update it manually; the
+script never edits environment files.
+
+After check mode reports readiness, a later operator may explicitly run:
+
+```bash
+python scripts/smoke_foundry_agent_intake.py --live --json
+```
+
+Live mode requires `--json` and accepts no arbitrary intake-text argument. It
+uses the centralized fictional intake only, constructs the existing lazy
+Foundry Agent adapter, and exercises the existing application route in-process.
+It refuses to run with Cosmos, real email/SMS providers, or unsuppressed
+notifications. It does not deploy infrastructure or create an agent version.
+
+The sanitized live JSON contains only operational booleans/status categories:
+agent attempted, agent output valid, fallback used, case saved, intake/review
+status, urgency/handoff/processing-trace presence, and notification suppression.
+It never prints the case identifier, fictional demographics or callback data,
+raw intake, symptoms, summary, prompt/instructions, raw agent output, endpoint,
+credential/token, SDK response, full exception, or stack trace.
+
+`category=success` requires a completed route, a valid attempted agent result,
+no fallback, an in-memory saved case, `review_status=PendingReview`, and
+suppressed notifications. An agent exception or invalid result remains a safe
+application outcome but is reported as `category=safe_fallback_used`, never as
+full live-agent success. The existing fallback and deterministic red-flag
+rules are not bypassed.
+
+No live application-level smoke was run for this implementation slice. Do not
+claim success until an operator runs the explicit live command with fictional
+data and reviews its sanitized JSON result. Restore all providers to their
+mock/offline defaults afterward. Human nurse review remains mandatory, cleanup
+of disposable Azure resources remains manual, and no production clinical
+readiness is claimed.
+
 ## Foundry Agent Instruction Pack
 
 Before configuring the Azure AI Foundry Agent, print the versioned instruction
