@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -423,6 +424,137 @@ def test_not_attempted_with_valid_output_is_invalid_sanitized_contract(
     assert payload["ok"] is False
     assert payload["category"] == "response_contract_invalid"
     _assert_unsafe_values_absent(output)
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "success",
+        "safe-fallback",
+        "expected-exception",
+        "unexpected-exception",
+        "malformed",
+    ],
+)
+def test_route_run_restores_exact_application_state_for_every_exit(
+    outcome: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.smoke_foundry_agent_intake as script
+    from src.app.main import app
+    import src.app.routes.intake as intake_route
+
+    existing_key = object()
+    existing_override = object()
+    temporary_key = object()
+    temporary_override = object()
+    previous_overrides = {existing_key: existing_override}
+    original_service = object()
+    original_repository = object()
+    original_route = intake_route.create_text_intake
+    monkeypatch.setattr(app, "dependency_overrides", previous_overrides)
+    monkeypatch.setattr(intake_route, "case_processing_service", original_service)
+    monkeypatch.setattr(intake_route, "case_repository", original_repository)
+
+    async def state_mutating_route(request: object) -> object:
+        app.dependency_overrides[temporary_key] = temporary_override
+        if outcome == "expected-exception":
+            raise HTTPException(status_code=422, detail="raw secret route detail")
+        if outcome == "unexpected-exception":
+            raise RuntimeError("Bearer secret-token raw patient data Traceback")
+        if outcome == "malformed":
+            return SimpleNamespace(id="secret-case-id")
+        return await original_route(request)
+
+    monkeypatch.setattr(intake_route, "create_text_intake", state_mutating_route)
+
+    route_agent = (
+        FakeInvalidAgent() if outcome == "safe-fallback" else FakeSuccessfulAgent()
+    )
+    if outcome in {"success", "safe-fallback"}:
+        case, case_saved, handoff_note_present = asyncio.run(
+            script._run_intake_route_async(route_agent)
+        )
+        assert case.reviewStatus == "PendingReview"
+        assert case_saved is True
+        assert handoff_note_present is True
+        assert case.notificationEmailStatus == "Suppressed"
+        assert case.notificationSmsStatus == "Suppressed"
+        assert case.processing_trace.agent_fallback_used is (
+            outcome == "safe-fallback"
+        )
+    else:
+        with pytest.raises(Exception):
+            asyncio.run(script._run_intake_route_async(FakeSuccessfulAgent()))
+
+    assert app.dependency_overrides is previous_overrides
+    assert app.dependency_overrides == {existing_key: existing_override}
+    assert app.dependency_overrides[existing_key] is existing_override
+    assert temporary_key not in app.dependency_overrides
+    assert intake_route.case_processing_service is original_service
+    assert intake_route.case_repository is original_repository
+
+
+def test_consecutive_route_runs_use_fresh_local_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.smoke_foundry_agent_intake as script
+    from src.app.dependencies import (
+        case_repository as application_repository,
+        email_notification_sender,
+        sms_notification_sender,
+    )
+    from src.app.services.case_repository import InMemoryCaseRepository
+    import src.app.routes.intake as intake_route
+
+    repositories: list[InMemoryCaseRepository] = []
+    services: list[script.CaseProcessingService] = []
+
+    class TrackingRepository(InMemoryCaseRepository):
+        def __init__(self) -> None:
+            super().__init__()
+            repositories.append(self)
+
+    class TrackingService(script.CaseProcessingService):
+        def __init__(self, **kwargs: object) -> None:
+            super().__init__(**kwargs)
+            services.append(self)
+
+    original_service = intake_route.case_processing_service
+    original_repository = intake_route.case_repository
+    application_cases = list(asyncio.run(application_repository.list_cases()))
+    email_notifications = list(email_notification_sender.sent_notifications)
+    sms_notifications = list(sms_notification_sender.sent_notifications)
+    first_agent = FakeSuccessfulAgent()
+    second_agent = FakeSuccessfulAgent()
+    monkeypatch.setattr(script, "InMemoryCaseRepository", TrackingRepository)
+    monkeypatch.setattr(script, "CaseProcessingService", TrackingService)
+
+    first_result = asyncio.run(script._run_intake_route_async(first_agent))
+    second_result = asyncio.run(script._run_intake_route_async(second_agent))
+
+    assert len(repositories) == 2
+    assert len(services) == 2
+    assert repositories[0] is not repositories[1]
+    assert services[0] is not services[1]
+    assert services[0].nurse_intake_agent is first_agent
+    assert services[1].nurse_intake_agent is second_agent
+    assert services[0].email_notification_sender is None
+    assert services[0].sms_notification_sender is None
+    assert services[1].email_notification_sender is None
+    assert services[1].sms_notification_sender is None
+    assert services[0].suppress_notifications is True
+    assert services[1].suppress_notifications is True
+    assert len(asyncio.run(repositories[0].list_cases())) == 1
+    assert len(asyncio.run(repositories[1].list_cases())) == 1
+    assert first_result[0] is not second_result[0]
+    assert first_agent.calls == [script.FICTIONAL_INTAKE_TEXT]
+    assert second_agent.calls == [script.FICTIONAL_INTAKE_TEXT]
+    assert intake_route.case_processing_service is original_service
+    assert intake_route.case_repository is original_repository
+    assert asyncio.run(application_repository.list_cases()) == application_cases
+    assert email_notification_sender.sent_notifications == email_notifications
+    assert sms_notification_sender.sent_notifications == sms_notifications
 
 
 @pytest.mark.parametrize(

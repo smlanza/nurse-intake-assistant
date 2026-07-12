@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 901 passed
+- 907 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
@@ -19,24 +19,19 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- The application-level Foundry Agent intake smoke now classifies unsuccessful
-  live outcomes explicitly as `route_request_failed`, `agent_not_attempted`,
-  `safe_fallback_used`, `response_contract_invalid`, or `unexpected_error`, in
-  addition to readiness categories. All serialized outcomes retain the strict
-  safe-key contract and omit response bodies, exception details, identifiers,
-  patient/intake content, endpoints, model/agent values, credentials, and
-  tokens.
-- Full `success` now requires a usable completed route, a valid attempted agent
-  result without fallback, a saved case, an acceptable intake status,
-  `PendingReview`, present urgency/handoff/processing-trace metadata, and
-  suppressed email/SMS notifications. Safe fallback requires its own safe
-  persistence/review/suppression postconditions and is never reported as full
-  success; an incomplete fallback result is `response_contract_invalid`.
-- Focused tests use only fake agents, fake route outcomes, dependency seams, and
-  the in-memory repository. The full suite remains offline; no live Azure
-  command or application-level smoke was run or reviewed, so no new live
-  success is claimed. Mock/offline defaults and mandatory human nurse review
-  remain unchanged.
+- The application-level Foundry Agent intake smoke now snapshots its exact
+  prior FastAPI dependency overrides plus route service/repository references,
+  installs only execution-local smoke dependencies, and restores the original
+  objects in `finally` rather than globally clearing application state.
+- Cleanup is covered after success, safe fallback behavior, validation or
+  malformed results, expected request exceptions, and unexpected exceptions.
+  Consecutive runs receive fresh agents, repositories, cases, and results;
+  application-global repositories and notification stores remain untouched.
+- Explicit sanitized classifications and full-success postconditions remain
+  enforced, including `PendingReview` and suppressed notifications. Tests use
+  fake agents and in-memory seams only. No live Azure command or application
+  smoke was run, mock defaults remain unchanged, and no production clinical
+  readiness is claimed.
 - `scripts/preflight.py --foundry-agent-intake --json` now exposes the
   application-level Foundry Agent intake readiness check through the existing
   consolidated preflight entry point. It reuses the smoke CLI's pure readiness
@@ -89,6 +84,7 @@ Latest completed slice:
 ## Current Resume Point
 
 Safe to demo today:
+- The default demo mock/offline posture remains the safe starting point
 - Local text intake and already-transcribed voicemail transcript intake
 - Nurse review workflow, recent cases, queue summary, and demo seed/reset
 - Copy-friendly nurse handoff note display for selected saved cases
@@ -310,41 +306,39 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Prefer small manual smoke guides, provider preflight checks, offline tests, and incremental Azure validation while keeping the default demo mock/offline.
-Keep ACS phone intake, live Azure Speech processing, hosting, auth, Key Vault, retry/durable processing, and production frontend deferred unless scoped.
+Prioritize concrete Azure AI Foundry and Agents implementation over additional
+local-only polish. The next practical slices should move toward manual
+validation of the application-level Foundry Agent intake smoke, stronger use of
+the provisioned prompt agent, real Azure-hosted Agent invocation through the
+application pipeline, Foundry project/agent lifecycle validation, and the Azure
+deployment and operational integration required for the capstone. Replace
+remaining mock-only AI boundaries where safe and appropriate.
+
+Continue in small RED-to-GREEN slices with offline automated tests, sanitized
+diagnostics, fictional data, explicit manual opt-in for live Azure operations,
+mandatory nurse review, and no production clinical-readiness claim. Avoid
+low-value frontend polish, unrelated local abstractions, or peripheral features
+when a practical Foundry or Agents capability slice is available. Keep ACS
+phone intake, Speech, auth, Key Vault, retry/durable processing, and production
+frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- The consolidated preflight CLI includes the additive JSON-only
-  `--foundry-agent-intake` selection and includes the same readiness check in
-  `--all`. Existing provider behavior and the legacy text formatting contract
-  remain unchanged; `--all` now reports seven checks.
-- The application-level Foundry Agent text-intake smoke CLI and its offline
-  fake-agent test seam are implemented without changing route, intake response,
-  urgency, nurse-review, notification, provisioning, or direct-smoke contracts.
-- Check mode is configuration-only. Live mode is explicit, requires JSON, uses
-  fixed fictional data, refuses Cosmos/real notification providers, and returns
-  `safe_fallback_used` instead of false success when application fallback occurs.
-- Idempotent programmatic Foundry prompt-agent provisioning is implemented by
-  extending the existing deployment service and CLI.
-- The configured endpoint, agent name, model deployment, and centralized
-  instruction pack flow through an injected SDK seam. Missing definitions are
-  created, exact definitions are reused, and changed definitions create one
-  updated immutable version without repeated duplicates.
-- Provisioning never invokes the agent. The existing
-  `scripts/smoke_foundry_agent.py --live --json` command remains the separate
-  manual invocation boundary.
-- The latest full suite is 901 passed with 1 existing
+- Application-level intake readiness remains available through its dedicated
+  JSON command and the legacy-formatted consolidated `--all` preflight.
+- The explicit fixed-fictional-data live smoke retains its exact sanitized JSON
+  contract, classifications, safe fallback, `PendingReview`, and suppressed
+  notification behavior while guaranteeing restoration of temporary in-process
+  application state on every exit path.
+- Idempotent prompt-agent provisioning still creates, reuses, or updates an
+  immutable version without invoking it; direct agent and application-level
+  invocation remain separate explicit manual operations.
+- The latest full suite is 907 passed with 1 existing
   FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
   offline.
-- Live provisioning and a new invocation smoke were deferred in this slice, so
-  no new Azure success or created/reused/updated outcome is claimed.
-- No Bicep resources were duplicated. Ignored environment-file updates and
-  resource-group cleanup remain manual. `APP_MODE=mock`, `AI_PROVIDER=mock`,
-  `AGENT_PROVIDER=mock`, `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and
-  `SPEECH_PROVIDER=mock` remain unchanged, as does mandatory human nurse review.
-- Earlier Foundry Agent diagnostics, instruction-pack, readiness/status,
-  sanitized smoke-result, and contract-validation slices remain implemented.
+- No live Azure command was run. Mock provider defaults, manual environment and
+  resource cleanup, mandatory nurse review, and no-production-use constraints
+  remain unchanged.
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the

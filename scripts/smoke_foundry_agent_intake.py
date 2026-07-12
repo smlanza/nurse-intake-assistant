@@ -3,9 +3,10 @@ import asyncio
 import json
 import os
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
@@ -398,11 +399,11 @@ async def _run_intake_route_async(agent: object) -> tuple[Any, bool, bool]:
         nurse_intake_agent=agent,
         suppress_notifications=True,
     )
-    original_service = intake_route.case_processing_service
-    original_repository = intake_route.case_repository
-    try:
-        intake_route.case_processing_service = service
-        intake_route.case_repository = repository
+    with _temporary_application_overrides(
+        intake_route=intake_route,
+        service=service,
+        repository=repository,
+    ):
         request = intake_route.TextIntakeRequest(
             text=FICTIONAL_INTAKE_TEXT,
             sourceSystem="foundry-agent-application-smoke",
@@ -411,9 +412,31 @@ async def _run_intake_route_async(agent: object) -> tuple[Any, bool, bool]:
         saved_case = await repository.get_by_id(case.id)
         handoff_note = NurseHandoffNoteFormatter().format(case)
         return case, saved_case is not None, bool(handoff_note.strip())
+
+
+@contextmanager
+def _temporary_application_overrides(
+    *,
+    intake_route: Any,
+    service: CaseProcessingService,
+    repository: InMemoryCaseRepository,
+) -> Iterator[None]:
+    from src.app.main import app
+
+    original_service = intake_route.case_processing_service
+    original_repository = intake_route.case_repository
+    original_dependency_overrides = app.dependency_overrides
+    dependency_override_snapshot = dict(original_dependency_overrides)
+    try:
+        intake_route.case_processing_service = service
+        intake_route.case_repository = repository
+        yield
     finally:
         intake_route.case_processing_service = original_service
         intake_route.case_repository = original_repository
+        original_dependency_overrides.clear()
+        original_dependency_overrides.update(dependency_override_snapshot)
+        app.dependency_overrides = original_dependency_overrides
 
 
 def _create_live_agent(settings: AppSettings) -> object:
