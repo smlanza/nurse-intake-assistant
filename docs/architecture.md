@@ -47,6 +47,7 @@ Browser or API client
 | `MockAiService` | Deterministic local extraction, summary, and urgency classification for demo/testing |
 | `FoundryAiService` | Azure AI Foundry provider boundary/scaffold with offline structured extraction prompt/schema/parser contract, injected fake-client seam, and opt-in lazy live adapter; live extraction is deferred |
 | `NurseIntakeAgent` | External reasoning boundary for future agent orchestration; output is contract-validated before case processing trusts it |
+| `FoundryAgentVerification` | Explicit read-only lifecycle boundary that verifies one configured immutable prompt-agent version still matches the configured name/version response contract, model deployment, and centralized instructions without mutation or invocation |
 | Speech transcription services | Offline mock transcription boundary and Azure Speech scaffold/factory; live audio transcription is deferred |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
@@ -120,6 +121,14 @@ provisioning calls. Provisioning never invokes the agent; invocation remains a
 separate explicit smoke command. Automated tests use fakes, and no provisioning
 occurs at import, startup, `/demo`, or intake time. This is not a production
 clinical deployment; nurse review remains mandatory.
+
+After an operator manually records the provisioned immutable version, a
+separate verification CLI can perform one read-only version lookup and compare
+the returned version definition with the application-owned model and
+centralized instructions. Offline check mode creates no client and makes no
+Azure call; explicit live verification creates no version, makes no mutation,
+creates no Responses client, and performs no model invocation. Direct agent
+and application-level fictional-data smokes remain separate opt-in boundaries.
 
 The service also evaluates local red-flag rules from
 `src/app/config/red_flags.yaml`. Rule detection is deterministic and includes

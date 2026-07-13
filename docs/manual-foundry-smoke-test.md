@@ -245,19 +245,27 @@ intake data only:
 python scripts/verify_foundry_infra.py --json
 python scripts/deploy_foundry_agent.py --check --json
 python scripts/deploy_foundry_agent.py --live --json
+python scripts/verify_foundry_agent.py --check --json
+python scripts/verify_foundry_agent.py --live --json
 python scripts/smoke_foundry_agent.py --live --json
 ```
 
-These are four separate operator-controlled boundaries: read-only
+These are separate operator-controlled boundaries: read-only
 infrastructure verification, offline provisioning validation, explicitly
-opt-in prompt-agent provisioning, and explicitly opt-in invocation. Supply the
-required verified infrastructure arguments and manually managed ignored local
-environment values described below when running them.
+opt-in prompt-agent provisioning, offline agent-version verification readiness,
+read-only live agent-version verification, and explicitly opt-in invocation.
+Supply the required verified infrastructure arguments and manually managed
+ignored local environment values described below when running them.
 
 `deploy_foundry_agent.py --check --json` is fully offline: it creates no Azure
 client and makes no Azure call. `deploy_foundry_agent.py --live --json` is the
 only prompt-agent provisioning operation; it may create, reuse, or update an
 immutable Foundry prompt-agent version, but it never invokes the agent.
+`verify_foundry_agent.py --check --json` is fully offline.
+`verify_foundry_agent.py --live --json` performs one read-only lookup of the
+configured immutable version and verifies its name/version response contract,
+model deployment, and centralized instructions. It never creates or updates a
+version, creates a Responses client, or invokes the agent.
 Invocation remains the separate, explicit
 `smoke_foundry_agent.py --live --json` operation.
 
@@ -315,21 +323,39 @@ information, or patient data.
    ignored local environment file when required. The provisioning script does
    not edit environment files or print raw identifiers.
 
-8. Invoke through the existing, separate fictional-data smoke boundary:
+8. Run the offline configured-version verification readiness check:
+
+   ```bash
+   python scripts/verify_foundry_agent.py --check --json
+   ```
+
+9. Run the explicit read-only configured-version verification:
+
+   ```bash
+   python scripts/verify_foundry_agent.py --live --json
+   ```
+
+   Confirm `ok=true`, `category=success`,
+   `agent_definition_matches=true`, `agent_invoked=false`, and
+   `azure_mutation_made=false`. The result is sanitized and does not print the
+   endpoint, agent name/version, model name, instructions, credential, or raw
+   SDK response.
+
+10. Invoke through the existing, separate fictional-data smoke boundary:
 
    ```bash
    python scripts/smoke_foundry_agent.py --live --json
    ```
 
-9. Confirm the invocation reports `ok=true`, `category=success`,
+11. Confirm the invocation reports `ok=true`, `category=success`,
    `agent_attempted=true`, `agent_output_valid=true`, and
    `fallback_used=false`.
 
-10. Restore `AGENT_PROVIDER=mock`, `APP_MODE=mock`, `AI_PROVIDER=mock`,
+12. Restore `AGENT_PROVIDER=mock`, `APP_MODE=mock`, `AI_PROVIDER=mock`,
     `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and `SPEECH_PROVIDER=mock`
     after validation.
 
-11. After review, manually delete the disposable resource group when it is no
+13. After review, manually delete the disposable resource group when it is no
     longer needed:
 
     ```bash
@@ -350,16 +376,19 @@ AGENT_PROVIDER=mock
 
 ## Application-Level Foundry Agent Text-Intake Smoke
 
-The Foundry workflow has four deliberately separate operator-controlled
+The Foundry workflow has five deliberately separate operator-controlled
 boundaries:
 
 1. `deploy_foundry_infra.py` and `verify_foundry_infra.py` deploy and verify
    the disposable Foundry infrastructure.
 2. `deploy_foundry_agent.py` creates, reuses, or updates the immutable prompt
    agent version without invoking it.
-3. `smoke_foundry_agent.py` invokes and validates the configured agent in
+3. `verify_foundry_agent.py` verifies the exact configured immutable version
+   and centralized definition through a read-only lookup without mutating or
+   invoking it.
+4. `smoke_foundry_agent.py` invokes and validates the configured agent in
    isolation.
-4. `smoke_foundry_agent_intake.py` sends one centrally defined fictional
+5. `smoke_foundry_agent_intake.py` sends one centrally defined fictional
    intake through the existing application-level `POST /intake/text` route
    boundary, in-memory case repository, deterministic safeguards, processing
    trace, nurse-review state, and notification-suppression logic.
