@@ -59,6 +59,7 @@ def test_env_example_documents_foundry_agent_placeholders() -> None:
     assert "AZURE_SUBSCRIPTION_ID=" in env_example
     assert "AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME=" in env_example
     assert "AZURE_AI_FOUNDRY_PROJECT_NAME=" in env_example
+    assert "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID=" in env_example
     assert "agent name/version path" in env_example
     assert "Do not commit" in env_example
     assert "PHI" in env_example
@@ -105,6 +106,10 @@ def test_foundry_agent_local_env_example_documents_placeholders() -> None:
         in env_example
     )
     assert "AZURE_AI_FOUNDRY_PROJECT_NAME=<your-foundry-project-name>" in env_example
+    assert (
+        "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID="
+        "<optional-user-assigned-managed-identity-client-id>"
+    ) in env_example
     assert "Do not commit real values" in env_example
     assert "services.ai.azure.com/api/projects/" not in env_example
     assert "secret" not in env_example.lower()

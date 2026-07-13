@@ -176,6 +176,23 @@ AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>
 The script also preserves the existing `AGENT_PROVIDER=foundry` smoke alias.
 Prefer `AGENT_PROVIDER=foundry-agent` for new manual checks.
 
+### Foundry Agent credential boundary
+
+Foundry Agent invocation, immutable-version verification, and prompt-agent
+provisioning share one lazy `DefaultAzureCredential` boundary. Local
+development can continue to use the existing Azure developer-login credential
+chain. An Azure-hosted runtime with a system-assigned managed identity needs no
+client-ID setting. For a user-assigned managed identity, set the optional
+`AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID` identifier. The setting identifies
+the managed identity; it is not a credential or secret.
+
+This boundary introduces no API key or client secret. Assigning the minimum
+required Foundry project role remains an operator/infrastructure
+responsibility. This slice did not deploy a managed identity, assign a role, or
+run a live Azure authentication test. `AGENT_PROVIDER=mock` remains the safe
+default, human nurse review remains mandatory, and managed-identity readiness
+does not establish production or clinical readiness.
+
 The Foundry Agent live smoke adapter follows the portal-supported
 project-responses agent-reference pattern for this hosted/prompt agent:
 

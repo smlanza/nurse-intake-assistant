@@ -3,6 +3,10 @@ from importlib.util import find_spec
 from typing import Any, Protocol
 
 from src.app.config.settings import AppSettings
+from src.app.services.foundry_credential_factory import (
+    FoundryCredentialConfiguration,
+    FoundryCredentialFactory,
+)
 
 
 FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE = (
@@ -104,10 +108,14 @@ class AzureAiFoundryAgentLiveClient:
         project_endpoint: str,
         agent_name: str,
         agent_version: str,
+        managed_identity_client_id: str | None = None,
+        credential_factory: FoundryCredentialFactory | None = None,
     ) -> None:
         self.project_endpoint = project_endpoint
         self.agent_name = agent_name
         self.agent_version = agent_version
+        self.managed_identity_client_id = managed_identity_client_id
+        self.credential_factory = credential_factory
         self._responses_client = None
 
     async def invoke_agent(
@@ -132,6 +140,8 @@ class AzureAiFoundryAgentLiveClient:
                 self.project_endpoint,
                 self.agent_name,
                 self.agent_version,
+                self.managed_identity_client_id,
+                credential_factory=self.credential_factory,
             )
         return self._responses_client
 
@@ -196,6 +206,11 @@ def create_foundry_agent_client(
         project_endpoint=project_endpoint,
         agent_name=agent_name,
         agent_version=agent_version,
+        managed_identity_client_id=getattr(
+            settings,
+            "azure_ai_foundry_managed_identity_client_id",
+            None,
+        ),
     )
 
 
@@ -229,12 +244,21 @@ def _required_agent_setting(value: str | None, name: str) -> str:
     return value
 
 
-def _create_agents_client(project_endpoint: str):
+def _create_agents_client(
+    project_endpoint: str,
+    managed_identity_client_id: str | None = None,
+    *,
+    credential_factory: FoundryCredentialFactory | None = None,
+):
     try:
         AgentsClient = _get_agents_client_class()
-        DefaultAzureCredential = _get_default_credential_class()
         try:
-            credential = DefaultAzureCredential()
+            factory = credential_factory or FoundryCredentialFactory(
+                credential_constructor=_get_default_credential_class()
+            )
+            credential = factory.create(
+                FoundryCredentialConfiguration(managed_identity_client_id)
+            )
         except Exception as exc:
             raise FoundryAgentClientError(
                 FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
@@ -259,12 +283,19 @@ def _create_project_responses_client(
     project_endpoint: str,
     agent_name: str,
     agent_version: str,
+    managed_identity_client_id: str | None = None,
+    *,
+    credential_factory: FoundryCredentialFactory | None = None,
 ):
     try:
         AIProjectClient = _get_ai_project_client_class()
-        DefaultAzureCredential = _get_default_credential_class()
         try:
-            credential = DefaultAzureCredential()
+            factory = credential_factory or FoundryCredentialFactory(
+                credential_constructor=_get_default_credential_class()
+            )
+            credential = factory.create(
+                FoundryCredentialConfiguration(managed_identity_client_id)
+            )
         except Exception as exc:
             raise FoundryAgentClientError(
                 FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,

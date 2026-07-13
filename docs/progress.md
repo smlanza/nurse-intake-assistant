@@ -5,8 +5,16 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 984 passed
+- 998 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
+
+**Active implementation direction:** The project is now deliberately advancing
+from the local mock capstone into an Azure-first Microsoft Foundry Agent
+implementation. Current work covers disposable Foundry infrastructure,
+immutable agent versions, guarded application invocation, fixed-corpus
+evaluation, deterministic Foundry metric publication, and
+managed-identity-ready runtime authentication. Mock mode remains the safe
+default, and all AI output continues to require human nurse review.
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
 
@@ -19,49 +27,20 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Added the explicit `--publish-foundry-evaluation` option to the guarded live
-  fixed-corpus evaluator. It requires the live, JSON, and immutable-version
-  verification options; legacy check/live JSON remains exact when absent.
-- After all eligible fictional scenarios finish and observed state restoration
-  succeeds, one injected publisher sends only stable scenario IDs and nine
-  boolean facts per scenario to `azure.ai.evaluation.evaluate` using an explicit
-  non-secret subscription/resource-group/project scope and stable name
-  `nurse-intake-fixed-corpus-v1`; missing publication scope blocks agent creation.
-- Nine local code-based evaluators use explicit sanitized column mappings and
-  publish deterministic `{"value": 0|1}` metrics.
-  No AI judge, model configuration, extra agent/model invocation, raw corpus,
-  prompt, model response, patient data, endpoint, credential, or local path is
-  included in sanitized CLI output.
-- Missing readiness, verifier/client failure, absent scenarios, and unconfirmed
-  restoration prevent publication. Safe fallback may publish failed metrics
-  after restoration, but the evaluation still exits nonzero. Temporary JSONL
-  and result artifacts are removed after publisher success or failure.
-- `azure-ai-evaluation` 1.18.1 imports successfully under Python 3.14.6; the
-  optional requirement is constrained to `>=1.18.1,<2` without invoking Azure.
-- Added `scripts/evaluate_foundry_agent_intake.py` for an explicit fixed-corpus
-  application evaluation. Its offline check validates three stable fictional
-  scenario IDs, expected safe outcomes, required setting names, safe provider
-  posture, and SDK visibility without creating clients or changing state.
-- Guarded live evaluation requires `--verify-agent-version`, performs the
-  existing immutable definition verification exactly once, and creates one
-  existing Foundry Agent adapter only after verification succeeds. Failed
-  verification prevents invocation-client creation and all application intake.
-- The urgent, routine, and incomplete scenarios run deterministically through
-  the existing text-intake route, deterministic safeguards, persistence seam,
-  pending nurse-review state, and notification suppression. Each scenario uses
-  the shared observed pre/post state-restoration check; an unconfirmed restore
-  stops later scenarios.
-- Sanitized aggregate and per-scenario JSON separates agent quality from
-  application safety. Safe fallback remains an evaluation failure, while
-  reporting only stable IDs, safe enums, booleans, counts, tri-state
-  verification facts, and independently derived expected-field names.
-- Automated coverage uses injected fake verification and agent seams while
-  retaining the real application pipeline. No live Azure command, resource
-  mutation, agent creation/update, or environment-file write was performed.
-- The prior single-case smoke keeps its exact legacy JSON when the gate is
-  absent. `AGENT_PROVIDER=mock`, mandatory nurse review, notification
-  suppression, manual restoration/cleanup, and the no-production-clinical-use
-  boundary remain unchanged.
+- Centralized lazy `DefaultAzureCredential` construction for Foundry Agent
+  invocation, immutable-version verification, and prompt-agent provisioning.
+  Local developer login and Azure-hosted identity now share one boundary.
+- With no client-ID override, the boundary supports the normal local credential
+  chain and system-assigned managed identity. The optional trimmed
+  `AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID` selects a user-assigned managed
+  identity and is never included in sanitized output.
+- No API key, client secret, import-time credential, or token request was added.
+  SDK failures remain sanitized and affect only explicit Foundry operations.
+- All automated tests remained offline. No live Azure authentication,
+  deployment, verification, invocation, evaluation, or publication was run.
+- Existing Foundry JSON contracts, fixed-corpus behavior, deterministic metric
+  publication, fallback behavior, notification suppression, mock defaults, and
+  mandatory nurse review remain unchanged.
 - Historical direct-agent evidence only: Manual live Foundry Agent smoke passed
   in an earlier slice with `ok=true`, `category=success`,
   `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`, and
@@ -108,11 +87,10 @@ Do not claim as complete:
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Run the guarded live fixed-corpus evaluation with
-optional Foundry metric publication against the disposable verified project.
-Inspect only the sanitized CLI result and the deterministic metric summary in
-Foundry before deciding whether to add AI-assisted rubric evaluation,
-Application Insights tracing, or application hosting.
+Recommended next move: Deploy or reuse an Azure-hosted application runtime with
+managed identity, grant only the required Foundry project access, and run the
+guarded immutable-version verification before the first
+managed-identity-backed application invocation.
 
 ## Current Working Local Pipeline
 
@@ -313,23 +291,21 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Optional Foundry publication is guarded behind the existing verified live
-  fixed-corpus evaluation and occurs once only after every eligible scenario and
-  observed restoration. All precondition, verification, client, empty-result,
-  and restoration failures prevent it.
-- Only stable IDs and nine booleans enter the temporary JSONL. Deterministic
-  local evaluators publish 27 numeric metrics for the three scenarios through
-  the explicit subscription/resource-group/project scope; no AI judge or
-  additional agent call is used.
-- Publication reports only safe counts, booleans, categories, and cleanup state.
-  Scenario summaries survive a sanitized publisher failure, and a safely
-  restored fallback can publish while retaining the evaluation's nonzero exit.
-- The latest full suite is 984 passed with 1 existing
+- Foundry Agent credential construction now uses one lazy, injectable factory
+  for project Responses/Agent clients, immutable-version verification, and
+  prompt-agent deployment. It creates no credential during import and does not
+  request a token.
+- The shared `DefaultAzureCredential` path retains local developer-login
+  behavior, supports system-assigned managed identity without a client ID, and
+  supports user-assigned managed identity through an optional non-secret
+  identifier. No API key or client secret was introduced.
+- The latest full suite is 998 passed with 1 existing
   FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
   offline.
-- No live Azure command or Foundry publication was run. Mock provider defaults,
-  explicit manual verification/invocation/publication, manual cleanup, mandatory
-  nurse review, and no-production-use constraints remain unchanged.
+- No live Azure authentication or other live Azure command was run. Hosting,
+  managed-identity assignment, and RBAC remain future operator/infrastructure
+  work. Mock provider defaults, mandatory nurse review, and
+  no-production-clinical-use constraints remain unchanged.
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the

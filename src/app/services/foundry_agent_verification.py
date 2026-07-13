@@ -6,6 +6,10 @@ from src.app.services.nurse_intake_agent_instructions import (
     NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
     build_nurse_intake_agent_instructions,
 )
+from src.app.services.foundry_credential_factory import (
+    FoundryCredentialConfiguration,
+    FoundryCredentialFactory,
+)
 
 
 VerificationCategory = Literal[
@@ -34,6 +38,7 @@ class FoundryAgentVerificationRequest:
     agent_version: str
     model_deployment_name: str
     instructions: str
+    managed_identity_client_id: str | None = None
 
 
 def build_foundry_agent_verification_request(
@@ -47,6 +52,11 @@ def build_foundry_agent_verification_request(
         agent_version=settings.azure_ai_foundry_agent_version,
         model_deployment_name=settings.azure_ai_foundry_model_deployment_name,
         instructions=build_nurse_intake_agent_instructions(),
+        managed_identity_client_id=getattr(
+            settings,
+            "azure_ai_foundry_managed_identity_client_id",
+            None,
+        ),
     )
 
 
@@ -139,9 +149,7 @@ class FoundryAgentVerification:
         *,
         project_client_factory: Callable[[str], Any] | None = None,
     ) -> None:
-        self.project_client_factory = (
-            project_client_factory or _create_live_project_client
-        )
+        self.project_client_factory = project_client_factory
 
     def verify(
         self,
@@ -154,7 +162,15 @@ class FoundryAgentVerification:
         }
         azure_lookup_attempted = False
         try:
-            project_client = self.project_client_factory(request.project_endpoint)
+            if self.project_client_factory is None:
+                project_client = _create_live_project_client(
+                    request.project_endpoint,
+                    request.managed_identity_client_id,
+                )
+            else:
+                project_client = self.project_client_factory(
+                    request.project_endpoint
+                )
             azure_lookup_attempted = True
             remote_version = project_client.agents.get_version(
                 request.agent_name,
@@ -194,14 +210,24 @@ def foundry_agent_verification_sdk_available() -> bool:
         return False
 
 
-def _create_live_project_client(project_endpoint: str) -> Any:
-    from azure.ai.projects import AIProjectClient
-    from azure.identity import DefaultAzureCredential
-
-    return AIProjectClient(
-        endpoint=project_endpoint,
-        credential=DefaultAzureCredential(),
+def _create_live_project_client(
+    project_endpoint: str,
+    managed_identity_client_id: str | None = None,
+) -> Any:
+    project_client_class = _get_ai_project_client_class()
+    credential = FoundryCredentialFactory().create(
+        FoundryCredentialConfiguration(managed_identity_client_id)
     )
+    return project_client_class(
+        endpoint=project_endpoint,
+        credential=credential,
+    )
+
+
+def _get_ai_project_client_class():
+    from azure.ai.projects import AIProjectClient
+
+    return AIProjectClient
 
 
 def _remote_contract_is_valid(
@@ -239,6 +265,8 @@ def _object_value(value: Any, name: str) -> str:
 
 def _category_for_exception(error: BaseException) -> VerificationCategory:
     for current in _exception_chain(error):
+        if getattr(current, "category", None) == "sdk_unavailable":
+            return "sdk_unavailable"
         status = _status_code(current)
         if status == 404:
             return "agent_version_not_found"

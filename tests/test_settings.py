@@ -269,6 +269,10 @@ def test_foundry_ai_settings_default_to_none(
     monkeypatch.delenv("AZURE_SUBSCRIPTION_ID", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_PROJECT_NAME", raising=False)
+    monkeypatch.delenv(
+        "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID",
+        raising=False,
+    )
     monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
     settings = AppSettings()
@@ -282,6 +286,7 @@ def test_foundry_ai_settings_default_to_none(
     assert settings.azure_subscription_id is None
     assert settings.azure_ai_foundry_resource_group_name is None
     assert settings.azure_ai_foundry_project_name is None
+    assert settings.azure_ai_foundry_managed_identity_client_id is None
     assert settings.azure_openai_endpoint is None
 
 
@@ -315,6 +320,10 @@ def test_foundry_ai_settings_trim_values(
         "  example-resource-group  ",
     )
     monkeypatch.setenv("AZURE_AI_FOUNDRY_PROJECT_NAME", "  example-project  ")
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID",
+        "  example-managed-identity-client-id  ",
+    )
 
     settings = AppSettings()
 
@@ -337,6 +346,9 @@ def test_foundry_ai_settings_trim_values(
     assert settings.azure_subscription_id == "example-subscription"
     assert settings.azure_ai_foundry_resource_group_name == "example-resource-group"
     assert settings.azure_ai_foundry_project_name == "example-project"
+    assert settings.azure_ai_foundry_managed_identity_client_id == (
+        "example-managed-identity-client-id"
+    )
 
 
 def test_blank_foundry_ai_settings_are_none(
@@ -353,6 +365,7 @@ def test_blank_foundry_ai_settings_are_none(
     monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_PROJECT_NAME", "   ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID", "   ")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "   ")
 
     settings = AppSettings()
@@ -366,6 +379,7 @@ def test_blank_foundry_ai_settings_are_none(
     assert settings.azure_subscription_id is None
     assert settings.azure_ai_foundry_resource_group_name is None
     assert settings.azure_ai_foundry_project_name is None
+    assert settings.azure_ai_foundry_managed_identity_client_id is None
     assert settings.azure_openai_endpoint is None
 
 

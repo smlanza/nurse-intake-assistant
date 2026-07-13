@@ -77,6 +77,11 @@ def main(argv: list[str] | None = None) -> int:
         agent_name=settings.azure_ai_foundry_agent_name,
         model_deployment_name=settings.azure_ai_foundry_model_deployment_name,
         instructions=build_nurse_intake_agent_instructions(),
+        managed_identity_client_id=getattr(
+            settings,
+            "azure_ai_foundry_managed_identity_client_id",
+            None,
+        ),
     )
     result = _create_deployment_service().provision(request)
     print(json.dumps(result.to_json_dict(), sort_keys=True))

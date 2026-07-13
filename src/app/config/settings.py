@@ -19,6 +19,7 @@ class AppSettings:
     azure_subscription_id: str | None
     azure_ai_foundry_resource_group_name: str | None
     azure_ai_foundry_project_name: str | None
+    azure_ai_foundry_managed_identity_client_id: str | None
     azure_openai_endpoint: str | None
     speech_provider: str
     speech_provider_normalized: str
@@ -72,6 +73,9 @@ class AppSettings:
         )
         self.azure_ai_foundry_project_name = self._optional_env(
             "AZURE_AI_FOUNDRY_PROJECT_NAME"
+        )
+        self.azure_ai_foundry_managed_identity_client_id = self._optional_env(
+            "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID"
         )
         self.azure_openai_endpoint = self._optional_env("AZURE_OPENAI_ENDPOINT")
         self.speech_provider = os.getenv("SPEECH_PROVIDER", "mock")

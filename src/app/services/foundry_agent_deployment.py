@@ -5,6 +5,10 @@ from typing import Any, Callable, Literal
 from src.app.services.nurse_intake_agent_instructions import (
     NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
 )
+from src.app.services.foundry_credential_factory import (
+    FoundryCredentialConfiguration,
+    FoundryCredentialFactory,
+)
 
 
 DeploymentCategory = Literal[
@@ -30,6 +34,7 @@ class FoundryAgentDeploymentRequest:
     agent_name: str
     model_deployment_name: str
     instructions: str
+    managed_identity_client_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -130,9 +135,7 @@ class FoundryAgentDeployment:
         project_client_factory: Callable[[str], Any] | None = None,
         prompt_agent_definition_factory: Callable[..., Any] | None = None,
     ) -> None:
-        self.project_client_factory = (
-            project_client_factory or _create_live_project_client
-        )
+        self.project_client_factory = project_client_factory
         self.prompt_agent_definition_factory = (
             prompt_agent_definition_factory or _create_prompt_agent_definition
         )
@@ -142,7 +145,15 @@ class FoundryAgentDeployment:
         request: FoundryAgentDeploymentRequest,
     ) -> FoundryAgentDeploymentResult:
         try:
-            project_client = self.project_client_factory(request.project_endpoint)
+            if self.project_client_factory is None:
+                project_client = _create_live_project_client(
+                    request.project_endpoint,
+                    request.managed_identity_client_id,
+                )
+            else:
+                project_client = self.project_client_factory(
+                    request.project_endpoint
+                )
         except Exception as exc:
             return FoundryAgentDeploymentResult.failure(
                 _category_for_exception(exc, "agent_provisioning_failed"),
@@ -216,14 +227,24 @@ def foundry_agent_deployment_sdk_available() -> bool:
         return False
 
 
-def _create_live_project_client(project_endpoint: str) -> Any:
-    from azure.ai.projects import AIProjectClient
-    from azure.identity import DefaultAzureCredential
-
-    return AIProjectClient(
-        endpoint=project_endpoint,
-        credential=DefaultAzureCredential(),
+def _create_live_project_client(
+    project_endpoint: str,
+    managed_identity_client_id: str | None = None,
+) -> Any:
+    project_client_class = _get_ai_project_client_class()
+    credential = FoundryCredentialFactory().create(
+        FoundryCredentialConfiguration(managed_identity_client_id)
     )
+    return project_client_class(
+        endpoint=project_endpoint,
+        credential=credential,
+    )
+
+
+def _get_ai_project_client_class():
+    from azure.ai.projects import AIProjectClient
+
+    return AIProjectClient
 
 
 def _create_prompt_agent_definition(**kwargs: str) -> Any:
@@ -264,6 +285,8 @@ def _category_for_exception(
     fallback: DeploymentCategory,
 ) -> DeploymentCategory:
     for current in _exception_chain(error):
+        if getattr(current, "category", None) == "sdk_unavailable":
+            return "sdk_unavailable"
         if _status_code(current) in {401, 403}:
             return "authentication_or_authorization_failed"
         name = type(current).__name__.lower()
