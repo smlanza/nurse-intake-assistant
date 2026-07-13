@@ -1,0 +1,20 @@
+[
+  {
+    "id": "urgent-red-flag",
+    "intakeText": "Fixed fictional evaluation scenario urgent-red-flag. A fictional caller reports chest pressure that began recently. All identity, birth-reference, and callback-reference details are explicitly fictional placeholders.",
+    "expectedUrgency": "Urgent",
+    "expectedIntakeStatus": "Complete"
+  },
+  {
+    "id": "routine-non-red-flag",
+    "intakeText": "Fixed fictional evaluation scenario routine-non-red-flag. A fictional caller requests a medication refill and reports no other symptoms. All identity, birth-reference, and callback-reference details are explicitly fictional placeholders.",
+    "expectedUrgency": "Routine",
+    "expectedIntakeStatus": "Complete"
+  },
+  {
+    "id": "incomplete-follow-up",
+    "intakeText": "Fixed fictional evaluation scenario incomplete-follow-up. A fictional caller reports a headache but provides no identifying, birth-reference, or callback-reference details.",
+    "expectedUrgency": "Routine",
+    "expectedIntakeStatus": "NeedsFollowUp"
+  }
+]

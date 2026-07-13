@@ -602,6 +602,63 @@ remove mandatory nurse review, or make the application production-ready.
 Restore all providers to their mock/offline defaults afterward. Cleanup of
 disposable Azure resources remains manual.
 
+## Fixed-Corpus Application Evaluation
+
+The one-case application smoke above validates a single guarded path. The
+fixed-corpus evaluation is a separate, explicit manual command that runs three
+committed fictional scenarios through the same verified Foundry Agent adapter
+and application-level text-intake pipeline. It checks an urgent red-flag case,
+a routine non-red-flag case, and an incomplete follow-up case in deterministic
+order without printing their intake text.
+
+Run its offline readiness check first:
+
+```bash
+python scripts/evaluate_foundry_agent_intake.py --check --json
+```
+
+Check mode validates the committed corpus, safe scenario IDs, required setting
+names, safe mock application posture, and SDK availability. It performs no
+Azure lookup, creates no verifier or invocation client, invokes no agent,
+processes no intake, saves no case, records no notification, and changes no
+application state. Missing optional local configuration may therefore produce
+a sanitized nonzero readiness result without changing mock defaults.
+
+After the standalone read-only immutable-version verification succeeds, an
+operator may explicitly run:
+
+```bash
+python scripts/evaluate_foundry_agent_intake.py \
+  --live \
+  --json \
+  --verify-agent-version \
+  --env-file .env.foundry-agent.local
+```
+
+Live evaluation requires `--verify-agent-version`. It verifies the configured
+immutable agent version, model deployment, and centralized
+`foundry-agent-intake-v1` instructions exactly once before creating the
+existing invocation adapter. Verification failure stops all scenario
+execution. Each scenario then uses the existing application route,
+deterministic urgency safeguards, notification suppression, pending nurse
+review, safe fallback behavior, and observed pre/post state-restoration check.
+Unconfirmed restoration stops later scenarios.
+
+The aggregate and per-scenario JSON contains only stable IDs, safe enums,
+booleans, counts, verification metadata, expected-field names, and static next
+steps. It excludes corpus text, extracted patient values, case IDs, prompts,
+raw agent output, exceptions, endpoints, agent/model identifiers, credentials,
+and resource identifiers. A safe fallback may report
+`application_safe=true`, but it remains an agent-quality failure, makes the
+scenario and aggregate evaluation unsuccessful, and returns a nonzero exit.
+
+This fixed fictional corpus is a narrow capstone validation aid, not a
+production clinical evaluation system. Human nurse review remains mandatory,
+notifications remain suppressed, and local providers must be restored to mock
+manually after live use. Disposable Azure resources must also be deleted
+manually after review. Passing the evaluation neither establishes clinical
+correctness nor makes the application production-ready.
+
 ## Foundry Agent Instruction Pack
 
 Before configuring the Azure AI Foundry Agent, print the versioned instruction

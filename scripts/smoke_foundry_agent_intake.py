@@ -206,6 +206,16 @@ class _ApplicationStateSnapshot:
     sms_notifications: tuple[object, ...]
 
 
+@dataclass(frozen=True)
+class ApplicationIntakeScenarioExecution:
+    result: ApplicationIntakeSmokeResult
+    invocation_attempted: bool
+    application_intake_attempted: bool
+    temporary_application_state_restored: bool
+    actual_urgency: str | None
+    expected_safe_output_fields_present: list[str]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.env_file is not None and not _load_env_file(args.env_file):
@@ -292,58 +302,18 @@ def main(argv: list[str] | None = None) -> int:
             verification_result=verification_result,
         )
 
-    tracked_agent = _InvocationTrackingAgent(agent)
-    state_before = _capture_application_state_safely()
-    application_intake_attempted = False
-    route_failure_category: SmokeCategory | None = None
-    try:
-        application_intake_attempted = True
-        route_result = _run_intake_route(tracked_agent)
-    except (HTTPException, RequestValidationError, ValidationError):
-        route_failure_category = "route_request_failed"
-        route_result = None
-    except Exception:
-        route_failure_category = "unexpected_error"
-        route_result = None
-
-    state_restored = _application_state_matches(state_before)
-    if route_failure_category is not None:
-        return _finish_live(
-            _empty_live_result(route_failure_category),
-            1,
-            verification_requested=verification_requested,
-            verification_result=verification_result,
-            invocation_attempted=tracked_agent.invocation_attempted,
-            application_intake_attempted=application_intake_attempted,
-            temporary_application_state_restored=state_restored,
-        )
-
-    route_values = _usable_route_result(route_result)
-    if route_values is None:
-        return _finish_live(
-            _empty_live_result("route_request_failed"),
-            1,
-            verification_requested=verification_requested,
-            verification_result=verification_result,
-            invocation_attempted=tracked_agent.invocation_attempted,
-            application_intake_attempted=application_intake_attempted,
-            temporary_application_state_restored=state_restored,
-        )
-    case, case_saved, handoff_note_present = route_values
-
-    result = _result_from_case(
-        case,
-        case_saved=case_saved,
-        handoff_note_present=handoff_note_present,
-    )
+    execution = run_foundry_agent_intake_scenario(agent)
+    result = execution.result
     return _finish_live(
         result,
         0 if result.ok else 1,
         verification_requested=verification_requested,
         verification_result=verification_result,
-        invocation_attempted=tracked_agent.invocation_attempted,
-        application_intake_attempted=application_intake_attempted,
-        temporary_application_state_restored=state_restored,
+        invocation_attempted=execution.invocation_attempted,
+        application_intake_attempted=execution.application_intake_attempted,
+        temporary_application_state_restored=(
+            execution.temporary_application_state_restored
+        ),
     )
 
 
@@ -551,15 +521,7 @@ def _live_result_payload(
         configured_agent_version_matched = None
         verification_sdk_available = None
 
-    expected_fields = [
-        field_name
-        for field_name, present in (
-            ("extraction", result.extraction_present),
-            ("urgency", result.urgency_present),
-            ("handoffNote", result.handoff_note_present),
-        )
-        if present
-    ]
+    expected_fields = _expected_safe_output_fields(result)
 
     payload.update(
         {
@@ -692,8 +654,109 @@ def _safe_extraction_present(case: Any) -> bool:
     )
 
 
-def _run_intake_route(agent: object) -> tuple[Any, bool, bool]:
-    return asyncio.run(_run_intake_route_async(agent))
+def _expected_safe_output_fields(
+    result: ApplicationIntakeSmokeResult,
+) -> list[str]:
+    return [
+        field_name
+        for field_name, present in (
+            ("extraction", result.extraction_present),
+            ("urgency", result.urgency_present),
+            ("handoffNote", result.handoff_note_present),
+        )
+        if present
+    ]
+
+
+def run_foundry_agent_intake_scenario(
+    agent: object,
+    *,
+    intake_text: str = FICTIONAL_INTAKE_TEXT,
+    source_system: str = "foundry-agent-application-smoke",
+) -> ApplicationIntakeScenarioExecution:
+    """Run one fictional intake through the existing application route safely."""
+
+    tracked_agent = _InvocationTrackingAgent(agent)
+    state_before = _capture_application_state_safely()
+    application_intake_attempted = False
+    route_failure_category: SmokeCategory | None = None
+    try:
+        application_intake_attempted = True
+        if (
+            intake_text == FICTIONAL_INTAKE_TEXT
+            and source_system == "foundry-agent-application-smoke"
+        ):
+            route_result = _run_intake_route(tracked_agent)
+        else:
+            route_result = _run_intake_route(
+                tracked_agent,
+                intake_text=intake_text,
+                source_system=source_system,
+            )
+    except (HTTPException, RequestValidationError, ValidationError):
+        route_failure_category = "route_request_failed"
+        route_result = None
+    except Exception:
+        route_failure_category = "unexpected_error"
+        route_result = None
+
+    state_restored = _application_state_matches(state_before)
+    if route_failure_category is not None:
+        result = _empty_live_result(route_failure_category)
+        return ApplicationIntakeScenarioExecution(
+            result=result,
+            invocation_attempted=tracked_agent.invocation_attempted,
+            application_intake_attempted=application_intake_attempted,
+            temporary_application_state_restored=state_restored,
+            actual_urgency=None,
+            expected_safe_output_fields_present=[],
+        )
+
+    route_values = _usable_route_result(route_result)
+    if route_values is None:
+        result = _empty_live_result("route_request_failed")
+        return ApplicationIntakeScenarioExecution(
+            result=result,
+            invocation_attempted=tracked_agent.invocation_attempted,
+            application_intake_attempted=application_intake_attempted,
+            temporary_application_state_restored=state_restored,
+            actual_urgency=None,
+            expected_safe_output_fields_present=[],
+        )
+
+    case, case_saved, handoff_note_present = route_values
+    result = _result_from_case(
+        case,
+        case_saved=case_saved,
+        handoff_note_present=handoff_note_present,
+    )
+    urgency = getattr(case, "urgency", None)
+    actual_urgency = (
+        urgency if urgency in {"Routine", "Urgent", "Unknown"} else None
+    )
+    return ApplicationIntakeScenarioExecution(
+        result=result,
+        invocation_attempted=tracked_agent.invocation_attempted,
+        application_intake_attempted=application_intake_attempted,
+        temporary_application_state_restored=state_restored,
+        actual_urgency=actual_urgency,
+        expected_safe_output_fields_present=_expected_safe_output_fields(result),
+    )
+
+
+def _run_intake_route(
+    agent: object,
+    *,
+    intake_text: str = FICTIONAL_INTAKE_TEXT,
+    source_system: str = "foundry-agent-application-smoke",
+) -> tuple[Any, bool, bool]:
+    return asyncio.run(
+        _run_intake_route_async(
+            agent,
+            intake_text=intake_text,
+            source_system=source_system,
+        )
+    )
 
 
 class _InvocationTrackingAgent:
@@ -725,7 +788,12 @@ def _usable_route_result(
     return case, case_saved, handoff_note_present
 
 
-async def _run_intake_route_async(agent: object) -> tuple[Any, bool, bool]:
+async def _run_intake_route_async(
+    agent: object,
+    *,
+    intake_text: str = FICTIONAL_INTAKE_TEXT,
+    source_system: str = "foundry-agent-application-smoke",
+) -> tuple[Any, bool, bool]:
     import src.app.routes.intake as intake_route
 
     repository = InMemoryCaseRepository()
@@ -740,8 +808,8 @@ async def _run_intake_route_async(agent: object) -> tuple[Any, bool, bool]:
         repository=repository,
     ):
         request = intake_route.TextIntakeRequest(
-            text=FICTIONAL_INTAKE_TEXT,
-            sourceSystem="foundry-agent-application-smoke",
+            text=intake_text,
+            sourceSystem=source_system,
         )
         case = await intake_route.create_text_intake(request)
         saved_case = await repository.get_by_id(case.id)
