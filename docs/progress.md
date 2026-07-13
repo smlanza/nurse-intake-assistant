@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 921 passed
+- 940 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
@@ -19,28 +19,48 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Added an explicit read-only Foundry prompt-agent version verification
-  boundary. It verifies the exact configured immutable agent name/version
-  response contract plus the configured model and centralized
-  `foundry-agent-intake-v1` instructions before later invocation.
-- `scripts/verify_foundry_agent.py --check --json` is fully offline and reports
-  only required setting names, SDK visibility, false side-effect flags, and
-  static next-step guidance. Explicit `--live --json` performs one read-only
-  `agents.get_version(...)` lookup and emits sanitized presence/match metadata.
-- Verification never creates or updates an agent version, creates a Responses
-  client, invokes a model, edits an environment file, or changes application
-  routing. Automated coverage uses injected fake SDK clients for success,
-  definition drift, missing versions, authentication/authorization failures,
-  malformed SDK responses, and sanitization.
-- No live Azure verification, provisioning, direct invocation, or
-  application-level smoke was run in this slice. Mock defaults, notification
-  behavior, manual environment/resource cleanup, mandatory nurse review, and
-  no-production-use constraints remain unchanged.
-- Manual live Foundry Agent smoke passed: `ok=true`, `category=success`, `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`; fields included `extraction`, `urgency`, and `handoffNote`.
+- Added optional `--verify-agent-version` gating to the existing
+  `scripts/smoke_foundry_agent_intake.py` application smoke. In explicit live
+  mode it reuses `FoundryAgentVerification` and the shared verification request
+  builder before constructing the lazy application agent or entering the
+  application intake pipeline.
+- Exact immutable name/version response contract, configured model deployment,
+  and centralized `foundry-agent-intake-v1` instruction drift now stop the
+  application smoke before any Responses client, model invocation, intake,
+  persistence, or notification work. Missing versions, authorization failures,
+  Azure lookup failures, SDK unavailability, and malformed verification results
+  retain sanitized verification-stage categories rather than being mislabeled
+  as invocation failures.
+- Gated check mode validates the additional model setting and existing SDK
+  readiness seam while reporting verification required, SDK visibility, zero
+  Azure lookup, zero invocation, zero application intake, and unchanged state.
+  The legacy check/live JSON remains unchanged when the option is absent; gated
+  output adds a nested verification section plus explicit stage, safe-field,
+  notification, fallback, and state-restoration facts.
+- Gated verification metadata is tri-state where the orchestrator cannot know
+  whether an SDK lookup occurred or a definition matched. Application paths
+  report temporary-state restoration from an observed pre/post comparison of
+  route globals, dependency overrides, the application repository, and
+  notification stores. Safe expected-field names are derived independently;
+  no field values or state contents are emitted.
+- Offline automated coverage uses injected fakes and made no Azure calls. The
+  precise verified baseline is 940 passed with the one existing
+  FastAPI/TestClient `StarletteDeprecationWarning`. The enhanced command was run
+  only with `--check`; no live Azure verification, provisioning, direct agent
+  invocation, or application-level smoke was run in this slice.
+- `AGENT_PROVIDER=mock` and all other mock defaults remain unchanged. Immutable
+  verification and application invocation remain separate, explicit manual
+  operations; the optional gate only orchestrates them for the manual
+  application smoke. Mandatory nurse review, notification suppression, manual
+  settings restoration/resource cleanup, and the no-production-clinical-use
+  posture remain unchanged.
+- Historical direct-agent evidence only: Manual live Foundry Agent smoke passed
+  in an earlier slice with `ok=true`, `category=success`,
+  `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`, and
+  fields `extraction`, `urgency`, and `handoffNote`. This is not evidence that
+  the new guarded application-level live smoke passed; no live command was run
+  for the current slice.
 - No live Azure behavior is claimed for `/demo` by default; `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse review remains mandatory.
-- Live Foundry-only deployment and read-only verification succeeded: AIServices account, project, and model provisioning were `Succeeded`; endpoint format was valid; Azure returned qualified `<account>/<project>`.
-- Verified model metadata: `gpt-5-mini`, version `2025-08-07`, format `OpenAI`, SKU `GlobalStandard`.
-- No prompt agent was created, no model inference ran, application behavior did not change, nurse review remains mandatory, and no production clinical claim is made.
 
 ## Current Resume Point
 
@@ -80,12 +100,10 @@ Do not claim as complete:
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Run the documented manual offline provisioning check,
-then explicit live provisioning against the verified disposable Foundry
-project. Review the sanitized result, set the resulting version manually, run
-the new offline and explicit read-only version verification, and only then run
-the separate existing fictional-data invocation and application-intake smokes.
-Do not redesign or recreate the infrastructure first.
+Recommended next move: Run the documented standalone read-only immutable-version
+verification, then run the explicit guarded application-level live smoke
+against the disposable verified Foundry project. Review the sanitized result
+before selecting the next Azure hosting or operational-integration slice.
 
 ## Current Working Local Pipeline
 
@@ -286,30 +304,38 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- The configured immutable Foundry prompt-agent version now has a standalone
-  read-only verification service and CLI. Exact definition matches succeed;
-  model/instruction drift, missing versions, malformed response contracts,
-  authentication/authorization failures, and other lookup failures return
-  explicit sanitized categories.
-- Offline `--check` makes no Azure call or client. Explicit `--live --json`
-  performs only `agents.get_version(...)`; it cannot create/update a version or
-  invoke the agent. Direct and application-level fictional-data smokes remain
-  separate manual operations.
+- The application-level Foundry Agent intake smoke now accepts the optional
+  `--verify-agent-version` gate and reuses the standalone immutable-version
+  service before any application or invocation client is created.
+- Gated offline `--check` validates setting names and SDK visibility while
+  making no Azure lookup, client, invocation, intake, case, notification, or
+  application-state change. Gated explicit `--live --json` proceeds into the
+  existing fixed-fictional-data application pipeline only after the exact
+  immutable name/version, model, and centralized instructions match.
+- Verification failure categories remain distinct from later invocation/output
+  categories. Definition drift, a missing version, authorization or Azure
+  request failure, SDK unavailability, and malformed verifier output all stop
+  before invocation and emit only sanitized static guidance.
+- Lookup, match, and SDK metadata use tri-state values when verification facts
+  are unknown. State-restoration output is based on captured pre/post
+  application evidence, and expected safe fields are reported independently.
 - Application-level intake readiness remains available through its dedicated
   JSON command and the legacy-formatted consolidated `--all` preflight.
 - The explicit fixed-fictional-data live smoke retains its exact sanitized JSON
-  contract, classifications, safe fallback, `PendingReview`, and suppressed
-  notification behavior while guaranteeing restoration of temporary in-process
-  application state on every exit path.
+  contract when the gate is absent. Gated output adds compatible verification
+  and stage metadata while retaining classifications, safe fallback,
+  `PendingReview`, suppressed notifications, and restoration of temporary
+  in-process application state on every exit path.
 - Idempotent prompt-agent provisioning still creates, reuses, or updates an
   immutable version without invoking it; direct agent and application-level
   invocation remain separate explicit manual operations.
-- The latest full suite is 921 passed with 1 existing
+- The latest full suite is 940 passed with 1 existing
   FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
   offline.
-- No live Azure command was run. Mock provider defaults, manual environment and
-  resource cleanup, mandatory nurse review, and no-production-use constraints
-  remain unchanged.
+- No live Azure command was run; only the enhanced offline/check command was
+  exercised. Mock provider defaults, separate explicit manual verification and
+  invocation boundaries, manual environment/resource cleanup, mandatory nurse
+  review, and no-production-use constraints remain unchanged.
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the

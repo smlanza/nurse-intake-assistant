@@ -103,6 +103,7 @@ def test_verify_confirms_exact_immutable_version_and_definition_read_only() -> N
     assert result.ok is True
     assert result.category == "success"
     assert result.agent_definition_matches is True
+    assert result.azure_lookup_attempted is True
     assert result.agent_invoked is False
     assert result.azure_mutation_made is False
     assert result.instruction_version == NURSE_INTAKE_AGENT_INSTRUCTION_VERSION
@@ -147,6 +148,7 @@ def test_verify_classifies_lookup_failures_with_sanitized_output(
     serialized = json.dumps(result.to_json_dict())
     assert result.ok is False
     assert result.category == expected_category
+    assert result.azure_lookup_attempted is True
     assert result.agent_invoked is False
     assert result.azure_mutation_made is False
     for unsafe in (
@@ -155,6 +157,26 @@ def test_verify_classifies_lookup_failures_with_sanitized_output(
         "patient prompt",
         "Traceback",
     ):
+        assert unsafe not in serialized
+
+
+def test_verify_reports_sdk_failure_before_version_lookup() -> None:
+    from src.app.services.foundry_agent_verification import FoundryAgentVerification
+
+    def unavailable_client_factory(endpoint: str) -> None:
+        raise ModuleNotFoundError(
+            "Bearer secret-token https://secret.example raw prompt Traceback"
+        )
+
+    result = FoundryAgentVerification(
+        project_client_factory=unavailable_client_factory
+    ).verify(_request())
+
+    serialized = json.dumps(result.to_json_dict())
+    assert result.ok is False
+    assert result.category == "sdk_unavailable"
+    assert result.azure_lookup_attempted is False
+    for unsafe in ("secret-token", "secret.example", "raw prompt", "Traceback"):
         assert unsafe not in serialized
 
 

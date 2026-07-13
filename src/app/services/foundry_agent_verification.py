@@ -4,6 +4,7 @@ from typing import Any, Callable, Literal
 
 from src.app.services.nurse_intake_agent_instructions import (
     NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
+    build_nurse_intake_agent_instructions,
 )
 
 
@@ -35,6 +36,20 @@ class FoundryAgentVerificationRequest:
     instructions: str
 
 
+def build_foundry_agent_verification_request(
+    settings: Any,
+) -> FoundryAgentVerificationRequest:
+    """Build the shared immutable-version verification request from settings."""
+
+    return FoundryAgentVerificationRequest(
+        project_endpoint=settings.azure_ai_foundry_agent_project_endpoint,
+        agent_name=settings.azure_ai_foundry_agent_name,
+        agent_version=settings.azure_ai_foundry_agent_version,
+        model_deployment_name=settings.azure_ai_foundry_model_deployment_name,
+        instructions=build_nurse_intake_agent_instructions(),
+    )
+
+
 @dataclass(frozen=True)
 class FoundryAgentVerificationResult:
     ok: bool
@@ -47,6 +62,7 @@ class FoundryAgentVerificationResult:
     model_deployment_name_present: bool
     instruction_version: str
     agent_definition_matches: bool
+    azure_lookup_attempted: bool
     agent_invoked: bool
     azure_mutation_made: bool
     recommended_next_step: str
@@ -64,6 +80,7 @@ class FoundryAgentVerificationResult:
             model_deployment_name_present=True,
             instruction_version=NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
             agent_definition_matches=True,
+            azure_lookup_attempted=True,
             agent_invoked=False,
             azure_mutation_made=False,
             recommended_next_step=VERIFICATION_NEXT_STEP,
@@ -77,6 +94,7 @@ class FoundryAgentVerificationResult:
         agent_name_present: bool = False,
         agent_version_present: bool = False,
         model_deployment_name_present: bool = False,
+        azure_lookup_attempted: bool = False,
     ) -> "FoundryAgentVerificationResult":
         return cls(
             ok=False,
@@ -89,6 +107,7 @@ class FoundryAgentVerificationResult:
             model_deployment_name_present=model_deployment_name_present,
             instruction_version=NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
             agent_definition_matches=False,
+            azure_lookup_attempted=azure_lookup_attempted,
             agent_invoked=False,
             azure_mutation_made=False,
             recommended_next_step=VERIFICATION_NEXT_STEP,
@@ -133,8 +152,10 @@ class FoundryAgentVerification:
             "agent_version_present": bool(request.agent_version),
             "model_deployment_name_present": bool(request.model_deployment_name),
         }
+        azure_lookup_attempted = False
         try:
             project_client = self.project_client_factory(request.project_endpoint)
+            azure_lookup_attempted = True
             remote_version = project_client.agents.get_version(
                 request.agent_name,
                 request.agent_version,
@@ -142,18 +163,21 @@ class FoundryAgentVerification:
         except Exception as exc:
             return FoundryAgentVerificationResult.failure(
                 _category_for_exception(exc),
+                azure_lookup_attempted=azure_lookup_attempted,
                 **presence,
             )
 
         if not _remote_contract_is_valid(remote_version, request):
             return FoundryAgentVerificationResult.failure(
                 "response_contract_invalid",
+                azure_lookup_attempted=True,
                 **presence,
             )
 
         if not _definition_matches(remote_version, request):
             return FoundryAgentVerificationResult.failure(
                 "definition_mismatch",
+                azure_lookup_attempted=True,
                 **presence,
             )
 

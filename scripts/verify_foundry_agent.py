@@ -12,13 +12,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.app.config.settings import AppSettings
 from src.app.services.foundry_agent_verification import (
     FoundryAgentVerification,
-    FoundryAgentVerificationRequest,
     FoundryAgentVerificationResult,
+    build_foundry_agent_verification_request,
     foundry_agent_verification_sdk_available,
 )
 from src.app.services.nurse_intake_agent_instructions import (
     NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
-    build_nurse_intake_agent_instructions,
 )
 
 
@@ -75,13 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    request = FoundryAgentVerificationRequest(
-        project_endpoint=settings.azure_ai_foundry_agent_project_endpoint,
-        agent_name=settings.azure_ai_foundry_agent_name,
-        agent_version=settings.azure_ai_foundry_agent_version,
-        model_deployment_name=settings.azure_ai_foundry_model_deployment_name,
-        instructions=build_nurse_intake_agent_instructions(),
-    )
+    request = build_foundry_agent_verification_request(settings)
     result = _create_verification_service().verify(request)
     _print_json(result.to_json_dict())
     return 0 if result.ok else 1

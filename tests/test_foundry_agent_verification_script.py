@@ -86,6 +86,7 @@ def test_live_json_verifies_without_mutation_or_invocation(
     assert request.model_deployment_name == "gpt-demo"
     assert "foundry-agent-intake-v1" in request.instructions
     assert payload["agent_definition_matches"] is True
+    assert "azure_lookup_attempted" not in payload
     assert payload["agent_invoked"] is False
     assert payload["azure_mutation_made"] is False
     for unsafe in (

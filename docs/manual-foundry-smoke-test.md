@@ -248,6 +248,8 @@ python scripts/deploy_foundry_agent.py --live --json
 python scripts/verify_foundry_agent.py --check --json
 python scripts/verify_foundry_agent.py --live --json
 python scripts/smoke_foundry_agent.py --live --json
+python scripts/smoke_foundry_agent_intake.py --check --json --verify-agent-version
+python scripts/smoke_foundry_agent_intake.py --live --json --verify-agent-version
 ```
 
 These are separate operator-controlled boundaries: read-only
@@ -341,7 +343,8 @@ information, or patient data.
    endpoint, agent name/version, model name, instructions, credential, or raw
    SDK response.
 
-10. Invoke through the existing, separate fictional-data smoke boundary:
+10. Optionally invoke through the existing, separate direct-agent
+    fictional-data smoke boundary:
 
    ```bash
    python scripts/smoke_foundry_agent.py --live --json
@@ -351,11 +354,30 @@ information, or patient data.
    `agent_attempted=true`, `agent_output_valid=true`, and
    `fallback_used=false`.
 
-12. Restore `AGENT_PROVIDER=mock`, `APP_MODE=mock`, `AI_PROVIDER=mock`,
+12. Run the guarded application-level check and explicit live smoke. The check
+    validates setting names and SDK visibility but creates no client and makes
+    no Azure lookup or model/application invocation. The live command first
+    reuses the same read-only immutable-version verifier; only an exact match
+    permits the fixed fictional intake to enter the application pipeline:
+
+    ```bash
+    python scripts/smoke_foundry_agent_intake.py --check --json --verify-agent-version
+    python scripts/smoke_foundry_agent_intake.py --live --json --verify-agent-version
+    ```
+
+13. Inspect only the sanitized JSON. Confirm the verification section reports
+    that the gate was requested, the lookup was attempted, and the immutable
+    version matched before `application_intake_attempted=true` and
+    `invocation_attempted=true`. Definition drift, a missing version,
+    authentication/authorization failure, Azure request failure, or malformed
+    verification response stops before either application intake or model
+    invocation.
+
+14. Restore `AGENT_PROVIDER=mock`, `APP_MODE=mock`, `AI_PROVIDER=mock`,
     `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and `SPEECH_PROVIDER=mock`
     after validation.
 
-13. After review, manually delete the disposable resource group when it is no
+15. After review, manually delete the disposable resource group when it is no
     longer needed:
 
     ```bash
@@ -375,6 +397,32 @@ AGENT_PROVIDER=mock
 ```
 
 ## Application-Level Foundry Agent Text-Intake Smoke
+
+Use this guarded sequence for an operator-controlled application smoke:
+
+1. Deploy or reuse disposable Foundry infrastructure through the existing
+   Foundry-only deployment boundary.
+2. Provision or reuse the immutable prompt-agent version through
+   `deploy_foundry_agent.py`.
+3. Manually configure the exact agent name, agent version, project endpoint,
+   and model deployment in the existing ignored `.env.foundry-agent.local`
+   file; no script edits it.
+4. Run `verify_foundry_agent.py --live --json` for the standalone read-only
+   exact-version verification.
+5. Run `smoke_foundry_agent_intake.py --live --json
+   --verify-agent-version` for the guarded application-level smoke.
+6. Inspect only the sanitized verification and application-stage output.
+7. Restore `AGENT_PROVIDER=mock` and the other mock application/provider
+   settings.
+8. Manually clean up the disposable resources after review.
+
+The gate prevents agent-client creation and application intake when
+exact-version verification fails. It does not run during application startup
+or ordinary `/intake/text` requests, establish clinical correctness, remove
+mandatory nurse review, or make the application production-ready. The gate is
+read-only and runs before invocation; it creates or updates no agent version.
+The smoke edits no environment file, uses only fixed fictional data, and keeps
+notifications suppressed.
 
 The Foundry workflow has five deliberately separate operator-controlled
 boundaries:
@@ -439,6 +487,31 @@ The ignored local environment file must also contain the verified Foundry
 Agent project endpoint, agent name, and agent version. Update it manually; the
 script never edits environment files.
 
+To validate readiness for the guarded sequence, include the explicit gate:
+
+```bash
+python scripts/smoke_foundry_agent_intake.py \
+  --check \
+  --json \
+  --verify-agent-version
+```
+
+This gated check also requires
+`AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME` and verifies the existing immutable
+version SDK surface through the offline readiness seam. Its sanitized result
+states that verification is required while confirming that no Azure lookup,
+Responses client, model invocation, or application intake occurred. It does
+not change application state, edit an environment file, or provision an agent.
+
+Next, run the standalone read-only immutable-version verification:
+
+```bash
+python scripts/verify_foundry_agent.py \
+  --live \
+  --json \
+  --env-file .env.foundry-agent.local
+```
+
 After check mode reports readiness, a later operator may explicitly run:
 
 ```bash
@@ -451,12 +524,44 @@ Foundry Agent adapter, and exercises the existing application route in-process.
 It refuses to run with Cosmos, real email/SMS providers, or unsuppressed
 notifications. It does not deploy infrastructure or create an agent version.
 
+For the guarded live path, run:
+
+```bash
+python scripts/smoke_foundry_agent_intake.py \
+  --live \
+  --json \
+  --verify-agent-version \
+  --env-file .env.foundry-agent.local
+```
+
+The option calls the existing `FoundryAgentVerification` boundary first. That
+boundary performs the read-only `agents.get_version(...)` lookup and compares
+the exact configured agent name/version response contract, model deployment,
+and centralized `foundry-agent-intake-v1` instructions. The application agent
+and its lazy Responses invocation client are not created when verification
+fails. An exact match allows the same fixed fictional intake and existing
+application pipeline to proceed; no verifier comparison logic or prompt
+definition is duplicated in the smoke script. The verification gate is
+read-only: it never creates or updates an agent or agent version, and it runs
+before the invocation client is created.
+
 The sanitized live JSON contains only operational booleans/status categories:
 agent attempted, agent output valid, fallback used, case saved, intake/review
 status, urgency/handoff/processing-trace presence, and notification suppression.
 It never prints the case identifier, fictional demographics or callback data,
 raw intake, symptoms, summary, prompt/instructions, raw agent output, endpoint,
 credential/token, SDK response, full exception, or stack trace.
+
+With the gate enabled, the compatible result adds a `verification` section and
+stage metadata for version lookup, invocation, application intake, temporary
+state restoration, and expected safe output-field presence. Lookup, match, and
+SDK fields use `true`, `false`, or `null` so the smoke does not claim facts the
+verifier did not establish. Temporary-state restoration is reported from an
+observed pre/post comparison of the application route, dependency overrides,
+application repository, and notification stores. Expected field names are
+reported independently without their values. Verification failures retain a
+stage-appropriate category and are never reported as invocation failures
+because invocation did not occur.
 
 `category=success` requires every application-level postcondition: the route
 completed successfully; the agent was attempted; agent output was valid; no
@@ -488,11 +593,14 @@ as `response_contract_invalid`. The existing fallback and deterministic
 red-flag rules are not bypassed.
 
 No live application-level smoke was run for this implementation slice. Do not
-claim success until an operator runs the explicit live command with fictional
-data and reviews its sanitized JSON result. Restore all providers to their
-mock/offline defaults afterward. Human nurse review remains mandatory, cleanup
-of disposable Azure resources remains manual, and no production clinical
-readiness is claimed.
+claim success until an operator runs the explicit guarded live command with
+fictional data and reviews its sanitized JSON result. The gate prevents
+application invocation when the configured immutable definition is missing,
+unverifiable, or has drifted. It does not run during application startup,
+`/demo`, or ordinary intake requests; it does not verify clinical correctness,
+remove mandatory nurse review, or make the application production-ready.
+Restore all providers to their mock/offline defaults afterward. Cleanup of
+disposable Azure resources remains manual.
 
 ## Foundry Agent Instruction Pack
 

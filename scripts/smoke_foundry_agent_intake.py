@@ -4,9 +4,9 @@ import json
 import os
 import sys
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Iterator, Literal
+from typing import Any, Iterator, Literal, cast
 
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
@@ -20,6 +20,12 @@ if str(PROJECT_ROOT) not in sys.path:
 from src.app.config.settings import AppSettings
 from src.app.services.case_processing_service import CaseProcessingService
 from src.app.services.case_repository import InMemoryCaseRepository
+from src.app.services.foundry_agent_verification import (
+    FoundryAgentVerification,
+    FoundryAgentVerificationResult,
+    build_foundry_agent_verification_request,
+    foundry_agent_verification_sdk_available,
+)
 from src.app.services.mock_ai_service import MockAiService
 from src.app.services.nurse_handoff_note_formatter import NurseHandoffNoteFormatter
 from src.app.services.nurse_intake_agent_factory import create_nurse_intake_agent
@@ -41,6 +47,12 @@ REQUIRED_SETTINGS = (
     ("AZURE_AI_FOUNDRY_AGENT_NAME", "azure_ai_foundry_agent_name"),
     ("AZURE_AI_FOUNDRY_AGENT_VERSION", "azure_ai_foundry_agent_version"),
 )
+VERIFICATION_REQUIRED_SETTINGS = REQUIRED_SETTINGS + (
+    (
+        "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+        "azure_ai_foundry_model_deployment_name",
+    ),
+)
 SAFE_MESSAGES = {
     "success": "Application-level Foundry Agent intake smoke succeeded.",
     "missing_configuration": "Required Foundry Agent configuration is missing.",
@@ -56,6 +68,14 @@ SAFE_MESSAGES = {
         "The application result did not satisfy the smoke success contract."
     ),
     "unexpected_error": "The application-level smoke failed unexpectedly.",
+    "sdk_unavailable": "Foundry Agent verification SDK support is unavailable.",
+    "authentication_or_authorization_failed": (
+        "Foundry Agent version verification was not authorized."
+    ),
+    "agent_version_not_found": "The configured Foundry Agent version was not found.",
+    "definition_mismatch": "The configured Foundry Agent definition did not match.",
+    "agent_verification_failed": "Foundry Agent version verification failed.",
+    "azure_request_failed": "The Azure Foundry Agent verification request failed.",
 }
 SAFE_NEXT_STEPS = {
     "success": "Review the sanitized result, then restore AGENT_PROVIDER=mock.",
@@ -72,7 +92,38 @@ SAFE_NEXT_STEPS = {
         "Review the application processing-trace and nurse-review boundaries."
     ),
     "unexpected_error": "Review the offline-safe setup before retrying manually.",
+    "sdk_unavailable": "Install the optional Foundry Agent SDK before retrying.",
+    "authentication_or_authorization_failed": (
+        "Review Foundry access, then rerun read-only verification."
+    ),
+    "agent_version_not_found": (
+        "Set the exact immutable version, then rerun read-only verification."
+    ),
+    "definition_mismatch": (
+        "Provision or select the intended immutable definition, then verify again."
+    ),
+    "agent_verification_failed": (
+        "Review Foundry readiness, then rerun read-only verification."
+    ),
+    "azure_request_failed": (
+        "Review Foundry readiness, then rerun read-only verification."
+    ),
 }
+
+VERIFICATION_GATE_FAILURE_MESSAGE = (
+    "Immutable Foundry Agent version verification did not succeed."
+)
+VERIFICATION_GATE_NEXT_STEP = (
+    "Resolve the sanitized verification category and rerun the read-only gate "
+    "before application invocation."
+)
+VERIFICATION_CHECK_SUCCESS_MESSAGE = (
+    "Guarded application smoke readiness passed; immutable verification is "
+    "required before invocation."
+)
+VERIFICATION_CHECK_NEXT_STEP = (
+    "Run the explicit live guarded smoke only after reviewing this offline result."
+)
 
 
 SmokeCategory = Literal[
@@ -84,6 +135,12 @@ SmokeCategory = Literal[
     "safe_fallback_used",
     "response_contract_invalid",
     "unexpected_error",
+    "sdk_unavailable",
+    "authentication_or_authorization_failed",
+    "agent_version_not_found",
+    "definition_mismatch",
+    "agent_verification_failed",
+    "azure_request_failed",
 ]
 
 
@@ -104,6 +161,7 @@ class ApplicationIntakeSmokeResult:
     processing_trace_present: bool
     notifications_suppressed: bool
     recommended_next_step: str
+    extraction_present: bool = False
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -137,49 +195,140 @@ class FoundryAgentIntakeReadiness:
     unsafe_settings: list[str]
 
 
+@dataclass(frozen=True)
+class _ApplicationStateSnapshot:
+    route_service: object
+    route_repository: object
+    dependency_overrides_object: object
+    dependency_override_values: dict[object, object]
+    application_cases: tuple[object, ...]
+    email_notifications: tuple[object, ...]
+    sms_notifications: tuple[object, ...]
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     if args.env_file is not None and not _load_env_file(args.env_file):
         return 2
 
     settings = AppSettings()
-    readiness = build_foundry_agent_intake_readiness(settings)
+    verification_requested = args.verify_agent_version
+    readiness = build_foundry_agent_intake_readiness(
+        settings,
+        require_agent_version_verification=verification_requested,
+    )
 
     if args.check:
-        payload = _check_result(readiness)
+        verification_sdk_available = (
+            foundry_agent_verification_sdk_available()
+            if verification_requested
+            else None
+        )
+        payload = _check_result(
+            readiness,
+            verification_requested=verification_requested,
+            verification_sdk_available=verification_sdk_available,
+        )
         _print_json(payload)
         return 0 if payload["ready"] else 2
 
     if readiness.required_settings_missing:
-        _print_json(_empty_live_result("missing_configuration").to_json_dict())
-        return 2
-    if readiness.unsafe_settings:
-        _print_json(
-            _empty_live_result(
-                "unsafe_application_configuration"
-            ).to_json_dict()
+        return _finish_live(
+            _empty_live_result("missing_configuration"),
+            2,
+            verification_requested=verification_requested,
+            verification_category="missing_configuration",
         )
-        return 2
+    if readiness.unsafe_settings:
+        return _finish_live(
+            _empty_live_result("unsafe_application_configuration"),
+            2,
+            verification_requested=verification_requested,
+            verification_category="unsafe_application_configuration",
+        )
+
+    verification_result: FoundryAgentVerificationResult | None = None
+    if verification_requested:
+        try:
+            candidate = _create_verification_service().verify(
+                build_foundry_agent_verification_request(settings)
+            )
+        except Exception:
+            return _finish_live(
+                _verification_gate_failure_result("agent_verification_failed"),
+                1,
+                verification_requested=True,
+                verification_category="agent_verification_failed",
+                azure_lookup_attempted=None,
+            )
+        if not isinstance(candidate, FoundryAgentVerificationResult):
+            return _finish_live(
+                _verification_gate_failure_result("response_contract_invalid"),
+                1,
+                verification_requested=True,
+                verification_category="response_contract_invalid",
+                azure_lookup_attempted=None,
+            )
+        verification_result = candidate
+        if not verification_result.ok:
+            gate_category = _verification_gate_category(
+                verification_result.category
+            )
+            return _finish_live(
+                _verification_gate_failure_result(gate_category),
+                1,
+                verification_requested=True,
+                verification_result=verification_result,
+                verification_category=gate_category,
+            )
 
     try:
         agent = _create_live_agent(settings)
     except Exception:
-        _print_json(_empty_live_result("unexpected_error").to_json_dict())
-        return 1
+        return _finish_live(
+            _empty_live_result("unexpected_error"),
+            1,
+            verification_requested=verification_requested,
+            verification_result=verification_result,
+        )
 
+    tracked_agent = _InvocationTrackingAgent(agent)
+    state_before = _capture_application_state_safely()
+    application_intake_attempted = False
+    route_failure_category: SmokeCategory | None = None
     try:
-        route_result = _run_intake_route(agent)
+        application_intake_attempted = True
+        route_result = _run_intake_route(tracked_agent)
     except (HTTPException, RequestValidationError, ValidationError):
-        _print_json(_empty_live_result("route_request_failed").to_json_dict())
-        return 1
+        route_failure_category = "route_request_failed"
+        route_result = None
     except Exception:
-        _print_json(_empty_live_result("unexpected_error").to_json_dict())
-        return 1
+        route_failure_category = "unexpected_error"
+        route_result = None
+
+    state_restored = _application_state_matches(state_before)
+    if route_failure_category is not None:
+        return _finish_live(
+            _empty_live_result(route_failure_category),
+            1,
+            verification_requested=verification_requested,
+            verification_result=verification_result,
+            invocation_attempted=tracked_agent.invocation_attempted,
+            application_intake_attempted=application_intake_attempted,
+            temporary_application_state_restored=state_restored,
+        )
 
     route_values = _usable_route_result(route_result)
     if route_values is None:
-        _print_json(_empty_live_result("route_request_failed").to_json_dict())
-        return 1
+        return _finish_live(
+            _empty_live_result("route_request_failed"),
+            1,
+            verification_requested=verification_requested,
+            verification_result=verification_result,
+            invocation_attempted=tracked_agent.invocation_attempted,
+            application_intake_attempted=application_intake_attempted,
+            temporary_application_state_restored=state_restored,
+        )
     case, case_saved, handoff_note_present = route_values
 
     result = _result_from_case(
@@ -187,8 +336,15 @@ def main(argv: list[str] | None = None) -> int:
         case_saved=case_saved,
         handoff_note_present=handoff_note_present,
     )
-    _print_json(result.to_json_dict())
-    return 0 if result.ok else 1
+    return _finish_live(
+        result,
+        0 if result.ok else 1,
+        verification_requested=verification_requested,
+        verification_result=verification_result,
+        invocation_attempted=tracked_agent.invocation_attempted,
+        application_intake_attempted=application_intake_attempted,
+        temporary_application_state_restored=state_restored,
+    )
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -218,6 +374,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--env-file",
         help="Load KEY=value settings for this process; existing environment wins.",
     )
+    parser.add_argument(
+        "--verify-agent-version",
+        action="store_true",
+        help=(
+            "Require read-only verification of the configured immutable agent "
+            "version before live application intake."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.live and not args.json:
         parser.error("--live requires --json")
@@ -226,10 +390,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def build_foundry_agent_intake_readiness(
     settings: Any,
+    *,
+    require_agent_version_verification: bool = False,
 ) -> FoundryAgentIntakeReadiness:
     """Return sanitized, side-effect-free application smoke readiness."""
 
-    missing = _missing_configuration(settings)
+    missing = _missing_configuration(
+        settings,
+        require_agent_version_verification=require_agent_version_verification,
+    )
     unsafe = _unsafe_application_settings(settings)
     if missing:
         category = "missing_configuration"
@@ -247,16 +416,38 @@ def build_foundry_agent_intake_readiness(
 
 def _check_result(
     readiness: FoundryAgentIntakeReadiness,
+    *,
+    verification_requested: bool = False,
+    verification_sdk_available: bool | None = None,
 ) -> dict[str, object]:
-    return {
-        "ok": readiness.ready,
-        "ready": readiness.ready,
+    sdk_ready = (
+        not verification_requested or verification_sdk_available is True
+    )
+    ready = readiness.ready and sdk_ready
+    category = (
+        readiness.category
+        if not readiness.ready
+        else "sdk_unavailable"
+        if not sdk_ready
+        else "success"
+    )
+    payload: dict[str, object] = {
+        "ok": ready,
+        "ready": ready,
         "mode": "check",
-        "category": readiness.category,
-        "message": SAFE_MESSAGES[readiness.category],
+        "category": category,
+        "message": (
+            VERIFICATION_CHECK_SUCCESS_MESSAGE
+            if verification_requested and ready
+            else SAFE_MESSAGES[category]
+        ),
         "required_settings_present": [
             setting_name
-            for setting_name, _ in REQUIRED_SETTINGS
+            for setting_name, _ in (
+                VERIFICATION_REQUIRED_SETTINGS
+                if verification_requested
+                else REQUIRED_SETTINGS
+            )
             if setting_name not in readiness.required_settings_missing
         ],
         "required_settings_missing": readiness.required_settings_missing,
@@ -266,8 +457,29 @@ def _check_result(
         "case_saved": False,
         "notifications_recorded": False,
         "azure_call_made": False,
-        "recommended_next_step": SAFE_NEXT_STEPS[readiness.category],
+        "recommended_next_step": (
+            VERIFICATION_CHECK_NEXT_STEP
+            if verification_requested and ready
+            else SAFE_NEXT_STEPS[category]
+        ),
     }
+    if verification_requested:
+        payload.update(
+            {
+                "verification": {
+                    "requested": True,
+                    "azure_lookup_attempted": False,
+                    "configured_agent_version_matched": None,
+                    "category": "not_attempted",
+                    "sdk_available": verification_sdk_available,
+                },
+                "invocation_attempted": False,
+                "application_intake_attempted": False,
+                "temporary_application_state_restored": True,
+                "expected_safe_output_fields_present": [],
+            }
+        )
+    return payload
 
 
 def _empty_live_result(category: SmokeCategory) -> ApplicationIntakeSmokeResult:
@@ -288,6 +500,103 @@ def _empty_live_result(category: SmokeCategory) -> ApplicationIntakeSmokeResult:
         notifications_suppressed=False,
         recommended_next_step=SAFE_NEXT_STEPS[category],
     )
+
+
+def _verification_gate_failure_result(
+    category: SmokeCategory,
+) -> ApplicationIntakeSmokeResult:
+    return replace(
+        _empty_live_result(category),
+        message=VERIFICATION_GATE_FAILURE_MESSAGE,
+        recommended_next_step=VERIFICATION_GATE_NEXT_STEP,
+    )
+
+
+def _finish_live(
+    result: ApplicationIntakeSmokeResult,
+    exit_code: int,
+    **payload_options: Any,
+) -> int:
+    _print_json(_live_result_payload(result, **payload_options))
+    return exit_code
+
+
+def _live_result_payload(
+    result: ApplicationIntakeSmokeResult,
+    *,
+    verification_requested: bool,
+    verification_result: FoundryAgentVerificationResult | None = None,
+    verification_category: str | None = None,
+    azure_lookup_attempted: bool | None = False,
+    invocation_attempted: bool = False,
+    application_intake_attempted: bool = False,
+    temporary_application_state_restored: bool = True,
+) -> dict[str, object]:
+    payload = result.to_json_dict()
+    if not verification_requested:
+        return payload
+
+    if verification_result is not None:
+        verification_category = verification_category or _verification_gate_category(
+            verification_result.category
+        )
+        azure_lookup_attempted = verification_result.azure_lookup_attempted
+        configured_agent_version_matched = _verification_match_status(
+            verification_result
+        )
+        verification_sdk_available: bool | None = (
+            verification_result.category != "sdk_unavailable"
+        )
+    else:
+        configured_agent_version_matched = None
+        verification_sdk_available = None
+
+    expected_fields = [
+        field_name
+        for field_name, present in (
+            ("extraction", result.extraction_present),
+            ("urgency", result.urgency_present),
+            ("handoffNote", result.handoff_note_present),
+        )
+        if present
+    ]
+
+    payload.update(
+        {
+            "verification": {
+                "requested": True,
+                "azure_lookup_attempted": azure_lookup_attempted,
+                "configured_agent_version_matched": (
+                    configured_agent_version_matched
+                ),
+                "category": verification_category or "not_attempted",
+                "sdk_available": verification_sdk_available,
+            },
+            "invocation_attempted": invocation_attempted,
+            "application_intake_attempted": application_intake_attempted,
+            "temporary_application_state_restored": (
+                temporary_application_state_restored
+            ),
+            "expected_safe_output_fields_present": expected_fields,
+        }
+    )
+    return payload
+
+
+def _verification_gate_category(category: str) -> SmokeCategory:
+    if category == "agent_verification_failed":
+        return "azure_request_failed"
+    return cast(SmokeCategory, category)
+
+
+def _verification_match_status(
+    result: FoundryAgentVerificationResult,
+) -> bool | None:
+    if result.ok and result.agent_definition_matches:
+        return True
+    if result.category in {"definition_mismatch", "agent_version_not_found"}:
+        return False
+    return None
 
 
 def _result_from_case(
@@ -325,6 +634,7 @@ def _result_from_case(
         "Urgent",
         "Unknown",
     }
+    extraction_present = _safe_extraction_present(case)
     safe_application_postconditions = (
         case_saved is True
         and intake_status in {"Complete", "NeedsFollowUp"}
@@ -367,11 +677,36 @@ def _result_from_case(
         processing_trace_present=processing_trace_present,
         notifications_suppressed=notifications_suppressed,
         recommended_next_step=SAFE_NEXT_STEPS[category],
+        extraction_present=extraction_present,
+    )
+
+
+def _safe_extraction_present(case: Any) -> bool:
+    summary = getattr(case, "summary", None)
+    symptoms = getattr(case, "symptoms", None)
+    return (
+        getattr(case, "patient", None) is not None
+        and isinstance(summary, str)
+        and bool(summary.strip())
+        and isinstance(symptoms, list)
     )
 
 
 def _run_intake_route(agent: object) -> tuple[Any, bool, bool]:
     return asyncio.run(_run_intake_route_async(agent))
+
+
+class _InvocationTrackingAgent:
+    def __init__(self, agent: object) -> None:
+        self._agent = agent
+        self.invocation_attempted = False
+
+    async def analyze_intake(self, raw_text: str) -> Any:
+        self.invocation_attempted = True
+        return await self._agent.analyze_intake(raw_text)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._agent, name)
 
 
 def _usable_route_result(
@@ -443,9 +778,73 @@ def _create_live_agent(settings: AppSettings) -> object:
     return create_nurse_intake_agent(settings)
 
 
-def _missing_configuration(settings: Any) -> list[str]:
+def _create_verification_service() -> FoundryAgentVerification:
+    return FoundryAgentVerification()
+
+
+def _capture_application_state_safely() -> _ApplicationStateSnapshot | None:
+    try:
+        return _capture_application_state()
+    except Exception:
+        return None
+
+
+def _capture_application_state() -> _ApplicationStateSnapshot:
+    from src.app.dependencies import (
+        case_repository as application_repository,
+        email_notification_sender,
+        sms_notification_sender,
+    )
+    from src.app.main import app
+    import src.app.routes.intake as intake_route
+
+    return _ApplicationStateSnapshot(
+        route_service=intake_route.case_processing_service,
+        route_repository=intake_route.case_repository,
+        dependency_overrides_object=app.dependency_overrides,
+        dependency_override_values=dict(app.dependency_overrides),
+        application_cases=tuple(asyncio.run(application_repository.list_cases())),
+        email_notifications=tuple(
+            getattr(email_notification_sender, "sent_notifications", ())
+        ),
+        sms_notifications=tuple(
+            getattr(sms_notification_sender, "sent_notifications", ())
+        ),
+    )
+
+
+def _application_state_matches(
+    before: _ApplicationStateSnapshot | None,
+) -> bool:
+    if before is None:
+        return False
+    try:
+        after = _capture_application_state()
+    except Exception:
+        return False
+    return (
+        after.route_service is before.route_service
+        and after.route_repository is before.route_repository
+        and after.dependency_overrides_object is before.dependency_overrides_object
+        and after.dependency_override_values == before.dependency_override_values
+        and after.application_cases == before.application_cases
+        and after.email_notifications == before.email_notifications
+        and after.sms_notifications == before.sms_notifications
+    )
+
+
+def _missing_configuration(
+    settings: Any,
+    *,
+    require_agent_version_verification: bool = False,
+) -> list[str]:
     missing: list[str] = []
-    for setting_name, attribute_name in REQUIRED_SETTINGS:
+    required_settings = (
+        VERIFICATION_REQUIRED_SETTINGS
+        if require_agent_version_verification
+        else REQUIRED_SETTINGS
+    )
+    for setting_name, attribute_name in required_settings:
         value = getattr(settings, attribute_name, None)
         if setting_name == "AGENT_PROVIDER":
             if value not in {"foundry", "foundry-agent"}:
