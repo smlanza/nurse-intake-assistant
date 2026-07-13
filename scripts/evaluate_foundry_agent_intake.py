@@ -22,6 +22,14 @@ from src.app.services.foundry_agent_verification import (
     build_foundry_agent_verification_request,
     foundry_agent_verification_sdk_available,
 )
+from src.app.services.foundry_evaluation_publisher import (
+    EVALUATION_NAME,
+    FoundryEvaluationPublisher,
+    FoundryEvaluationPublishRequest,
+    FoundryEvaluationPublishResult,
+    FoundryEvaluationScenarioMetric,
+    foundry_evaluation_sdk_available,
+)
 from src.app.services.nurse_intake_agent_factory import create_nurse_intake_agent
 
 from scripts.smoke_foundry_agent_intake import (
@@ -74,11 +82,13 @@ def main(argv: list[str] | None = None) -> int:
     try:
         scenarios = load_evaluation_corpus()
     except EvaluationCorpusError:
-        _print_json(_invalid_corpus_payload("check" if args.check else "live"))
+        payload = _invalid_corpus_payload("check" if args.check else "live")
+        _print_payload(args, payload)
         return 2
 
     if args.env_file is not None and not _load_env_file(args.env_file):
-        _print_json(_configuration_file_failure_payload(args, scenarios))
+        payload = _configuration_file_failure_payload(args, scenarios)
+        _print_payload(args, payload)
         return 2
 
     settings = AppSettings()
@@ -103,7 +113,8 @@ def main(argv: list[str] | None = None) -> int:
             if readiness.required_settings_missing
             else "unsafe_application_configuration"
         )
-        _print_json(
+        _print_payload(
+            args,
             _empty_live_payload(
                 scenarios,
                 category=category,
@@ -112,11 +123,26 @@ def main(argv: list[str] | None = None) -> int:
                     sdk_available=sdk_available,
                 ),
                 temporary_application_state_restored=True,
-            )
+            ),
+        )
+        return 2
+    if args.publish_foundry_evaluation and _publication_scope_missing(settings):
+        _print_payload(
+            args,
+            _empty_live_payload(
+                scenarios,
+                category="missing_configuration",
+                verification=_verification_metadata(
+                    category="missing_configuration",
+                    sdk_available=sdk_available,
+                ),
+                temporary_application_state_restored=True,
+            ),
         )
         return 2
     if not sdk_available:
-        _print_json(
+        _print_payload(
+            args,
             _empty_live_payload(
                 scenarios,
                 category="sdk_unavailable",
@@ -125,7 +151,26 @@ def main(argv: list[str] | None = None) -> int:
                     sdk_available=False,
                 ),
                 temporary_application_state_restored=True,
-            )
+            ),
+        )
+        return 2
+
+    if args.publish_foundry_evaluation and not foundry_evaluation_sdk_available():
+        _print_payload(
+            args,
+            _empty_live_payload(
+                scenarios,
+                category="evaluation_sdk_unavailable",
+                verification=_verification_metadata(
+                    category="not_attempted",
+                    sdk_available=True,
+                ),
+                temporary_application_state_restored=True,
+            ),
+            publication=FoundryEvaluationPublishResult.failure(
+                "evaluation_sdk_unavailable",
+                publication_attempted=False,
+            ),
         )
         return 2
 
@@ -135,7 +180,8 @@ def main(argv: list[str] | None = None) -> int:
             build_foundry_agent_verification_request(settings)
         )
     except Exception:
-        _print_json(
+        _print_payload(
+            args,
             _empty_live_payload(
                 scenarios,
                 category="agent_verification_failed",
@@ -149,12 +195,13 @@ def main(argv: list[str] | None = None) -> int:
                         state_before_verification
                     )
                 ),
-            )
+            ),
         )
         return 1
 
     if not isinstance(candidate, FoundryAgentVerificationResult):
-        _print_json(
+        _print_payload(
+            args,
             _empty_live_payload(
                 scenarios,
                 category="response_contract_invalid",
@@ -168,7 +215,7 @@ def main(argv: list[str] | None = None) -> int:
                         state_before_verification
                     )
                 ),
-            )
+            ),
         )
         return 1
 
@@ -177,7 +224,8 @@ def main(argv: list[str] | None = None) -> int:
         verification_result.category
     )
     if not verification_result.ok:
-        _print_json(
+        _print_payload(
+            args,
             _empty_live_payload(
                 scenarios,
                 category=verification_category,
@@ -190,14 +238,15 @@ def main(argv: list[str] | None = None) -> int:
                         state_before_verification
                     )
                 ),
-            )
+            ),
         )
         return 1
 
     try:
         agent = _create_live_agent(settings)
     except Exception:
-        _print_json(
+        _print_payload(
+            args,
             _empty_live_payload(
                 scenarios,
                 category="unexpected_error",
@@ -207,7 +256,7 @@ def main(argv: list[str] | None = None) -> int:
                         state_before_verification
                     )
                 ),
-            )
+            ),
         )
         return 1
 
@@ -248,27 +297,47 @@ def main(argv: list[str] | None = None) -> int:
     else:
         category = "success"
 
-    _print_json(
-        {
-            "ok": ok,
-            "mode": "live",
-            "category": category,
-            "verification": _verification_metadata(verification_result),
-            "scenario_count": len(scenarios),
-            "passed_count": passed_count,
-            "failed_count": failed_count,
-            "agent_client_created": True,
-            "agent_invocation_count": invocation_count,
-            "application_intake_count": intake_count,
-            "notifications_suppressed": notifications_suppressed,
-            "temporary_application_state_restored": restoration_ok,
-            "scenarios": scenario_results,
-            "recommended_next_step": (
-                LIVE_SUCCESS_NEXT_STEP if ok else LIVE_FAILURE_NEXT_STEP
-            ),
-        }
-    )
-    return 0 if ok else 1
+    payload = {
+        "ok": ok,
+        "mode": "live",
+        "category": category,
+        "verification": _verification_metadata(verification_result),
+        "scenario_count": len(scenarios),
+        "passed_count": passed_count,
+        "failed_count": failed_count,
+        "agent_client_created": True,
+        "agent_invocation_count": invocation_count,
+        "application_intake_count": intake_count,
+        "notifications_suppressed": notifications_suppressed,
+        "temporary_application_state_restored": restoration_ok,
+        "scenarios": scenario_results,
+        "recommended_next_step": (
+            LIVE_SUCCESS_NEXT_STEP if ok else LIVE_FAILURE_NEXT_STEP
+        ),
+    }
+    if args.publish_foundry_evaluation:
+        if all_scenarios_ran and restoration_ok and scenario_results:
+            request = _build_publish_request(settings, scenario_results)
+            try:
+                publication = _create_evaluation_publisher().publish(request)
+            except Exception:
+                publication = FoundryEvaluationPublishResult.failure(
+                    "publication_failed",
+                    publication_attempted=True,
+                    scenario_count=len(scenario_results),
+                )
+        else:
+            publication = FoundryEvaluationPublishResult.failure(
+                "publication_not_attempted",
+                publication_attempted=False,
+            )
+        payload["publication"] = publication.to_json_dict()
+        if not publication.ok:
+            payload["ok"] = False
+            if publication.publication_attempted:
+                payload["category"] = publication.category
+    _print_json(payload)
+    return 0 if payload["ok"] else 1
 
 
 def load_evaluation_corpus(
@@ -351,12 +420,77 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         "--env-file",
         help="Load KEY=value settings for this process; existing environment wins.",
     )
+    parser.add_argument(
+        "--publish-foundry-evaluation",
+        action="store_true",
+        help="Publish sanitized deterministic metrics after guarded live evaluation.",
+    )
     args = parser.parse_args(argv)
+    if args.publish_foundry_evaluation and not args.live:
+        parser.error("--publish-foundry-evaluation requires --live")
     if args.live and not args.json:
         parser.error("--live requires --json")
     if args.live and not args.verify_agent_version:
         parser.error("--live requires --verify-agent-version")
     return args
+
+
+def _build_publish_request(
+    settings: AppSettings,
+    scenario_results: list[dict[str, object]],
+) -> FoundryEvaluationPublishRequest:
+    metrics = tuple(
+        FoundryEvaluationScenarioMetric(
+            scenario_id=str(item["id"]),
+            scenario_ok=bool(item["ok"]),
+            agent_output_valid=item["agent_output_valid"] is True,
+            fallback_used=item["fallback_used"] is True,
+            application_safe=item["application_safe"] is True,
+            urgency_matches=item["actual_urgency"] == item["expected_urgency"],
+            intake_status_matches=(
+                item["actual_intake_status"] == item["expected_intake_status"]
+            ),
+            pending_review=item["review_status"] == "PendingReview",
+            notifications_suppressed=item["notifications_suppressed"] is True,
+            application_state_restored=(
+                item["temporary_application_state_restored"] is True
+            ),
+        )
+        for item in scenario_results
+    )
+    return FoundryEvaluationPublishRequest(
+        subscription_id=settings.azure_subscription_id,
+        resource_group_name=settings.azure_ai_foundry_resource_group_name,
+        project_name=settings.azure_ai_foundry_project_name,
+        evaluation_name=EVALUATION_NAME,
+        scenarios=metrics,
+    )
+
+
+def _publication_scope_missing(settings: AppSettings) -> bool:
+    return any(
+        not isinstance(value, str) or not value.strip()
+        for value in (
+            getattr(settings, "azure_subscription_id", None),
+            getattr(settings, "azure_ai_foundry_resource_group_name", None),
+            getattr(settings, "azure_ai_foundry_project_name", None),
+        )
+    )
+
+
+def _print_payload(
+    args: argparse.Namespace,
+    payload: dict[str, object],
+    *,
+    publication: FoundryEvaluationPublishResult | None = None,
+) -> None:
+    if args.publish_foundry_evaluation:
+        result = publication or FoundryEvaluationPublishResult.failure(
+            "publication_not_attempted",
+            publication_attempted=False,
+        )
+        payload["publication"] = result.to_json_dict()
+    _print_json(payload)
 
 
 def _check_payload(
@@ -549,6 +683,10 @@ def _create_verification_service() -> FoundryAgentVerification:
 
 def _create_live_agent(settings: AppSettings) -> object:
     return create_nurse_intake_agent(settings)
+
+
+def _create_evaluation_publisher() -> FoundryEvaluationPublisher:
+    return FoundryEvaluationPublisher()
 
 
 def _load_env_file(path_value: str | Path) -> bool:

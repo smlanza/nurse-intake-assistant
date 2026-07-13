@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 961 passed
+- 984 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
@@ -19,6 +19,25 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
+- Added the explicit `--publish-foundry-evaluation` option to the guarded live
+  fixed-corpus evaluator. It requires the live, JSON, and immutable-version
+  verification options; legacy check/live JSON remains exact when absent.
+- After all eligible fictional scenarios finish and observed state restoration
+  succeeds, one injected publisher sends only stable scenario IDs and nine
+  boolean facts per scenario to `azure.ai.evaluation.evaluate` using an explicit
+  non-secret subscription/resource-group/project scope and stable name
+  `nurse-intake-fixed-corpus-v1`; missing publication scope blocks agent creation.
+- Nine local code-based evaluators use explicit sanitized column mappings and
+  publish deterministic `{"value": 0|1}` metrics.
+  No AI judge, model configuration, extra agent/model invocation, raw corpus,
+  prompt, model response, patient data, endpoint, credential, or local path is
+  included in sanitized CLI output.
+- Missing readiness, verifier/client failure, absent scenarios, and unconfirmed
+  restoration prevent publication. Safe fallback may publish failed metrics
+  after restoration, but the evaluation still exits nonzero. Temporary JSONL
+  and result artifacts are removed after publisher success or failure.
+- `azure-ai-evaluation` 1.18.1 imports successfully under Python 3.14.6; the
+  optional requirement is constrained to `>=1.18.1,<2` without invoking Azure.
 - Added `scripts/evaluate_foundry_agent_intake.py` for an explicit fixed-corpus
   application evaluation. Its offline check validates three stable fictional
   scenario IDs, expected safe outcomes, required setting names, safe provider
@@ -89,11 +108,11 @@ Do not claim as complete:
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Run the guarded live fixed-corpus evaluation against the
-verified immutable Foundry Agent version. Use only the sanitized aggregate
-results to determine whether the next slice should address agent instruction
-quality, Azure evaluation integration, or application hosting and operational
-deployment.
+Recommended next move: Run the guarded live fixed-corpus evaluation with
+optional Foundry metric publication against the disposable verified project.
+Inspect only the sanitized CLI result and the deterministic metric summary in
+Foundry before deciding whether to add AI-assisted rubric evaluation,
+Application Insights tracing, or application hosting.
 
 ## Current Working Local Pipeline
 
@@ -294,30 +313,23 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- The new fixed-corpus evaluation CLI loads three committed fictional scenarios
-  outside the test tree and reports only stable IDs and safe expected/actual
-  outcome metadata; raw inputs and model/application details are excluded.
-- Offline `--check --json` validates corpus structure, unique IDs, setting
-  names, provider posture, and SDK visibility without Azure lookup, verifier or
-  invocation-client creation, agent calls, intake, persistence, notifications,
-  or application-state mutation.
-- Explicit live evaluation requires the immutable-version gate, verifies once,
-  creates the existing adapter once after success, and then reuses the existing
-  application smoke scenario seam for every ordered corpus entry. Verification
-  failure reports zero client, invocation, and intake activity.
-- Scenario results distinguish contract-valid agent quality from application
-  safety: fallback can remain safe with suppressed notifications and pending
-  nurse review, but it fails the scenario and aggregate evaluation.
-- State restoration is observed after each scenario. Failed quality or route
-  outcomes continue only when restoration succeeds; an observed mismatch stops
-  remaining scenarios without exposing state contents.
-- The latest full suite is 961 passed with 1 existing
+- Optional Foundry publication is guarded behind the existing verified live
+  fixed-corpus evaluation and occurs once only after every eligible scenario and
+  observed restoration. All precondition, verification, client, empty-result,
+  and restoration failures prevent it.
+- Only stable IDs and nine booleans enter the temporary JSONL. Deterministic
+  local evaluators publish 27 numeric metrics for the three scenarios through
+  the explicit subscription/resource-group/project scope; no AI judge or
+  additional agent call is used.
+- Publication reports only safe counts, booleans, categories, and cleanup state.
+  Scenario summaries survive a sanitized publisher failure, and a safely
+  restored fallback can publish while retaining the evaluation's nonzero exit.
+- The latest full suite is 984 passed with 1 existing
   FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
   offline.
-- No live Azure command was run; only the enhanced offline/check command was
-  exercised. Mock provider defaults, separate explicit manual verification and
-  invocation boundaries, manual environment/resource cleanup, mandatory nurse
-  review, and no-production-use constraints remain unchanged.
+- No live Azure command or Foundry publication was run. Mock provider defaults,
+  explicit manual verification/invocation/publication, manual cleanup, mandatory
+  nurse review, and no-production-use constraints remain unchanged.
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the

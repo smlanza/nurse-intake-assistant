@@ -266,6 +266,9 @@ def test_foundry_ai_settings_default_to_none(
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_ID", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_NAME", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_VERSION", raising=False)
+    monkeypatch.delenv("AZURE_SUBSCRIPTION_ID", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_PROJECT_NAME", raising=False)
     monkeypatch.delenv("AZURE_OPENAI_ENDPOINT", raising=False)
 
     settings = AppSettings()
@@ -276,6 +279,9 @@ def test_foundry_ai_settings_default_to_none(
     assert settings.azure_ai_foundry_agent_id is None
     assert settings.azure_ai_foundry_agent_name is None
     assert settings.azure_ai_foundry_agent_version is None
+    assert settings.azure_subscription_id is None
+    assert settings.azure_ai_foundry_resource_group_name is None
+    assert settings.azure_ai_foundry_project_name is None
     assert settings.azure_openai_endpoint is None
 
 
@@ -303,6 +309,12 @@ def test_foundry_ai_settings_trim_values(
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "  example-agent-id  ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "  example-agent-name  ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "  2  ")
+    monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "  example-subscription  ")
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME",
+        "  example-resource-group  ",
+    )
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_PROJECT_NAME", "  example-project  ")
 
     settings = AppSettings()
 
@@ -322,6 +334,9 @@ def test_foundry_ai_settings_trim_values(
     assert settings.azure_ai_foundry_agent_id == "example-agent-id"
     assert settings.azure_ai_foundry_agent_name == "example-agent-name"
     assert settings.azure_ai_foundry_agent_version == "2"
+    assert settings.azure_subscription_id == "example-subscription"
+    assert settings.azure_ai_foundry_resource_group_name == "example-resource-group"
+    assert settings.azure_ai_foundry_project_name == "example-project"
 
 
 def test_blank_foundry_ai_settings_are_none(
@@ -335,6 +350,9 @@ def test_blank_foundry_ai_settings_are_none(
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "   ")
+    monkeypatch.setenv("AZURE_SUBSCRIPTION_ID", "   ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME", "   ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_PROJECT_NAME", "   ")
     monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "   ")
 
     settings = AppSettings()
@@ -345,6 +363,9 @@ def test_blank_foundry_ai_settings_are_none(
     assert settings.azure_ai_foundry_agent_id is None
     assert settings.azure_ai_foundry_agent_name is None
     assert settings.azure_ai_foundry_agent_version is None
+    assert settings.azure_subscription_id is None
+    assert settings.azure_ai_foundry_resource_group_name is None
+    assert settings.azure_ai_foundry_project_name is None
     assert settings.azure_openai_endpoint is None
 
 

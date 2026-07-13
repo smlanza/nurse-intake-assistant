@@ -659,6 +659,58 @@ manually after live use. Disposable Azure resources must also be deleted
 manually after review. Passing the evaluation neither establishes clinical
 correctness nor makes the application production-ready.
 
+### Optional sanitized Foundry metric publication
+
+Install the optional packages in `requirements-foundry-agent.txt`, including
+`azure-ai-evaluation`, before requesting publication. Publication is a separate
+operator opt-in on the guarded live fixed-corpus evaluation:
+
+```bash
+python scripts/evaluate_foundry_agent_intake.py \
+  --live \
+  --json \
+  --verify-agent-version \
+  --publish-foundry-evaluation \
+  --env-file .env.foundry-agent.local
+```
+
+Do not run that command until disposable infrastructure and the intended
+immutable prompt-agent version have been provisioned, manually configured, and
+verified with the standalone read-only version verifier. The publication option
+is invalid with `--check` and requires `--live`, `--json`, and
+`--verify-agent-version`. Without the option, existing check and live JSON are
+unchanged.
+
+The evaluator verifies the immutable version, creates the existing agent client,
+runs each eligible fictional scenario once, and confirms observed pre/post
+application-state restoration before constructing a publication request. It
+does not publish after missing configuration, SDK unavailability, verifier or
+client failure, no completed scenarios, or unconfirmed restoration. A safely
+restored fallback result may still publish its failed deterministic metrics,
+while the CLI remains unsuccessful.
+
+Publication uses `azure.ai.evaluation.evaluate` with an explicit Azure
+subscription ID, Foundry resource-group name, and Foundry project name plus the
+stable evaluation name `nurse-intake-fixed-corpus-v1`. These three non-secret
+scope settings are required only when publication is requested; missing scope
+fails before agent creation, and their values are never emitted in CLI JSON.
+Its temporary
+JSONL contains only the stable scenario ID and booleans for scenario success,
+agent-contract validity, fallback use, application safety, urgency match, intake
+status match, pending review, suppressed notifications, and restored state. Nine
+local code-based evaluators use explicit sanitized column mappings and return a
+single numeric 0/1 `value` metric. No model
+configuration, AI judge, prompt, raw response, patient data, endpoint, credential,
+or result-file path is emitted by the CLI. Temporary dataset and result artifacts
+are removed after success or failure.
+
+Inspect only the sanitized CLI result and the deterministic metric summary in
+Foundry. This optional tracking does not add an agent/model invocation, establish
+clinical correctness, remove mandatory nurse review, or make the application
+production-ready. Restore `AGENT_PROVIDER=mock` and all other mock settings
+manually, then manually delete disposable resources. No live publication was run
+or claimed during implementation of this slice.
+
 ## Foundry Agent Instruction Pack
 
 Before configuring the Azure AI Foundry Agent, print the versioned instruction
