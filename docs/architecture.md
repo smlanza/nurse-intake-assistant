@@ -293,13 +293,21 @@ connection strings.
 
 ## 9. Infrastructure Architecture
 
-Two resource-group-scoped entry points reuse one
+Two resource-group-scoped entry points reuse the
 `infra/modules/foundry.bicep` module. `main.bicep` preserves Cosmos DB, Storage,
 Log Analytics, and Application Insights and adds Foundry only when
 `deployFoundry=true` (default `false`). `foundry-only.bicep` deploys only an
 AIServices account, child project, and explicitly parameterized model for
-disposable validation. Agent creation remains separate. Outputs contain no
-credentials or resource IDs.
+disposable validation. Agent creation remains separate.
+
+`main.bicep` also references the reusable `infra/modules/web-app.bicep` module
+only when `deployApp=true` (default `false`). The module defines a Linux App
+Service plan and Web App with a system-assigned managed identity, HTTPS-only
+access, disabled FTPS, TLS 1.2 minimums, `/health` health checks, and the actual
+`src.app.main:app` FastAPI startup target. Its app settings retain mock
+providers and suppressed notifications. The module principal ID is available
+only to the parent for future RBAC work; the full-template outputs do not
+publish identity identifiers.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
@@ -310,26 +318,34 @@ capstone. It provisions:
 - Storage account
 - Log Analytics workspace
 - Application Insights component
+- Optional Linux App Service plan and Web App hosting contract
 
 The infrastructure files contain no secrets. The baseline was deployed and
 manually tested once, including Cosmos point-read/upsert behavior, and the test
-resource group was cleaned up afterward.
+resource group was cleaned up afterward. The newer Web App infrastructure has
+compiled and passed offline tests but has not been deployed or authenticated
+with its system-assigned identity.
 
 Deferred infrastructure:
 
-- Hosting the FastAPI app
+- Application code deployment to the optional Web App
+- Least-privilege Foundry RBAC for the Web App identity
+- Hosted Foundry verification and invocation
 - Key Vault
-- Managed identity wiring
-- Authentication and RBAC
+- Application authentication
+- Private networking
 - Production monitoring/alerting dashboards
 - Durable background worker infrastructure
+- Production clinical security, compliance, and operational hardening
 
 ## 10. Deferred / Future Architecture
 
 The following are intentionally not implemented in the current MVP:
 
-- Hosting
-- Authentication / RBAC
+- Hosting deployment and application code deployment for the Web App
+- Foundry RBAC plus hosted verification and invocation
+- Authentication / RBAC beyond the unassigned system identity
+- Application authentication and private networking
 - Key Vault
 - Azure Speech / voice intake
 - Live Azure AI Foundry extraction
@@ -337,7 +353,7 @@ The following are intentionally not implemented in the current MVP:
 - Retry logic
 - Production frontend
 - Production clinical workflow, audit, compliance, and security hardening
-- Cosmos cross-partition query support
+- Cosmos queue-summary and voicemail-idempotency lookup parity
 - Durable queues or background worker processing
 - Autonomous medical decision-making
 

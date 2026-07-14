@@ -32,11 +32,12 @@ or SMS.
 | Azure AI Foundry / agent orchestration readiness | `FoundryAiService` and `NurseIntakeAgent` provide tested runtime boundaries and application-owned structured contracts, including validation before trusting model/agent output; stable per-agent OpenAI protocol invocation is primary, project-endpoint agent-reference invocation is explicit compatibility-only, and read-only verification checks `agent_endpoint.protocols`, exclusive immutable-version routing, and the configured definition | `src/app/services/foundry_agent_client.py`, `src/app/services/foundry_agent_verification.py`, `scripts/verify_foundry_agent.py`, `tests/test_foundry_agent_verification.py` | Offline tests use fakes and make no Azure calls; live verification/invocation remains explicit, sanitized, and fictional-data-only |
 | Responsible AI / human oversight | Responsible AI pattern: urgency is advisory only; invalid agent output uses safe fallback values instead of crashing intake processing; deterministic red-flag rules supplement AI and may promote final urgency; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/services/nurse_intake_agent_contract.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented human review and deterministic safety rules |
 | Natural language processing and Speech readiness | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency; Speech transcription provider boundary has mock/offline and Azure scaffold implementations | `src/app/routes/intake.py`, `src/app/services/mock_ai_service.py`, `src/app/services/speech_transcription_service.py`, `src/app/services/speech_transcription_factory.py`, `tests/test_intake_route.py`, `tests/test_mock_ai_service.py`, `tests/test_speech_transcription_service.py`, `tests/test_speech_transcription_factory.py` | Implemented for text/transcripts and offline Speech boundary; live Azure Speech deferred |
-| Azure service integration boundaries | Cosmos repository and container factory with point reads/upserts plus cross-partition filtered case-list queries; ACS Email/SMS boundaries; Bicep baseline for Cosmos, storage, Log Analytics, and Application Insights | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/README.md` | Case-list/query-filter parity is covered offline with fakes; queue-summary and voicemail-idempotency lookup parity, live Cosmos validation, and production hardening are deferred |
+| Azure service integration boundaries | Cosmos repository and container factory with point reads/upserts plus cross-partition filtered case-list queries; ACS Email/SMS boundaries; Bicep baseline for Cosmos, storage, Log Analytics, Application Insights, and optional Azure Web App hosting | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/modules/web-app.bicep`, `infra/README.md` | Case-list/query-filter parity is covered offline with fakes; queue-summary and voicemail-idempotency lookup parity, live Cosmos validation, and production hardening are deferred |
 | Application architecture | FastAPI routes support intake, case list, filtering, summary, lookup, nurse review, demo seed/reset, notification inspection, health, and static demo/legal pages | `src/app/routes/`, `src/app/main.py`, `src/app/static/demo.html`, `tests/test_cases_route.py`, `tests/test_demo_page_route.py`, `tests/test_demo_reset_route.py`, `tests/test_notifications_route.py` | Implemented local MVP |
 | Notification status semantics | Legacy booleans remain backward-compatible while explicit email/SMS status fields distinguish `MockRecorded`, `Accepted`, `Failed`, `Suppressed`, and `NotAttempted`; SMS delivery confirmation remains false until future tracking exists | `src/app/models/case.py`, `src/app/services/case_processing_service.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented semantics |
 | Testing and reliability | Pytest suite covers provider factories, repositories, routes, red-flag rules, notification behavior, OpenAPI examples, static pages, and documentation guardrails; demo smoke-test guide supports manual validation | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/manual-local-mock-demo.md` | Implemented project discipline |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it; a read-only verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Live Foundry-only deployment plus account, project, endpoint-format, and model verification succeeded; no agent, inference, runtime change, or production clinical claim |
+| Managed-identity hosting readiness | Optional IaC defines a Linux Azure Web App with a system-assigned managed identity, mock providers, suppressed notifications, and no secret-bearing settings | `infra/modules/web-app.bicep`, `infra/main.bicep`, `tests/test_web_app_bicep.py` | Implemented and compiled offline only; no application code deployment, managed-identity authentication, Foundry role assignment, hosted verification, or invocation has occurred |
 
 ## 3. Generative AI And Foundry Relevance
 
@@ -133,8 +134,9 @@ Scope boundaries:
 - Cosmos queue-summary and voicemail-idempotency lookup parity are deferred
 - Cosmos live list-query validation, pagination, and aggregation tuning are deferred
 - Application Insights runtime logging/telemetry hardening is deferred
-- App Service or Azure Container Apps hosting is deferred
-- Key Vault and managed identity are deferred
+- Web App infrastructure is represented in IaC; deployment and application code are deferred
+- System-assigned identity is configured in IaC; live authentication and Foundry RBAC are deferred
+- Key Vault is deferred
 - App Service Authentication / Entra ID protection is deferred
 - Confirmed ACS SMS handset delivery is not implemented and remains pending
   external toll-free verification and future delivery tracking
@@ -147,8 +149,9 @@ The following are future work, not current implementation:
 - Azure AI Foundry Agent/tool orchestration, if still useful after the simpler
   Foundry provider path
 - Azure Speech transcription service
-- App Service or Azure Container Apps hosting
-- Key Vault and managed identity
+- Live Web App deployment and application code deployment
+- Foundry RBAC and hosted managed-identity authentication/invocation
+- Key Vault
 - App Service Authentication / Entra ID protection
 - Application Insights runtime logging/telemetry hardening
 - ACS phone intake/call automation
@@ -167,8 +170,9 @@ Highest AI-103 ROI:
 
 Medium AI-103 ROI:
 
-- Key Vault and managed identity
-- App Service or Azure Container Apps hosting
+- Foundry RBAC and live managed-identity authentication
+- Web App application code deployment
+- Key Vault
 - App Service Authentication / Entra ID route protection
 - Application Insights telemetry hardening
 
@@ -183,9 +187,9 @@ Lower direct exam ROI but strong portfolio value:
 1. Live Azure AI Foundry structured extraction
 2. Foundry prompt/schema/evaluation notes
 3. Azure Speech transcription service boundary
-4. Key Vault / managed identity
-5. Azure hosting
-6. App Service auth/protected routes
+4. Least-privilege Foundry RBAC for the Web App identity
+5. Application code deployment to the Web App
+6. Key Vault and App Service auth/protected routes
 7. Application Insights telemetry hardening
 8. ACS phone intake
 9. Retry/durable processing

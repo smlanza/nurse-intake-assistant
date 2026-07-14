@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 1,069 passed
+- 1,075 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is now deliberately advancing
@@ -27,27 +27,15 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Centralized lazy `DefaultAzureCredential` construction for Foundry Agent
-  invocation, immutable-version verification, and prompt-agent provisioning.
-  Local developer login and Azure-hosted identity now share one boundary.
-- With no client-ID override, the boundary supports the normal local credential
-  chain and system-assigned managed identity. The optional trimmed
-  `AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID` selects a user-assigned managed
-  identity and is never included in sanitized output.
-- No API key, client secret, import-time credential, or token request was added.
-  SDK failures remain sanitized and affect only explicit Foundry operations.
-- All automated tests remained offline. No live Azure authentication,
-  deployment, verification, invocation, evaluation, or publication was run.
-- Existing Foundry JSON contracts, fixed-corpus behavior, deterministic metric
-  publication, fallback behavior, notification suppression, mock defaults, and
-  mandatory nurse review remain unchanged.
-- Historical direct-agent evidence only: Manual live Foundry Agent smoke passed
-  in an earlier slice with `ok=true`, `category=success`,
-  `agent_attempted=true`, `agent_output_valid=true`, `fallback_used=false`, and
-  fields `extraction`, `urgency`, and `handoffNote`. This is not evidence that
-  the new guarded application-level live smoke passed; no live command was run
-  for the current slice.
-- No live Azure behavior is claimed for `/demo` by default; `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse review remains mandatory.
+- Added optional Linux Azure Web App infrastructure through
+  `infra/modules/web-app.bicep`, gated by `deployApp=false` in `main.bicep`.
+- The Web App has a system-assigned managed identity, HTTPS-only access,
+  disabled FTPS, TLS 1.2 minimums, `/health`, and the real FastAPI startup target.
+- Hosted defaults keep every provider in mock mode and suppress notifications.
+- Offline tests and Bicep compilation passed. No Azure deployment, role
+  assignment, authentication, verification, invocation, or code deployment ran.
+- No production-clinical-readiness claim is made; mandatory nurse review and
+  the safe local/demo defaults remain unchanged.
 
 ## Current Resume Point
 
@@ -63,6 +51,8 @@ Safe to demo today:
 Authoritative Foundry infrastructure for future TDD slices:
 - `infra/main.bicep`: authoritative full application entry point; Foundry remains optional through `deployFoundry=false` by default.
 - `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
+- `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned
+  identity boundary; application hosting remains disabled by default.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
 - `scripts/deploy_foundry_infra.py`: approved deployment boundary; `scripts/verify_foundry_infra.py`: approved read-only verification boundary.
@@ -82,15 +72,22 @@ edit ignored infra/foundry-only.bicepparam -> compile Bicep parameters -> deploy
 
 Do not claim as complete:
 - Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path
+- Historical evidence only: Manual live Foundry Agent smoke passed in an
+  earlier slice with `ok=true`, `category=success`, `agent_attempted=true`,
+  `agent_output_valid=true`, `fallback_used=false`, and fields `extraction`, `urgency`, and `handoffNote`; no hosted managed-identity smoke has run.
+- No live Azure behavior is claimed for `/demo` by default;
+  `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
+  review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
-- ACS phone intake/call automation, Key Vault, App Service hosting/auth,
+- Web App deployment, application code deployment, Foundry RBAC, hosted
+  managed-identity authentication, verification, or invocation
+- ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Deploy or reuse an Azure-hosted application runtime with
-managed identity, grant only the required Foundry project access, and run the
-guarded immutable-version verification before the first
-managed-identity-backed application invocation.
+Recommended next move: Add a separate, explicit least-privilege Foundry RBAC
+assignment boundary for the Web App's system-assigned identity, with offline
+Bicep tests and no automatic invocation.
 
 ## Current Working Local Pipeline
 
@@ -229,15 +226,17 @@ Completed work by feature area:
 - Swagger/OpenAPI metadata and safe example for the handoff note route
 - README local mock demo walkthrough and manual demo/smoke-test docs
 - Minimal Bicep infrastructure baseline and manual Cosmos smoke test
-- No Azure calls in tests, PHI, production clinical behavior, hosting/auth/Key
-  Vault, phone intake automation, retry/durable processing, or frontend work
-  were added in the Foundry Agent response hardening slice.
+- No Azure calls in tests, PHI, production clinical behavior, hosted
+  authentication, Key Vault, phone intake automation, retry/durable processing,
+  or frontend work were added.
 
 ## Infrastructure Summary
 
 - `infra/main.bicep` is a resource-group-scope MVP baseline.
 - It provisions Cosmos DB, a Cosmos SQL database, a `cases` container using
   `/createdDate`, a storage account, Log Analytics, and Application Insights.
+- It can optionally provision a Linux App Service plan and Web App with a
+  system-assigned identity; `deployApp=false` preserves the existing default.
 - `infra/README.md` documents Azure CLI build, validate, deploy, and cleanup
   commands.
 - Manual Cosmos smoke testing verified local `APP_MODE=cosmos` with a deployed
@@ -262,7 +261,9 @@ Completed work by feature area:
 ## Not Yet Implemented / Deferred Scope
 
 - Authentication
-- Hosting
+- Hosting deployment and application code deployment
+- Foundry RBAC for the Web App identity
+- Hosted Foundry verification and invocation
 - Key Vault
 - Azure Speech/voice intake
 - live Azure AI Foundry extraction
@@ -273,11 +274,9 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Deploy the application to an Azure-hosted runtime with managed identity and
-grant that runtime the least-privilege Foundry access required for stable-agent
-invocation. Keep deployment, identity/RBAC assignment, prompt-agent
-provisioning, and application startup as separate operator-controlled
-boundaries.
+Add a separate, explicit least-privilege Foundry RBAC assignment boundary for
+the Web App's system-assigned identity, with offline Bicep tests and no
+automatic invocation.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -289,63 +288,23 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- `AZURE_AI_FOUNDRY_AGENT_ENDPOINT` now configures the complete stable
-  per-agent OpenAI protocol base and is preferred whenever present. The older
-  project-endpoint agent-reference invocation requires the explicit
-  `AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=true` opt-in and is
-  compatibility-only.
-- Stable mode requires the project and stable endpoints plus agent name/version;
-  compatibility mode omits only the stable endpoint. Both SDK paths construct
-  `AIProjectClient` from the required Foundry project endpoint.
-- Stable endpoint validation is side-effect free and rejects malformed,
-  non-HTTPS, credential-bearing, query-bearing, explicit-port, encoded,
-  ambiguous, or non-agent protocol URLs before credential/client creation. A
-  pure comparison also binds the normalized endpoint hostname, project path,
-  and exact agent segment to the configured project and agent. Invocation
-  constructs `AIProjectClient` from the project endpoint, shared lazy
-  `DefaultAzureCredential`, and `allow_preview=True`, then calls only
-  `get_openai_client(agent_name=<configured-agent-name>)`; the SDK owns the
-  hosted-agent URL, required headers, and API-version query.
-- Read-only verification independently observes identity, endpoint, routing,
-  and protocol metadata using `AgentDetails.id`, `instance_identity`,
-  `agent_endpoint.version_selector`, and
-  the remote `agent_endpoint.protocols` collection. Stable verification
-  accepts only nonempty, unambiguous `FixedRatio` rules: integer percentages in
-  0..100, no duplicates, exactly 100% total, 100% for the configured version,
-  and 0% for every other version. All malformed or ambiguous allocations fail
-  closed as `version_routing_mismatch` before version retrieval. Sanitized
-  `configured_version_traffic_percentage` never exposes an identifier.
-  Compatibility may confirm a version definition but cannot emit
-  `immutable_version_verified=true`.
-- The guarded `smoke_foundry_agent_intake.py` path constructs the real
-  `FoundryNurseIntakeAgent` through the normal factory, uses fixed fictional
-  intake, retains deterministic urgency rules and `PendingReview`, suppresses
-  email/SMS, and isolates persistence to its existing in-memory smoke
-  repository. Successful gated JSON reports `stable_endpoint_used=true` and
-  `immutable_version_verified=true`. It stops before invocation unless the
-  definition, endpoint binding, Responses protocol, and exclusive 100% routing
-  all verify.
+- `infra/modules/web-app.bicep` now defines the minimum Linux App Service plan
+  and Web App runtime with system-assigned identity and safe transport settings.
+- `infra/main.bicep` references that module only when `deployApp=true`; the
+  default remains `false`, while Foundry stays independently gated by
+  `deployFoundry=false`.
+- Configurable defaults are `B1` and `PYTHON|3.12`. The startup command is
+  `python -m uvicorn src.app.main:app --host 0.0.0.0 --port 8000`.
+- App settings retain mock application, AI, Agent, Speech, Email, and SMS
+  providers plus `DEMO_SUPPRESS_NOTIFICATIONS=true`.
+- No connection strings, credentials, Foundry agent settings, identity IDs, or
+  role assignments were added to full-template outputs or app settings.
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
-- Compatibility is strictly opt-in: only the literal boolean setting
-  `AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=true` enables the
-  old project-endpoint path. A missing setting never enables it, and the stable
-  endpoint remains preferred when both paths are configured.
-- Automated tests remain offline and use injected fakes: 27 focused verifier,
-  161 related, and 1,069 full-suite tests, with one existing warning.
-- The requested `.env.foundry-agent.local --check --json` run made no Azure call
-  and returned `category=missing_configuration` because the ignored file lacks
-  a stable endpoint and notification suppression remains unsafe. No live run
-  should occur until both are corrected.
-- No live Azure operation was run for this slice. The documented operator
-  command is:
-
-  ```bash
-  python scripts/smoke_foundry_agent_intake.py --env-file .env.foundry-agent.local --live --json --verify-agent-version
-  ```
-
-  A successful fake or `--check` result is not live evidence. Mock provider
-  defaults, fictional-data-only rules, notification suppression, mandatory
-  nurse review, and the no-production-clinical-use boundary remain unchanged.
+- Six focused infrastructure tests and the full offline suite pass. Bicep builds
+  locally with hosting disabled by default.
+- No Azure deployment, role assignment, authentication, agent verification,
+  invocation, or application code deployment occurred. The infrastructure is
+  managed-identity-ready, not live or production-clinical-ready.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the
   reference guides below.

@@ -22,6 +22,21 @@ param cosmosContainerName string = 'cases'
 @description('Deploy Microsoft Foundry resources with the full application stack.')
 param deployFoundry bool = false
 
+@description('Deploy an Azure Linux Web App for the Nurse Intake Assistant.')
+param deployApp bool = false
+
+@description('Optional App Service plan name. A deterministic name is used when empty.')
+param appServicePlanName string = ''
+
+@description('Optional Web App name. A deterministic name is used when empty.')
+param webAppName string = ''
+
+@description('App Service plan SKU for optional application hosting.')
+param appServicePlanSkuName string = 'B1'
+
+@description('Linux runtime stack for optional Python application hosting.')
+param pythonLinuxFxVersion string = 'PYTHON|3.12'
+
 param foundryProjectName string = 'nurse-intake-project'
 param foundryProjectDisplayName string = 'Nurse Intake Assistant'
 param foundryProjectDescription string = 'Microsoft Foundry project for the Nurse Intake Assistant.'
@@ -38,6 +53,8 @@ var cosmosAccountName = toLower('${projectName}-${environmentName}-${suffix}')
 var storageAccountName = 'st${suffix}'
 var logAnalyticsWorkspaceName = '${projectName}-${environmentName}-logs-${suffix}'
 var appInsightsName = '${projectName}-${environmentName}-appi-${suffix}'
+var resolvedAppServicePlanName = empty(appServicePlanName) ? take(toLower('${projectName}-${environmentName}-plan-${suffix}'), 40) : appServicePlanName
+var resolvedWebAppName = empty(webAppName) ? take(toLower('${projectName}-${environmentName}-web-${suffix}'), 60) : webAppName
 
 resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = {
   name: cosmosAccountName
@@ -139,6 +156,17 @@ resource applicationInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
+module webApp 'modules/web-app.bicep' = if (deployApp) {
+  name: 'web-app'
+  params: {
+    location: location
+    appServicePlanName: resolvedAppServicePlanName
+    webAppName: resolvedWebAppName
+    appServicePlanSkuName: appServicePlanSkuName
+    pythonLinuxFxVersion: pythonLinuxFxVersion
+  }
+}
+
 module foundry 'modules/foundry.bicep' = if (deployFoundry) {
   name: 'foundry'
   params: {
@@ -164,6 +192,9 @@ output databaseName string = cosmosDatabaseName
 output containerName string = cosmosContainerName
 output applicationInsightsName string = applicationInsights.name
 output applicationInsightsConnectionString string = applicationInsights.properties.ConnectionString
+output appHostingRequested bool = deployApp
+output webAppName string = deployApp ? webApp!.outputs.webAppName : ''
+output webAppDefaultHostname string = deployApp ? webApp!.outputs.defaultHostname : ''
 output foundryResourceName string = deployFoundry ? foundry!.outputs.foundryResourceName : ''
 output foundryProjectName string = deployFoundry ? foundry!.outputs.foundryProjectName : ''
 output foundryProjectEndpoint string = deployFoundry ? foundry!.outputs.foundryProjectEndpoint : ''
