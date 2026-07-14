@@ -39,6 +39,11 @@ def _settings() -> SimpleNamespace:
         azure_ai_foundry_agent_project_endpoint=(
             "https://secret.example/api/projects/evaluation"
         ),
+        azure_ai_foundry_agent_endpoint=(
+            "https://secret.example/api/projects/evaluation/agents/secret-agent/"
+            "endpoint/protocols/openai"
+        ),
+        azure_ai_foundry_agent_use_project_endpoint_compatibility=False,
         azure_ai_foundry_agent_name="secret-agent",
         azure_ai_foundry_agent_version="17",
         azure_ai_foundry_model_deployment_name="secret-model",

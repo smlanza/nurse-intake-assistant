@@ -53,6 +53,7 @@ def test_env_example_documents_foundry_agent_placeholders() -> None:
     assert "AGENT_PROVIDER=mock" in env_example
     assert "AGENT_PROVIDER=foundry-agent" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_ENDPOINT=" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_ID=" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_NAME=" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_VERSION=" in env_example
@@ -60,7 +61,8 @@ def test_env_example_documents_foundry_agent_placeholders() -> None:
     assert "AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME=" in env_example
     assert "AZURE_AI_FOUNDRY_PROJECT_NAME=" in env_example
     assert "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID=" in env_example
-    assert "agent name/version path" in env_example
+    assert "stable per-agent OpenAI protocol endpoint" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=false" in env_example
     assert "Do not commit" in env_example
     assert "PHI" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_ID=agent-" not in env_example
@@ -93,12 +95,14 @@ def test_foundry_agent_local_env_example_documents_placeholders() -> None:
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT="
         "<your-foundry-agent-project-endpoint>"
     ) in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_ENDPOINT=" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_NAME=<your-foundry-agent-name>" in env_example
     assert (
         "AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>"
         in env_example
     )
-    assert "project-responses agent name/version path" in env_example
+    assert "stable OpenAI protocol base" in env_example
+    assert "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=false" in env_example
     assert "AZURE_AI_FOUNDRY_AGENT_ID" not in env_example
     assert "AZURE_SUBSCRIPTION_ID=<your-azure-subscription-id>" in env_example
     assert (
@@ -557,7 +561,8 @@ def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
     assert "safe status code from the exception chain" in normalized_doc
     assert "safe client error category" in doc
     assert "safe client error phase" in normalized_doc
-    assert "project-responses agent-reference pattern" in normalized_doc
+    assert "stable per-agent OpenAI protocol endpoint" in normalized_doc
+    assert "project-endpoint agent-reference invocation is compatibility-only" in normalized_doc
     assert "AZURE_AI_FOUNDRY_AGENT_NAME=<your-foundry-agent-name>" in doc
     assert "AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>" in doc
     assert "`AZURE_AI_FOUNDRY_AGENT_ID` is not required" in doc
@@ -873,10 +878,13 @@ def test_ai_103_mapping_documents_current_scope_and_roi_order() -> None:
     assert "AI_PROVIDER=mock" in mapping
     assert "MockAiService" in mapping
     assert "FoundryAiService" in mapping
+    assert "stable per-agent OpenAI protocol invocation is primary" in mapping
     assert (
-        "lazy live adapter implemented; live Foundry extraction deferred"
+        "project-endpoint agent-reference invocation is explicit compatibility-only"
         in mapping
     )
+    assert "agent_endpoint.protocols" in mapping
+    assert "Offline tests use fakes and make no Azure calls" in mapping
     assert "AI output requires human nurse review" in mapping
     assert "Azure Speech transcription service" in mapping
     assert "ACS phone intake/call automation" in mapping
@@ -900,6 +908,22 @@ def test_ai_103_mapping_documents_agent_safety_boundary() -> None:
     assert "human review and deterministic safety rules" in mapping
     assert "processing trace" in mapping
     assert "final urgency source" in mapping
+
+
+def test_architecture_documents_current_foundry_and_cosmos_boundaries() -> None:
+    architecture = (PROJECT_ROOT / "docs" / "architecture.md").read_text()
+
+    assert "agent_endpoint.protocols" in architecture
+    assert "Stable per-agent OpenAI protocol invocation is primary" in architecture
+    assert "compatibility-only and explicitly enabled" in architecture
+    assert "Automated tests use fakes" in architecture
+    assert "fictional data" in architecture
+    assert "Cross-partition list queries" not in architecture
+    assert "Cross-partition queue summary queries" in architecture
+    assert (
+        "Cross-partition idempotency lookup for voicemail transcripts"
+        in architecture
+    )
 
 
 def test_progress_links_manual_acs_email_smoke_test() -> None:

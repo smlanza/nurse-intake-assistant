@@ -7,8 +7,8 @@ FOUNDRY_AGENT_CONFIGURATION_ONLY_WARNING = (
     "Foundry Agent readiness is configuration-only; live Azure validation was not attempted."
 )
 FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND = (
-    "python scripts/smoke_foundry_agent.py "
-    "--env-file .env.foundry-agent.local --live --json"
+    "python scripts/smoke_foundry_agent_intake.py "
+    "--env-file .env.foundry-agent.local --live --json --verify-agent-version"
 )
 UNSUPPORTED_AGENT_PROVIDER_WARNING = (
     "Unsupported AGENT_PROVIDER; restore AGENT_PROVIDER=mock for local demo readiness."
@@ -106,35 +106,38 @@ def build_agent_provider_status(settings: Any) -> AgentProviderStatus:
 
 
 def _missing_foundry_agent_settings(settings: Any) -> list[str]:
-    missing_settings: list[str] = []
-    project_endpoint = _settings_value(
-        settings,
-        "azure_ai_foundry_agent_project_endpoint",
-    )
-    agent_name = _settings_value(settings, "azure_ai_foundry_agent_name")
-    agent_version = _settings_value(settings, "azure_ai_foundry_agent_version")
-
-    if project_endpoint is None:
-        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT")
-    if agent_name is None:
-        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_NAME")
-    if agent_version is None:
-        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_VERSION")
-
-    return missing_settings
+    return missing_foundry_agent_invocation_settings(settings)
 
 
 def _missing_foundry_agent_provider_settings(settings: Any) -> list[str]:
+    return missing_foundry_agent_invocation_settings(settings)
+
+
+def missing_foundry_agent_invocation_settings(settings: Any) -> list[str]:
+    """Return safe env-var names required by the selected invocation mode."""
+
     missing_settings: list[str] = []
+    stable_endpoint = _settings_value(
+        settings,
+        "azure_ai_foundry_agent_endpoint",
+    )
     project_endpoint = _settings_value(
         settings,
         "azure_ai_foundry_agent_project_endpoint",
     )
     agent_name = _settings_value(settings, "azure_ai_foundry_agent_name")
     agent_version = _settings_value(settings, "azure_ai_foundry_agent_version")
+    compatibility_setting = getattr(
+        settings,
+        "azure_ai_foundry_agent_use_project_endpoint_compatibility",
+        None,
+    )
+    compatibility_enabled = compatibility_setting is True
 
     if project_endpoint is None:
         missing_settings.append("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT")
+    if stable_endpoint is None and not compatibility_enabled:
+        missing_settings.append("AZURE_AI_FOUNDRY_AGENT_ENDPOINT")
     if agent_name is None:
         missing_settings.append("AZURE_AI_FOUNDRY_AGENT_NAME")
     if agent_version is None:

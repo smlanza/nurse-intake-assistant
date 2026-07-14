@@ -18,6 +18,8 @@ def _set_ops_settings(monkeypatch, **overrides) -> None:
         "agent_provider": "mock",
         "agent_provider_normalized": "mock",
         "azure_ai_foundry_agent_project_endpoint": None,
+        "azure_ai_foundry_agent_endpoint": None,
+        "azure_ai_foundry_agent_use_project_endpoint_compatibility": False,
         "azure_ai_foundry_project_endpoint": None,
         "azure_ai_foundry_agent_id": None,
         "azure_ai_foundry_agent_name": None,
@@ -26,6 +28,16 @@ def _set_ops_settings(monkeypatch, **overrides) -> None:
         "acs_email_connection_string": None,
     }
     values.update(overrides)
+    if (
+        "azure_ai_foundry_agent_endpoint" not in overrides
+        and values["azure_ai_foundry_agent_project_endpoint"]
+        and values["azure_ai_foundry_agent_name"]
+    ):
+        values["azure_ai_foundry_agent_endpoint"] = (
+            f"{str(values['azure_ai_foundry_agent_project_endpoint']).rstrip('/')}"
+            f"/agents/{values['azure_ai_foundry_agent_name']}"
+            "/endpoint/protocols/openai"
+        )
     if "agent_provider_normalized" not in overrides:
         values["agent_provider_normalized"] = (
             values["agent_provider"].strip().lower() or "mock"
@@ -129,6 +141,7 @@ def test_ops_page_shows_foundry_agent_manual_command_when_settings_missing(
     assert "Foundry Agent Manual Validation" in html
     assert FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND in html
     assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in html
+    assert "AZURE_AI_FOUNDRY_AGENT_ENDPOINT" in html
     assert "AZURE_AI_FOUNDRY_AGENT_NAME" in html
     assert "AZURE_AI_FOUNDRY_AGENT_VERSION" in html
     assert "None" not in html

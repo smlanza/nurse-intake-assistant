@@ -32,6 +32,11 @@ def _settings(**overrides: object) -> SimpleNamespace:
         "azure_ai_foundry_agent_project_endpoint": (
             "https://secret.example/api/projects/demo"
         ),
+        "azure_ai_foundry_agent_endpoint": (
+            "https://secret.example/api/projects/demo/agents/secret-agent-name/"
+            "endpoint/protocols/openai"
+        ),
+        "azure_ai_foundry_agent_use_project_endpoint_compatibility": False,
         "azure_ai_foundry_agent_name": "secret-agent-name",
         "azure_ai_foundry_agent_version": "secret-version",
     }
@@ -88,7 +93,9 @@ def test_foundry_agent_intake_option_reports_ready_with_exact_safe_json(
         "case_saved": False,
         "notifications_recorded": False,
         "manual_command": (
-            "python scripts/smoke_foundry_agent_intake.py --live --json"
+            "python scripts/smoke_foundry_agent_intake.py "
+            "--env-file .env.foundry-agent.local --live --json "
+            "--verify-agent-version"
         ),
         "recommended_next_step": (
             "Run the static manual command only for later fictional-data validation."
@@ -108,6 +115,7 @@ def test_foundry_agent_intake_preflight_reports_only_missing_setting_names(
         "AppSettings",
         lambda: _settings(
             azure_ai_foundry_agent_project_endpoint=None,
+            azure_ai_foundry_agent_endpoint=None,
             azure_ai_foundry_agent_version=None,
         ),
     )
@@ -123,11 +131,37 @@ def test_foundry_agent_intake_preflight_reports_only_missing_setting_names(
     assert payload["ready"] is False
     assert payload["required_settings_missing"] == [
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
         "AZURE_AI_FOUNDRY_AGENT_VERSION",
     ]
     assert payload["agent_client_created"] is False
     assert payload["intake_processed"] is False
     assert payload["case_saved"] is False
+    _assert_unsafe_values_absent(output)
+
+
+def test_stable_smoke_preflight_requires_project_endpoint_without_live_boundaries(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.preflight as script
+
+    monkeypatch.setattr(
+        script,
+        "AppSettings",
+        lambda: _settings(azure_ai_foundry_agent_project_endpoint=None),
+    )
+    _forbid_live_boundaries(monkeypatch)
+
+    exit_code = script.main(["--foundry-agent-intake", "--json"])
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert exit_code == 1
+    assert payload["required_settings_missing"] == [
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"
+    ]
+    assert payload["agent_client_created"] is False
     _assert_unsafe_values_absent(output)
 
 

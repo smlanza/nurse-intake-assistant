@@ -19,6 +19,9 @@ from src.app.services.foundry_agent_verification import (
 from src.app.services.nurse_intake_agent_instructions import (
     NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
 )
+from src.app.services.nurse_intake_agent_preflight import (
+    missing_foundry_agent_invocation_settings,
+)
 
 
 FOUNDRY_AGENT_PROVIDER_VALUES = {"foundry", "foundry-agent"}
@@ -119,20 +122,9 @@ def _missing_configuration(settings: object) -> list[str]:
         FOUNDRY_AGENT_PROVIDER_VALUES
     ):
         missing.append("AGENT_PROVIDER")
-    for attribute, setting_name in (
-        (
-            "azure_ai_foundry_agent_project_endpoint",
-            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
-        ),
-        ("azure_ai_foundry_agent_name", "AZURE_AI_FOUNDRY_AGENT_NAME"),
-        ("azure_ai_foundry_agent_version", "AZURE_AI_FOUNDRY_AGENT_VERSION"),
-        (
-            "azure_ai_foundry_model_deployment_name",
-            "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
-        ),
-    ):
-        if not getattr(settings, attribute, None):
-            missing.append(setting_name)
+    missing.extend(missing_foundry_agent_invocation_settings(settings))
+    if not getattr(settings, "azure_ai_foundry_model_deployment_name", None):
+        missing.append("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME")
     return missing
 
 

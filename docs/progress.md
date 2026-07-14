@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 998 passed
+- 1,069 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is now deliberately advancing
@@ -119,7 +119,7 @@ pipeline through `POST /intake/voicemail-transcript`.
 - Intake: `POST /intake/text`, `POST /intake/voicemail-transcript`.
 - Cases: `GET /cases`, `GET /cases/summary`, `GET /cases/{case_id}`, and
   `GET /cases/{case_id}/handoff-note`, with mock filters, offline-tested Cosmos
-  full-filter list/summary parity, and point-read lookup where supported.
+  case-list/query-filter parity, and point-read lookup where supported.
 - Notifications: `GET /notifications/email`, `GET /notifications/sms`.
 
 Primary demo documentation:
@@ -253,9 +253,9 @@ Completed work by feature area:
   verification and carrier/Azure regulatory workflow completion.
 - Future enhancement: capture ACS message id/status or delivery report
   semantics for confirmed handset delivery status.
-- Cosmos list/summary filter parity is covered offline with fakes and no Azure
-  calls. Server-side pagination/aggregation and live list/summary validation
-  remain deferred; only the prior point-read smoke used `createdDate`.
+- Cosmos case-list/query-filter parity is covered offline with fakes and no Azure
+  calls. Queue-summary and voicemail-idempotency lookup parity, pagination,
+  aggregation, and live list validation remain deferred.
 - Cosmos voicemail idempotency lookup supports sequential retries offline; live
   validation and atomic concurrent exactly-once guarantees remain deferred.
 
@@ -273,13 +273,11 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Prioritize concrete Azure AI Foundry and Agents implementation over additional
-local-only polish. The next practical slices should move toward manual
-validation of the application-level Foundry Agent intake smoke, stronger use of
-the provisioned prompt agent, real Azure-hosted Agent invocation through the
-application pipeline, Foundry project/agent lifecycle validation, and the Azure
-deployment and operational integration required for the capstone. Replace
-remaining mock-only AI boundaries where safe and appropriate.
+Deploy the application to an Azure-hosted runtime with managed identity and
+grant that runtime the least-privilege Foundry access required for stable-agent
+invocation. Keep deployment, identity/RBAC assignment, prompt-agent
+provisioning, and application startup as separate operator-controlled
+boundaries.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -291,22 +289,63 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Foundry Agent credential construction now uses one lazy, injectable factory
-  for project Responses/Agent clients, immutable-version verification, and
-  prompt-agent deployment. It creates no credential during import and does not
-  request a token.
-- The shared `DefaultAzureCredential` path retains local developer-login
-  behavior, supports system-assigned managed identity without a client ID, and
-  supports user-assigned managed identity through an optional non-secret
-  identifier. No API key or client secret was introduced.
-- The latest full suite is 998 passed with 1 existing
-  FastAPI/TestClient `StarletteDeprecationWarning`; all automated tests remained
-  offline.
-- No live Azure authentication or other live Azure command was run. Hosting,
-  managed-identity assignment, and RBAC remain future operator/infrastructure
-  work. Mock provider defaults, mandatory nurse review, and
-  no-production-clinical-use constraints remain unchanged.
+- `AZURE_AI_FOUNDRY_AGENT_ENDPOINT` now configures the complete stable
+  per-agent OpenAI protocol base and is preferred whenever present. The older
+  project-endpoint agent-reference invocation requires the explicit
+  `AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=true` opt-in and is
+  compatibility-only.
+- Stable mode requires the project and stable endpoints plus agent name/version;
+  compatibility mode omits only the stable endpoint. Both SDK paths construct
+  `AIProjectClient` from the required Foundry project endpoint.
+- Stable endpoint validation is side-effect free and rejects malformed,
+  non-HTTPS, credential-bearing, query-bearing, explicit-port, encoded,
+  ambiguous, or non-agent protocol URLs before credential/client creation. A
+  pure comparison also binds the normalized endpoint hostname, project path,
+  and exact agent segment to the configured project and agent. Invocation
+  constructs `AIProjectClient` from the project endpoint, shared lazy
+  `DefaultAzureCredential`, and `allow_preview=True`, then calls only
+  `get_openai_client(agent_name=<configured-agent-name>)`; the SDK owns the
+  hosted-agent URL, required headers, and API-version query.
+- Read-only verification independently observes identity, endpoint, routing,
+  and protocol metadata using `AgentDetails.id`, `instance_identity`,
+  `agent_endpoint.version_selector`, and
+  the remote `agent_endpoint.protocols` collection. Stable verification
+  accepts only nonempty, unambiguous `FixedRatio` rules: integer percentages in
+  0..100, no duplicates, exactly 100% total, 100% for the configured version,
+  and 0% for every other version. All malformed or ambiguous allocations fail
+  closed as `version_routing_mismatch` before version retrieval. Sanitized
+  `configured_version_traffic_percentage` never exposes an identifier.
+  Compatibility may confirm a version definition but cannot emit
+  `immutable_version_verified=true`.
+- The guarded `smoke_foundry_agent_intake.py` path constructs the real
+  `FoundryNurseIntakeAgent` through the normal factory, uses fixed fictional
+  intake, retains deterministic urgency rules and `PendingReview`, suppresses
+  email/SMS, and isolates persistence to its existing in-memory smoke
+  repository. Successful gated JSON reports `stable_endpoint_used=true` and
+  `immutable_version_verified=true`. It stops before invocation unless the
+  definition, endpoint binding, Responses protocol, and exclusive 100% routing
+  all verify.
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
+- Compatibility is strictly opt-in: only the literal boolean setting
+  `AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=true` enables the
+  old project-endpoint path. A missing setting never enables it, and the stable
+  endpoint remains preferred when both paths are configured.
+- Automated tests remain offline and use injected fakes: 27 focused verifier,
+  161 related, and 1,069 full-suite tests, with one existing warning.
+- The requested `.env.foundry-agent.local --check --json` run made no Azure call
+  and returned `category=missing_configuration` because the ignored file lacks
+  a stable endpoint and notification suppression remains unsafe. No live run
+  should occur until both are corrected.
+- No live Azure operation was run for this slice. The documented operator
+  command is:
+
+  ```bash
+  python scripts/smoke_foundry_agent_intake.py --env-file .env.foundry-agent.local --live --json --verify-agent-version
+  ```
+
+  A successful fake or `--check` result is not live evidence. Mock provider
+  defaults, fictional-data-only rules, notification suppression, mandatory
+  nurse review, and the no-production-clinical-use boundary remain unchanged.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the
   reference guides below.

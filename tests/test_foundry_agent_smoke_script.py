@@ -24,6 +24,8 @@ def _settings(
     return SimpleNamespace(
         agent_provider_normalized=agent_provider,
         azure_ai_foundry_agent_project_endpoint=project_endpoint,
+        azure_ai_foundry_agent_endpoint=None,
+        azure_ai_foundry_agent_use_project_endpoint_compatibility=True,
         azure_ai_foundry_project_endpoint=foundry_project_endpoint,
         azure_ai_foundry_agent_id=agent_id,
         azure_ai_foundry_agent_name=agent_name,
@@ -324,8 +326,9 @@ def test_foundry_agent_environment_readiness_reports_ready_when_present() -> Non
     assert summary.optional_settings_present == ["AZURE_AI_FOUNDRY_AGENT_ID"]
     assert summary.sdk_available is True
     assert summary.live_json_command_hint == (
-        "python scripts/smoke_foundry_agent.py "
-        "--env-file .env.foundry-agent.local --live --json"
+        "python scripts/smoke_foundry_agent_intake.py "
+        "--env-file .env.foundry-agent.local --live --json "
+        "--verify-agent-version"
     )
     assert "manual live JSON validation" in summary.recommended_next_step
 

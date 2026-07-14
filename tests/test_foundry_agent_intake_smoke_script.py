@@ -40,6 +40,8 @@ GATED_RESULT_KEYS = LIVE_RESULT_KEYS | {
     "application_intake_attempted",
     "temporary_application_state_restored",
     "expected_safe_output_fields_present",
+    "stable_endpoint_used",
+    "immutable_version_verified",
 }
 
 
@@ -54,6 +56,11 @@ def _settings(**overrides: object) -> SimpleNamespace:
         "azure_ai_foundry_agent_project_endpoint": (
             "https://secret.example/api/projects/demo"
         ),
+        "azure_ai_foundry_agent_endpoint": (
+            "https://secret.example/api/projects/demo/agents/secret-agent-name/"
+            "endpoint/protocols/openai"
+        ),
+        "azure_ai_foundry_agent_use_project_endpoint_compatibility": False,
         "azure_ai_foundry_agent_name": "secret-agent-name",
         "azure_ai_foundry_agent_version": "9",
         "azure_ai_foundry_model_deployment_name": "secret-model-deployment",
@@ -297,6 +304,29 @@ def test_check_missing_configuration_reports_names_without_values(
         assert unsafe not in output
 
 
+def test_check_explicit_compatibility_mode_does_not_require_stable_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.smoke_foundry_agent_intake as script
+
+    monkeypatch.setattr(
+        script,
+        "AppSettings",
+        lambda: _settings(
+            azure_ai_foundry_agent_endpoint=None,
+            azure_ai_foundry_agent_use_project_endpoint_compatibility=True,
+        ),
+    )
+
+    exit_code = script.main(["--check", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ready"] is True
+    assert payload["required_settings_missing"] == []
+
+
 def test_live_requires_explicit_live_and_json() -> None:
     import scripts.smoke_foundry_agent_intake as script
 
@@ -394,7 +424,7 @@ def test_successful_verification_precedes_fixed_application_intake(
             assert request.agent_version == "9"
             assert request.model_deployment_name == "secret-model-deployment"
             assert "foundry-agent-intake-v1" in request.instructions
-            return FoundryAgentVerificationResult.success()
+            return _verified_stable_version_result()
 
     def create_agent(settings: object) -> FakeSuccessfulAgent:
         events.append("create-agent")
@@ -449,7 +479,7 @@ def test_successful_verification_preserves_safe_fallback_on_invocation_failure(
 
     class FakeVerification:
         def verify(self, request: object) -> FoundryAgentVerificationResult:
-            return FoundryAgentVerificationResult.success()
+            return _verified_stable_version_result()
 
     monkeypatch.setattr(script, "AppSettings", _settings)
     monkeypatch.setattr(script, "_create_verification_service", FakeVerification)
@@ -729,7 +759,7 @@ def test_guarded_route_exception_reports_observed_state_restoration(
 
     class FakeVerification:
         def verify(self, request: object) -> FoundryAgentVerificationResult:
-            return FoundryAgentVerificationResult.success()
+            return _verified_stable_version_result()
 
     temporary_key = object()
     temporary_value = object()
@@ -783,7 +813,7 @@ def test_guarded_restoration_mismatch_is_reported_without_state_leakage(
 
     class FakeVerification:
         def verify(self, request: object) -> FoundryAgentVerificationResult:
-            return FoundryAgentVerificationResult.success()
+            return _verified_stable_version_result()
 
     original_repository = intake_route.case_repository
 
@@ -849,7 +879,7 @@ def test_gated_expected_fields_are_reported_independently(
     payload = script._live_result_payload(
         result,
         verification_requested=True,
-        verification_result=FoundryAgentVerificationResult.success(),
+        verification_result=_verified_stable_version_result(),
     )
 
     assert payload["expected_safe_output_fields_present"] == expected_fields
@@ -1382,3 +1412,18 @@ def _assert_unsafe_values_absent(output: str) -> None:
         "@",
     ):
         assert unsafe not in output
+
+
+def _verified_stable_version_result():
+    from src.app.services.foundry_agent_verification import (
+        FoundryAgentVerificationResult,
+    )
+
+    return FoundryAgentVerificationResult.success(
+        agent_identity_present=True,
+        stable_endpoint_present=True,
+        stable_endpoint_matches_configuration=True,
+        version_selector_present=True,
+        responses_protocol_present=True,
+        configured_version_traffic_percentage=100,
+    )

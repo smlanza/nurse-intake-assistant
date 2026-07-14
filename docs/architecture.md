@@ -47,12 +47,12 @@ Browser or API client
 | `MockAiService` | Deterministic local extraction, summary, and urgency classification for demo/testing |
 | `FoundryAiService` | Azure AI Foundry provider boundary/scaffold with offline structured extraction prompt/schema/parser contract, injected fake-client seam, and opt-in lazy live adapter; live extraction is deferred |
 | `NurseIntakeAgent` | External reasoning boundary for future agent orchestration; output is contract-validated before case processing trusts it |
-| `FoundryAgentVerification` | Explicit read-only lifecycle boundary that verifies one configured immutable prompt-agent version still matches the configured name/version response contract, model deployment, and centralized instructions without mutation or invocation |
+| `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | Speech transcription services | Offline mock transcription boundary and Azure Speech scaffold/factory; live audio transcription is deferred |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
 | `InMemoryCaseRepository` | Default mock persistence for local demo, filtering, summary, idempotency, and reset |
-| `CosmosCaseRepository` | Cosmos point-read/upsert support with container factory wiring |
+| `CosmosCaseRepository` | Cosmos point-read/upsert and cross-partition filtered case-list query support with container factory wiring |
 | Email/SMS sender factories | Select mock senders by default or ACS provider boundaries when configured |
 | Mock email/SMS senders | Record notification attempts in memory for demo inspection |
 | ACS Email/SMS senders | Provider boundaries for SDK send-request paths |
@@ -129,6 +129,10 @@ centralized instructions. Offline check mode creates no client and makes no
 Azure call; explicit live verification creates no version, makes no mutation,
 creates no Responses client, and performs no model invocation. Direct agent
 and application-level fictional-data smokes remain separate opt-in boundaries.
+Stable per-agent OpenAI protocol invocation is primary; project-endpoint
+agent-reference invocation remains compatibility-only and explicitly enabled.
+Automated tests use fakes, and any live validation must be explicit and use only
+fictional data.
 
 The service also evaluates local red-flag rules from
 `src/app/config/red_flags.yaml`. Rule detection is deterministic and includes
@@ -214,14 +218,17 @@ Cosmos support exists as a provider boundary and smoke-tested path:
 - `infra/main.bicep` creates a `cases` container with partition key
   `/createdDate`
 - Cosmos point reads and upserts are supported
+- Cross-partition filtered case-list queries are implemented and covered by
+  offline fake-container tests
 - `GET /cases/{case_id}?createdDate=YYYY-MM-DD` supports point-read lookup when
   the client knows the partition key
 
 Deferred Cosmos behavior:
 
-- Cross-partition list queries
 - Cross-partition queue summary queries
 - Cross-partition idempotency lookup for voicemail transcripts
+- Live Azure validation of implemented case-list queries
+- Server-side pagination and aggregation refinements
 - Production-grade query/index tuning
 
 ## 7. Notification Architecture

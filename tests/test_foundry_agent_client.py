@@ -103,7 +103,7 @@ def test_foundry_agent_factory_missing_live_settings_fail_safely(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from src.app.services.foundry_agent_client import (
-        FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY,
+        FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE,
         FoundryAgentClientError,
         create_foundry_agent_client,
     )
@@ -119,9 +119,9 @@ def test_foundry_agent_factory_missing_live_settings_fail_safely(
         create_foundry_agent_client(AppSettings(), enable_live=True)
 
     message = str(exc.value)
-    assert exc.value.category == FOUNDRY_AGENT_MISSING_CONFIGURATION_CATEGORY
+    assert exc.value.category == "stable_endpoint_missing"
     assert exc.value.phase == "unknown"
-    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in message
+    assert message == FOUNDRY_AGENT_CLIENT_UNAVAILABLE_MESSAGE
     assert "project-endpoint-secret" not in message
     assert "agent-id-secret" not in message
     assert "token" not in message.lower()
@@ -141,6 +141,10 @@ def test_foundry_agent_factory_uses_project_responses_agent_reference_settings(
     )
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "fictional-agent")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "2")
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY",
+        "true",
+    )
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_ID", raising=False)
     monkeypatch.setattr(
         foundry_agent_client,
@@ -160,6 +164,7 @@ def test_foundry_agent_factory_uses_project_responses_agent_reference_settings(
     )
     assert client.agent_name == "fictional-agent"
     assert client.agent_version == "2"
+    assert client.invocation_mode == "project_endpoint_compatibility"
     assert client._responses_client is None
 
 
@@ -178,6 +183,11 @@ def test_foundry_agent_factory_missing_sdk_fails_with_safe_diagnostic(
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", secret_endpoint)
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "secret-agent-name")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "secret-agent-version")
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
+        "https://secret-foundry.services.ai.azure.com/api/projects/demo/agents/"
+        "secret-agent-name/endpoint/protocols/openai",
+    )
     monkeypatch.setattr(
         foundry_agent_client,
         "foundry_agent_sdk_available",
@@ -438,6 +448,7 @@ def test_foundry_agent_live_client_invokes_fake_sdk_boundary_successfully() -> N
     assert response.metadata == {
         "provider": "foundry-agent",
         "agentMode": "live",
+        "endpointMode": "project_endpoint_compatibility",
     }
     assert "Return JSON only." in responses.created[0]["input"]
     assert "Fictional patient requests a refill." in responses.created[0]["input"]

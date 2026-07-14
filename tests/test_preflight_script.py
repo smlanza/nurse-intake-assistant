@@ -25,11 +25,17 @@ def _settings(
     nurse_phone_number: str | None = None,
     agent_provider: str = "mock",
     agent_project_endpoint: str | None = None,
+    agent_endpoint: str | None = None,
     agent_id: str | None = None,
     agent_name: str | None = "secret-agent-name",
     agent_version: str | None = "secret-agent-version",
     demo_suppress_notifications: bool = False,
 ) -> SimpleNamespace:
+    if agent_endpoint is None and agent_project_endpoint and agent_name:
+        agent_endpoint = (
+            f"{agent_project_endpoint.rstrip('/')}/agents/{agent_name}/"
+            "endpoint/protocols/openai"
+        )
     return SimpleNamespace(
         app_mode=app_mode,
         app_mode_normalized=app_mode,
@@ -53,6 +59,8 @@ def _settings(
         nurse_notification_phone_number=nurse_phone_number,
         agent_provider_normalized=agent_provider,
         azure_ai_foundry_agent_project_endpoint=agent_project_endpoint,
+        azure_ai_foundry_agent_endpoint=agent_endpoint,
+        azure_ai_foundry_agent_use_project_endpoint_compatibility=False,
         azure_ai_foundry_agent_id=agent_id,
         azure_ai_foundry_agent_name=agent_name,
         azure_ai_foundry_agent_version=agent_version,
@@ -220,7 +228,7 @@ def test_preflight_all_reports_missing_foundry_agent_intake_settings_safely(
     output = capsys.readouterr().out
     assert exit_code == 1
     assert "FAIL Foundry Agent Intake:" in output
-    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in output
+    assert "AZURE_AI_FOUNDRY_AGENT_ENDPOINT" in output
     assert "AZURE_AI_FOUNDRY_AGENT_VERSION" in output
     assert "secret-agent-name" not in output
     assert "Traceback" not in output
@@ -704,7 +712,7 @@ def test_preflight_foundry_agent_reports_missing_endpoint_safely(
     captured = capsys.readouterr()
     assert exit_code == 1
     assert "FAIL Foundry Agent" in captured.out
-    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT" in captured.out
+    assert "AZURE_AI_FOUNDRY_AGENT_ENDPOINT" in captured.out
     assert "Set missing Foundry Agent variables or restore AGENT_PROVIDER=mock" in captured.out
     assert captured.out.count("Guidance:") == 1
     assert "secret-agent" not in captured.out

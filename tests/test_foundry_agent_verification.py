@@ -9,6 +9,12 @@ from src.app.services.nurse_intake_agent_instructions import (
 )
 
 
+STABLE_ENDPOINT = (
+    "https://secret.example/api/projects/demo/agents/configured-agent/"
+    "endpoint/protocols/openai"
+)
+
+
 class StatusCodeError(Exception):
     def __init__(self, status_code: int) -> None:
         super().__init__(
@@ -23,10 +29,18 @@ class FakeAgents:
         version: SimpleNamespace | None = None,
         *,
         error: Exception | None = None,
+        agent_details: SimpleNamespace | None = None,
     ) -> None:
         self.version = version
         self.error = error
+        self.agent_details = agent_details
+        self.get_calls: list[str] = []
         self.get_version_calls: list[dict[str, str]] = []
+
+    def get(self, agent_name: str) -> SimpleNamespace:
+        self.get_calls.append(agent_name)
+        assert self.agent_details is not None
+        return self.agent_details
 
     def get_version(self, agent_name: str, agent_version: str) -> SimpleNamespace:
         self.get_version_calls.append(
@@ -60,6 +74,46 @@ def _request():
         agent_version="7",
         model_deployment_name="gpt-demo",
         instructions=build_nurse_intake_agent_instructions(),
+    )
+
+
+def _stable_request():
+    request = _request()
+    return type(request)(
+        project_endpoint=request.project_endpoint,
+        stable_agent_endpoint=STABLE_ENDPOINT,
+        agent_name=request.agent_name,
+        agent_version=request.agent_version,
+        model_deployment_name=request.model_deployment_name,
+        instructions=request.instructions,
+    )
+
+
+def _agent_details(
+    *,
+    protocols: object = ("responses",),
+    identity: object | None = None,
+    protocol_configuration: object | None = None,
+) -> SimpleNamespace:
+    if identity is None:
+        identity = SimpleNamespace(client_id="secret-identity-id")
+    endpoint = SimpleNamespace(
+        protocols=protocols,
+        protocol_configuration=protocol_configuration,
+        version_selector=SimpleNamespace(
+            version_selection_rules=[
+                SimpleNamespace(
+                    type="FixedRatio",
+                    agent_version="7",
+                    traffic_percentage=100,
+                )
+            ]
+        ),
+    )
+    return SimpleNamespace(
+        id="secret-agent-object-id",
+        instance_identity=identity,
+        agent_endpoint=endpoint,
     )
 
 
@@ -198,3 +252,151 @@ def test_verify_rejects_invalid_remote_version_contract(
     assert result.agent_definition_matches is False
     assert result.agent_invoked is False
     assert result.azure_mutation_made is False
+
+
+def test_stable_verification_reads_responses_from_endpoint_protocols() -> None:
+    agents = FakeAgents(
+        _version(),
+        agent_details=_agent_details(protocols=["responses"]),
+    )
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.ok is True
+    assert result.responses_protocol_present is True
+    assert result.immutable_version_verified is True
+
+
+@pytest.mark.parametrize(
+    "protocols",
+    [
+        ["RESPONSES"],
+        (" Responses ",),
+        ["invocations", "rEsPoNsEs"],
+    ],
+)
+def test_responses_protocol_matching_is_case_insensitive_for_sequences(
+    protocols: object,
+) -> None:
+    agents = FakeAgents(
+        _version(),
+        agent_details=_agent_details(protocols=protocols),
+    )
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.responses_protocol_present is True
+
+
+@pytest.mark.parametrize(
+    "protocols",
+    [
+        None,
+        [],
+        (),
+        "responses",
+        {"responses"},
+        {"name": "responses"},
+        [None, "", object()],
+    ],
+)
+def test_missing_or_malformed_protocols_are_safely_absent(protocols: object) -> None:
+    agents = FakeAgents(
+        _version(),
+        agent_details=_agent_details(protocols=protocols),
+    )
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.ok is False
+    assert result.agent_identity_present is True
+    assert result.stable_endpoint_present is True
+    assert result.stable_endpoint_matches_configuration is True
+    assert result.version_selector_present is True
+    assert result.configured_version_traffic_percentage == 100
+    assert result.responses_protocol_present is False
+    assert result.immutable_version_verified is False
+
+
+def test_obsolete_protocol_configuration_is_not_used() -> None:
+    agents = FakeAgents(
+        _version(),
+        agent_details=_agent_details(
+            protocols=None,
+            protocol_configuration=SimpleNamespace(responses=object()),
+        ),
+    )
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.responses_protocol_present is False
+    assert result.ok is False
+
+
+def test_missing_identity_preserves_independent_endpoint_metadata() -> None:
+    details = _agent_details(identity=SimpleNamespace(client_id=None))
+    agents = FakeAgents(_version(), agent_details=details)
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.ok is False
+    assert result.category == "legacy_agent_model"
+    assert result.agent_identity_present is False
+    assert result.stable_endpoint_present is True
+    assert result.stable_endpoint_matches_configuration is True
+    assert result.version_selector_present is True
+    assert result.responses_protocol_present is True
+    assert result.configured_version_traffic_percentage == 100
+    assert result.immutable_version_verified is False
+    assert agents.get_version_calls == []
+
+
+def test_missing_endpoint_preserves_independent_identity_metadata() -> None:
+    details = SimpleNamespace(
+        id="secret-agent-object-id",
+        instance_identity=SimpleNamespace(client_id="secret-identity-id"),
+        agent_endpoint=None,
+    )
+    agents = FakeAgents(_version(), agent_details=details)
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.ok is False
+    assert result.category == "stable_endpoint_missing"
+    assert result.agent_identity_present is True
+    assert result.stable_endpoint_present is False
+    assert result.version_selector_present is False
+    assert result.responses_protocol_present is False
+
+
+def test_missing_selector_preserves_independent_protocol_metadata() -> None:
+    details = _agent_details()
+    details.agent_endpoint.version_selector = None
+    agents = FakeAgents(_version(), agent_details=details)
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.ok is False
+    assert result.category == "version_routing_mismatch"
+    assert result.agent_identity_present is True
+    assert result.stable_endpoint_present is True
+    assert result.version_selector_present is False
+    assert result.responses_protocol_present is True
+    assert result.configured_version_traffic_percentage is None
+
+
+def test_independent_metadata_diagnostics_remain_sanitized() -> None:
+    details = _agent_details(identity=SimpleNamespace(client_id=None))
+    agents = FakeAgents(_version(), agent_details=details)
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    serialized = json.dumps(result.to_json_dict())
+    for unsafe in (
+        "secret.example",
+        "configured-agent",
+        "secret-agent-object-id",
+        "secret-identity-id",
+        "\"7\"",
+    ):
+        assert unsafe not in serialized

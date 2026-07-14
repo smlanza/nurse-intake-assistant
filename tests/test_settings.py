@@ -263,6 +263,11 @@ def test_foundry_ai_settings_default_to_none(
     monkeypatch.delenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", raising=False)
+    monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_ENDPOINT", raising=False)
+    monkeypatch.delenv(
+        "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY",
+        raising=False,
+    )
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_ID", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_NAME", raising=False)
     monkeypatch.delenv("AZURE_AI_FOUNDRY_AGENT_VERSION", raising=False)
@@ -280,6 +285,8 @@ def test_foundry_ai_settings_default_to_none(
     assert settings.azure_ai_foundry_project_endpoint is None
     assert settings.azure_ai_foundry_model_deployment_name is None
     assert settings.azure_ai_foundry_agent_project_endpoint is None
+    assert settings.azure_ai_foundry_agent_endpoint is None
+    assert settings.azure_ai_foundry_agent_use_project_endpoint_compatibility is False
     assert settings.azure_ai_foundry_agent_id is None
     assert settings.azure_ai_foundry_agent_name is None
     assert settings.azure_ai_foundry_agent_version is None
@@ -311,6 +318,15 @@ def test_foundry_ai_settings_trim_values(
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
         "  https://example-agent.services.ai.azure.com/api/projects/demo  ",
     )
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
+        "  https://example-agent.services.ai.azure.com/api/projects/demo/agents/"
+        "example-agent-name/endpoint/protocols/openai  ",
+    )
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY",
+        "true",
+    )
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "  example-agent-id  ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "  example-agent-name  ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "  2  ")
@@ -340,6 +356,11 @@ def test_foundry_ai_settings_trim_values(
         settings.azure_ai_foundry_agent_project_endpoint
         == "https://example-agent.services.ai.azure.com/api/projects/demo"
     )
+    assert settings.azure_ai_foundry_agent_endpoint == (
+        "https://example-agent.services.ai.azure.com/api/projects/demo/agents/"
+        "example-agent-name/endpoint/protocols/openai"
+    )
+    assert settings.azure_ai_foundry_agent_use_project_endpoint_compatibility is True
     assert settings.azure_ai_foundry_agent_id == "example-agent-id"
     assert settings.azure_ai_foundry_agent_name == "example-agent-name"
     assert settings.azure_ai_foundry_agent_version == "2"
@@ -359,6 +380,11 @@ def test_blank_foundry_ai_settings_are_none(
     monkeypatch.setenv("AZURE_AI_FOUNDRY_PROJECT_ENDPOINT", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", "   ")
+    monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ENDPOINT", "   ")
+    monkeypatch.setenv(
+        "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY",
+        "false",
+    )
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_ID", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_NAME", "   ")
     monkeypatch.setenv("AZURE_AI_FOUNDRY_AGENT_VERSION", "   ")
@@ -373,6 +399,8 @@ def test_blank_foundry_ai_settings_are_none(
     assert settings.azure_ai_foundry_project_endpoint is None
     assert settings.azure_ai_foundry_model_deployment_name is None
     assert settings.azure_ai_foundry_agent_project_endpoint is None
+    assert settings.azure_ai_foundry_agent_endpoint is None
+    assert settings.azure_ai_foundry_agent_use_project_endpoint_compatibility is False
     assert settings.azure_ai_foundry_agent_id is None
     assert settings.azure_ai_foundry_agent_name is None
     assert settings.azure_ai_foundry_agent_version is None

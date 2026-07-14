@@ -32,6 +32,8 @@ def _set_demo_status_settings(monkeypatch, **overrides) -> None:
         "agent_provider": "mock",
         "agent_provider_normalized": "mock",
         "azure_ai_foundry_agent_project_endpoint": None,
+        "azure_ai_foundry_agent_endpoint": None,
+        "azure_ai_foundry_agent_use_project_endpoint_compatibility": False,
         "azure_ai_foundry_project_endpoint": None,
         "azure_ai_foundry_agent_id": None,
         "azure_ai_foundry_agent_name": None,
@@ -39,6 +41,16 @@ def _set_demo_status_settings(monkeypatch, **overrides) -> None:
         "demo_suppress_notifications": False,
     }
     values.update(overrides)
+    if (
+        "azure_ai_foundry_agent_endpoint" not in overrides
+        and values["azure_ai_foundry_agent_project_endpoint"]
+        and values["azure_ai_foundry_agent_name"]
+    ):
+        values["azure_ai_foundry_agent_endpoint"] = (
+            f"{str(values['azure_ai_foundry_agent_project_endpoint']).rstrip('/')}"
+            f"/agents/{values['azure_ai_foundry_agent_name']}"
+            "/endpoint/protocols/openai"
+        )
     if "agent_provider_normalized" not in overrides:
         values["agent_provider_normalized"] = (
             values["agent_provider"].strip().lower() or "mock"
@@ -131,6 +143,7 @@ def test_demo_status_warns_when_foundry_agent_provider_is_configured(
         "mode": "configuration-only",
         "missingSettings": [
             "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+            "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
             "AZURE_AI_FOUNDRY_AGENT_NAME",
             "AZURE_AI_FOUNDRY_AGENT_VERSION",
         ],
@@ -143,6 +156,7 @@ def test_demo_status_warns_when_foundry_agent_provider_is_configured(
         "manualValidationCommand": FOUNDRY_AGENT_MANUAL_VALIDATION_COMMAND,
         "missingSettings": [
             "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+            "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
             "AZURE_AI_FOUNDRY_AGENT_NAME",
             "AZURE_AI_FOUNDRY_AGENT_VERSION",
         ],
@@ -224,8 +238,9 @@ def test_demo_status_foundry_agent_manual_validation_command_is_static_and_safe(
     assert agent_status["provider"] == "foundry-agent"
     assert agent_status["manualValidationAvailable"] is True
     assert agent_status["manualValidationCommand"] == (
-        "python scripts/smoke_foundry_agent.py "
-        "--env-file .env.foundry-agent.local --live --json"
+        "python scripts/smoke_foundry_agent_intake.py "
+        "--env-file .env.foundry-agent.local --live --json "
+        "--verify-agent-version"
     )
     serialized = json.dumps(body)
     for unsafe_text in [
@@ -263,6 +278,7 @@ def test_demo_status_foundry_agent_missing_settings_still_advertises_command(
     assert "--live --json" in agent_status["manualValidationCommand"]
     assert agent_status["missingSettings"] == [
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
         "AZURE_AI_FOUNDRY_AGENT_NAME",
         "AZURE_AI_FOUNDRY_AGENT_VERSION",
     ]

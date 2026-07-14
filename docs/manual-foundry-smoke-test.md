@@ -169,6 +169,7 @@ Create a local `.env.foundry-agent.local` from
 ```bash
 AGENT_PROVIDER=foundry-agent
 AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=<your-foundry-agent-project-endpoint>
+AZURE_AI_FOUNDRY_AGENT_ENDPOINT=<your-stable-agent-openai-protocol-endpoint>
 AZURE_AI_FOUNDRY_AGENT_NAME=<your-foundry-agent-name>
 AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>
 ```
@@ -193,18 +194,30 @@ run a live Azure authentication test. `AGENT_PROVIDER=mock` remains the safe
 default, human nurse review remains mandatory, and managed-identity readiness
 does not establish production or clinical readiness.
 
-The Foundry Agent live smoke adapter follows the portal-supported
-project-responses agent-reference pattern for this hosted/prompt agent:
+The application Foundry Agent adapter prefers the current stable per-agent
+OpenAI protocol endpoint:
 
-- create an `AIProjectClient` with the Foundry Agent project endpoint
-- create an agent-scoped OpenAI Responses client for the configured agent name
-- pin the configured agent version on the response client query
+- validate `AZURE_AI_FOUNDRY_AGENT_ENDPOINT` as a complete HTTPS
+  `/agents/{name}/endpoint/protocols/openai` base before any SDK/client work
+- bind that endpoint to the configured project hostname and project path and
+  to the exact configured agent-name path segment; reject credentials, ports,
+  query strings, fragments, percent-encoded values, and ambiguous paths
+- construct `AIProjectClient` with the project endpoint, shared credential,
+  and `allow_preview=True`, then use the SDK-supported
+  `get_openai_client(agent_name=<configured-agent-name>)` operation
+- let the SDK construct the hosted-agent base URL, authentication and preview
+  headers, and API-version query instead of overriding them manually
+- verify that the endpoint's server-side version-selection rules contain the
+  configured immutable version before guarded invocation
 - send the existing fictional intake prompt through `responses.create`
 - parse the returned output text with the local `NurseIntakeAgent` contract
 
-`AZURE_AI_FOUNDRY_AGENT_ID` is not required for this project-responses path.
-Keep `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` as the Foundry project endpoint;
-do not replace it with an agent endpoint or model deployment endpoint.
+`AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT` remains separate and is used for
+provisioning and read-only metadata/version verification. The older
+project-endpoint agent-reference invocation is compatibility-only and requires
+`AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=true` with the stable
+endpoint setting blank. When both are configured, the stable endpoint wins.
+`AZURE_AI_FOUNDRY_AGENT_ID` is not required for invocation.
 
 ## Programmatic Prompt-Agent Provisioning And Separate Invocation
 
@@ -264,9 +277,8 @@ python scripts/deploy_foundry_agent.py --check --json
 python scripts/deploy_foundry_agent.py --live --json
 python scripts/verify_foundry_agent.py --check --json
 python scripts/verify_foundry_agent.py --live --json
-python scripts/smoke_foundry_agent.py --live --json
 python scripts/smoke_foundry_agent_intake.py --check --json --verify-agent-version
-python scripts/smoke_foundry_agent_intake.py --live --json --verify-agent-version
+python scripts/smoke_foundry_agent_intake.py --env-file .env.foundry-agent.local --live --json --verify-agent-version
 ```
 
 These are separate operator-controlled boundaries: read-only
@@ -281,12 +293,12 @@ client and makes no Azure call. `deploy_foundry_agent.py --live --json` is the
 only prompt-agent provisioning operation; it may create, reuse, or update an
 immutable Foundry prompt-agent version, but it never invokes the agent.
 `verify_foundry_agent.py --check --json` is fully offline.
-`verify_foundry_agent.py --live --json` performs one read-only lookup of the
-configured immutable version and verifies its name/version response contract,
-model deployment, and centralized instructions. It never creates or updates a
-version, creates a Responses client, or invokes the agent.
-Invocation remains the separate, explicit
-`smoke_foundry_agent.py --live --json` operation.
+`verify_foundry_agent.py --live --json` performs read-only agent-object and
+immutable-version lookups. It verifies `AgentDetails.id`, non-null
+`instance_identity`, `agent_endpoint`, the exact version-selection rule, the
+Responses protocol, name/version response contract, model deployment, and
+centralized instructions. It never creates or updates a version, creates a
+Responses client, or invokes the agent.
 
 Use fictional intake data only. Human nurse review remains mandatory, and this
 workflow does not establish production clinical readiness. Never commit
@@ -313,7 +325,8 @@ information, or patient data.
    `AGENT_PROVIDER=foundry-agent`, the verified project endpoint in
    `AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT`, the verified model deployment in
    `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`, the intended agent name in
-   `AZURE_AI_FOUNDRY_AGENT_NAME`, and an existing
+   `AZURE_AI_FOUNDRY_AGENT_NAME`, the complete stable agent endpoint in
+   `AZURE_AI_FOUNDRY_AGENT_ENDPOINT`, and an existing
    `AZURE_AI_FOUNDRY_AGENT_VERSION` when required. Environment-file updates are
    always manual; no script in this workflow modifies the file automatically.
    Keep all application, AI, notification, and Speech providers at their mock
@@ -337,10 +350,10 @@ information, or patient data.
    agent. Confirm `ok=true`, `category=success`, `agent_invoked=false`, and
    exactly one of `agent_created`, `agent_reused`, or `agent_updated` is true.
 
-7. In Foundry, inspect the resulting agent name/version and manually set
-   `AZURE_AI_FOUNDRY_AGENT_NAME` and `AZURE_AI_FOUNDRY_AGENT_VERSION` in the
-   ignored local environment file when required. The provisioning script does
-   not edit environment files or print raw identifiers.
+7. In Foundry, inspect the resulting current agent object and manually set its
+   name, immutable version, and complete OpenAI protocol endpoint in the ignored
+   local environment file. The provisioning script does not edit environment
+   files or print raw identifiers or endpoints.
 
 8. Run the offline configured-version verification readiness check:
 
@@ -354,22 +367,29 @@ information, or patient data.
    python scripts/verify_foundry_agent.py --live --json
    ```
 
-   Confirm `ok=true`, `category=success`,
-   `agent_definition_matches=true`, `agent_invoked=false`, and
-   `azure_mutation_made=false`. The result is sanitized and does not print the
-   endpoint, agent name/version, model name, instructions, credential, or raw
-   SDK response.
+   Confirm `ok=true`, `category=success`, `agent_identity_present=true`,
+   `stable_endpoint_present=true`,
+   `stable_endpoint_matches_configuration=true`,
+   `version_selector_present=true`, `responses_protocol_present=true`,
+   `immutable_version_verified=true`, `agent_definition_matches=true`,
+   `agent_invoked=false`, and `azure_mutation_made=false`. These fields are
+   established independently; compatibility-mode verification does not imply
+   that a stable endpoint was verified. A null instance identity is reported
+   as `legacy_agent_model`; recreate that agent through the existing
+   prompt-agent provisioning workflow. The result never prints identity
+   values, endpoints, names/versions, model names, instructions, credentials,
+   or raw SDK responses.
 
-10. Optionally invoke through the existing, separate direct-agent
-    fictional-data smoke boundary:
+10. The older direct-agent smoke remains available only for intentional
+    project-endpoint compatibility diagnosis:
 
    ```bash
    python scripts/smoke_foundry_agent.py --live --json
    ```
 
-11. Confirm the invocation reports `ok=true`, `category=success`,
-   `agent_attempted=true`, `agent_output_valid=true`, and
-   `fallback_used=false`.
+    Set `AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=true` and
+    leave `AZURE_AI_FOUNDRY_AGENT_ENDPOINT` blank only for this compatibility
+    path. New operator validation should use the guarded application smoke.
 
 12. Run the guarded application-level check and explicit live smoke. The check
     validates setting names and SDK visibility but creates no client and makes
@@ -379,7 +399,7 @@ information, or patient data.
 
     ```bash
     python scripts/smoke_foundry_agent_intake.py --check --json --verify-agent-version
-    python scripts/smoke_foundry_agent_intake.py --live --json --verify-agent-version
+    python scripts/smoke_foundry_agent_intake.py --env-file .env.foundry-agent.local --live --json --verify-agent-version
     ```
 
 13. Inspect only the sanitized JSON. Confirm the verification section reports
@@ -421,9 +441,9 @@ Use this guarded sequence for an operator-controlled application smoke:
    Foundry-only deployment boundary.
 2. Provision or reuse the immutable prompt-agent version through
    `deploy_foundry_agent.py`.
-3. Manually configure the exact agent name, agent version, project endpoint,
-   and model deployment in the existing ignored `.env.foundry-agent.local`
-   file; no script edits it.
+3. Manually configure the exact agent name, immutable version, project endpoint,
+   stable agent OpenAI protocol endpoint, and model deployment in the existing
+   ignored `.env.foundry-agent.local` file; no script edits it.
 4. Run `verify_foundry_agent.py --live --json` for the standalone read-only
    exact-version verification.
 5. Run `smoke_foundry_agent_intake.py --live --json
@@ -441,7 +461,7 @@ read-only and runs before invocation; it creates or updates no agent version.
 The smoke edits no environment file, uses only fixed fictional data, and keeps
 notifications suppressed.
 
-The Foundry workflow has five deliberately separate operator-controlled
+The Foundry workflow has four primary operator-controlled
 boundaries:
 
 1. `deploy_foundry_infra.py` and `verify_foundry_infra.py` deploy and verify
@@ -451,9 +471,7 @@ boundaries:
 3. `verify_foundry_agent.py` verifies the exact configured immutable version
    and centralized definition through a read-only lookup without mutating or
    invoking it.
-4. `smoke_foundry_agent.py` invokes and validates the configured agent in
-   isolation.
-5. `smoke_foundry_agent_intake.py` sends one centrally defined fictional
+4. `smoke_foundry_agent_intake.py` sends one centrally defined fictional
    intake through the existing application-level `POST /intake/text` route
    boundary, in-memory case repository, deterministic safeguards, processing
    trace, nurse-review state, and notification-suppression logic.
@@ -501,8 +519,8 @@ DEMO_SUPPRESS_NOTIFICATIONS=true
 ```
 
 The ignored local environment file must also contain the verified Foundry
-Agent project endpoint, agent name, and agent version. Update it manually; the
-script never edits environment files.
+Agent project endpoint, stable agent endpoint, agent name, and immutable
+version. Update it manually; the script never edits environment files.
 
 To validate readiness for the guarded sequence, include the explicit gate:
 
@@ -527,12 +545,6 @@ python scripts/verify_foundry_agent.py \
   --live \
   --json \
   --env-file .env.foundry-agent.local
-```
-
-After check mode reports readiness, a later operator may explicitly run:
-
-```bash
-python scripts/smoke_foundry_agent_intake.py --live --json
 ```
 
 Live mode requires `--json` and accepts no arbitrary intake-text argument. It
@@ -569,7 +581,8 @@ It never prints the case identifier, fictional demographics or callback data,
 raw intake, symptoms, summary, prompt/instructions, raw agent output, endpoint,
 credential/token, SDK response, full exception, or stack trace.
 
-With the gate enabled, the compatible result adds a `verification` section and
+With the gate enabled, the result adds `stable_endpoint_used`,
+`immutable_version_verified`, a `verification` section, and
 stage metadata for version lookup, invocation, application intake, temporary
 state restoration, and expected safe output-field presence. Lookup, match, and
 SDK fields use `true`, `false`, or `null` so the smoke does not claim facts the

@@ -13,6 +13,8 @@ class AppSettings:
     azure_ai_foundry_project_endpoint: str | None
     azure_ai_foundry_model_deployment_name: str | None
     azure_ai_foundry_agent_project_endpoint: str | None
+    azure_ai_foundry_agent_endpoint: str | None
+    azure_ai_foundry_agent_use_project_endpoint_compatibility: bool
     azure_ai_foundry_agent_id: str | None
     azure_ai_foundry_agent_name: str | None
     azure_ai_foundry_agent_version: str | None
@@ -57,6 +59,17 @@ class AppSettings:
         )
         self.azure_ai_foundry_agent_project_endpoint = self._optional_env(
             "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"
+        )
+        self.azure_ai_foundry_agent_endpoint = self._optional_env(
+            "AZURE_AI_FOUNDRY_AGENT_ENDPOINT"
+        )
+        self.azure_ai_foundry_agent_use_project_endpoint_compatibility = (
+            self._parse_bool(
+                os.getenv(
+                    "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY",
+                    "false",
+                )
+            )
         )
         self.azure_ai_foundry_agent_id = self._optional_env(
             "AZURE_AI_FOUNDRY_AGENT_ID"

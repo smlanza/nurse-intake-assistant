@@ -10,6 +10,11 @@ def _settings() -> SimpleNamespace:
         azure_ai_foundry_agent_project_endpoint=(
             "https://secret.example/api/projects/demo"
         ),
+        azure_ai_foundry_agent_endpoint=(
+            "https://secret.example/api/projects/demo/agents/secret-agent-name/"
+            "endpoint/protocols/openai"
+        ),
+        azure_ai_foundry_agent_use_project_endpoint_compatibility=False,
         azure_ai_foundry_agent_name="secret-agent-name",
         azure_ai_foundry_agent_version="7",
         azure_ai_foundry_model_deployment_name="gpt-demo",
@@ -122,6 +127,52 @@ def test_live_missing_version_is_sanitized_and_does_not_create_client(
     assert payload["category"] == "missing_configuration"
     assert payload["agent_invoked"] is False
     assert payload["azure_mutation_made"] is False
+
+
+def test_check_missing_project_endpoint_is_sanitized_and_creates_no_client(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.verify_foundry_agent as script
+
+    settings = _settings()
+    settings.azure_ai_foundry_agent_project_endpoint = None
+    monkeypatch.setattr(script, "AppSettings", lambda: settings)
+    monkeypatch.setattr(
+        script,
+        "_create_verification_service",
+        lambda: pytest.fail("missing project endpoint must not create a client"),
+    )
+
+    exit_code = script.main(["--check", "--json"])
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert exit_code == 2
+    assert payload["required_settings_missing"] == [
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"
+    ]
+    assert "secret.example" not in output
+
+
+def test_check_explicit_compatibility_mode_is_ready_without_stable_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.verify_foundry_agent as script
+
+    settings = _settings()
+    settings.azure_ai_foundry_agent_endpoint = None
+    settings.azure_ai_foundry_agent_use_project_endpoint_compatibility = True
+    monkeypatch.setattr(script, "AppSettings", lambda: settings)
+    monkeypatch.setattr(script, "foundry_agent_verification_sdk_available", lambda: True)
+
+    exit_code = script.main(["--check", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["ready"] is True
+    assert payload["required_settings_missing"] == []
 
 
 def test_live_requires_json_and_explicit_mode() -> None:

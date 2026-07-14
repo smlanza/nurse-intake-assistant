@@ -26,23 +26,32 @@ from src.app.services.foundry_agent_verification import (
     build_foundry_agent_verification_request,
     foundry_agent_verification_sdk_available,
 )
+from src.app.services.foundry_agent_client import is_valid_stable_agent_endpoint
 from src.app.services.mock_ai_service import MockAiService
 from src.app.services.nurse_handoff_note_formatter import NurseHandoffNoteFormatter
 from src.app.services.nurse_intake_agent_factory import create_nurse_intake_agent
 from src.app.services.nurse_intake_agent_instructions import (
     build_nurse_intake_agent_fictional_test_input,
 )
+from src.app.services.nurse_intake_agent_preflight import (
+    missing_foundry_agent_invocation_settings,
+)
 
 
 FICTIONAL_INTAKE_TEXT = build_nurse_intake_agent_fictional_test_input()
 FOUNDRY_AGENT_INTAKE_LIVE_COMMAND = (
-    "python scripts/smoke_foundry_agent_intake.py --live --json"
+    "python scripts/smoke_foundry_agent_intake.py "
+    "--env-file .env.foundry-agent.local --live --json --verify-agent-version"
 )
 REQUIRED_SETTINGS = (
     ("AGENT_PROVIDER", "agent_provider_normalized"),
     (
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
         "azure_ai_foundry_agent_project_endpoint",
+    ),
+    (
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
+        "azure_ai_foundry_agent_endpoint",
     ),
     ("AZURE_AI_FOUNDRY_AGENT_NAME", "azure_ai_foundry_agent_name"),
     ("AZURE_AI_FOUNDRY_AGENT_VERSION", "azure_ai_foundry_agent_version"),
@@ -76,6 +85,17 @@ SAFE_MESSAGES = {
     "definition_mismatch": "The configured Foundry Agent definition did not match.",
     "agent_verification_failed": "Foundry Agent version verification failed.",
     "azure_request_failed": "The Azure Foundry Agent verification request failed.",
+    "legacy_agent_model": "The configured agent uses the legacy agent model.",
+    "stable_endpoint_missing": "The stable Foundry Agent endpoint is missing.",
+    "stable_endpoint_invalid": "The stable Foundry Agent endpoint is invalid.",
+    "stable_endpoint_mismatch": (
+        "The stable Foundry Agent endpoint does not match configuration."
+    ),
+    "stable_endpoint_request_failed": "The stable Foundry Agent request failed.",
+    "version_routing_mismatch": (
+        "The stable Foundry Agent endpoint does not route exclusively to the "
+        "configured immutable version."
+    ),
 }
 SAFE_NEXT_STEPS = {
     "success": "Review the sanitized result, then restore AGENT_PROVIDER=mock.",
@@ -107,6 +127,24 @@ SAFE_NEXT_STEPS = {
     ),
     "azure_request_failed": (
         "Review Foundry readiness, then rerun read-only verification."
+    ),
+    "legacy_agent_model": (
+        "Recreate the agent through the existing prompt-agent provisioning workflow."
+    ),
+    "stable_endpoint_missing": (
+        "Configure the complete per-agent OpenAI protocol endpoint."
+    ),
+    "stable_endpoint_invalid": (
+        "Configure a valid HTTPS per-agent OpenAI protocol endpoint."
+    ),
+    "stable_endpoint_mismatch": (
+        "Configure the endpoint for the exact Foundry project and agent name."
+    ),
+    "stable_endpoint_request_failed": (
+        "Review Foundry access and stable endpoint readiness, then retry."
+    ),
+    "version_routing_mismatch": (
+        "Route exactly 100% of stable-endpoint traffic to the configured version."
     ),
 }
 
@@ -141,6 +179,12 @@ SmokeCategory = Literal[
     "definition_mismatch",
     "agent_verification_failed",
     "azure_request_failed",
+    "legacy_agent_model",
+    "stable_endpoint_missing",
+    "stable_endpoint_invalid",
+    "stable_endpoint_mismatch",
+    "stable_endpoint_request_failed",
+    "version_routing_mismatch",
 ]
 
 
@@ -162,6 +206,7 @@ class ApplicationIntakeSmokeResult:
     notifications_suppressed: bool
     recommended_next_step: str
     extraction_present: bool = False
+    stable_endpoint_used: bool = False
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -190,6 +235,8 @@ class FoundryAgentIntakeReadiness:
         "success",
         "missing_configuration",
         "unsafe_application_configuration",
+        "stable_endpoint_invalid",
+        "stable_endpoint_mismatch",
     ]
     required_settings_missing: list[str]
     unsafe_settings: list[str]
@@ -280,9 +327,14 @@ def main(argv: list[str] | None = None) -> int:
                 azure_lookup_attempted=None,
             )
         verification_result = candidate
-        if not verification_result.ok:
+        if not (
+            verification_result.ok
+            and verification_result.immutable_version_verified
+        ):
             gate_category = _verification_gate_category(
                 verification_result.category
+                if not verification_result.ok
+                else "version_routing_mismatch"
             )
             return _finish_live(
                 _verification_gate_failure_result(gate_category),
@@ -303,6 +355,13 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     execution = run_foundry_agent_intake_scenario(agent)
+    if is_valid_stable_agent_endpoint(
+        getattr(settings, "azure_ai_foundry_agent_endpoint", None)
+    ):
+        execution = replace(
+            execution,
+            result=replace(execution.result, stable_endpoint_used=True),
+        )
     result = execution.result
     return _finish_live(
         result,
@@ -370,7 +429,19 @@ def build_foundry_agent_intake_readiness(
         require_agent_version_verification=require_agent_version_verification,
     )
     unsafe = _unsafe_application_settings(settings)
-    if missing:
+    stable_endpoint = getattr(
+        settings,
+        "azure_ai_foundry_agent_endpoint",
+        None,
+    )
+    stable_endpoint_invalid = (
+        isinstance(stable_endpoint, str)
+        and bool(stable_endpoint.strip())
+        and not is_valid_stable_agent_endpoint(stable_endpoint)
+    )
+    if stable_endpoint_invalid:
+        category = "stable_endpoint_invalid"
+    elif missing:
         category = "missing_configuration"
     elif unsafe:
         category = "unsafe_application_configuration"
@@ -447,6 +518,8 @@ def _check_result(
                 "application_intake_attempted": False,
                 "temporary_application_state_restored": True,
                 "expected_safe_output_fields_present": [],
+                "stable_endpoint_used": False,
+                "immutable_version_verified": False,
             }
         )
     return payload
@@ -533,6 +606,11 @@ def _live_result_payload(
                 ),
                 "category": verification_category or "not_attempted",
                 "sdk_available": verification_sdk_available,
+                "configured_version_traffic_percentage": (
+                    verification_result.configured_version_traffic_percentage
+                    if verification_result is not None
+                    else None
+                ),
             },
             "invocation_attempted": invocation_attempted,
             "application_intake_attempted": application_intake_attempted,
@@ -540,6 +618,11 @@ def _live_result_payload(
                 temporary_application_state_restored
             ),
             "expected_safe_output_fields_present": expected_fields,
+            "stable_endpoint_used": result.stable_endpoint_used,
+            "immutable_version_verified": bool(
+                verification_result is not None
+                and verification_result.immutable_version_verified
+            ),
         }
     )
     return payload
@@ -566,6 +649,7 @@ def _result_from_case(
     *,
     case_saved: bool,
     handoff_note_present: bool,
+    stable_endpoint_used: bool = False,
 ) -> ApplicationIntakeSmokeResult:
     trace = getattr(case, "processing_trace", None)
     processing_trace_present = trace is not None
@@ -640,6 +724,7 @@ def _result_from_case(
         notifications_suppressed=notifications_suppressed,
         recommended_next_step=SAFE_NEXT_STEPS[category],
         extraction_present=extraction_present,
+        stable_endpoint_used=stable_endpoint_used,
     )
 
 
@@ -729,7 +814,21 @@ def run_foundry_agent_intake_scenario(
         case,
         case_saved=case_saved,
         handoff_note_present=handoff_note_present,
+        stable_endpoint_used=False,
     )
+    if result.category == "safe_fallback_used" and tracked_agent.failure_category in {
+        "stable_endpoint_missing",
+        "stable_endpoint_invalid",
+        "stable_endpoint_mismatch",
+        "stable_endpoint_request_failed",
+    }:
+        safe_category = cast(SmokeCategory, tracked_agent.failure_category)
+        result = replace(
+            result,
+            category=safe_category,
+            message=SAFE_MESSAGES[safe_category],
+            recommended_next_step=SAFE_NEXT_STEPS[safe_category],
+        )
     urgency = getattr(case, "urgency", None)
     actual_urgency = (
         urgency if urgency in {"Routine", "Urgent", "Unknown"} else None
@@ -763,10 +862,17 @@ class _InvocationTrackingAgent:
     def __init__(self, agent: object) -> None:
         self._agent = agent
         self.invocation_attempted = False
+        self.failure_category: str | None = None
 
     async def analyze_intake(self, raw_text: str) -> Any:
         self.invocation_attempted = True
-        return await self._agent.analyze_intake(raw_text)
+        try:
+            return await self._agent.analyze_intake(raw_text)
+        except Exception as exc:
+            category = getattr(exc, "category", None)
+            if isinstance(category, str):
+                self.failure_category = category
+            raise
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._agent, name)
@@ -907,18 +1013,20 @@ def _missing_configuration(
     require_agent_version_verification: bool = False,
 ) -> list[str]:
     missing: list[str] = []
-    required_settings = (
-        VERIFICATION_REQUIRED_SETTINGS
-        if require_agent_version_verification
-        else REQUIRED_SETTINGS
-    )
-    for setting_name, attribute_name in required_settings:
-        value = getattr(settings, attribute_name, None)
-        if setting_name == "AGENT_PROVIDER":
-            if value not in {"foundry", "foundry-agent"}:
-                missing.append(setting_name)
-        elif not isinstance(value, str) or not value.strip():
-            missing.append(setting_name)
+    if getattr(settings, "agent_provider_normalized", None) not in {
+        "foundry",
+        "foundry-agent",
+    }:
+        missing.append("AGENT_PROVIDER")
+    missing.extend(missing_foundry_agent_invocation_settings(settings))
+    if require_agent_version_verification:
+        model_deployment = getattr(
+            settings,
+            "azure_ai_foundry_model_deployment_name",
+            None,
+        )
+        if not isinstance(model_deployment, str) or not model_deployment.strip():
+            missing.append("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME")
     return missing
 
 
