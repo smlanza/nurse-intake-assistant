@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 1,075 passed
+- 1,082 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is now deliberately advancing
@@ -27,13 +27,12 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Added optional Linux Azure Web App infrastructure through
-  `infra/modules/web-app.bicep`, gated by `deployApp=false` in `main.bicep`.
-- The Web App has a system-assigned managed identity, HTTPS-only access,
-  disabled FTPS, TLS 1.2 minimums, `/health`, and the real FastAPI startup target.
+- Added a separate, explicit Foundry Agent Consumer RBAC entry point and module.
+- The assignment derives the Web App system-assigned principal ID, uses
+  deterministic naming, and is scoped to the existing Foundry project.
+- Seven focused tests and all offline Bicep builds pass. No Azure deployment,
+  role assignment, authentication, verification, invocation, or code deployment ran.
 - Hosted defaults keep every provider in mock mode and suppress notifications.
-- Offline tests and Bicep compilation passed. No Azure deployment, role
-  assignment, authentication, verification, invocation, or code deployment ran.
 - No production-clinical-readiness claim is made; mandatory nurse review and
   the safe local/demo defaults remain unchanged.
 
@@ -53,6 +52,9 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
 - `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned
   identity boundary; application hosting remains disabled by default.
+- `infra/foundry-agent-consumer-rbac.bicep`: explicit independent assignment
+  entry point; `infra/modules/foundry-agent-consumer-rbac.bicep`: project-scoped
+  Foundry Agent Consumer role module.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
 - `scripts/deploy_foundry_infra.py`: approved deployment boundary; `scripts/verify_foundry_infra.py`: approved read-only verification boundary.
@@ -80,14 +82,15 @@ Do not claim as complete:
   review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
 - Web App deployment, application code deployment, Foundry RBAC, hosted
-  managed-identity authentication, verification, or invocation
+  managed-identity authentication, verification, or invocation; the RBAC
+  template exists offline but has not been deployed
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Add a separate, explicit least-privilege Foundry RBAC
-assignment boundary for the Web App's system-assigned identity, with offline
-Bicep tests and no automatic invocation.
+Recommended next move: Add an explicit, offline-tested application packaging
+and Web App code-deployment boundary while preserving mock providers and
+suppressed notifications; do not perform a live deployment yet.
 
 ## Current Working Local Pipeline
 
@@ -207,6 +210,7 @@ Completed work by feature area:
 - Mock AI extraction, AI provider factory, Foundry provider boundary, and
   offline Foundry structured extraction prompt/schema/parser contract with an
   injected fake-client seam and opt-in lazy live adapter
+- Agent output contract validation added with safe fallback behavior and processing trace warnings.
 - Offline Speech transcription provider boundary, mock provider, Azure Speech
   scaffold, and speech provider factory
 - Deterministic urgency rules with negation-aware red-flag handling
@@ -237,6 +241,8 @@ Completed work by feature area:
   `/createdDate`, a storage account, Log Analytics, and Application Insights.
 - It can optionally provision a Linux App Service plan and Web App with a
   system-assigned identity; `deployApp=false` preserves the existing default.
+- A separate template can explicitly assign Foundry Agent Consumer at project
+  scope without coupling access to `main.bicep`.
 - `infra/README.md` documents Azure CLI build, validate, deploy, and cleanup
   commands.
 - Manual Cosmos smoke testing verified local `APP_MODE=cosmos` with a deployed
@@ -262,7 +268,8 @@ Completed work by feature area:
 
 - Authentication
 - Hosting deployment and application code deployment
-- Foundry RBAC for the Web App identity
+- Live Foundry RBAC deployment for the Web App identity
+- Agent-specific RBAC scope
 - Hosted Foundry verification and invocation
 - Key Vault
 - Azure Speech/voice intake
@@ -274,9 +281,9 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Add a separate, explicit least-privilege Foundry RBAC assignment boundary for
-the Web App's system-assigned identity, with offline Bicep tests and no
-automatic invocation.
+Add an explicit, offline-tested application packaging and Web App
+code-deployment boundary while preserving mock providers and suppressed
+notifications; do not perform a live deployment yet.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -288,23 +295,26 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- `infra/modules/web-app.bicep` now defines the minimum Linux App Service plan
-  and Web App runtime with system-assigned identity and safe transport settings.
-- `infra/main.bicep` references that module only when `deployApp=true`; the
-  default remains `false`, while Foundry stays independently gated by
-  `deployFoundry=false`.
-- Configurable defaults are `B1` and `PYTHON|3.12`. The startup command is
-  `python -m uvicorn src.app.main:app --host 0.0.0.0 --port 8000`.
-- App settings retain mock application, AI, Agent, Speech, Email, and SMS
-  providers plus `DEMO_SUPPRESS_NOTIFICATIONS=true`.
-- No connection strings, credentials, Foundry agent settings, identity IDs, or
-  role assignments were added to full-template outputs or app settings.
-- Agent output contract validation added with safe fallback behavior and processing trace warnings.
-- Six focused infrastructure tests and the full offline suite pass. Bicep builds
-  locally with hosting disabled by default.
-- No Azure deployment, role assignment, authentication, agent verification,
-  invocation, or application code deployment occurred. The infrastructure is
-  managed-identity-ready, not live or production-clinical-ready.
+- Added `infra/foundry-agent-consumer-rbac.bicep`,
+  `infra/modules/foundry-agent-consumer-rbac.bicep`, and seven focused tests in
+  `tests/test_foundry_agent_consumer_rbac_bicep.py`.
+- Modified `infra/README.md`, `docs/architecture.md`,
+  `docs/ai-103-mapping.md`, and `docs/progress.md` to document the independent
+  boundary and its unproven-live status.
+- The exact built-in role is Foundry Agent Consumer
+  (`eed3b665-ab3a-47b6-8f48-c9382fb1dad6`) at Foundry project scope. No Foundry
+  User, manager, owner, Contributor, or Cognitive Services role is granted.
+- The entry point resolves `webApp.identity.principalId`; operators do not
+  provide identity IDs. Assignment naming is deterministic with `guid(...)`
+  over project ID, principal ID, and role-definition ID.
+- `main.bicep`, the Web App module, and the Foundry provisioning module remain
+  free of role assignments. Prompt-agent lifecycle and invocation stay separate.
+- Mock providers and `DEMO_SUPPRESS_NOTIFICATIONS=true` remain unchanged.
+- Seven focused RBAC tests and the full offline suite pass. Both RBAC templates
+  and `main.bicep` compile locally.
+- No Azure call, deployment, role assignment, authentication, agent
+  verification, invocation, or application code deployment occurred. No
+  production-clinical-readiness claim is made.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the
   reference guides below.

@@ -306,8 +306,22 @@ Service plan and Web App with a system-assigned managed identity, HTTPS-only
 access, disabled FTPS, TLS 1.2 minimums, `/health` health checks, and the actual
 `src.app.main:app` FastAPI startup target. Its app settings retain mock
 providers and suppressed notifications. The module principal ID is available
-only to the parent for future RBAC work; the full-template outputs do not
-publish identity identifiers.
+only to its parent; `main.bicep` neither uses nor publishes that identifier.
+
+The separate resource-group-scoped
+`infra/foundry-agent-consumer-rbac.bicep` entry point reads the principal ID
+from an existing Web App and invokes
+`infra/modules/foundry-agent-consumer-rbac.bicep`. The module assigns only the
+built-in Foundry Agent Consumer role at the existing Foundry project scope,
+uses deterministic `guid(...)` naming from the project resource ID, principal
+ID, and role-definition ID, and embeds no secret or API key. Application and
+Foundry provisioning remain independent and never grant this access
+automatically.
+
+Project scope permits the identity to interact with agent endpoints in that
+project without granting agent creation or modification. Agent-specific scope
+is deferred because prompt-agent provisioning remains a separate lifecycle and
+the full-stack Bicep deployment does not own the agent resource.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
@@ -324,27 +338,37 @@ The infrastructure files contain no secrets. The baseline was deployed and
 manually tested once, including Cosmos point-read/upsert behavior, and the test
 resource group was cleaned up afterward. The newer Web App infrastructure has
 compiled and passed offline tests but has not been deployed or authenticated
-with its system-assigned identity.
+with its system-assigned identity. The RBAC templates have also compiled and
+passed offline tests, but the assignment has not been deployed.
+
+Not demonstrated live:
+
+- Web App deployment
+- Application code deployment
+- Foundry Agent Consumer RBAC deployment
+- Managed-identity token acquisition
+- Immutable-version verification from the hosted application
+- Hosted agent invocation
 
 Deferred infrastructure:
 
 - Application code deployment to the optional Web App
-- Least-privilege Foundry RBAC for the Web App identity
-- Hosted Foundry verification and invocation
+- Agent-specific RBAC scope
 - Key Vault
-- Application authentication
+- App Service Authentication
 - Private networking
-- Production monitoring/alerting dashboards
+- Production monitoring
 - Durable background worker infrastructure
-- Production clinical security, compliance, and operational hardening
+- Production clinical security or compliance
 
 ## 10. Deferred / Future Architecture
 
 The following are intentionally not implemented in the current MVP:
 
 - Hosting deployment and application code deployment for the Web App
-- Foundry RBAC plus hosted verification and invocation
-- Authentication / RBAC beyond the unassigned system identity
+- Live RBAC deployment plus hosted verification and invocation
+- Agent-specific RBAC scope
+- Authentication / RBAC beyond the offline-tested Consumer assignment
 - Application authentication and private networking
 - Key Vault
 - Azure Speech / voice intake

@@ -54,6 +54,97 @@ store endpoints, identity IDs, connection strings, credentials, or secrets.
 The module exposes its principal ID only to its parent template for a future
 conditional RBAC boundary; `main.bicep` does not publish that identifier.
 
+## Explicit Foundry Agent Consumer RBAC
+
+`foundry-agent-consumer-rbac.bicep` is a separate, explicit operator boundary
+for granting an existing Web App identity access to an existing Foundry
+project. It requires only the existing Web App, Foundry account, and Foundry
+project names. The template reads the Web App's system-assigned identity
+principal ID from `Microsoft.Web/sites`; operators do not supply or receive the
+identity identifier as a deployment output.
+
+The reusable `modules/foundry-agent-consumer-rbac.bicep` module assigns only the
+built-in **Foundry Agent Consumer** role, definition GUID
+`eed3b665-ab3a-47b6-8f48-c9382fb1dad6`, at the Foundry project scope. That role
+permits endpoint interaction within the project without agent creation or
+modification. Foundry User, project-management, owner, Contributor, and
+Cognitive Services roles are deliberately not granted.
+
+This deployment is separate from `main.bicep` so provisioning a Web App or
+Foundry project never grants application access automatically. Project scope is
+the current least-privilege boundary available without coupling RBAC to prompt
+agent lifecycle ownership. Agent-specific scope is a possible future hardening
+step after that lifecycle has an appropriate infrastructure owner.
+
+Build all RBAC templates offline:
+
+```bash
+az bicep build --file infra/modules/foundry-agent-consumer-rbac.bicep --stdout > /dev/null
+az bicep build --file infra/foundry-agent-consumer-rbac.bicep --stdout > /dev/null
+az bicep build --file infra/main.bicep --stdout > /dev/null
+```
+
+The following commands are future manual operator actions and were not run in
+this slice. Use only fictional or carefully reviewed resource names.
+
+Preview the independent assignment:
+
+```bash
+az deployment group what-if \
+  --resource-group <existing-resource-group> \
+  --template-file infra/foundry-agent-consumer-rbac.bicep \
+  --parameters webAppName=<existing-web-app> foundryAccountName=<existing-foundry-account> foundryProjectName=<existing-foundry-project>
+```
+
+Deploy it explicitly after review:
+
+```bash
+az deployment group create \
+  --resource-group <existing-resource-group> \
+  --name foundry-agent-consumer-rbac \
+  --template-file infra/foundry-agent-consumer-rbac.bicep \
+  --parameters webAppName=<existing-web-app> foundryAccountName=<existing-foundry-account> foundryProjectName=<existing-foundry-project>
+```
+
+Verify the assignment read-only:
+
+```bash
+PROJECT_SCOPE=$(az resource show \
+  --resource-group <existing-resource-group> \
+  --resource-type Microsoft.CognitiveServices/accounts/projects \
+  --name <existing-foundry-account>/<existing-foundry-project> \
+  --api-version 2025-06-01 \
+  --query id --output tsv)
+
+WEB_APP_PRINCIPAL_ID=$(az webapp identity show \
+  --resource-group <existing-resource-group> \
+  --name <existing-web-app> \
+  --query principalId --output tsv)
+
+az role assignment list \
+  --assignee-object-id "$WEB_APP_PRINCIPAL_ID" \
+  --scope "$PROJECT_SCOPE" \
+  --role eed3b665-ab3a-47b6-8f48-c9382fb1dad6 \
+  --fill-principal-name false \
+  --fill-role-definition-name false \
+  --query "[].{RoleDefinitionId:roleDefinitionId,Scope:scope}" \
+  --output table
+```
+
+Cleanup is never automatic. To remove only this role assignment, manually
+resolve the same reviewed principal and project scope, then run:
+
+```bash
+az role assignment delete \
+  --assignee-object-id "$WEB_APP_PRINCIPAL_ID" \
+  --role eed3b665-ab3a-47b6-8f48-c9382fb1dad6 \
+  --scope "$PROJECT_SCOPE"
+```
+
+Deleting the assignment does not delete the Web App, Foundry project, agents,
+or resource group. Resource-group deletion also remains a separate, explicit
+manual action.
+
 ## Disposable Foundry Workflow
 
 Copy `foundry-only.example.bicepparam` to the ignored

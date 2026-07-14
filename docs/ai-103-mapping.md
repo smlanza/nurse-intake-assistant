@@ -37,7 +37,7 @@ or SMS.
 | Notification status semantics | Legacy booleans remain backward-compatible while explicit email/SMS status fields distinguish `MockRecorded`, `Accepted`, `Failed`, `Suppressed`, and `NotAttempted`; SMS delivery confirmation remains false until future tracking exists | `src/app/models/case.py`, `src/app/services/case_processing_service.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented semantics |
 | Testing and reliability | Pytest suite covers provider factories, repositories, routes, red-flag rules, notification behavior, OpenAPI examples, static pages, and documentation guardrails; demo smoke-test guide supports manual validation | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/manual-local-mock-demo.md` | Implemented project discipline |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it; a read-only verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Live Foundry-only deployment plus account, project, endpoint-format, and model verification succeeded; no agent, inference, runtime change, or production clinical claim |
-| Managed-identity hosting readiness | Optional IaC defines a Linux Azure Web App with a system-assigned managed identity, mock providers, suppressed notifications, and no secret-bearing settings | `infra/modules/web-app.bicep`, `infra/main.bicep`, `tests/test_web_app_bicep.py` | Implemented and compiled offline only; no application code deployment, managed-identity authentication, Foundry role assignment, hosted verification, or invocation has occurred |
+| Managed-identity and RBAC readiness | Optional IaC defines a Linux Azure Web App with a system-assigned managed identity; a separate explicit template derives that identity and grants only Foundry Agent Consumer at the Foundry project scope | `infra/modules/web-app.bicep`, `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | Implemented and compiled offline only; no RBAC deployment, managed-identity authentication, hosted verification, or invocation has occurred; human nurse review, safe fallback, mock defaults, and suppressed notifications remain unchanged |
 
 ## 3. Generative AI And Foundry Relevance
 
@@ -135,7 +135,8 @@ Scope boundaries:
 - Cosmos live list-query validation, pagination, and aggregation tuning are deferred
 - Application Insights runtime logging/telemetry hardening is deferred
 - Web App infrastructure is represented in IaC; deployment and application code are deferred
-- System-assigned identity is configured in IaC; live authentication and Foundry RBAC are deferred
+- System-assigned identity and project-scoped Foundry Agent Consumer RBAC are represented in separate IaC boundaries
+- RBAC deployment, live authorization, and managed-identity invocation are deferred
 - Key Vault is deferred
 - App Service Authentication / Entra ID protection is deferred
 - Confirmed ACS SMS handset delivery is not implemented and remains pending
@@ -150,7 +151,8 @@ The following are future work, not current implementation:
   Foundry provider path
 - Azure Speech transcription service
 - Live Web App deployment and application code deployment
-- Foundry RBAC and hosted managed-identity authentication/invocation
+- Live RBAC deployment and hosted managed-identity authentication/invocation
+- Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication / Entra ID protection
 - Application Insights runtime logging/telemetry hardening
@@ -170,7 +172,7 @@ Highest AI-103 ROI:
 
 Medium AI-103 ROI:
 
-- Foundry RBAC and live managed-identity authentication
+- Live RBAC deployment and managed-identity authentication
 - Web App application code deployment
 - Key Vault
 - App Service Authentication / Entra ID route protection
@@ -187,8 +189,8 @@ Lower direct exam ROI but strong portfolio value:
 1. Live Azure AI Foundry structured extraction
 2. Foundry prompt/schema/evaluation notes
 3. Azure Speech transcription service boundary
-4. Least-privilege Foundry RBAC for the Web App identity
-5. Application code deployment to the Web App
+4. Application packaging and Web App code-deployment boundary
+5. Live RBAC and managed-identity validation when explicitly approved
 6. Key Vault and App Service auth/protected routes
 7. Application Insights telemetry hardening
 8. ACS phone intake
