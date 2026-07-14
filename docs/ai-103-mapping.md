@@ -38,6 +38,7 @@ or SMS.
 | Testing and reliability | Pytest suite covers provider factories, repositories, routes, red-flag rules, notification behavior, OpenAPI examples, static pages, and documentation guardrails; demo smoke-test guide supports manual validation | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/manual-local-mock-demo.md` | Implemented project discipline |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it; a read-only verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Live Foundry-only deployment plus account, project, endpoint-format, and model verification succeeded; no agent, inference, runtime change, or production clinical claim |
 | Managed-identity and RBAC readiness | Optional IaC defines a Linux Azure Web App with a system-assigned managed identity; a separate explicit template derives that identity and grants only Foundry Agent Consumer at the Foundry project scope | `infra/modules/web-app.bicep`, `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | Implemented and compiled offline only; no RBAC deployment, managed-identity authentication, hosted verification, or invocation has occurred; human nurse review, safe fallback, mock defaults, and suppressed notifications remain unchanged |
+| Repeatable application deployment readiness | An allowlist-driven service creates deterministic Azure Web App source deployment ZIPs containing Python source plus `requirements.txt`, and a separate fake-runner-tested CLI can submit only an explicit `az webapp deploy` request to an existing app | `src/app/services/web_app_package.py`, `scripts/package_web_app.py`, `scripts/deploy_web_app_code.py`, `tests/test_web_app_package.py`, `tests/test_deploy_web_app_code_script.py` | Packaging and deployment-command behavior are offline-tested only; dependencies are not vendored, and required App Service build automation such as `SCM_DO_BUILD_DURING_DEPLOYMENT=true` has not been added or proven. Deployment acceptance would not prove startup, so no live code deployment should occur before that prerequisite is added and reviewed; no managed-identity authentication, Foundry verification, or agent invocation has occurred |
 
 ## 3. Generative AI And Foundry Relevance
 
@@ -134,9 +135,10 @@ Scope boundaries:
 - Cosmos queue-summary and voicemail-idempotency lookup parity are deferred
 - Cosmos live list-query validation, pagination, and aggregation tuning are deferred
 - Application Insights runtime logging/telemetry hardening is deferred
-- Web App infrastructure is represented in IaC; deployment and application code are deferred
+- Web App infrastructure plus deterministic packaging and an explicit code-deployment boundary are represented; live deployment is deferred
 - System-assigned identity and project-scoped Foundry Agent Consumer RBAC are represented in separate IaC boundaries
 - RBAC deployment, live authorization, and managed-identity invocation are deferred
+- Package creation and deployment-request acceptance do not imply hosted health or inference success
 - Key Vault is deferred
 - App Service Authentication / Entra ID protection is deferred
 - Confirmed ACS SMS handset delivery is not implemented and remains pending
@@ -150,7 +152,7 @@ The following are future work, not current implementation:
 - Azure AI Foundry Agent/tool orchestration, if still useful after the simpler
   Foundry provider path
 - Azure Speech transcription service
-- Live Web App deployment and application code deployment
+- Live Web App infrastructure and code deployment plus hosted readiness checks
 - Live RBAC deployment and hosted managed-identity authentication/invocation
 - Agent-specific RBAC scope
 - Key Vault
@@ -173,7 +175,8 @@ Highest AI-103 ROI:
 Medium AI-103 ROI:
 
 - Live RBAC deployment and managed-identity authentication
-- Web App application code deployment
+- App Service Python build automation followed by disposable Web App code
+  deployment and hosted readiness verification
 - Key Vault
 - App Service Authentication / Entra ID route protection
 - Application Insights telemetry hardening
@@ -189,7 +192,8 @@ Lower direct exam ROI but strong portfolio value:
 1. Live Azure AI Foundry structured extraction
 2. Foundry prompt/schema/evaluation notes
 3. Azure Speech transcription service boundary
-4. Application packaging and Web App code-deployment boundary
+4. App Service Python build automation, then disposable mock-only Web App
+   deployment and hosted readiness checks
 5. Live RBAC and managed-identity validation when explicitly approved
 6. Key Vault and App Service auth/protected routes
 7. Application Insights telemetry hardening

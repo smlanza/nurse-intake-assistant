@@ -323,6 +323,48 @@ project without granting agent creation or modification. Agent-specific scope
 is deferred because prompt-agent provisioning remains a separate lifecycle and
 the full-stack Bicep deployment does not own the agent resource.
 
+`WebAppPackage` and the two thin CLIs add the next offline-tested boundaries.
+The package service selects only the root dependency manifest and required
+`src` Python, configuration, and static assets; it rejects unsafe paths and
+symlinks, then writes a stably ordered, timestamp-normalized source deployment
+ZIP beneath the ignored `.artifacts/` directory. `.env`, Bicep parameter, test,
+documentation, cache, repository metadata, and prior artifact content cannot
+enter through the allowlist.
+
+`scripts/package_web_app.py` performs local package checks and builds.
+`scripts/deploy_web_app_code.py` keeps check, package, and explicit live modes
+separate. Only `--live --json` with an existing resource group and Web App name
+can issue one `az webapp deploy` command through an injected runner. The result
+distinguishes package creation, deployment request acceptance, and hosted
+verification; it never treats one as evidence of the next.
+
+The ZIP contains Python source plus `requirements.txt`; dependencies are not
+vendored. App Service must have Python build automation such as
+`SCM_DO_BUILD_DURING_DEPLOYMENT=true` for ZIP deployment to install those
+dependencies. The current infrastructure has not added or proven that
+prerequisite. Deployment acceptance would still not prove application startup,
+and no live code deployment should occur until the build setting is added and
+reviewed in a separate infrastructure slice.
+
+The intended operator sequence is:
+
+```text
+Foundry infrastructure
+-> optional Linux Web App with system-assigned identity
+-> explicit Foundry Agent Consumer RBAC assignment
+-> reviewed App Service Python build-automation prerequisite
+-> deterministic source deployment package
+-> explicit Web App code deployment
+-> hosted health/readiness verification
+-> hosted managed-identity Foundry Agent verification
+-> hosted fictional-data agent invocation
+```
+
+Each arrow is a separate boundary. Code deployment does not provision
+infrastructure, alter app settings, assign RBAC, verify startup, or call
+Foundry. Hosted defaults remain mock-only with notifications suppressed, and
+human nurse review remains mandatory.
+
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
 
@@ -345,6 +387,7 @@ Not demonstrated live:
 
 - Web App deployment
 - Application code deployment
+- Hosted `/health`, `/version`, or `/demo/status` verification
 - Foundry Agent Consumer RBAC deployment
 - Managed-identity token acquisition
 - Immutable-version verification from the hosted application
@@ -352,7 +395,7 @@ Not demonstrated live:
 
 Deferred infrastructure:
 
-- Application code deployment to the optional Web App
+- Live Web App code deployment and hosted readiness verification
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication
@@ -365,7 +408,8 @@ Deferred infrastructure:
 
 The following are intentionally not implemented in the current MVP:
 
-- Hosting deployment and application code deployment for the Web App
+- Hosting infrastructure and application code deployment for the Web App
+- Hosted health/readiness verification
 - Live RBAC deployment plus hosted verification and invocation
 - Agent-specific RBAC scope
 - Authentication / RBAC beyond the offline-tested Consumer assignment

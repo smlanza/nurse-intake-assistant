@@ -145,6 +145,53 @@ Deleting the assignment does not delete the Web App, Foundry project, agents,
 or resource group. Resource-group deletion also remains a separate, explicit
 manual action.
 
+## Deterministic Web App Package And Code Deployment
+
+Application packaging and code deployment are separate from infrastructure,
+RBAC, prompt-agent provisioning, startup verification, and invocation.
+`src/app/services/web_app_package.py` creates a deterministic source deployment
+ZIP from an explicit allowlist: `requirements.txt`, Python files under `src`,
+YAML configuration under `src/app/config`, and static HTML/CSS/JavaScript under
+`src/app/static`. Stable ordering, normalized timestamps, fixed file modes, and
+fixed compression make identical inputs byte-for-byte repeatable. Dependencies
+are not vendored into this package.
+
+The builder rejects incomplete inputs, unsafe output locations, symlinks, path
+escapes, and high-risk source markers. Repository metadata, environments,
+tests, docs, Bicep parameters, caches, credentials, local Azure state, and old
+artifacts are never selected. Packages are written only beneath the ignored
+`.artifacts/web-app/` directory.
+
+Check or build locally without Azure access:
+
+```bash
+.venv/bin/python scripts/package_web_app.py --check --json
+.venv/bin/python scripts/package_web_app.py --package --json
+.venv/bin/python scripts/deploy_web_app_code.py --check --json
+```
+
+`scripts/deploy_web_app_code.py` uses one injected command-runner seam. Only
+the explicit `--live --json` mode can construct `az webapp deploy`; check and
+package modes never create a runner or invoke Azure CLI. After the build
+prerequisite below is added and reviewed, this future command can upload code
+only to an existing Web App:
+
+```bash
+.venv/bin/python scripts/deploy_web_app_code.py \
+  --live \
+  --json \
+  --resource-group <existing-resource-group> \
+  --web-app <existing-web-app>
+```
+
+No live code deployment was run in this slice. An accepted CLI request is not
+evidence of application startup, health, managed-identity authentication,
+Foundry access, or agent invocation. Python ZIP deployment also requires App
+Service build automation such as `SCM_DO_BUILD_DURING_DEPLOYMENT=true` to
+install `requirements.txt`. The current infrastructure has not added or proven
+that prerequisite. This slice does not alter app settings, and no live code
+deployment should occur until the setting is added and reviewed.
+
 ## Disposable Foundry Workflow
 
 Copy `foundry-only.example.bicepparam` to the ignored

@@ -5,16 +5,26 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 1,082 passed
+- 1,105 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-**Active implementation direction:** The project is now deliberately advancing
-from the local mock capstone into an Azure-first Microsoft Foundry Agent
-implementation. Current work covers disposable Foundry infrastructure,
-immutable agent versions, guarded application invocation, fixed-corpus
-evaluation, deterministic Foundry metric publication, and
-managed-identity-ready runtime authentication. Mock mode remains the safe
-default, and all AI output continues to require human nurse review.
+**Active implementation direction:** The project is deliberately moving from
+the local mock capstone into an Azure-first Microsoft Foundry Agent
+implementation. Current momentum is:
+
+```text
+Disposable Foundry infrastructure
+-> immutable prompt-agent lifecycle
+-> guarded agent invocation
+-> evaluation and Foundry metric publication
+-> managed-identity-ready Web App hosting
+-> project-scoped Foundry Agent Consumer RBAC
+-> deterministic source deployment packaging
+-> explicit Web App code-deployment boundary
+```
+
+Mock mode remains the safe default, hosted notifications remain suppressed,
+and all AI output continues to require human nurse review.
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
 
@@ -27,11 +37,14 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Added a separate, explicit Foundry Agent Consumer RBAC entry point and module.
-- The assignment derives the Web App system-assigned principal ID, uses
-  deterministic naming, and is scoped to the existing Foundry project.
-- Seven focused tests and all offline Bicep builds pass. No Azure deployment,
-  role assignment, authentication, verification, invocation, or code deployment ran.
+- Added an allowlist-driven deterministic Web App source deployment ZIP package
+  service plus thin package and explicit code-deployment CLIs.
+- Stable ordering, timestamps, modes, and compression produce repeatable bytes;
+  path escapes, symlinks, unsafe artifacts, and incomplete inputs fail safely.
+- Check/package modes are offline. Only `--live --json` can submit one injected
+  `az webapp deploy` command to an existing app.
+- Twenty-three focused tests pass. No Azure deployment, hosted health check, RBAC,
+  authentication, Foundry verification, agent invocation, or model call ran.
 - Hosted defaults keep every provider in mock mode and suppress notifications.
 - No production-clinical-readiness claim is made; mandatory nurse review and
   the safe local/demo defaults remain unchanged.
@@ -58,6 +71,9 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
 - `scripts/deploy_foundry_infra.py`: approved deployment boundary; `scripts/verify_foundry_infra.py`: approved read-only verification boundary.
+- `src/app/services/web_app_package.py`: deterministic source deployment package
+  boundary; `scripts/package_web_app.py`: offline check/package CLI;
+  `scripts/deploy_web_app_code.py`: explicit existing-Web-App deployment CLI.
 
 Future-slice rules:
 - Future TDD slices requiring Foundry infrastructure must extend or reuse this implementation rather than create another `main.bicep`, duplicate resources, or return to portal-only creation.
@@ -81,16 +97,17 @@ Do not claim as complete:
   `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
   review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
-- Web App deployment, application code deployment, Foundry RBAC, hosted
-  managed-identity authentication, verification, or invocation; the RBAC
-  template exists offline but has not been deployed
+- Web App infrastructure or code deployment, Foundry RBAC, hosted health/status
+  checks, managed-identity authentication, verification, or invocation; the
+  package/deployment and RBAC boundaries exist offline but have not run live
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Add an explicit, offline-tested application packaging
-and Web App code-deployment boundary while preserving mock providers and
-suppressed notifications; do not perform a live deployment yet.
+Recommended next move: Add and offline-test the required Azure App Service
+Python build-automation setting in the Web App Bicep module while preserving
+mock providers, suppressed notifications, and `deployApp=false` by default. Do
+not perform a live deployment yet.
 
 ## Current Working Local Pipeline
 
@@ -243,6 +260,8 @@ Completed work by feature area:
   system-assigned identity; `deployApp=false` preserves the existing default.
 - A separate template can explicitly assign Foundry Agent Consumer at project
   scope without coupling access to `main.bicep`.
+- The allowlisted package builder and explicit deployment CLI keep code upload
+  separate from infrastructure, RBAC, startup checks, and Foundry operations.
 - `infra/README.md` documents Azure CLI build, validate, deploy, and cleanup
   commands.
 - Manual Cosmos smoke testing verified local `APP_MODE=cosmos` with a deployed
@@ -267,7 +286,8 @@ Completed work by feature area:
 ## Not Yet Implemented / Deferred Scope
 
 - Authentication
-- Hosting deployment and application code deployment
+- Hosting infrastructure and Web App code deployment
+- Hosted `/health`, `/version`, and `/demo/status` verification
 - Live Foundry RBAC deployment for the Web App identity
 - Agent-specific RBAC scope
 - Hosted Foundry verification and invocation
@@ -281,9 +301,10 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Add an explicit, offline-tested application packaging and Web App
-code-deployment boundary while preserving mock providers and suppressed
-notifications; do not perform a live deployment yet.
+Add and offline-test the required Azure App Service Python build-automation
+setting in the Web App Bicep module while preserving mock providers,
+suppressed notifications, and deployApp=false by default. Do not perform a
+live deployment yet.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -295,26 +316,30 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Added `infra/foundry-agent-consumer-rbac.bicep`,
-  `infra/modules/foundry-agent-consumer-rbac.bicep`, and seven focused tests in
-  `tests/test_foundry_agent_consumer_rbac_bicep.py`.
-- Modified `infra/README.md`, `docs/architecture.md`,
-  `docs/ai-103-mapping.md`, and `docs/progress.md` to document the independent
-  boundary and its unproven-live status.
-- The exact built-in role is Foundry Agent Consumer
-  (`eed3b665-ab3a-47b6-8f48-c9382fb1dad6`) at Foundry project scope. No Foundry
-  User, manager, owner, Contributor, or Cognitive Services role is granted.
-- The entry point resolves `webApp.identity.principalId`; operators do not
-  provide identity IDs. Assignment naming is deterministic with `guid(...)`
-  over project ID, principal ID, and role-definition ID.
-- `main.bicep`, the Web App module, and the Foundry provisioning module remain
-  free of role assignments. Prompt-agent lifecycle and invocation stay separate.
-- Mock providers and `DEMO_SUPPRESS_NOTIFICATIONS=true` remain unchanged.
-- Seven focused RBAC tests and the full offline suite pass. Both RBAC templates
-  and `main.bicep` compile locally.
-- No Azure call, deployment, role assignment, authentication, agent
-  verification, invocation, or application code deployment occurred. No
-  production-clinical-readiness claim is made.
+- Added `src/app/services/web_app_package.py`, `scripts/package_web_app.py`,
+  `scripts/deploy_web_app_code.py`, and 23 focused tests across three modules.
+- The package allowlist includes `requirements.txt`, required `src` Python and
+  YAML, and static HTML/CSS/JavaScript. It excludes repository metadata,
+  environments, Bicep parameters, tests, docs, caches, and prior artifacts.
+- ZIP entry ordering, timestamps, file modes, and compression are normalized.
+  Identical inputs produce identical SHA-256 hashes; included changes alter it.
+- The source ZIP does not vendor dependencies. Installing `requirements.txt`
+  requires App Service build automation such as
+  `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, which current infrastructure has not
+  added or proven. No live deployment should run before review of that setting.
+- `.artifacts/` is ignored, and outputs or serialized results contain no source
+  contents, absolute paths, secrets, environment values, or contact data.
+- Check and package modes make no Azure call. Live mode requires explicit
+  `--live --json`, resource group, and Web App name, then permits only one
+  discrete `az webapp deploy` call through an injected runner.
+- Package creation, deployment acceptance, and hosted verification remain
+  distinct. No automatic retries, settings changes, RBAC, Foundry operation,
+  invocation, or deletion is coupled to code deployment.
+- `APP_MODE=mock`, every mock provider, suppressed hosted notifications, and
+  mandatory nurse review remain unchanged.
+- The full offline suite passes at 1,105 tests with one existing warning.
+- No Azure code deployment, hosted health check, authentication, verification,
+  invocation, or model call occurred. No production-clinical claim is made.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the
   reference guides below.
