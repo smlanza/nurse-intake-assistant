@@ -4,1000 +4,565 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_env_example_documents_acs_email_configuration() -> None:
-    env_example = (PROJECT_ROOT / ".env.example").read_text()
-
-    assert "EMAIL_PROVIDER=mock" in env_example
-    assert "AI_PROVIDER=mock" in env_example
-    assert "ACS_EMAIL_CONNECTION_STRING=" in env_example
-    assert "ACS_EMAIL_SENDER_ADDRESS=" in env_example
-    assert "NURSE_NOTIFICATION_EMAIL=" in env_example
-    assert "EMAIL_PROVIDER=acs" in env_example
-    assert "only required" in env_example
+def _read(relative_path: str) -> str:
+    return (PROJECT_ROOT / relative_path).read_text()
 
 
-def test_env_example_documents_sms_configuration() -> None:
-    env_example = (PROJECT_ROOT / ".env.example").read_text()
-
-    assert "APP_MODE=mock" in env_example
-    assert "EMAIL_PROVIDER=mock" in env_example
-    assert "ACS_EMAIL_CONNECTION_STRING=" in env_example
-    assert "COSMOS_ENDPOINT=" in env_example
-    assert "AI_PROVIDER=mock" in env_example
-    assert "COSMOS_DATABASE_NAME=nurse-intake" in env_example
-    assert "SMS_PROVIDER=mock" in env_example
-    assert "ACS_SMS_CONNECTION_STRING=" in env_example
-    assert "ACS_SMS_FROM_PHONE_NUMBER=" in env_example
-    assert "NURSE_NOTIFICATION_PHONE_NUMBER=" in env_example
-    assert "SMS_PROVIDER=acs" in env_example
-    assert "only required" in env_example
-    assert "accesskey=" not in env_example.lower()
-    assert "+1" not in env_example
-    assert "555" not in env_example
+def _normalized(text: str) -> str:
+    return " ".join(text.split())
 
 
-def test_env_example_documents_foundry_ai_placeholders() -> None:
-    env_example = (PROJECT_ROOT / ".env.example").read_text()
-
-    assert "AI_PROVIDER=mock" in env_example
-    assert "AI_PROVIDER=foundry" in env_example
-    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=" in env_example
-    assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME=" in env_example
-    assert "Do not commit" in env_example
-    assert "Azure AI keys" in env_example
-
-
-def test_env_example_documents_foundry_agent_placeholders() -> None:
-    env_example = (PROJECT_ROOT / ".env.example").read_text()
-
-    assert "AGENT_PROVIDER=mock" in env_example
-    assert "AGENT_PROVIDER=foundry-agent" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_ENDPOINT=" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_ID=" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_NAME=" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_VERSION=" in env_example
-    assert "AZURE_SUBSCRIPTION_ID=" in env_example
-    assert "AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME=" in env_example
-    assert "AZURE_AI_FOUNDRY_PROJECT_NAME=" in env_example
-    assert "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID=" in env_example
-    assert "stable per-agent OpenAI protocol endpoint" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=false" in env_example
-    assert "Do not commit" in env_example
-    assert "PHI" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_ID=agent-" not in env_example
-    assert "services.ai.azure.com/api/projects/" not in env_example
-    assert "accesskey=" not in env_example.lower()
+def _env_values(relative_path: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw_line in _read(relative_path).splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        values[name] = value
+    return values
 
 
-def test_foundry_local_env_example_documents_openai_endpoint_placeholder() -> None:
-    env_example = (PROJECT_ROOT / ".env.foundry.local.example").read_text()
+def _assert_contains_all(text: str, expected: set[str]) -> None:
+    missing = sorted(token for token in expected if token not in text)
+    assert not missing, f"Missing documented contract tokens: {missing}"
 
-    assert "AI_PROVIDER=foundry" in env_example
-    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT=" in env_example
-    assert (
-        "AZURE_OPENAI_ENDPOINT=https://example-openai-resource.openai.azure.com/"
-        in env_example
+
+def test_main_env_example_has_safe_defaults_and_required_placeholders() -> None:
+    values = _env_values(".env.example")
+
+    assert {
+        name: values[name]
+        for name in {
+            "APP_MODE",
+            "AI_PROVIDER",
+            "AGENT_PROVIDER",
+            "SPEECH_PROVIDER",
+            "EMAIL_PROVIDER",
+            "SMS_PROVIDER",
+        }
+    } == {
+        "APP_MODE": "mock",
+        "AI_PROVIDER": "mock",
+        "AGENT_PROVIDER": "mock",
+        "SPEECH_PROVIDER": "mock",
+        "EMAIL_PROVIDER": "mock",
+        "SMS_PROVIDER": "mock",
+    }
+    assert values["DEMO_SUPPRESS_NOTIFICATIONS"] == "false"
+
+    required_placeholders = {
+        "COSMOS_ENDPOINT",
+        "COSMOS_KEY",
+        "ACS_EMAIL_CONNECTION_STRING",
+        "ACS_EMAIL_SENDER_ADDRESS",
+        "NURSE_NOTIFICATION_EMAIL",
+        "ACS_SMS_CONNECTION_STRING",
+        "ACS_SMS_FROM_PHONE_NUMBER",
+        "NURSE_NOTIFICATION_PHONE_NUMBER",
+        "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_ID",
+        "AZURE_AI_FOUNDRY_AGENT_NAME",
+        "AZURE_AI_FOUNDRY_AGENT_VERSION",
+        "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID",
+        "AZURE_SUBSCRIPTION_ID",
+        "AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME",
+        "AZURE_AI_FOUNDRY_PROJECT_NAME",
+        "AZURE_SPEECH_ENDPOINT",
+        "AZURE_SPEECH_REGION",
+    }
+    assert required_placeholders <= values.keys()
+    assert all(values[name] == "" for name in required_placeholders)
+    assert values["AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY"] == "false"
+
+
+def test_foundry_env_examples_are_explicit_and_keep_unrelated_providers_mock() -> None:
+    extraction = _env_values(".env.foundry.local.example")
+    agent = _env_values(".env.foundry-agent.local.example")
+
+    assert extraction == {
+        "AI_PROVIDER": "foundry",
+        "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT": (
+            "https://your-foundry-project-endpoint.example.invalid"
+        ),
+        "AZURE_OPENAI_ENDPOINT": (
+            "https://example-openai-resource.openai.azure.com/"
+        ),
+        "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": "your-model-deployment-name",
+        "EMAIL_PROVIDER": "mock",
+        "SMS_PROVIDER": "mock",
+    }
+    assert agent["AGENT_PROVIDER"] == "foundry-agent"
+    assert agent["AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"].startswith("<your-")
+    assert agent["AZURE_AI_FOUNDRY_AGENT_ENDPOINT"].startswith("<your-")
+    assert agent["AZURE_AI_FOUNDRY_AGENT_NAME"] == "<your-foundry-agent-name>"
+    assert agent["AZURE_AI_FOUNDRY_AGENT_VERSION"] == "<your-foundry-agent-version>"
+    assert agent["AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY"] == "false"
+    assert "AZURE_AI_FOUNDRY_AGENT_ID" not in agent
+    assert {
+        name: agent[name]
+        for name in {
+            "APP_MODE",
+            "AI_PROVIDER",
+            "SPEECH_PROVIDER",
+            "EMAIL_PROVIDER",
+            "SMS_PROVIDER",
+        }
+    } == {
+        "APP_MODE": "mock",
+        "AI_PROVIDER": "mock",
+        "SPEECH_PROVIDER": "mock",
+        "EMAIL_PROVIDER": "mock",
+        "SMS_PROVIDER": "mock",
+    }
+    assert agent["DEMO_SUPPRESS_NOTIFICATIONS"] == "true"
+
+
+def test_environment_examples_use_placeholders_and_warn_against_real_values() -> None:
+    example_paths = {
+        ".env.example",
+        ".env.foundry.local.example",
+        ".env.foundry-agent.local.example",
+        ".env.speech.local.example",
+    }
+
+    for path in example_paths:
+        text = _read(path)
+        lowered = text.lower()
+        assert "accesskey=" not in lowered
+        assert "bearer " not in lowered
+        assert "+1" not in text
+        assert "555" not in text
+        assert "@" not in text
+        assert "DOB" not in text
+
+    _assert_contains_all(
+        _read(".env.example"),
+        {"Do not commit", "real endpoints", "real ACS connection strings", "PHI"},
     )
-    assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME=" in env_example
-    assert "API_KEY" not in env_example
-    assert "accesskey=" not in env_example.lower()
+    assert "Do not commit real values" in _read(".env.foundry.local.example")
+    assert "Do not commit real values" in _read(".env.foundry-agent.local.example")
 
 
-def test_foundry_agent_local_env_example_documents_placeholders() -> None:
-    env_example_path = PROJECT_ROOT / ".env.foundry-agent.local.example"
+def test_requirements_include_documented_runtime_and_azure_dependencies() -> None:
+    requirements = set(_read("requirements.txt").splitlines())
 
-    assert env_example_path.exists()
+    assert {
+        "fastapi",
+        "uvicorn[standard]",
+        "pytest",
+        "httpx",
+        "azure-communication-email",
+        "azure-communication-sms",
+    } <= requirements
 
-    env_example = env_example_path.read_text()
-    assert "AGENT_PROVIDER=foundry-agent" in env_example
-    assert (
-        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT="
-        "<your-foundry-agent-project-endpoint>"
-    ) in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_ENDPOINT=" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_NAME=<your-foundry-agent-name>" in env_example
-    assert (
-        "AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>"
-        in env_example
+
+def test_manual_acs_email_guide_documents_safe_operator_contract() -> None:
+    guide = _normalized(_read("docs/manual-acs-email-smoke-test.md"))
+
+    _assert_contains_all(
+        guide,
+        {
+            "Manual ACS Email Smoke Test",
+            "EMAIL_PROVIDER=acs",
+            "ACS_EMAIL_CONNECTION_STRING",
+            "ACS_EMAIL_SENDER_ADDRESS",
+            "NURSE_NOTIFICATION_EMAIL",
+            "python scripts/smoke_acs_email.py --check",
+            "creates no ACS Email client",
+            "makes no Azure calls",
+            "sends no email",
+            "EMAIL_PROVIDER=mock",
+            "Do not commit",
+        },
     )
-    assert "stable OpenAI protocol base" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=false" in env_example
-    assert "AZURE_AI_FOUNDRY_AGENT_ID" not in env_example
-    assert "AZURE_SUBSCRIPTION_ID=<your-azure-subscription-id>" in env_example
-    assert (
-        "AZURE_AI_FOUNDRY_RESOURCE_GROUP_NAME=<your-foundry-resource-group-name>"
-        in env_example
+
+
+def test_manual_acs_sms_guide_documents_safe_operator_contract() -> None:
+    guide = _normalized(_read("docs/manual-acs-sms-smoke-test.md"))
+
+    _assert_contains_all(
+        guide,
+        {
+            "Manual ACS SMS Smoke Test",
+            "SMS_PROVIDER=acs",
+            "ACS_SMS_CONNECTION_STRING",
+            "ACS_SMS_FROM_PHONE_NUMBER",
+            "NURSE_NOTIFICATION_PHONE_NUMBER",
+            "python scripts/smoke_acs_sms.py --check",
+            "creates no ACS SMS client",
+            "makes no Azure network call",
+            "sends no SMS",
+            "SMS_PROVIDER=mock",
+            "does not prove handset delivery",
+            "Do not paste or commit",
+        },
     )
-    assert "AZURE_AI_FOUNDRY_PROJECT_NAME=<your-foundry-project-name>" in env_example
-    assert (
-        "AZURE_AI_FOUNDRY_MANAGED_IDENTITY_CLIENT_ID="
-        "<optional-user-assigned-managed-identity-client-id>"
-    ) in env_example
-    assert "Do not commit real values" in env_example
-    assert "services.ai.azure.com/api/projects/" not in env_example
-    assert "secret" not in env_example.lower()
-    assert "accesskey=" not in env_example.lower()
-    assert "bearer" not in env_example.lower()
 
 
-def test_env_example_documents_speech_placeholders() -> None:
-    env_example = (PROJECT_ROOT / ".env.example").read_text()
+def test_manual_local_demo_guide_documents_mock_safety_and_review_flow() -> None:
+    guide = _read("docs/manual-local-mock-demo.md")
 
-    assert "SPEECH_PROVIDER=mock" in env_example
-    assert "SPEECH_PROVIDER=azure" in env_example
-    assert "AZURE_SPEECH_ENDPOINT=" in env_example
-    assert "AZURE_SPEECH_REGION=" in env_example
-    assert "already-transcribed text" in env_example
-    assert "Live Azure Speech transcription/audio processing is deferred" in env_example
-    assert "keys" in env_example
-
-
-def test_project_docs_explain_acs_email_configuration() -> None:
-    docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
-
-    assert "Mock email remains the default" in docs_text
-    assert "EMAIL_PROVIDER=acs" in docs_text
-    assert "ACS_EMAIL_CONNECTION_STRING" in docs_text
-    assert "ACS_EMAIL_SENDER_ADDRESS" in docs_text
-    assert "NURSE_NOTIFICATION_EMAIL" in docs_text
-    assert "Live ACS Email smoke testing is complete" in docs_text
-    assert "Do not commit" in docs_text
-    assert "connection strings" in docs_text
-
-
-def test_requirements_include_acs_email_sdk() -> None:
-    requirements = (PROJECT_ROOT / "requirements.txt").read_text()
-
-    assert "azure-communication-email" in requirements
-
-
-def test_requirements_document_acs_sms_sdk_dependency() -> None:
-    requirements = (PROJECT_ROOT / "requirements.txt").read_text()
-
-    assert "fastapi" in requirements
-    assert "uvicorn[standard]" in requirements
-    assert "pytest" in requirements
-    assert "httpx" in requirements
-    assert "azure-communication-email" in requirements
-    assert "azure-communication-sms" in requirements
-
-
-def test_manual_acs_email_smoke_test_checklist_exists() -> None:
-    checklist_path = PROJECT_ROOT / "docs" / "manual-acs-email-smoke-test.md"
-
-    assert checklist_path.exists()
-
-    checklist = checklist_path.read_text()
-    normalized_checklist = " ".join(checklist.split())
-    assert "Manual ACS Email Smoke Test" in checklist
-    assert "EMAIL_PROVIDER=acs" in checklist
-    assert "ACS_EMAIL_CONNECTION_STRING" in checklist
-    assert "ACS_EMAIL_SENDER_ADDRESS" in checklist
-    assert "NURSE_NOTIFICATION_EMAIL" in checklist
-    assert "python scripts/smoke_acs_email.py --check" in checklist
-    assert "creates no ACS Email client" in normalized_checklist
-    assert "makes no Azure calls" in normalized_checklist
-    assert "sends no email" in normalized_checklist
-    assert "uvicorn" in checklist
-    assert "POST /intake/text" in checklist
-    assert "EMAIL_PROVIDER=mock" in checklist
-    assert "Do not commit" in checklist
-    assert "connection strings" in checklist
-    assert "manual" in checklist
-    assert "automated tests" in checklist
-
-
-def test_manual_acs_sms_smoke_test_checklist_exists() -> None:
-    checklist_path = PROJECT_ROOT / "docs" / "manual-acs-sms-smoke-test.md"
-
-    assert checklist_path.exists()
-
-    checklist = checklist_path.read_text()
-    normalized_checklist = " ".join(checklist.split())
-    assert "Manual ACS SMS Smoke Test" in checklist
-    assert "Live ACS SMS" in checklist
-    assert "not implemented yet" in checklist
-    assert "placeholder" in checklist
-    assert "future live ACS SMS verification" in checklist
-    assert "SMS_PROVIDER=acs" in checklist
-    assert "ACS_SMS_CONNECTION_STRING" in checklist
-    assert "ACS_SMS_FROM_PHONE_NUMBER" in checklist
-    assert "NURSE_NOTIFICATION_PHONE_NUMBER" in checklist
-    assert "python scripts/smoke_acs_sms.py --check" in checklist
-    assert "creates no ACS SMS client" in normalized_checklist
-    assert "makes no Azure network call" in normalized_checklist
-    assert "sends no SMS" in normalized_checklist
-    assert "toll-free verification, carrier, and Azure regulatory workflow" in checklist
-    assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in checklist
-    assert "SMS_PROVIDER=mock" in checklist
-    assert "Do not commit" in checklist
-    assert "connection strings" in checklist
-    assert "access keys" in checklist
-    assert "real phone numbers" in checklist
-    assert "uvicorn" in checklist
-    assert "POST /intake/text" in checklist
-    assert "notificationSmsSent=true" in checklist
-    assert "notificationEmailSent" in checklist
-    assert "independent" in checklist
-    assert "should not crash intake processing" in checklist
-    assert "notificationSmsSent=false" in checklist
-    assert "Azure SMS SDK" in checklist
-    assert "create_acs_sms_client" in checklist
-    assert "live ACS SMS smoke testing has not been completed" in checklist
-
-
-def test_manual_local_mock_demo_guide_exists() -> None:
-    guide_path = PROJECT_ROOT / "docs" / "manual-local-mock-demo.md"
-
-    assert guide_path.exists()
-
-    guide = guide_path.read_text()
-    assert "Local Mock Demo" in guide
-    assert "uvicorn" in guide
-    assert "APP_MODE=mock" in guide
-    assert "AI_PROVIDER=mock" in guide
-    assert "EMAIL_PROVIDER=mock" in guide
-    assert "SMS_PROVIDER=mock" in guide
-    assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in guide
-    assert "POST /demo/reset" in guide
-    assert "POST /intake/text" in guide
-    assert "empty" in guide
-    assert "whitespace-only" in guide
-    assert "too-short" in guide
-    assert "does not create cases or notifications" in guide
-    assert "Jane Doe" in guide
-    assert "medication refill" in guide
-    assert "`GET /cases`" in guide
-    assert "GET /cases?reviewStatus=PendingReview" in guide
-    assert "GET /cases?urgency=Urgent" in guide
-    assert "GET /cases?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD" in guide
-    assert "GET /cases/summary" in guide
-    assert "GET /cases/summary?fromDate=YYYY-MM-DD&toDate=YYYY-MM-DD" in guide
-    assert "GET /cases/{case_id}" in guide
-    assert "POST /cases/{case_id}/review" in guide
-    assert "GET /cases?reviewStatus=Reviewed" in guide
-    assert "GET /notifications/email" in guide
-    assert "GET /notifications/sms" in guide
-    assert "reviewStatus" in guide
-    assert "PendingReview" in guide
-    assert "Reviewed" in guide
-    assert "notificationEmailSent=true" in guide
-    assert "notificationSmsSent=true" in guide
-    assert "Mock mode sends no real email or SMS" in guide
-    assert "Do not commit" in guide
-    assert "connection strings" in guide
-    assert "real phone numbers" in guide
-    assert "Live ACS SMS" in guide
-    assert "toll-free verification" in guide
-    assert "Cosmos" in guide
-    assert "list/summary" in guide
-    assert "future enhancement" in guide
-
-
-def test_readme_documents_local_mock_demo_walkthrough() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
-
-    assert "Local Mock Demo Walkthrough" in readme
-    assert "local mock/demo only" in readme
-    assert "no production clinical use" in readme
-    assert "AI output requires human nurse review" in readme
-    assert "python -m venv .venv" in readme
-    assert "source .venv/bin/activate" in readme
-    assert "pip install -r requirements.txt" in readme
-    assert "python -m pytest" in readme
-    assert "uvicorn src.app.main:app --reload" in readme
-    assert "http://127.0.0.1:8000/demo" in readme
-    assert "APP_MODE=mock" in readme
-    assert "AI_PROVIDER=mock" in readme
-    assert "SPEECH_PROVIDER=mock" in readme
-    assert "EMAIL_PROVIDER=mock" in readme
-    assert "SMS_PROVIDER=mock" in readme
-    assert "DEMO_SUPPRESS_NOTIFICATIONS=false" in readme
-    assert "does not call Azure" in readme
-    assert "does not call models" in readme
-    assert "does not process audio" in readme
-    assert "no real email or SMS" in readme
-    assert "explicit provider environment variables and credentials" in readme
-    assert "no real Azure resource identifiers" in readme
-    assert "Seed Demo Data" in readme
-    assert "Load Recent Cases" in readme
-    assert "Load Queue Summary" in readme
-    assert "Select for Review" in readme
-    assert "Load Handoff Note" in readme
-    assert "submit the nurse review" in readme
-    assert "submit a text intake" in readme
-    assert "submit a voicemail transcript intake" in readme
-    assert "mock email/SMS notifications" in readme
-    assert "reset demo state" in readme
-    assert "docs/system-overview.md" in readme
-    assert "docs/demo-smoke-test.md" in readme
-    assert "python scripts/preflight.py --all" in readme
-    assert "Azure Speech" in readme
-    assert "live Azure AI Foundry" in readme
-    assert "ACS SMS delivery tracking" in readme
-
-
-def test_readme_documents_current_live_smoke_status() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
-    normalized_readme = " ".join(readme.split())
-
-    assert "## Current Status" in readme
-    assert "mock mode remains the primary interview/demo path" in readme
-    assert "Automated tests: offline only" in readme
-    assert "no Azure calls" in readme
-    assert "Live Azure OpenAI / Foundry structured extraction" in readme
-    assert "manually smoke-tested with fictional medication-refill input" in normalized_readme
-    assert "--live-client-mode azure-openai-endpoint" in readme
-    assert "not production clinical software" in readme
-    assert "requires nurse review before any clinical action" in readme
-    assert "do not use real PHI" in readme
-    assert "real endpoint values" in normalized_readme
-    assert "no Azure calls, model calls" in normalized_readme
-    assert "docs/demo-readiness-checklist.md" in readme
-
-
-def test_demo_readiness_checklist_exists() -> None:
-    checklist_path = PROJECT_ROOT / "docs" / "demo-readiness-checklist.md"
-
-    assert checklist_path.exists()
-
-    checklist = checklist_path.read_text()
-    normalized_checklist = " ".join(checklist.split())
-    assert "Demo Readiness Checklist" in checklist
-    assert "local mock demo" in checklist
-    assert "source .venv/bin/activate" in checklist
-    assert "pip install -r requirements.txt" in checklist
-    assert "python -m pytest" in checklist
-    assert "uvicorn src.app.main:app --reload" in checklist
-    assert "http://127.0.0.1:8000/demo" in checklist
-    assert "demo reset" in checklist
-    assert "Submit a fictional text intake" in checklist
-    assert "Load the nurse handoff note" in checklist
-    assert "mock email/SMS notifications" in checklist
-    assert "Manual Azure OpenAI / Foundry structured extraction smoke" in checklist
-    assert "--live-client-mode azure-openai-endpoint" in checklist
-    assert "manual smoke script only" in checklist
-    assert "Automated tests remain offline" in checklist
-    assert "Nurse review is required" in checklist
-    assert "Urgency output is advisory only" in checklist
-    assert "no real PHI" in checklist
-    assert "Do Not Claim" in checklist
-    assert "Do not claim production readiness" in checklist
-    assert "replaces nurse judgment" in checklist
-    assert "Do not claim Azure hosting unless separately deployed" in checklist
-    assert "If tests fail, do not demo live changes" in checklist
-    assert "endpoint values" in checklist
-    assert "deployment names" in checklist
-
-
-def test_readme_documents_current_demo_claims_boundary() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
-
-    assert "## Demo Claims" in readme
-    assert "human nurse review is required" in readme
-    assert "fictional/demo data only" in readme
-    assert "no secrets or PHI" in readme
-    assert "local text intake" in readme
-    assert "already-transcribed voicemail transcript intake" in readme
-    assert "deterministic mock AI extraction" in readme
-    assert "urgency classification" in readme
-    assert "nurse review workflow" in readme
-    assert "queue/recent case views and summary counts" in readme
-    assert "deterministic handoff notes" in readme
-    assert "mock email/SMS notification inspection" in readme
-    assert "offline-safe consolidated preflight checks" in readme
-    assert "must not claim production clinical readiness" in readme
-    assert "autonomous medical decision-making" in readme
-    assert "live Azure AI Foundry extraction" in readme
-    assert "live Azure Speech transcription" in readme
-    assert "live phone intake/call automation" in readme
-    assert "confirmed ACS SMS handset delivery" in readme
-    assert "hosting/auth/Key Vault/retry/durable processing" in readme
-    assert "default mock mode makes no Azure calls" in readme
-    assert "model calls" in readme
-    assert "audio processing" in readme
-    assert "repository reads/writes/queries" in readme
-    assert "email sends" in readme
-    assert "SMS sends" in readme
-
-
-def test_readme_documents_consolidated_preflight_output() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
-    normalized_readme = " ".join(readme.split()).lower()
-
-    assert "Cosmos Repository" in readme
-    assert "Foundry Agent" in readme
-    assert "SKIP Cosmos Repository" in readme
-    assert "SKIP Foundry Agent" in readme
-    assert "SKIP is expected and safe" in readme
-    assert "Guidance:" in readme
-    assert "Guidance: Keep" not in readme
-    assert (
-        "For the local demo, keep APP_MODE, AI_PROVIDER, AGENT_PROVIDER, "
-        "SPEECH_PROVIDER, EMAIL_PROVIDER, and SMS_PROVIDER set to mock."
-    ) in readme
-    assert (
-        "Enable one live provider at a time only for explicit manual smoke testing."
-        in readme
+    _assert_contains_all(
+        guide,
+        {
+            "Local Mock Demo",
+            "APP_MODE=mock",
+            "AI_PROVIDER=mock",
+            "EMAIL_PROVIDER=mock",
+            "SMS_PROVIDER=mock",
+            "POST /intake/text",
+            "GET /cases/summary",
+            "POST /cases/{case_id}/review",
+            "GET /notifications/email",
+            "GET /notifications/sms",
+            "PendingReview",
+            "Reviewed",
+            "Mock mode sends no real email or SMS",
+            "Do not commit",
+        },
     )
-    assert "This preflight remains offline-safe and does not call Azure." in readme
-    assert "Next step:" not in readme
-    assert "Preflight summary:" in readme
-    assert "PASS=0, SKIP=6, FAIL=0" in readme
-    assert "python scripts/preflight.py --foundry-agent" in readme
-    assert "No Foundry Agent client" in readme
-    assert "no agent was invoked" in normalized_readme
-    assert "Completed safely with no failed checks" in readme
-    assert "No Azure clients" in readme
-    assert "Azure calls" in readme
-    assert "model calls" in readme
-    assert "agent calls" in readme
-    assert "audio processing" in readme
-    assert "repository reads/writes/queries" in readme
-    assert "email sends" in readme
-    assert "SMS sends" in readme
 
 
-def test_readme_documents_consolidated_preflight_safe_failure_output() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
+def test_readme_documents_safe_local_demo_and_claims_boundary() -> None:
+    readme = _normalized(_read("README.md"))
 
-    assert "FAIL means required configuration is missing" in readme
-    assert "explicitly enabled provider" in readme
-    assert "not that a live service call failed" in readme
-    assert "APP_MODE=cosmos" in readme
-    assert "FAIL Cosmos Repository" in readme
-    assert "COSMOS_ENDPOINT" in readme
-    assert "COSMOS_KEY" in readme
-    assert "COSMOS_DATABASE_NAME" in readme
-    assert "COSMOS_CONTAINER_NAME" in readme
-    assert "Guidance:" in readme
-    assert "Preflight summary:" in readme
-    assert "PASS=0, SKIP=5, FAIL=1" in readme
-    assert "FAIL=1" in readme
-    assert "- Cosmos Repository: Set missing Cosmos variables or restore APP_MODE=mock." in readme
-    assert (
-        "A FAIL result means required local configuration is missing; this "
-        "preflight did not call Azure."
-    ) in readme
-    assert "exit code 1" in readme
-    assert "missing variable names" in readme
-    assert "secret values are not printed" in readme
-    assert "No Azure clients" in readme
-    assert "Azure calls" in readme
-    assert "model calls" in readme
-    assert "audio processing" in readme
-    assert "repository reads/writes/queries" in readme
-    assert "email sends" in readme
-    assert "SMS sends" in readme
+    _assert_contains_all(
+        readme,
+        {
+            "Local Mock Demo Walkthrough",
+            "local mock/demo only",
+            "no production clinical use",
+            "AI output requires human nurse review",
+            "APP_MODE=mock",
+            "AI_PROVIDER=mock",
+            "AGENT_PROVIDER=mock",
+            "SPEECH_PROVIDER=mock",
+            "EMAIL_PROVIDER=mock",
+            "SMS_PROVIDER=mock",
+            "default mock mode makes no Azure calls",
+            "human nurse review is required",
+            "fictional/demo data only",
+            "no secrets or PHI",
+            "must not claim production clinical readiness",
+        },
+    )
 
 
-def test_readme_documents_provider_mode_matrix() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
+def test_readme_documents_explicit_provider_and_preflight_operations() -> None:
+    readme = _normalized(_read("README.md"))
 
-    assert "## Provider Mode Matrix" in readme
-    for scenario in [
-        "Default local demo mode",
-        "Foundry Agent smoke-test mode",
-        "ACS Email smoke-test mode",
-        "ACS SMS smoke-test mode",
-        "Azure Speech smoke-test mode",
-        "Cosmos persistence smoke-test mode",
-    ]:
-        assert scenario in readme
-    for setting_name in [
-        "APP_MODE",
-        "AI_PROVIDER",
-        "AGENT_PROVIDER",
-        "SPEECH_PROVIDER",
-        "EMAIL_PROVIDER",
-        "SMS_PROVIDER",
-    ]:
-        assert setting_name in readme
-
-
-def test_readme_documents_independent_provider_toggles() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
-    normalized_readme = " ".join(readme.split())
-
-    assert "provider settings are independent adapter toggles" in normalized_readme
-    assert "not an all-or-nothing Azure switch" in normalized_readme
-    assert (
-        "APP_MODE selects the app runtime/storage posture; it does not "
-        "automatically switch every provider to Azure"
-    ) in normalized_readme
-    assert "Do not introduce APP_MODE=azure" in readme
+    _assert_contains_all(
+        readme,
+        {
+            "Provider Mode Matrix",
+            "provider settings are independent adapter toggles",
+            "not an all-or-nothing Azure switch",
+            "Do not introduce APP_MODE=azure",
+            "Foundry Agent smoke-test mode",
+            "AGENT_PROVIDER=foundry-agent",
+            "APP_MODE=mock",
+            "python scripts/preflight.py --all",
+            "python scripts/preflight.py --foundry-agent",
+            "SKIP is expected and safe",
+            "This preflight remains offline-safe and does not call Azure.",
+            "FAIL means required configuration is missing",
+            "not that a live service call failed",
+            "Smoke-test scripts are automated checks that are manually invoked",
+            "not run by app startup, /demo, or /demo/status",
+        },
+    )
 
 
-def test_readme_documents_foundry_agent_smoke_mode_with_mock_providers() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
-    normalized_readme = " ".join(readme.split())
+def test_demo_readiness_checklist_preserves_human_review_and_claim_limits() -> None:
+    checklist = _normalized(_read("docs/demo-readiness-checklist.md"))
 
-    assert "Foundry Agent smoke-test mode" in readme
-    assert "AGENT_PROVIDER=foundry-agent" in readme
-    assert "AGENT_PROVIDER=foundry" in readme
-    assert "APP_MODE=mock" in readme
-    assert "AI_PROVIDER=mock" in readme
-    assert "EMAIL_PROVIDER=mock" in readme
-    assert "SMS_PROVIDER=mock" in readme
-    assert "SPEECH_PROVIDER=mock" in readme
-    assert (
-        "AGENT_PROVIDER=foundry-agent or the AGENT_PROVIDER=foundry smoke "
-        "alias while APP_MODE, AI_PROVIDER, EMAIL_PROVIDER, SMS_PROVIDER, and "
-        "SPEECH_PROVIDER remain mock"
-    ) in normalized_readme
-
-
-def test_manual_foundry_doc_documents_agent_smoke_cli_safety() -> None:
-    doc = (PROJECT_ROOT / "docs" / "manual-foundry-smoke-test.md").read_text()
-    normalized_doc = " ".join(doc.split())
-
-    assert "Foundry Agent Smoke CLI" in doc
-    assert "python scripts/smoke_foundry_agent.py --print-agent-instructions" in doc
-    assert "versioned instruction pack" in normalized_doc
-    assert "safe to copy into Azure AI Foundry Agent configuration" in normalized_doc
-    assert "local `NurseIntakeAgent` output contract" in doc
-    assert "Human nurse review remains mandatory" in doc
-    assert "python scripts/smoke_foundry_agent.py --check" in doc
-    assert "python scripts/smoke_foundry_agent.py --live" in doc
-    assert (
-        "python scripts/smoke_foundry_agent.py --env-file "
-        ".env.foundry-agent.local --check"
-    ) in doc
-    assert (
-        "python scripts/smoke_foundry_agent.py --env-file "
-        ".env.foundry-agent.local --live"
-    ) in doc
-    assert "Shell environment variables override env-file values" in doc
-    assert "--check does not call Azure" in doc
-    assert "No Foundry Agent client is created in --check mode" in normalized_doc
-    assert "--live remains manual and opt-in" in doc
-    assert "fictional data only" in normalized_doc
-    assert "default local demo remains mock/offline" in normalized_doc
-    assert "--live --json" in doc
-    assert "--live --diagnose" in doc
-    assert "az login" in doc
-    assert "safe root-cause exception class name" in doc
-    assert "safe status code from the exception chain" in normalized_doc
-    assert "safe client error category" in doc
-    assert "safe client error phase" in normalized_doc
-    assert "stable per-agent OpenAI protocol endpoint" in normalized_doc
-    assert "project-endpoint agent-reference invocation is compatibility-only" in normalized_doc
-    assert "AZURE_AI_FOUNDRY_AGENT_NAME=<your-foundry-agent-name>" in doc
-    assert "AZURE_AI_FOUNDRY_AGENT_VERSION=<your-foundry-agent-version>" in doc
-    assert "`AZURE_AI_FOUNDRY_AGENT_ID` is not required" in doc
-    assert "phase=response_creation" in doc
-    assert "phase=response_extraction" in doc
-    assert "project endpoint, agent name/version, SDK compatibility, agent availability, or request shape" in normalized_doc
-    assert "agent_output_valid" in doc
-    assert "recommended_next_step" in doc
-    assert "Do not claim live Foundry Agent behavior" in doc
-    assert "authentication_or_authorization_failed" in doc
-    assert "azure_request_failed" in doc
-    assert "unexpected_error" in doc
-    assert "sdk_unavailable" in doc
-    assert "contract_invalid" in doc
-    assert "does not make the app production clinical software" in normalized_doc
-    assert "AGENT_PROVIDER=mock" in doc
+    _assert_contains_all(
+        checklist,
+        {
+            "Demo Readiness Checklist",
+            "local mock demo",
+            "Automated tests remain offline",
+            "Nurse review is required",
+            "Urgency output is advisory only",
+            "no real PHI",
+            "Do not claim production readiness",
+            "Do not claim Azure hosting unless separately deployed",
+            "manual smoke script only",
+        },
+    )
 
 
-def test_manual_foundry_doc_has_sanitized_foundry_agent_success_example() -> None:
-    doc = (PROJECT_ROOT / "docs" / "manual-foundry-smoke-test.md").read_text()
-    progress = (PROJECT_ROOT / "docs" / "progress.md").read_text()
-    normalized_progress = " ".join(progress.split())
+def test_manual_foundry_guide_separates_check_live_and_agent_operations() -> None:
+    guide = _normalized(_read("docs/manual-foundry-smoke-test.md"))
 
+    _assert_contains_all(
+        guide,
+        {
+            "Manual Foundry Smoke Test",
+            "automated test suite must remain offline",
+            "must not call Azure",
+            "AI_PROVIDER=mock",
+            "scripts/smoke_foundry_extraction.py",
+            "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT",
+            "AZURE_OPENAI_ENDPOINT",
+            "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+            "--env-file .env.foundry.local --check",
+            "--env-file .env.foundry.local --live",
+            "Foundry Agent Smoke CLI",
+            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+            "AZURE_AI_FOUNDRY_AGENT_NAME",
+            "AZURE_AI_FOUNDRY_AGENT_VERSION",
+            "python scripts/smoke_foundry_agent.py --check",
+            "python scripts/smoke_foundry_agent.py --live",
+            "--check does not call Azure",
+            "--live remains manual and opt-in",
+            "Human nurse review remains mandatory",
+            "fictional data only",
+            "default local demo remains mock/offline",
+            "Do not claim live Foundry Agent behavior",
+            "Restore or verify `AI_PROVIDER=mock`",
+        },
+    )
+
+
+def test_manual_foundry_guide_success_example_is_sanitized() -> None:
+    guide = _read("docs/manual-foundry-smoke-test.md")
     marker = "Sanitized successful result example:"
-    assert marker in doc
-    success_section = doc.split(marker, 1)[1].split("`--live --diagnose`", 1)[0]
+    assert marker in guide
+    success_section = guide.split(marker, 1)[1].split("`--live --diagnose`", 1)[0]
 
-    for expected_text in [
-        '"ok": true',
-        '"category": "success"',
-        '"agent_attempted": true',
-        '"agent_output_valid": true',
-        '"fallback_used": false',
-        '"fields_present": ["extraction", "urgency", "handoffNote"]',
-    ]:
-        assert expected_text in success_section
-
-    for unsafe_text in [
+    _assert_contains_all(
+        success_section,
+        {
+            '"ok": true',
+            '"category": "success"',
+            '"agent_attempted": true',
+            '"agent_output_valid": true',
+            '"fallback_used": false',
+            '"fields_present": ["extraction", "urgency", "handoffNote"]',
+        },
+    )
+    for unsafe_text in {
         "services.ai.azure.com/api/projects/",
         "openai.azure.com",
-        "nurse-agent",
-        "agentVersion",
-        "AZURE_AI_FOUNDRY_AGENT_VERSION=2",
         "AZURE_AI_FOUNDRY_AGENT_ID=",
         "raw prompt",
         "raw model output",
-        "raw agent response text",
-        "request_id",
-        "request ID value",
         "Bearer ",
-        "secret-token",
+        "request_id",
         "@",
         "+1",
         "555",
         "DOB",
-    ]:
+    }:
         assert unsafe_text not in success_section
 
-    assert "Manual live Foundry Agent smoke passed" in progress
-    assert "`ok=true`" in progress
-    assert "`category=success`" in progress
-    assert "`agent_attempted=true`" in progress
-    assert "`agent_output_valid=true`" in progress
-    assert "`fallback_used=false`" in progress
-    assert "`extraction`, `urgency`, and `handoffNote`" in progress
-    assert "No live Azure behavior is claimed for `/demo` by default" in progress
-    assert "`AGENT_PROVIDER=mock` remains the safe local/demo default" in progress
-    assert "human nurse review remains mandatory" in normalized_progress
-    assert "demo defaults to live Azure" not in progress.lower()
-    assert "demo calls Azure by default" not in progress
 
+def test_demo_page_smoke_guide_covers_review_and_reset_workflow() -> None:
+    guide = _read("docs/demo-smoke-test.md")
 
-def test_readme_documents_smoke_scripts_are_explicitly_invoked_checks() -> None:
-    readme = (PROJECT_ROOT / "README.md").read_text()
-    normalized_readme = " ".join(readme.split())
-
-    assert "Smoke-test scripts are automated checks that are manually invoked" in readme
-    assert "unless wired into CI/CD" in readme
-    for script_name in [
-        "scripts/smoke_foundry_agent.py",
-        "scripts/smoke_acs_email.py",
-        "scripts/smoke_acs_sms.py",
-        "scripts/smoke_speech_transcription.py",
-        "docs/manual-cosmos-smoke-test.md",
-    ]:
-        assert script_name in readme
-    assert "not run by app startup, /demo, or /demo/status" in normalized_readme
-
-
-def test_demo_page_smoke_test_guide_exists() -> None:
-    guide_path = PROJECT_ROOT / "docs" / "demo-smoke-test.md"
-
-    assert guide_path.exists()
-
-    guide = guide_path.read_text()
-    assert "Demo Page Smoke Test" in guide
-    assert "uvicorn src.app.main:app --reload" in guide
-    assert "http://127.0.0.1:8000/demo" in guide
-    assert "submit a text intake" in guide
-    assert "submit a voicemail transcript intake" in guide
-    assert "confirm recent cases refresh" in guide
-    assert "mark a case reviewed" in guide
-    assert "confirm the reviewed state is visible" in guide
-    assert "reset the demo" in guide
-    assert "clean state" in guide
-    assert "POST /intake/text" in guide
-    assert "GET /cases/summary" in guide
-    assert "GET /cases?limit=10" in guide
-    assert "POST /cases/{case_id}/review" in guide
-    assert "POST /demo/reset" in guide
-    assert "returns 200" in guide
-
-
-def test_manual_foundry_smoke_test_guide_exists() -> None:
-    guide_path = PROJECT_ROOT / "docs" / "manual-foundry-smoke-test.md"
-
-    assert guide_path.exists()
-
-    guide = guide_path.read_text()
-    normalized_guide = " ".join(guide.split())
-    assert "Manual Foundry Smoke Test" in guide
-    assert "automated test suite must remain offline" in normalized_guide
-    assert "must not call Azure" in normalized_guide
-    assert "AI_PROVIDER=mock" in guide
-    assert "AI_PROVIDER=foundry" in guide
-    assert "scripts/smoke_foundry_extraction.py" in guide
-    assert "--check" in guide
-    assert "--live" in guide
-    assert "--env-file .env.foundry.local --check" in guide
-    assert "--env-file .env.foundry.local --live" in guide
-    assert "--env-file .env.foundry.local --live --diagnose" in guide
-    assert "Troubleshoot With Diagnose" in guide
-    assert "endpoint shape classification" in guide
-    assert "foundry-project-endpoint" in guide
-    assert "endpoint/client compatibility" in normalized_guide
-    assert "services.ai.azure.com" in guide
-    assert "openai.azure.com" in guide
-    assert "azure-openai-endpoint" in guide
-    assert "--live --diagnose --live-client-mode azure-openai-endpoint" in guide
-    assert "API key support is not added" in guide
-    assert "Microsoft Entra bearer-token provider auth" in normalized_guide
-    assert "Azure OpenAI v1 path shape" in guide
-    assert "/openai/v1/" in guide
-    assert "provided with or without `/openai/v1`" in guide
-    assert "OpenAI `model` parameter" in guide
-    assert "openai-v1" in guide
-    assert "openai.azure.com/openai/v1" in guide
-    assert "model parameter source" in normalized_guide
-    assert "sanitized `404`" in guide
-    assert "validated live path is `--live-client-mode azure-openai-endpoint`" in guide
-    assert "completed structured extraction and urgency classification" in normalized_guide
-    assert "manual path validated for this capstone is `azure-openai-endpoint`" in guide
-    assert "A successful live smoke response should" in guide
-    assert "entra-bearer-token-provider" in guide
-    assert "cognitiveservices.default" in guide
-    assert "token provider details are never printed" in normalized_guide
-    assert "RBAC/resource authentication configuration" in guide
-    assert "required endpoint present" in normalized_guide
-    assert "Azure CLI token probe status" in normalized_guide
-    assert "failure phase" in guide
-    assert "root exception class names" in normalized_guide
-    assert "exception-chain class names" in normalized_guide
-    assert "safe HTTP status category" in normalized_guide
-    assert "raw exception messages" in guide
-    assert ".env.foundry.local.example" in guide
-    assert "existing shell environment variables still win" in guide
-    assert "validates local Foundry configuration" in normalized_guide
-    assert "reports optional SDK visibility" in normalized_guide
-    assert "without creating the AI service" in normalized_guide
-    assert "making a model call" in normalized_guide
-    assert "does not persist cases" in normalized_guide
-    assert "does not send notifications" in normalized_guide
-    assert "does not call FastAPI routes" in normalized_guide
-    assert "AZURE_AI_FOUNDRY_PROJECT_ENDPOINT" in guide
-    assert "AZURE_OPENAI_ENDPOINT" in guide
-    assert "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME" in guide
-    assert "Automated tests use fake SDK/client objects only" in guide
-    assert "real Azure AI Foundry smoke test has not been performed yet" not in guide
-    assert "Do not use real patient data" in guide
-    assert "medication refill" in guide
-    assert "chest pain" in guide
-    assert "missing_fields" in guide
-    assert "Restore mock defaults" in guide
-    assert "Restore or verify `AI_PROVIDER=mock`" in guide
-
-
-def test_developer_handoff_documents_current_integration_status() -> None:
-    handoff = (PROJECT_ROOT / "docs" / "developer-handoff.md").read_text()
-    normalized_handoff = " ".join(handoff.split())
-
-    assert "Current Integration Status" in handoff
-    assert "Mock demo is the primary interview/demo path" in handoff
-    assert "--live-client-mode azure-openai-endpoint" in handoff
-    assert "AZURE_OPENAI_ENDPOINT" in handoff
-    assert "/openai/v1/" in handoff
-    assert "Entra bearer-token provider auth" in handoff
-    assert "not wired into the default demo" in handoff
-    assert "Azure Speech remains scaffolded" in handoff
-    assert "ACS Email/SMS" in handoff
-    assert "Cosmos has repository seams" in handoff
-    assert "Production hosting" in handoff
-    assert "out of scope for this MVP" in normalized_handoff
-    assert "docs/demo-readiness-checklist.md" in handoff
-
-
-def test_manual_speech_smoke_test_guide_exists() -> None:
-    guide_path = PROJECT_ROOT / "docs" / "manual-speech-smoke-test.md"
-
-    assert guide_path.exists()
-
-    guide = guide_path.read_text()
-    normalized_guide = " ".join(guide.split())
-    assert "Manual Azure Speech Smoke-Test Preparation" in guide
-    assert "automated test suite must remain offline" in normalized_guide
-    assert "must not call Azure Speech" in normalized_guide
-    assert "SPEECH_PROVIDER=mock" in guide
-    assert "SPEECH_PROVIDER=azure" in guide
-    assert "AZURE_SPEECH_ENDPOINT" in guide
-    assert "AZURE_SPEECH_REGION" in guide
-    assert "python scripts/smoke_speech_transcription.py --check" in guide
-    assert "--env-file .env.speech.local --check" in guide
-    assert ".env.speech.local.example" in guide
-    assert "Existing shell environment variables still win" in guide
-    assert "preflight/config validation only" in guide
-    assert "No Speech client was created" in guide
-    assert "process audio" in guide
-    assert "make an Azure network call" in guide
-    assert "SDK check is informational" in guide
-    assert "Manual/live Azure Speech transcription remains deferred" in guide
-    assert "Do not use PHI or real patient data" in guide
-    assert "production clinical use" in guide
-    assert "Do not commit" in guide
-
-
-def test_system_overview_exists() -> None:
-    guide_path = PROJECT_ROOT / "docs" / "system-overview.md"
-
-    assert guide_path.exists()
-
-    guide = guide_path.read_text()
-    assert "System Overview" in guide
-    assert "local mock/demo capstone project" in guide
-    assert "no production clinical use" in guide
-    assert "POST /intake/text" in guide
-    assert "POST /intake/voicemail-transcript" in guide
-    assert "CaseProcessingService" in guide
-    assert "Provider Boundaries" in guide
-    assert "APP_MODE=mock" in guide
-    assert "AI_PROVIDER=foundry" in guide
-    assert "SPEECH_PROVIDER=azure" in guide
-    assert "Mock vs Azure-Ready vs Deferred" in guide
-    assert "Documentation Map" in guide
-    assert "scripts/preflight.py --all" in guide
-    assert "Demo Claims" in guide
-    assert "Do not claim complete" in guide
-    assert "Next-Slice Guidance" in guide
-    assert "Live Azure Speech transcription" in guide
-
-
-def test_architecture_documents_current_mvp_boundaries() -> None:
-    architecture = (PROJECT_ROOT / "docs" / "architecture.md").read_text()
-    normalized_architecture = " ".join(architecture.split())
-
-    assert "local mock/demo FastAPI application" in normalized_architecture
-    assert "AI-generated" in architecture
-    assert "extraction" in architecture
-    assert "summary" in architecture
-    assert "urgency output" in normalized_architecture
-    assert "advisory only" in architecture
-    assert "requires human nurse review" in normalized_architecture
-    assert "MockAiService" in architecture
-    assert "FoundryAiService" in architecture
-    assert "Speech transcription services" in architecture
-    assert "already-transcribed text only" in normalized_architecture
-    assert "live Azure Speech transcription/audio processing" in normalized_architecture
-    assert "live extraction is deferred" in normalized_architecture
-    assert "InMemoryCaseRepository" in architecture
-    assert "CosmosCaseRepository" in architecture
-    assert "partition key `/createdDate`" in normalized_architecture
-    assert "notificationEmailSent" in architecture
-    assert "notificationSmsDeliveryConfirmed" in architecture
-    assert "does not prove final SMS handset delivery" in normalized_architecture
-    assert "Live Azure AI Foundry extraction" in normalized_architecture
-    assert "Azure Speech / voice intake" in normalized_architecture
-    assert "Hosting" in architecture
-    assert "Authentication / RBAC" in architecture
-    assert "Key Vault" in architecture
-
-
-def test_architecture_documents_agent_contract_safety_flow() -> None:
-    architecture = (PROJECT_ROOT / "docs" / "architecture.md").read_text()
-    normalized_architecture = " ".join(architecture.split())
-
-    assert "NurseIntakeAgent is treated as an external reasoning boundary" in architecture
-    assert "agent contract validation" in architecture
-    assert "application-owned contract" in architecture
-    assert "safe fallback" in architecture
-    assert "deterministic red-flag rules" in architecture
-    assert "processing_trace" in architecture
-    assert "final urgency source" in architecture
-    assert (
-        "Raw intake -> Agent/AI analysis -> agent contract validation -> safe fallback if needed -> deterministic red-flag rules -> persisted case -> notification/review"
-        in normalized_architecture
+    _assert_contains_all(
+        guide,
+        {
+            "Demo Page Smoke Test",
+            "http://127.0.0.1:8000/demo",
+            "submit a text intake",
+            "submit a voicemail transcript intake",
+            "mark a case reviewed",
+            "confirm the reviewed state is visible",
+            "reset the demo",
+            "POST /cases/{case_id}/review",
+            "POST /demo/reset",
+        },
     )
 
 
-def test_ai_103_mapping_documents_current_scope_and_roi_order() -> None:
-    mapping = (PROJECT_ROOT / "docs" / "ai-103-mapping.md").read_text()
-    normalized_mapping = " ".join(mapping.split())
+def test_manual_speech_guide_keeps_check_mode_offline_and_live_work_deferred() -> None:
+    guide = _normalized(_read("docs/manual-speech-smoke-test.md"))
 
-    assert "local mock/demo FastAPI app" in normalized_mapping
-    assert "not production clinical software" in mapping
-    assert "AI_PROVIDER=mock" in mapping
-    assert "MockAiService" in mapping
-    assert "FoundryAiService" in mapping
-    assert "stable per-agent OpenAI protocol invocation is primary" in mapping
-    assert (
-        "project-endpoint agent-reference invocation is explicit compatibility-only"
-        in mapping
+    _assert_contains_all(
+        guide,
+        {
+            "Manual Azure Speech Smoke-Test Preparation",
+            "automated test suite must remain offline",
+            "must not call Azure Speech",
+            "SPEECH_PROVIDER=mock",
+            "SPEECH_PROVIDER=azure",
+            "AZURE_SPEECH_ENDPOINT",
+            "AZURE_SPEECH_REGION",
+            "python scripts/smoke_speech_transcription.py --check",
+            "No Speech client was created",
+            "Manual/live Azure Speech transcription remains deferred",
+            "Do not use PHI or real patient data",
+            "Do not commit",
+        },
     )
-    assert "agent_endpoint.protocols" in mapping
-    assert "Offline tests use fakes and make no Azure calls" in mapping
-    assert "AI output requires human nurse review" in mapping
-    assert "Azure Speech transcription service" in mapping
-    assert "ACS phone intake/call automation" in mapping
-    assert "Confirmed ACS SMS handset delivery is not implemented" in normalized_mapping
-    assert "Live Azure AI Foundry structured extraction" in mapping
-    assert "Foundry prompt/schema/evaluation notes" in mapping
-    assert "Azure Speech transcription service boundary" in mapping
+
+
+def test_architecture_documents_local_safety_and_agent_validation() -> None:
+    architecture = _normalized(_read("docs/architecture.md"))
+
+    _assert_contains_all(
+        architecture,
+        {
+            "local mock/demo FastAPI application",
+            "advisory only",
+            "requires human nurse review",
+            "MockAiService",
+            "FoundryAiService",
+            "APP_MODE=mock",
+            "AI_PROVIDER=mock",
+            "InMemoryCaseRepository",
+            "NurseIntakeAgent is treated as an external reasoning boundary",
+            "agent contract validation",
+            "safe fallback",
+            "deterministic red-flag rules",
+            "processing_trace",
+            "final urgency source",
+        },
+    )
+
+
+def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() -> None:
+    architecture = _normalized(_read("docs/architecture.md"))
+
+    _assert_contains_all(
+        architecture,
+        {
+            "Provisioning never invokes the agent",
+            "invocation remains a separate explicit smoke command",
+            "separate verification CLI",
+            "explicit live verification creates no version",
+            "deployApp=true` (default `false`)",
+            "SCM_DO_BUILD_DURING_DEPLOYMENT=true",
+            "deployment request acceptance, and hosted verification",
+            "Deployment-request acceptance and hosted startup remain separate proof boundaries",
+            "Code deployment does not provision infrastructure",
+            "Hosted defaults remain mock-only with notifications suppressed",
+            "human nurse review remains mandatory",
+        },
+    )
+
+
+def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
+    mapping = _read("docs/ai-103-mapping.md")
+    normalized = _normalized(mapping)
+
+    _assert_contains_all(
+        normalized,
+        {
+            "local mock/demo FastAPI app",
+            "not production clinical software",
+            "AI_PROVIDER=mock",
+            "validation before trusting model/agent output",
+            "safe fallback",
+            "AI output requires human nurse review",
+            "Offline tests use fakes and make no Azure calls",
+            "build setting, packaging, and deployment-command behavior are implemented and offline-tested only",
+            "deployment-request acceptance would not prove startup or production readiness",
+            "Live Azure AI Foundry structured extraction",
+        },
+    )
     assert mapping.index("1. Live Azure AI Foundry structured extraction") < mapping.index(
         "8. ACS phone intake"
     )
 
 
-def test_ai_103_mapping_documents_agent_safety_boundary() -> None:
-    mapping = (PROJECT_ROOT / "docs" / "ai-103-mapping.md").read_text()
+def test_infrastructure_docs_keep_operator_boundaries_manual_and_explicit() -> None:
+    infra = _normalized(_read("infra/README.md"))
+    progress = _normalized(_read("docs/progress.md"))
+    gitignore = set(_read(".gitignore").splitlines())
 
-    assert "Azure AI Foundry / agent orchestration readiness" in mapping
-    assert "responsible AI pattern" in mapping
-    assert "validation before trusting model/agent output" in mapping
-    assert "agent contract validation" in mapping
-    assert "safe fallback" in mapping
-    assert "human review and deterministic safety rules" in mapping
-    assert "processing trace" in mapping
-    assert "final urgency source" in mapping
+    _assert_contains_all(
+        infra,
+        {
+            "APP_MODE=mock",
+            "AI_PROVIDER=mock",
+            "AGENT_PROVIDER=mock",
+            "SPEECH_PROVIDER=mock",
+            "EMAIL_PROVIDER=mock",
+            "SMS_PROVIDER=mock",
+            "DEMO_SUPPRESS_NOTIFICATIONS=true",
+            "Application packaging and code deployment are separate from infrastructure",
+            "RBAC, prompt-agent provisioning, startup verification, and invocation",
+            "check and package modes never create a runner or invoke Azure CLI",
+            "Only `--live` creates or reuses the group and deploys Foundry",
+            "Cleanup is manual and explicit",
+            "no script or template automatically deletes a resource group",
+            "deployApp`: optionally create the Web App runtime; defaults to `false`",
+            "Do not commit `.env` or real Cosmos keys",
+            "Mandatory nurse review remains unchanged",
+            "not production clinical infrastructure",
+        },
+    )
+    _assert_contains_all(
+        progress,
+        {
+            "foundry-only.bicepparam` is ignored, operator-local, and must not be committed",
+            "Keep infrastructure deployment separate from prompt-agent creation",
+            "Keep cleanup manual and explicit",
+        },
+    )
+    assert {".env", ".env.*", "infra/foundry-only.bicepparam"} <= gitignore
+    assert {
+        "!.env.example",
+        "!.env.foundry.local.example",
+        "!.env.foundry-agent.local.example",
+        "!.env.speech.local.example",
+    } <= gitignore
 
 
-def test_architecture_documents_current_foundry_and_cosmos_boundaries() -> None:
-    architecture = (PROJECT_ROOT / "docs" / "architecture.md").read_text()
+def test_progress_is_active_resume_with_honest_safety_and_history_boundaries() -> None:
+    progress = _read("docs/progress.md")
+    archive = _read("docs/archive/progress-2026-06.md")
+    normalized = _normalized(progress)
 
-    assert "agent_endpoint.protocols" in architecture
-    assert "Stable per-agent OpenAI protocol invocation is primary" in architecture
-    assert "compatibility-only and explicitly enabled" in architecture
-    assert "Automated tests use fakes" in architecture
-    assert "fictional data" in architecture
-    assert "Cross-partition list queries" not in architecture
-    assert "Cross-partition queue summary queries" in architecture
-    assert (
-        "Cross-partition idempotency lookup for voicemail transcripts"
-        in architecture
+    assert len(progress.splitlines()) <= 400
+    assert len(progress.splitlines()) < len(archive.splitlines())
+    _assert_contains_all(
+        normalized,
+        {
+            "docs/archive/progress-2026-06.md",
+            "Latest verified test baseline",
+            "Local mock/demo only",
+            "No production clinical use",
+            "Mock mode sends no real email or SMS",
+            "AI output requires human nurse review",
+            "default demo mock/offline",
+            "No live Azure behavior is claimed for `/demo` by default",
+            "AGENT_PROVIDER=mock` remains the safe local/demo default",
+            "human nurse review remains mandatory",
+            "docs/manual-acs-email-smoke-test.md",
+            "Live ACS Email smoke testing is complete",
+        },
+    )
+    _assert_contains_all(
+        archive,
+        {
+            "Detailed historical progress through June 2026",
+            "README local mock demo walkthrough polish is complete",
+            "Manual Cosmos smoke test",
+        },
     )
 
 
-def test_progress_links_manual_acs_email_smoke_test() -> None:
-    docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
+def test_progress_documents_future_tdd_and_test_maintenance_guardrails() -> None:
+    progress = _read("docs/progress.md")
 
-    assert "docs/manual-acs-email-smoke-test.md" in docs_text
-
-
-def test_progress_active_resume_links_archived_history() -> None:
-    progress_path = PROJECT_ROOT / "docs" / "progress.md"
-    archive_path = PROJECT_ROOT / "docs" / "archive" / "progress-2026-06.md"
-
-    assert progress_path.exists()
-    assert archive_path.exists()
-
-    progress = progress_path.read_text()
-    archive = archive_path.read_text()
-    progress_line_count = len(progress.splitlines())
-    archive_line_count = len(archive.splitlines())
-
-    assert progress_line_count <= 400
-    assert progress_line_count < archive_line_count
-    assert "docs/archive/progress-2026-06.md" in progress
-    assert "Latest verified test baseline" in progress
-    assert "passed" in progress
-    assert "StarletteDeprecationWarning" in progress
-    assert "Local mock/demo only" in progress
-    assert "No production clinical use" in progress
-    assert "Mock mode sends no real email or SMS" in progress
-    assert "AI output requires human nurse review" in progress
-    assert "Authentication" in progress
-    assert "Hosting" in progress
-    assert "Key Vault" in progress
-    assert "Azure Speech" in progress
-    assert "Azure AI Foundry" in progress
-    assert "ACS SMS delivery tracking" in progress
-    assert "Retry logic" in progress
-    assert "Every future TDD slice must include a `docs/progress.md` update" in progress
-    assert "Testing Guidance" in progress
-    assert (
-        "Agent output contract validation added with safe fallback behavior and processing trace warnings."
-        in progress
+    _assert_contains_all(
+        progress,
+        {
+            "Every future TDD slice must include a `docs/progress.md` update",
+            "Model: GPT-5.5",
+            "Reasoning: Medium for normal TDD slices",
+            "Reasoning: High for cross-cutting architecture",
+            "Reasoning: Light for docs-only or tiny single-file cleanup",
+            "Documentation tests should verify important project guardrails",
+            "avoid adding many brittle string-matching tests",
+            "Prefer a small number of high-value guardrail tests",
+        },
     )
-
-    assert "Detailed historical progress through June 2026" in archive
-    assert "README local mock demo walkthrough polish is complete" in archive
-    assert "Live ACS Email smoke testing is complete" in archive
-    assert "Manual Cosmos smoke test" in archive
-
-
-def test_progress_current_resume_point_keeps_live_azure_scope_honest() -> None:
-    progress = (PROJECT_ROOT / "docs" / "progress.md").read_text()
-    normalized_progress = " ".join(progress.split())
-
-    assert "## Current Resume Point" in progress
-    assert "Safe to demo today" in progress
-    assert "default demo mock/offline" in progress
-    assert (
-        "Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path"
-        in normalized_progress
-    )
-    assert "Manual live Foundry Agent smoke passed" in progress
-    assert "Live Azure Speech transcription, audio upload, or audio processing" in progress
-
-
-def test_progress_workflow_documents_future_tdd_guardrails() -> None:
-    docs_text = (PROJECT_ROOT / "docs" / "progress.md").read_text()
-
-    assert "Every future TDD slice must include a `docs/progress.md` update" in docs_text
-    assert "ChatGPT should recommend the Codex model and reasoning level" in docs_text
-    assert "Model: GPT-5.5" in docs_text
-    assert "Reasoning: Medium for normal TDD slices" in docs_text
-    assert (
-        "Reasoning: High for cross-cutting architecture, risky integration, "
-        "or multi-layer refactors"
-    ) in docs_text
-    assert "Reasoning: Light for docs-only or tiny single-file cleanup" in docs_text

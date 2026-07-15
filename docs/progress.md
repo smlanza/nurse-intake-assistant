@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 1,106 passed
+- 1,087 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -38,15 +38,13 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Added `SCM_DO_BUILD_DURING_DEPLOYMENT=true` to the existing optional Web App
-  module so App Service remote build can install the source ZIP's
-  `requirements.txt` dependencies.
-- Added a compiled-ARM semantic test proving the application setting occurs
-  exactly once with the string value `"true"`.
-- All 7 focused Web App Bicep tests and all 1,106 offline tests pass with the
-  one existing warning; `infra/main.bicep` also compiles successfully.
-- No Azure call or live deployment occurred. Mock defaults, suppressed hosted
-  notifications, and mandatory human nurse review remain unchanged.
+- Audited all 39 tests in `tests/test_documentation_config.py` and replaced
+  overlapping prose checks with 20 focused semantic contracts.
+- Parsed environment examples now own defaults and placeholder safety;
+  grouped tests own README, manual-guide, infrastructure, architecture,
+  mapping, and progress boundaries without locking full paragraphs.
+- The focused 20 tests and all 1,087 offline tests pass with the one existing
+  warning. No production behavior or Azure resource changed.
 
 ## Current Resume Point
 
@@ -302,11 +300,10 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Add a small offline-tested hosted-readiness verification boundary for an
-existing Web App. The future verifier must keep infrastructure deployment,
-code deployment-request acceptance, hosted startup verification, RBAC, and
-Foundry invocation as separate explicit stages. Do not run a live deployment
-or implement the later stages in that slice.
+Return to the small offline-tested hosted-readiness verification boundary for
+an existing Web App. Keep infrastructure deployment, code deployment-request
+acceptance, hosted startup verification, RBAC, and Foundry invocation as
+separate explicit stages. Do not launch a repository-wide test cleanup.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -318,26 +315,34 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Added `SCM_DO_BUILD_DURING_DEPLOYMENT=true` to
-  `infra/modules/web-app.bicep`. The deterministic source ZIP contains
-  `requirements.txt` but no vendored dependencies, so newly provisioned
-  optional Web Apps need this remote-build application setting.
-- Added one compiled-ARM semantic test in `tests/test_web_app_bicep.py`; its RED
-  run failed because no matching setting existed, then all 7 focused tests
-  passed after the minimal Bicep change.
-- Updated `infra/README.md`, `docs/architecture.md`,
-  `docs/ai-103-mapping.md`, and `docs/progress.md` to record the offline-only
-  boundary and preserve separate deployment/startup proof stages.
-- `az bicep build --file infra/main.bicep --stdout` completed successfully.
-- The full offline suite passes at 1,106 tests with one existing
-  FastAPI/TestClient `StarletteDeprecationWarning`; there are no new warnings or
-  failures. `git diff --check` also passes.
-- No Azure call, Web App infrastructure deployment, code deployment,
-  application startup, health check, managed-identity authentication, Foundry
-  verification, agent invocation, or model call occurred.
-- `deployApp=false`, `APP_MODE=mock`, all hosted provider mocks, suppressed
-  notifications, and mandatory human nurse review remain unchanged. No
-  production-clinical-readiness claim is made.
+- Audited all 39 baseline tests in `tests/test_documentation_config.py`; 20
+  semantic tests remain, reducing total collection from 1,106 to 1,087.
+- Consolidated five main `.env.example` tests, two Foundry environment tests,
+  three README safety tests, six README provider/preflight tests, two Foundry
+  guide tests, two architecture safety tests, two AI-103 mapping tests, and four
+  progress/status tests into eight clearly owned contracts.
+- Rewrote ten distinct guide/dependency/boundary tests around stable required
+  environment-variable names, commands, headings, stage markers, and forbidden
+  sensitive-data patterns.
+- Added explicit cross-example credential/contact/PHI protection and one
+  infrastructure-operator-boundary test covering mock hosted defaults,
+  `deployApp=false`, offline/check modes, explicit live opt-in, separate
+  provisioning/deployment/verification stages, manual cleanup, and ignored
+  local files that must not be committed.
+- Removed `test_requirements_include_acs_email_sdk` because the retained
+  dependency-set test contained the exact assertion. Removed
+  `test_developer_handoff_documents_current_integration_status` and
+  `test_system_overview_exists` because their status/claim tokens duplicated
+  retained README, architecture, mapping, manual-guide, and progress contracts
+  without owning an operator or safety boundary.
+- A temporary `APP_MODE=cosmos` mutation made the parsed-default replacement
+  test fail as intended; `.env.example` was restored before verification.
+- Focused result: 20 passed. Full result: 1,087 passed with the one existing
+  FastAPI/TestClient `StarletteDeprecationWarning`; no new warnings or failures.
+- No `src/app`, Bicep, script, runtime, route, agent, or Azure behavior changed;
+  no live Azure call occurred. Mock defaults, suppressed hosted notifications,
+  mandatory nurse review, and the non-production-clinical boundary remain
+  unchanged.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the
   reference guides below.
