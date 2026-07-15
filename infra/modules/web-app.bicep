@@ -68,6 +68,10 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'DEMO_SUPPRESS_NOTIFICATIONS'
           value: 'true'
         }
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'true'
+        }
       ]
     }
   }

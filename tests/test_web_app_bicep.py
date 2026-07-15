@@ -15,6 +15,25 @@ def _text(path: str) -> str:
     return (INFRA / path).read_text()
 
 
+def _compile(path: str) -> dict:
+    bicep = Path.home() / ".azure" / "bin" / "bicep"
+    if not bicep.is_file():
+        pytest.skip("The installed Bicep CLI is required for the offline build check")
+
+    environment = os.environ.copy()
+    environment["DOTNET_BUNDLE_EXTRACT_BASE_DIR"] = str(
+        Path(os.environ.get("TMPDIR", "/tmp")) / "nurse-intake-bicep"
+    )
+    completed = subprocess.run(
+        [str(bicep), "build", str(INFRA / path), "--stdout"],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+    return json.loads(completed.stdout)
+
+
 def test_main_makes_web_app_hosting_optional_through_shared_module() -> None:
     main = _text("main.bicep")
 
@@ -26,27 +45,7 @@ def test_main_makes_web_app_hosting_optional_through_shared_module() -> None:
 
 
 def test_main_compiles_with_web_app_hosting_disabled_by_default() -> None:
-    bicep = Path.home() / ".azure" / "bin" / "bicep"
-    if not bicep.is_file():
-        pytest.skip("The installed Bicep CLI is required for the offline build check")
-
-    environment = os.environ.copy()
-    environment["DOTNET_BUNDLE_EXTRACT_BASE_DIR"] = str(
-        Path(os.environ.get("TMPDIR", "/tmp")) / "nurse-intake-bicep"
-    )
-    completed = subprocess.run(
-        [
-            str(bicep),
-            "build",
-            str(INFRA / "main.bicep"),
-            "--stdout",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
-    compiled = json.loads(completed.stdout)
+    compiled = _compile("main.bicep")
 
     assert compiled["parameters"]["deployApp"]["defaultValue"] is False
 
@@ -88,6 +87,24 @@ def test_web_app_module_uses_safe_defaults_and_real_fastapi_entry_point() -> Non
         in module
     )
     assert "uvicorn[standard]" in (ROOT / "requirements.txt").read_text()
+
+
+def test_web_app_module_enables_remote_build_for_source_zip_dependencies() -> None:
+    compiled = _compile("modules/web-app.bicep")
+    web_app = next(
+        resource
+        for resource in compiled["resources"]
+        if resource["type"] == "Microsoft.Web/sites"
+    )
+    matching_settings = [
+        setting
+        for setting in web_app["properties"]["siteConfig"]["appSettings"]
+        if setting["name"] == "SCM_DO_BUILD_DURING_DEPLOYMENT"
+    ]
+
+    assert matching_settings == [
+        {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true"}
+    ]
 
 
 def test_web_app_module_has_no_secrets_rbac_or_foundry_runtime_coupling() -> None:

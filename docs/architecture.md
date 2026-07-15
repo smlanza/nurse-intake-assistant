@@ -305,8 +305,11 @@ only when `deployApp=true` (default `false`). The module defines a Linux App
 Service plan and Web App with a system-assigned managed identity, HTTPS-only
 access, disabled FTPS, TLS 1.2 minimums, `/health` health checks, and the actual
 `src.app.main:app` FastAPI startup target. Its app settings retain mock
-providers and suppressed notifications. The module principal ID is available
-only to its parent; `main.bicep` neither uses nor publishes that identifier.
+providers and suppressed notifications. It also declares
+`SCM_DO_BUILD_DURING_DEPLOYMENT=true`, allowing App Service remote build
+automation to install dependencies from the packaged `requirements.txt`. The
+module principal ID is available only to its parent; `main.bicep` neither uses
+nor publishes that identifier.
 
 The separate resource-group-scoped
 `infra/foundry-agent-consumer-rbac.bicep` entry point reads the principal ID
@@ -339,12 +342,14 @@ distinguishes package creation, deployment request acceptance, and hosted
 verification; it never treats one as evidence of the next.
 
 The ZIP contains Python source plus `requirements.txt`; dependencies are not
-vendored. App Service must have Python build automation such as
-`SCM_DO_BUILD_DURING_DEPLOYMENT=true` for ZIP deployment to install those
-dependencies. The current infrastructure has not added or proven that
-prerequisite. Deployment acceptance would still not prove application startup,
-and no live code deployment should occur until the build setting is added and
-reviewed in a separate infrastructure slice.
+vendored. The Web App module now declares the required
+`SCM_DO_BUILD_DURING_DEPLOYMENT=true` application setting so App Service remote
+build automation can install those dependencies. This configuration is tested
+only against the compiled Bicep/ARM representation. No live Web App
+infrastructure deployment, code deployment, application startup, health check,
+managed-identity authentication, Foundry verification, or agent invocation has
+occurred. Deployment-request acceptance and hosted startup remain separate
+proof boundaries.
 
 The intended operator sequence is:
 
@@ -408,7 +413,7 @@ Deferred infrastructure:
 
 The following are intentionally not implemented in the current MVP:
 
-- Hosting infrastructure and application code deployment for the Web App
+- Live Hosting infrastructure and application code deployment for the Web App
 - Hosted health/readiness verification
 - Live RBAC deployment plus hosted verification and invocation
 - Agent-specific RBAC scope

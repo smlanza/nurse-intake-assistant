@@ -172,9 +172,11 @@ Check or build locally without Azure access:
 
 `scripts/deploy_web_app_code.py` uses one injected command-runner seam. Only
 the explicit `--live --json` mode can construct `az webapp deploy`; check and
-package modes never create a runner or invoke Azure CLI. After the build
-prerequisite below is added and reviewed, this future command can upload code
-only to an existing Web App:
+package modes never create a runner or invoke Azure CLI. Newly provisioned
+optional Web Apps receive `SCM_DO_BUILD_DURING_DEPLOYMENT=true` through the
+existing Bicep module, allowing App Service remote build automation to install
+dependencies from the packaged `requirements.txt`. Code deployment remains the
+following separate, explicit command for an existing Web App:
 
 ```bash
 .venv/bin/python scripts/deploy_web_app_code.py \
@@ -187,10 +189,11 @@ only to an existing Web App:
 No live code deployment was run in this slice. An accepted CLI request is not
 evidence of application startup, health, managed-identity authentication,
 Foundry access, or agent invocation. Python ZIP deployment also requires App
-Service build automation such as `SCM_DO_BUILD_DURING_DEPLOYMENT=true` to
-install `requirements.txt`. The current infrastructure has not added or proven
-that prerequisite. This slice does not alter app settings, and no live code
-deployment should occur until the setting is added and reviewed.
+Service build automation to install `requirements.txt`; the Bicep-declared
+setting is compiled and tested offline only. No live Web App infrastructure or
+code deployment, startup, health verification, managed-identity
+authentication, Foundry verification, or agent invocation occurred in this
+slice.
 
 ## Disposable Foundry Workflow
 

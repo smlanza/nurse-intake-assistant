@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 1,105 passed
+- 1,106 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -21,6 +21,7 @@ Disposable Foundry infrastructure
 -> project-scoped Foundry Agent Consumer RBAC
 -> deterministic source deployment packaging
 -> explicit Web App code-deployment boundary
+-> offline-tested App Service remote-build prerequisite
 ```
 
 Mock mode remains the safe default, hosted notifications remain suppressed,
@@ -37,17 +38,15 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Added an allowlist-driven deterministic Web App source deployment ZIP package
-  service plus thin package and explicit code-deployment CLIs.
-- Stable ordering, timestamps, modes, and compression produce repeatable bytes;
-  path escapes, symlinks, unsafe artifacts, and incomplete inputs fail safely.
-- Check/package modes are offline. Only `--live --json` can submit one injected
-  `az webapp deploy` command to an existing app.
-- Twenty-three focused tests pass. No Azure deployment, hosted health check, RBAC,
-  authentication, Foundry verification, agent invocation, or model call ran.
-- Hosted defaults keep every provider in mock mode and suppress notifications.
-- No production-clinical-readiness claim is made; mandatory nurse review and
-  the safe local/demo defaults remain unchanged.
+- Added `SCM_DO_BUILD_DURING_DEPLOYMENT=true` to the existing optional Web App
+  module so App Service remote build can install the source ZIP's
+  `requirements.txt` dependencies.
+- Added a compiled-ARM semantic test proving the application setting occurs
+  exactly once with the string value `"true"`.
+- All 7 focused Web App Bicep tests and all 1,106 offline tests pass with the
+  one existing warning; `infra/main.bicep` also compiles successfully.
+- No Azure call or live deployment occurred. Mock defaults, suppressed hosted
+  notifications, and mandatory human nurse review remain unchanged.
 
 ## Current Resume Point
 
@@ -64,7 +63,8 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `infra/main.bicep`: authoritative full application entry point; Foundry remains optional through `deployFoundry=false` by default.
 - `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
 - `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned
-  identity boundary; application hosting remains disabled by default.
+  identity boundary with offline-tested remote-build automation; application
+  hosting remains disabled by default.
 - `infra/foundry-agent-consumer-rbac.bicep`: explicit independent assignment
   entry point; `infra/modules/foundry-agent-consumer-rbac.bicep`: project-scoped
   Foundry Agent Consumer role module.
@@ -97,17 +97,17 @@ Do not claim as complete:
   `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
   review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
-- Web App infrastructure or code deployment, Foundry RBAC, hosted health/status
+- Live Web App infrastructure or code deployment, Foundry RBAC, hosted health/status
   checks, managed-identity authentication, verification, or invocation; the
   package/deployment and RBAC boundaries exist offline but have not run live
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Add and offline-test the required Azure App Service
-Python build-automation setting in the Web App Bicep module while preserving
-mock providers, suppressed notifications, and `deployApp=false` by default. Do
-not perform a live deployment yet.
+Recommended next move: Add a small offline-tested hosted-readiness verification
+boundary for an existing Web App. Keep infrastructure deployment, code
+deployment-request acceptance, hosted startup verification, RBAC, and Foundry
+invocation as separate explicit stages.
 
 ## Current Working Local Pipeline
 
@@ -257,7 +257,8 @@ Completed work by feature area:
 - It provisions Cosmos DB, a Cosmos SQL database, a `cases` container using
   `/createdDate`, a storage account, Log Analytics, and Application Insights.
 - It can optionally provision a Linux App Service plan and Web App with a
-  system-assigned identity; `deployApp=false` preserves the existing default.
+  system-assigned identity and remote-build setting;
+  `deployApp=false` preserves the existing default.
 - A separate template can explicitly assign Foundry Agent Consumer at project
   scope without coupling access to `main.bicep`.
 - The allowlisted package builder and explicit deployment CLI keep code upload
@@ -286,7 +287,7 @@ Completed work by feature area:
 ## Not Yet Implemented / Deferred Scope
 
 - Authentication
-- Hosting infrastructure and Web App code deployment
+- Live Hosting infrastructure and Web App code deployment
 - Hosted `/health`, `/version`, and `/demo/status` verification
 - Live Foundry RBAC deployment for the Web App identity
 - Agent-specific RBAC scope
@@ -301,10 +302,11 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Add and offline-test the required Azure App Service Python build-automation
-setting in the Web App Bicep module while preserving mock providers,
-suppressed notifications, and deployApp=false by default. Do not perform a
-live deployment yet.
+Add a small offline-tested hosted-readiness verification boundary for an
+existing Web App. The future verifier must keep infrastructure deployment,
+code deployment-request acceptance, hosted startup verification, RBAC, and
+Foundry invocation as separate explicit stages. Do not run a live deployment
+or implement the later stages in that slice.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -316,30 +318,26 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Added `src/app/services/web_app_package.py`, `scripts/package_web_app.py`,
-  `scripts/deploy_web_app_code.py`, and 23 focused tests across three modules.
-- The package allowlist includes `requirements.txt`, required `src` Python and
-  YAML, and static HTML/CSS/JavaScript. It excludes repository metadata,
-  environments, Bicep parameters, tests, docs, caches, and prior artifacts.
-- ZIP entry ordering, timestamps, file modes, and compression are normalized.
-  Identical inputs produce identical SHA-256 hashes; included changes alter it.
-- The source ZIP does not vendor dependencies. Installing `requirements.txt`
-  requires App Service build automation such as
-  `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, which current infrastructure has not
-  added or proven. No live deployment should run before review of that setting.
-- `.artifacts/` is ignored, and outputs or serialized results contain no source
-  contents, absolute paths, secrets, environment values, or contact data.
-- Check and package modes make no Azure call. Live mode requires explicit
-  `--live --json`, resource group, and Web App name, then permits only one
-  discrete `az webapp deploy` call through an injected runner.
-- Package creation, deployment acceptance, and hosted verification remain
-  distinct. No automatic retries, settings changes, RBAC, Foundry operation,
-  invocation, or deletion is coupled to code deployment.
-- `APP_MODE=mock`, every mock provider, suppressed hosted notifications, and
-  mandatory nurse review remain unchanged.
-- The full offline suite passes at 1,105 tests with one existing warning.
-- No Azure code deployment, hosted health check, authentication, verification,
-  invocation, or model call occurred. No production-clinical claim is made.
+- Added `SCM_DO_BUILD_DURING_DEPLOYMENT=true` to
+  `infra/modules/web-app.bicep`. The deterministic source ZIP contains
+  `requirements.txt` but no vendored dependencies, so newly provisioned
+  optional Web Apps need this remote-build application setting.
+- Added one compiled-ARM semantic test in `tests/test_web_app_bicep.py`; its RED
+  run failed because no matching setting existed, then all 7 focused tests
+  passed after the minimal Bicep change.
+- Updated `infra/README.md`, `docs/architecture.md`,
+  `docs/ai-103-mapping.md`, and `docs/progress.md` to record the offline-only
+  boundary and preserve separate deployment/startup proof stages.
+- `az bicep build --file infra/main.bicep --stdout` completed successfully.
+- The full offline suite passes at 1,106 tests with one existing
+  FastAPI/TestClient `StarletteDeprecationWarning`; there are no new warnings or
+  failures. `git diff --check` also passes.
+- No Azure call, Web App infrastructure deployment, code deployment,
+  application startup, health check, managed-identity authentication, Foundry
+  verification, agent invocation, or model call occurred.
+- `deployApp=false`, `APP_MODE=mock`, all hosted provider mocks, suppressed
+  notifications, and mandatory human nurse review remain unchanged. No
+  production-clinical-readiness claim is made.
 - Earlier Speech, demo, handoff-note, documentation, and provider-boundary
   milestones are summarized in `docs/archive/progress-2026-06.md` and the
   reference guides below.
