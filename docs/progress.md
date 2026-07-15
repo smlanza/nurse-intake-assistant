@@ -1,11 +1,10 @@
 # Nurse Intake Assistant Progress
 
-Active current-status and resume document. Historical progress through June
-2026 is archived at `docs/archive/progress-2026-06.md`.
+Active resume document; June 2026 history is in `docs/archive/progress-2026-06.md`.
 
 ## Current Status
 Latest verified test baseline:
-- 1,131 passed
+- 1,183 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -19,6 +18,7 @@ Disposable Foundry infrastructure
 -> evaluation and Foundry metric publication
 -> managed-identity-ready Web App hosting
 -> offline-tested App Service remote-build prerequisite
+-> explicit offline-tested Web App infrastructure deployment boundary
 -> offline-tested Web App configuration verification
 -> deterministic source deployment packaging
 -> explicit Web App code-deployment request
@@ -42,11 +42,12 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Corrected Web App configuration verification to validate the exact local
-  contract before runner creation or Azure reads. JSON projection allowlists and
-  actual subprocess safety options now have direct semantic coverage.
-- The original focused result was 13 passed. Correction GREEN is 20 passed;
-  all 1,131 tests pass with the one existing warning and no Azure operation.
+- Corrected the Web App infrastructure CLI to parse the exact active Bicep
+  app-settings declaration against the configuration verifier's shared safe
+  contract; extra, duplicate, conflicting, commented-only, and override entries fail.
+- What-if emits sanitized counts; deletes require review, malformed output fails.
+- Correction RED: 22 failed, 50 passed. GREEN: 72 focused tests; all 1,183 tests
+  pass with one existing warning and no live Azure operation.
 
 ## Current Resume Point
 
@@ -65,6 +66,11 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned
   identity boundary with offline-tested remote-build automation; application
   hosting remains disabled by default.
+- `src/app/services/web_app_infra_deployment.py`: sanitized infrastructure
+  deployment contract; `scripts/deploy_web_app_infra.py`: offline check and
+  explicit what-if/live operator CLI for the existing `main.bicep`.
+- `src/app/services/web_app_hosting_contract.py`: exact seven-setting contract
+  shared by infrastructure deployment and configuration verification.
 - `infra/foundry-agent-consumer-rbac.bicep`: explicit independent assignment
   entry point; `infra/modules/foundry-agent-consumer-rbac.bicep`: project-scoped
   Foundry Agent Consumer role module.
@@ -103,17 +109,18 @@ Do not claim as complete:
   `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
   review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
-- Live Web App infrastructure, configuration verification, code deployment, or
+- Live Web App infrastructure deployment, configuration verification, code deployment, or
   hosted readiness; Foundry RBAC, managed identity, verification, and invocation
   also remain unrun live
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Review the offline configuration-verification contract
-and make an explicit operator decision before any live read or code deployment.
-Configuration, deployment acceptance, readiness, RBAC, and Foundry invocation
-remain separate stages.
+Recommended next move: Review the sanitized infrastructure check, then decide
+whether to run the separate `--what-if` against an existing resource group.
+If run, review only the sanitized counts and any delete warning before a
+separate live choice. Infrastructure deployment, configuration verification,
+code deployment, readiness, RBAC, and Foundry invocation remain separate stages.
 
 ## Current Working Local Pipeline
 
@@ -269,11 +276,15 @@ Completed work by feature area:
   scope without coupling access to `main.bicep`.
 - The allowlisted package builder and explicit deployment CLI keep code upload
   separate from infrastructure, RBAC, startup checks, and Foundry operations.
+- The Web App infrastructure CLI reuses `main.bicep`, never creates the resource
+  group, and fixes `deployApp=true` with `deployFoundry=false`.
 - `infra/README.md` documents Azure CLI build, validate, deploy, and cleanup
   commands.
 - Manual Cosmos smoke testing verified local `APP_MODE=cosmos` with a deployed
   Cosmos account and a point read via `createdDate`.
-- The dev resource group used for manual validation was deleted after testing.
+- Manual Azure resource-group validation with Web App deployment selected
+  succeeded July 15, 2026, and created no resources; the CLI remains
+  offline-tested only.
 - No secrets are stored in infrastructure files.
 
 ## Known Issues And Future Enhancements
@@ -308,9 +319,9 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-After review, explicitly decide whether to run live Web App configuration
-verification. Keep code-deployment acceptance, hosted readiness, RBAC, and
-Foundry invocation separate. Do not launch a repository-wide test cleanup.
+After review, explicitly decide whether to run Web App infrastructure what-if.
+Keep deployment, configuration verification, code acceptance, hosted readiness,
+RBAC, and Foundry invocation separate. Do not launch a repository-wide cleanup.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -322,33 +333,22 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Original slice RED was 13 missing-module failures; its first GREEN result was
-  13 passed and the complete suite was 1,124 passed with one warning.
-- Review found local validation accepted any safe-setting value in `{mock,true}`
-  and live verification marked the contract valid without actually checking it.
-- The correction compares `SAFE_APP_SETTINGS` with the exact seven-name/value
-  map and verifies exact runtime, startup, `/health`, and remote-build name.
-- Service and CLI live paths now validate locally before runner construction or
-  calls. Invalid contracts return sanitized `unexpected_error`, actionable local
-  guidance, `azure_request_attempted=false`, and all Azure booleans false.
-- Auto-restoring mutations cover `APP_MODE=true`, notification suppression set
-  to `mock`, missing/extra settings, and invalid scalar contract fields.
-- Semantic projection tests own emitted JSON fields and the eight-setting
-  allowlist; `--query` shapes output and does not limit what Azure reads.
-- Runner tests prove argument-list execution, `shell=False`, captured text output,
-  no printing, stable `CommandResult`, and safe missing-executable handling.
-- Correction GREEN: 20 passed. Full: 1,131 passed with the one existing
-  FastAPI/TestClient `StarletteDeprecationWarning`; no new warning or failure.
-- Correction files: `src/app/services/web_app_configuration_verification.py`,
-  `scripts/verify_web_app_configuration.py`,
-  `tests/test_web_app_configuration_verification.py`,
-  `tests/test_verify_web_app_configuration_script.py`, and `docs/progress.md`.
-  Offline CLI check passed; no Azure/network operation ran.
-- Review the sanitized configuration result before explicitly choosing any live
-  read or code deployment. Configuration, deployment acceptance, readiness,
-  RBAC, managed-identity verification, and invocation remain separate stages.
-- The preceding readiness and documentation-audit evidence remains summarized
-  above and in `docs/archive/progress-2026-06.md`; no scoped behavior changed.
+- Correction RED: 22 failed and 50 passed across the deployment and existing
+  configuration-verification boundaries. Focused GREEN: 72 passed.
+- A small shared hosting contract prevents safe-setting drift. The scoped Bicep
+  reader requires seven safe settings plus remote build; contract drift fails.
+- What-if requests JSON through the same single argument-list command. Valid
+  output becomes counts only; raw resource details and CLI output are discarded.
+  Malformed/missing change collections fail as `what_if_parse_failed`; delete
+  counts produce a manual-review warning without blocking or invoking live mode.
+- Check, preview, and live success messages now distinguish local validation,
+  completed preview, and Azure request acceptance without claiming readiness.
+- Full: 1,183 passed with one existing FastAPI/TestClient
+  `StarletteDeprecationWarning`. Offline check and Bicep build passed; no live
+  preview, deployment, Azure resource/API, or application network operation ran.
+- Files include the shared contract, services, CLI, tests, and required docs.
+- Mock hosted providers, suppressed notifications, mandatory nurse review, and
+  the non-production clinical boundary remain unchanged.
 
 ## Reference Docs
 

@@ -311,6 +311,28 @@ automation to install dependencies from the packaged `requirements.txt`. The
 module principal ID is available only to its parent; `main.bicep` neither uses
 nor publishes that identifier.
 
+`src/app/services/web_app_infra_deployment.py` and
+`scripts/deploy_web_app_infra.py` add an explicit operator boundary around that
+existing `main.bicep` entry point. Check mode validates required safe arguments,
+the template, `deployApp=true`, `deployFoundry=false`, and the mock-safe hosted
+settings without constructing an Azure CLI runner. A shared hosting-contract
+module owns the exact seven provider/suppression settings used here and by the
+configuration verifier. The local Bicep reader is restricted to the Web App
+resource's active `siteConfig.appSettings` declaration; missing, extra,
+duplicate, conflicting, commented-only, and overriding settings fail. The
+separate remote-build setting must also remain exactly enabled.
+
+Explicit `--what-if` or `--live` mode issues exactly one argument-list
+`az deployment group` command against an existing resource group; the CLI never
+creates the group. What-if explicitly requests JSON and reduces the active
+change collection to sanitized create, modify, delete, no-change, ignore,
+deploy, and unsupported counts. Resource details and raw CLI output are never
+exposed. Proposed deletes are surfaced for manual review but are never acted on
+automatically; preview mode never invokes live mode. Live uses a deterministic
+deployment name and records only Azure acceptance of the request. It does not
+verify configuration, package or upload code, check hosted readiness, assign
+RBAC, invoke Foundry, or clean up.
+
 The separate resource-group-scoped
 `infra/foundry-agent-consumer-rbac.bicep` entry point reads the principal ID
 from an existing Web App and invokes
@@ -382,7 +404,7 @@ The intended operator sequence is:
 
 ```text
 Foundry infrastructure
--> optional Linux Web App with system-assigned identity
+-> explicit optional Linux Web App infrastructure deployment with system-assigned identity
 -> reviewed App Service Python build-automation prerequisite
 -> explicit read-only Web App configuration verification
 -> deterministic source deployment package
@@ -413,10 +435,13 @@ capstone. It provisions:
 
 The infrastructure files contain no secrets. The baseline was deployed and
 manually tested once, including Cosmos point-read/upsert behavior, and the test
-resource group was cleaned up afterward. The newer Web App infrastructure has
-compiled and passed offline tests but has not been deployed or authenticated
-with its system-assigned identity. The RBAC templates have also compiled and
-passed offline tests, but the assignment has not been deployed.
+resource group was cleaned up afterward. A manual Azure resource-group
+validation of `main.bicep` with `deployApp=true`, `deployFoundry=false`, B1, and
+`PYTHON|3.12` succeeded on July 15, 2026; validation created no Azure resources.
+The new deployment CLI is offline-tested only: no Web App infrastructure was
+previewed, deployed, or authenticated with its system-assigned identity. The
+RBAC templates have also compiled and passed offline tests, but the assignment
+has not been deployed.
 
 Not demonstrated live:
 

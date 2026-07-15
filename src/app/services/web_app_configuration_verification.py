@@ -2,6 +2,10 @@ from dataclasses import dataclass
 import json
 from typing import Literal, Protocol
 
+from src.app.services.web_app_hosting_contract import (
+    REMOTE_BUILD_SETTING,
+    SAFE_HOSTED_SETTINGS,
+)
 
 EXPECTED_LOCAL_CONTRACT = {
     "linux_fx_version": "PYTHON|3.12",
@@ -11,20 +15,11 @@ EXPECTED_LOCAL_CONTRACT = {
     "health_check_path": "/health",
     "remote_build_setting": "SCM_DO_BUILD_DURING_DEPLOYMENT",
 }
-EXPECTED_SAFE_APP_SETTINGS = {
-    "APP_MODE": "mock",
-    "AI_PROVIDER": "mock",
-    "AGENT_PROVIDER": "mock",
-    "SPEECH_PROVIDER": "mock",
-    "EMAIL_PROVIDER": "mock",
-    "SMS_PROVIDER": "mock",
-    "DEMO_SUPPRESS_NOTIFICATIONS": "true",
-}
+EXPECTED_SAFE_APP_SETTINGS = SAFE_HOSTED_SETTINGS
 EXPECTED_LINUX_FX_VERSION = EXPECTED_LOCAL_CONTRACT["linux_fx_version"]
 EXPECTED_STARTUP_COMMAND = EXPECTED_LOCAL_CONTRACT["startup_command"]
 EXPECTED_HEALTH_CHECK_PATH = EXPECTED_LOCAL_CONTRACT["health_check_path"]
 SAFE_APP_SETTINGS = dict(EXPECTED_SAFE_APP_SETTINGS)
-REMOTE_BUILD_SETTING = EXPECTED_LOCAL_CONTRACT["remote_build_setting"]
 
 SITE_QUERY = (
     "{provisioningState:properties.provisioningState,kind:kind,"

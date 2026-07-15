@@ -54,6 +54,66 @@ store endpoints, identity IDs, connection strings, credentials, or secrets.
 The module exposes its principal ID only to its parent template for a future
 conditional RBAC boundary; `main.bicep` does not publish that identifier.
 
+## Explicit Web App Infrastructure Deployment
+
+`scripts/deploy_web_app_infra.py` is the operator boundary for the existing
+`main.bicep`; it does not introduce another template or duplicate the Web App
+module. Local check mode verifies required safe arguments, template presence,
+`deployApp=true`, `deployFoundry=false`, and the mock-safe hosted posture. It
+does not construct an Azure CLI runner or make an Azure call:
+
+```bash
+.venv/bin/python scripts/deploy_web_app_infra.py \
+  --check \
+  --resource-group fictional-webapp-rg \
+  --location eastus2 \
+  --environment-name demo \
+  --project-name nurse-intake \
+  --web-app-name fictional-nurse-intake-web-app \
+  --json
+```
+
+Local validation reads only the active Web App resource's
+`siteConfig.appSettings` declaration and compares its seven provider and
+notification-suppression entries with the same authoritative contract used by
+the configuration verifier. Missing, extra, duplicate, conflicting,
+commented-only, or later overriding settings fail validation. The separate
+`SCM_DO_BUILD_DURING_DEPLOYMENT=true` entry must also remain present and exact.
+
+After reviewing the offline result, an operator may explicitly choose
+`--what-if` to issue exactly one `az deployment group what-if` command against
+an existing resource group. Only a separately selected `--live` issues exactly
+one `az deployment group create` command with a deterministic deployment name.
+Both Azure modes use `infra/main.bicep`, forward the reviewed Cosmos names and
+Web App name, and always pass `deployApp=true` and `deployFoundry=false`.
+
+What-if requests machine-readable JSON, then discards resource names, IDs, and
+raw Azure content after reducing the change collection to sanitized counts for
+create, modify, delete, no-change, ignore, deploy, and unsupported changes.
+Malformed or structurally invalid output fails safely. Proposed deletes are
+surfaced with an explicit manual-review warning, but the application never
+blocks, approves, or runs live deployment automatically. What-if remains
+preview-only, and live deployment remains a separate explicit choice. A zero
+exit code in live mode means Azure accepted the deployment request; it does not
+prove configuration, code deployment, startup, readiness, identity access, or
+Foundry access.
+
+The CLI never creates or deletes a resource group, deploys application code,
+runs configuration or hosted-readiness verification, changes app settings,
+assigns RBAC, or invokes Foundry. Resource-group creation and cleanup remain
+manual and explicit. Infrastructure deployment, configuration verification,
+code deployment, hosted readiness, RBAC, and Foundry invocation remain separate
+operator stages. RBAC deployment and Foundry invocation remain separate future
+operator stages. Mock providers, suppressed hosted notifications, and mandatory
+human nurse review remain unchanged; this is not production clinical
+infrastructure.
+
+Manual Azure resource-group validation of `infra/main.bicep` with
+`deployApp=true`, `deployFoundry=false`, B1, and `PYTHON|3.12` succeeded on July
+15, 2026. Validation created no Azure resources. The new CLI is offline-tested
+only; no `--what-if` or `--live` operation has been run for this slice, and no
+claim is made that the Web App is hosted or running.
+
 ## Explicit Foundry Agent Consumer RBAC
 
 `foundry-agent-consumer-rbac.bicep` is a separate, explicit operator boundary
