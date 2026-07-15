@@ -195,6 +195,38 @@ code deployment, startup, health verification, managed-identity
 authentication, Foundry verification, or agent invocation occurred in this
 slice.
 
+## Existing Web App Hosted Readiness Verification
+
+`scripts/verify_web_app_readiness.py` is a separate boundary for an
+already-existing, already-deployed Web App. Check mode validates and normalizes
+an explicit HTTPS origin without constructing an HTTP transport or making a
+request:
+
+```bash
+.venv/bin/python scripts/verify_web_app_readiness.py \
+  --base-url "https://example.azurewebsites.net" \
+  --check \
+  --json
+```
+
+Only explicit live mode creates the standard-library transport. It performs
+one read-only GET each to `/health`, `/version`, and `/demo/status`, with a
+short timeout and no credentials, body, retries, polling, Azure CLI call, or
+mutation:
+
+```bash
+.venv/bin/python scripts/verify_web_app_readiness.py \
+  --base-url "https://example.azurewebsites.net" \
+  --live \
+  --json
+```
+
+The verifier and CLI are offline-tested with fake transports. No live hosted
+verification was run in this slice. Code-deployment request acceptance does not
+prove startup, and hosted readiness does not prove RBAC, managed-identity
+authentication, Foundry access, or agent invocation. Review the sanitized
+result before making any separate operator decision about the next stage.
+
 ## Disposable Foundry Workflow
 
 Copy `foundry-only.example.bicepparam` to the ignored

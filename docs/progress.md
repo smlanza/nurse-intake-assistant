@@ -5,7 +5,7 @@ Active current-status and resume document. Historical progress through June
 
 ## Current Status
 Latest verified test baseline:
-- 1,087 passed
+- 1,111 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -22,6 +22,7 @@ Disposable Foundry infrastructure
 -> deterministic source deployment packaging
 -> explicit Web App code-deployment boundary
 -> offline-tested App Service remote-build prerequisite
+-> offline-tested hosted Web App readiness verification
 ```
 
 Mock mode remains the safe default, hosted notifications remain suppressed,
@@ -38,13 +39,12 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Audited all 39 tests in `tests/test_documentation_config.py` and replaced
-  overlapping prose checks with 20 focused semantic contracts.
-- Parsed environment examples now own defaults and placeholder safety;
-  grouped tests own README, manual-guide, infrastructure, architecture,
-  mapping, and progress boundaries without locking full paragraphs.
-- The focused 20 tests and all 1,087 offline tests pass with the one existing
-  warning. No production behavior or Azure resource changed.
+- Added a sanitized Web App readiness service and CLI for an explicit HTTPS
+  origin. Check mode creates no transport; only `--live --json` performs one
+  bounded GET each to `/health`, `/version`, and `/demo/status`; redirects stop.
+- The RED run collected 21 tests and failed because the new modules did not
+  exist. The focused 24 tests and all 1,111 offline tests now pass with the one
+  existing warning. No live hosted verification or Azure operation occurred.
 
 ## Current Resume Point
 
@@ -72,6 +72,9 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `src/app/services/web_app_package.py`: deterministic source deployment package
   boundary; `scripts/package_web_app.py`: offline check/package CLI;
   `scripts/deploy_web_app_code.py`: explicit existing-Web-App deployment CLI.
+- `src/app/services/web_app_readiness_verification.py`: sanitized hosted
+  readiness contract; `scripts/verify_web_app_readiness.py`: offline check and
+  explicit read-only live CLI.
 
 Future-slice rules:
 - Future TDD slices requiring Foundry infrastructure must extend or reuse this implementation rather than create another `main.bicep`, duplicate resources, or return to portal-only creation.
@@ -95,17 +98,17 @@ Do not claim as complete:
   `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
   review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
-- Live Web App infrastructure or code deployment, Foundry RBAC, hosted health/status
-  checks, managed-identity authentication, verification, or invocation; the
-  package/deployment and RBAC boundaries exist offline but have not run live
+- Live Web App infrastructure or code deployment, execution of hosted readiness
+  verification, Foundry RBAC, managed-identity authentication, verification, or
+  invocation; those boundaries exist offline but have not run live
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Add a small offline-tested hosted-readiness verification
-boundary for an existing Web App. Keep infrastructure deployment, code
-deployment-request acceptance, hosted startup verification, RBAC, and Foundry
-invocation as separate explicit stages.
+Recommended next move: Review the offline-tested readiness boundary and make an
+explicit operator decision before any live Web App action. Infrastructure, code
+deployment-request acceptance, hosted readiness, RBAC, and Foundry invocation
+remain separate stages.
 
 ## Current Working Local Pipeline
 
@@ -286,7 +289,7 @@ Completed work by feature area:
 
 - Authentication
 - Live Hosting infrastructure and Web App code deployment
-- Hosted `/health`, `/version`, and `/demo/status` verification
+- Live execution of hosted `/health`, `/version`, and `/demo/status` verification
 - Live Foundry RBAC deployment for the Web App identity
 - Agent-specific RBAC scope
 - Hosted Foundry verification and invocation
@@ -300,10 +303,10 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Return to the small offline-tested hosted-readiness verification boundary for
-an existing Web App. Keep infrastructure deployment, code deployment-request
-acceptance, hosted startup verification, RBAC, and Foundry invocation as
-separate explicit stages. Do not launch a repository-wide test cleanup.
+After review, make an explicit operator decision about any live Web App
+deployment or readiness verification. Keep deployment-request acceptance,
+hosted readiness, RBAC, and Foundry invocation separate. Do not launch a
+repository-wide test cleanup.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -315,37 +318,37 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Audited all 39 baseline tests in `tests/test_documentation_config.py`; 20
-  semantic tests remain, reducing total collection from 1,106 to 1,087.
-- Consolidated five main `.env.example` tests, two Foundry environment tests,
-  three README safety tests, six README provider/preflight tests, two Foundry
-  guide tests, two architecture safety tests, two AI-103 mapping tests, and four
-  progress/status tests into eight clearly owned contracts.
-- Rewrote ten distinct guide/dependency/boundary tests around stable required
-  environment-variable names, commands, headings, stage markers, and forbidden
-  sensitive-data patterns.
-- Added explicit cross-example credential/contact/PHI protection and one
-  infrastructure-operator-boundary test covering mock hosted defaults,
-  `deployApp=false`, offline/check modes, explicit live opt-in, separate
-  provisioning/deployment/verification stages, manual cleanup, and ignored
-  local files that must not be committed.
-- Removed `test_requirements_include_acs_email_sdk` because the retained
-  dependency-set test contained the exact assertion. Removed
+- RED: 21 readiness tests failed with `ModuleNotFoundError` because the new
+  service and CLI did not exist; no transport or network request ran.
+- Added immutable sanitized results, HTTPS-origin validation, a no-redirect
+  opener, injected seams, stable route contracts, categories, and progress.
+- Check mode only validates. Explicit `--live --json` lazily makes sequential
+  GETs to `/health`, `/version`, and `/demo/status` with a five-second timeout,
+  no redirect, credentials/body, retry, polling, Azure CLI, or mutation.
+- Success requires stable fields, mock providers, suppressed notifications,
+  safe demo posture, and mock agent statuses. Results exclude origins, hosts,
+  bodies, exceptions, secrets, authorization, patient, and contact data.
+- Focused result: 24 passed. Full result: 1,111 passed with the one existing
+  FastAPI/TestClient `StarletteDeprecationWarning`; no new warning or failure.
+- Architecture, mapping, operator guidance, and semantic tests record the
+  boundary; no live Azure or localhost call occurred.
+- No scoped production behavior changed and no production claim arose.
+- The preceding documentation audit reduced 39 tests to 20 and full collection
+  from 1,106 to 1,087 (net `-19`). It consolidated the five main-environment,
+  two Foundry-environment, 11 README, two Foundry-guide, two architecture, two
+  mapping, and four progress tests into eight owned semantic contracts.
+- Ten guide/dependency/boundary tests were rewritten around stable names,
+  commands, stages, and forbidden data. One cross-example safety contract and
+  one infrastructure-operator boundary were added.
+- Removed `test_requirements_include_acs_email_sdk` as exactly duplicated, plus
   `test_developer_handoff_documents_current_integration_status` and
-  `test_system_overview_exists` because their status/claim tokens duplicated
-  retained README, architecture, mapping, manual-guide, and progress contracts
-  without owning an operator or safety boundary.
-- A temporary `APP_MODE=cosmos` mutation made the parsed-default replacement
-  test fail as intended; `.env.example` was restored before verification.
-- Focused result: 20 passed. Full result: 1,087 passed with the one existing
-  FastAPI/TestClient `StarletteDeprecationWarning`; no new warnings or failures.
-- No `src/app`, Bicep, script, runtime, route, agent, or Azure behavior changed;
-  no live Azure call occurred. Mock defaults, suppressed hosted notifications,
-  mandatory nurse review, and the non-production-clinical boundary remain
-  unchanged.
-- Earlier Speech, demo, handoff-note, documentation, and provider-boundary
-  milestones are summarized in `docs/archive/progress-2026-06.md` and the
-  reference guides below.
+  `test_system_overview_exists` as duplicate status/claim snapshots.
+- A temporary `APP_MODE=cosmos` mutation failed as intended and was restored;
+  audit verification was 20 focused and 1,087 full tests, with one warning.
+- That audit changed no production code, Azure resource, or runtime behavior;
+  mock defaults, suppressed notifications, nurse review, manual cleanup, ignored
+  local files, and the non-production-clinical boundary remained protected.
+- Earlier milestones are in `docs/archive/progress-2026-06.md` and the guides.
 
 ## Reference Docs
 

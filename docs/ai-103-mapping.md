@@ -38,7 +38,7 @@ or SMS.
 | Testing and reliability | Pytest suite covers provider factories, repositories, routes, red-flag rules, notification behavior, OpenAPI examples, static pages, and documentation guardrails; demo smoke-test guide supports manual validation | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/manual-local-mock-demo.md` | Implemented project discipline |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it; a read-only verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Live Foundry-only deployment plus account, project, endpoint-format, and model verification succeeded; no agent, inference, runtime change, or production clinical claim |
 | Managed-identity and RBAC readiness | Optional IaC defines a Linux Azure Web App with a system-assigned managed identity; a separate explicit template derives that identity and grants only Foundry Agent Consumer at the Foundry project scope | `infra/modules/web-app.bicep`, `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | Implemented and compiled offline only; no RBAC deployment, managed-identity authentication, hosted verification, or invocation has occurred; human nurse review, safe fallback, mock defaults, and suppressed notifications remain unchanged |
-| Repeatable application deployment readiness | An allowlist-driven service creates deterministic Azure Web App source deployment ZIPs containing Python source plus `requirements.txt`; the optional Web App declares `SCM_DO_BUILD_DURING_DEPLOYMENT=true` for remote dependency installation; and a separate fake-runner-tested CLI can submit only an explicit `az webapp deploy` request to an existing app | `infra/modules/web-app.bicep`, `src/app/services/web_app_package.py`, `scripts/package_web_app.py`, `scripts/deploy_web_app_code.py`, `tests/test_web_app_bicep.py`, `tests/test_web_app_package.py`, `tests/test_deploy_web_app_code_script.py` | The build setting, packaging, and deployment-command behavior are implemented and offline-tested only. No live infrastructure or code deployment, hosted startup/readiness verification, managed-identity authentication, Foundry verification, or agent invocation has occurred; deployment-request acceptance would not prove startup or production readiness |
+| Repeatable application deployment readiness | An allowlist-driven service creates deterministic Azure Web App source ZIPs containing `requirements.txt`; the optional Web App declares its remote-build setting; a separate CLI can submit only an explicit code-deployment request; and a read-only verifier checks `/health`, `/version`, and `/demo/status` on an explicitly supplied HTTPS origin | `infra/modules/web-app.bicep`, `src/app/services/web_app_package.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/deploy_web_app_code.py`, `scripts/verify_web_app_readiness.py`, `tests/test_web_app_package.py`, `tests/test_web_app_readiness_verification.py`, `tests/test_verify_web_app_readiness_script.py` | Build configuration, packaging, deployment-command behavior, and hosted-readiness verification are implemented and offline-tested only. Check mode makes no HTTP request; live mode is explicit and read-only. No live infrastructure deployment, code deployment, hosted request, RBAC, managed-identity authentication, Foundry verification, or agent invocation has occurred; no production-readiness claim is made |
 
 ## 3. Generative AI And Foundry Relevance
 
@@ -136,11 +136,14 @@ Scope boundaries:
 - Cosmos live list-query validation, pagination, and aggregation tuning are deferred
 - Application Insights runtime logging/telemetry hardening is deferred
 - Web App infrastructure, its remote-build setting, deterministic packaging,
-  and an explicit code-deployment boundary are represented and offline-tested;
-  live deployment and hosted verification are deferred
+  explicit code-deployment request, and read-only hosted-readiness verifier are
+  represented and offline-tested; live deployment and verifier execution are
+  deferred
 - System-assigned identity and project-scoped Foundry Agent Consumer RBAC are represented in separate IaC boundaries
 - RBAC deployment, live authorization, and managed-identity invocation are deferred
-- Package creation and deployment-request acceptance do not imply hosted health or inference success
+- Package creation and deployment-request acceptance do not imply hosted
+  health; hosted readiness does not imply RBAC, managed-identity authentication,
+  Foundry access, or inference success
 - Key Vault is deferred
 - App Service Authentication / Entra ID protection is deferred
 - Confirmed ACS SMS handset delivery is not implemented and remains pending
@@ -154,7 +157,8 @@ The following are future work, not current implementation:
 - Azure AI Foundry Agent/tool orchestration, if still useful after the simpler
   Foundry provider path
 - Azure Speech transcription service
-- Live Web App infrastructure and code deployment plus hosted readiness checks
+- Live Web App infrastructure and code deployment plus execution of hosted
+  readiness checks
 - Live RBAC deployment and hosted managed-identity authentication/invocation
 - Agent-specific RBAC scope
 - Key Vault

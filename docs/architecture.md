@@ -341,12 +341,24 @@ can issue one `az webapp deploy` command through an injected runner. The result
 distinguishes package creation, deployment request acceptance, and hosted
 verification; it never treats one as evidence of the next.
 
+`src/app/services/web_app_readiness_verification.py` and
+`scripts/verify_web_app_readiness.py` implement the next read-only boundary for
+an already-existing, already-deployed Web App. Check mode validates an explicit
+absolute HTTPS origin without constructing an HTTP transport. Only explicit
+`--live --json` creates the standard-library transport and makes one bounded,
+sequential GET request each to `/health`, `/version`, and `/demo/status`, with
+no credentials, body, retry, polling, mutation, Azure discovery, RBAC action,
+or Foundry call. The result exposes only application-owned booleans and
+sanitized categories; it never serializes the origin, hostname, response body,
+or exception details.
+
 The ZIP contains Python source plus `requirements.txt`; dependencies are not
 vendored. The Web App module now declares the required
 `SCM_DO_BUILD_DURING_DEPLOYMENT=true` application setting so App Service remote
 build automation can install those dependencies. This configuration is tested
-only against the compiled Bicep/ARM representation. No live Web App
-infrastructure deployment, code deployment, application startup, health check,
+only against the compiled Bicep/ARM representation. The readiness verifier is
+also tested offline with fake transports, but no live Web App infrastructure
+deployment, code deployment, application startup, health check,
 managed-identity authentication, Foundry verification, or agent invocation has
 occurred. Deployment-request acceptance and hosted startup remain separate
 proof boundaries.
@@ -356,11 +368,11 @@ The intended operator sequence is:
 ```text
 Foundry infrastructure
 -> optional Linux Web App with system-assigned identity
--> explicit Foundry Agent Consumer RBAC assignment
 -> reviewed App Service Python build-automation prerequisite
 -> deterministic source deployment package
--> explicit Web App code deployment
--> hosted health/readiness verification
+-> explicit Web App code deployment-request acceptance
+-> explicit hosted health/readiness verification
+-> explicit Foundry Agent Consumer RBAC assignment
 -> hosted managed-identity Foundry Agent verification
 -> hosted fictional-data agent invocation
 ```
@@ -400,7 +412,7 @@ Not demonstrated live:
 
 Deferred infrastructure:
 
-- Live Web App code deployment and hosted readiness verification
+- Live Web App code deployment and execution of hosted readiness verification
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication
@@ -414,7 +426,7 @@ Deferred infrastructure:
 The following are intentionally not implemented in the current MVP:
 
 - Live Hosting infrastructure and application code deployment for the Web App
-- Hosted health/readiness verification
+- Live execution of hosted health/readiness verification
 - Live RBAC deployment plus hosted verification and invocation
 - Agent-specific RBAC scope
 - Authentication / RBAC beyond the offline-tested Consumer assignment
