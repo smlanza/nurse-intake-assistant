@@ -145,6 +145,45 @@ Deleting the assignment does not delete the Web App, Foundry project, agents,
 or resource group. Resource-group deletion also remains a separate, explicit
 manual action.
 
+## Existing Web App Configuration Verification
+
+`scripts/verify_web_app_configuration.py` is a read-only boundary for checking
+an already-existing Web App before code deployment. Offline check mode validates
+the application-owned contract without creating an Azure CLI runner, requiring
+credentials, or making an Azure call:
+
+```bash
+.venv/bin/python scripts/verify_web_app_configuration.py --check
+```
+
+Only explicit live JSON mode performs Azure reads:
+
+```bash
+.venv/bin/python scripts/verify_web_app_configuration.py \
+  --live \
+  --json \
+  --resource-group <existing-resource-group> \
+  --web-app-name <existing-web-app>
+```
+
+Live mode uses three sequential read-only Azure CLI commands with explicit JSON
+output projections. JMESPath `--query` shapes the JSON emitted to the Python
+verifier; it does not limit what Azure reads. The app-settings command emits only
+the eight Bicep-owned settings to the verifier. The application never returns,
+logs, or serializes raw unfiltered Azure CLI output. It does not deploy, update
+settings, restart, upload code, retrieve credentials, assign RBAC, call Foundry,
+retry, or poll. Sanitized results expose only contract booleans, categories,
+messages, and next steps; identifiers, hostnames, raw settings, stdout, stderr,
+exceptions, and secrets are excluded.
+
+Automated tests use injected fake runners, and no live configuration verification
+was run in this slice. Configuration verification does not prove code deployment;
+code-deployment request acceptance does not prove startup; hosted readiness,
+RBAC, managed-identity Foundry verification, and fictional-data invocation remain
+separate operator stages. Mock providers, suppressed notifications, mandatory
+nurse review, and the non-production-clinical boundary remain unchanged. Review
+the sanitized result before explicitly choosing any next operator action.
+
 ## Deterministic Web App Package And Code Deployment
 
 Application packaging and code deployment are separate from infrastructure,

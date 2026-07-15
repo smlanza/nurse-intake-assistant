@@ -326,6 +326,21 @@ project without granting agent creation or modification. Agent-specific scope
 is deferred because prompt-agent provisioning remains a separate lifecycle and
 the full-stack Bicep deployment does not own the agent resource.
 
+`src/app/services/web_app_configuration_verification.py` and
+`scripts/verify_web_app_configuration.py` add a read-only proof boundary for an
+already-existing Web App before code deployment. Check mode validates the local
+contract without creating an Azure CLI runner. Only explicit `--live --json`
+uses three read-only Azure CLI commands with explicit JSON output projections.
+JMESPath `--query` shapes the JSON emitted to the Python verifier; it does not
+limit what Azure reads. The app-settings projection emits only the eight
+Bicep-owned settings to the verifier. The application never returns, logs, or
+serializes raw unfiltered Azure CLI output.
+The verifier checks successful provisioning, Linux `PYTHON|3.12`, the current
+uvicorn startup command, remote build, HTTPS-only access, disabled FTPS, TLS
+1.2 minimums, `/health`, system-assigned identity presence, mock providers, and
+suppressed notifications. Its immutable result never exposes resource or
+identity IDs, hostnames, raw settings, command output, errors, or secrets.
+
 `WebAppPackage` and the two thin CLIs add the next offline-tested boundaries.
 The package service selects only the root dependency manifest and required
 `src` Python, configuration, and static assets; it rejects unsafe paths and
@@ -369,6 +384,7 @@ The intended operator sequence is:
 Foundry infrastructure
 -> optional Linux Web App with system-assigned identity
 -> reviewed App Service Python build-automation prerequisite
+-> explicit read-only Web App configuration verification
 -> deterministic source deployment package
 -> explicit Web App code deployment-request acceptance
 -> explicit hosted health/readiness verification
@@ -379,8 +395,10 @@ Foundry infrastructure
 
 Each arrow is a separate boundary. Code deployment does not provision
 infrastructure, alter app settings, assign RBAC, verify startup, or call
-Foundry. Hosted defaults remain mock-only with notifications suppressed, and
-human nurse review remains mandatory.
+Foundry. Configuration verification does not prove code deployment;
+deployment-request acceptance does not prove startup. Hosted defaults remain
+mock-only with notifications suppressed, and human nurse review remains
+mandatory.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
@@ -403,6 +421,7 @@ passed offline tests, but the assignment has not been deployed.
 Not demonstrated live:
 
 - Web App deployment
+- Live Web App configuration verification
 - Application code deployment
 - Hosted `/health`, `/version`, or `/demo/status` verification
 - Foundry Agent Consumer RBAC deployment
@@ -412,7 +431,8 @@ Not demonstrated live:
 
 Deferred infrastructure:
 
-- Live Web App code deployment and execution of hosted readiness verification
+- Live Web App configuration verification, code deployment, and execution of
+  hosted readiness verification
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication
@@ -426,6 +446,7 @@ Deferred infrastructure:
 The following are intentionally not implemented in the current MVP:
 
 - Live Hosting infrastructure and application code deployment for the Web App
+- Live execution of Web App configuration verification
 - Live execution of hosted health/readiness verification
 - Live RBAC deployment plus hosted verification and invocation
 - Agent-specific RBAC scope
