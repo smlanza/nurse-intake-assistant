@@ -144,7 +144,7 @@ override and preserves this staged workflow:
 offline check
 -> explicit Azure what-if
 -> separately authorized live deployment request
--> future separate read-only assignment verification
+-> separate read-only assignment verification
 ```
 
 Check mode validates safe input, the exact expected entry point and parameter
@@ -216,27 +216,29 @@ Deploy it explicitly after review:
 Verify the assignment read-only:
 
 ```bash
-PROJECT_SCOPE=$(az resource show \
+.venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
+  --check \
   --resource-group <existing-resource-group> \
-  --resource-type Microsoft.CognitiveServices/accounts/projects \
-  --name <existing-foundry-account>/<existing-foundry-project> \
-  --api-version 2025-06-01 \
-  --query id --output tsv)
+  --web-app-name <existing-web-app> \
+  --foundry-account-name <existing-foundry-account> \
+  --foundry-project-name <existing-foundry-project> \
+  --json
 
-WEB_APP_PRINCIPAL_ID=$(az webapp identity show \
+.venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
+  --live \
   --resource-group <existing-resource-group> \
-  --name <existing-web-app> \
-  --query principalId --output tsv)
-
-az role assignment list \
-  --assignee-object-id "$WEB_APP_PRINCIPAL_ID" \
-  --scope "$PROJECT_SCOPE" \
-  --role eed3b665-ab3a-47b6-8f48-c9382fb1dad6 \
-  --fill-principal-name false \
-  --fill-role-definition-name false \
-  --query "[].{RoleDefinitionId:roleDefinitionId,Scope:scope}" \
-  --output table
+  --web-app-name <existing-web-app> \
+  --foundry-account-name <existing-foundry-account> \
+  --foundry-project-name <existing-foundry-project> \
+  --json
 ```
+
+Run the verifier only after reviewing and explicitly authorizing the deployment.
+Its check mode validates names and the fixed local role contract without Azure;
+live mode performs only projected identity, project, and assignment reads. It
+accepts one exact project-scoped Consumer assignment, rejects broader inherited
+scope, and treats duplicate exact records as sanitized parse ambiguity. It never
+deploys, repairs, removes, acquires a token, or invokes Foundry.
 
 Cleanup is never automatic. To remove only this role assignment, manually
 resolve the same reviewed principal and project scope, then run:
@@ -252,10 +254,10 @@ Deleting the assignment does not delete the Web App, Foundry project, agents,
 or resource group. Resource-group deletion also remains a separate, explicit
 manual action.
 
-This slice implemented and tested only the deployment boundary. It ran no live
-Azure operation, did not verify a role assignment, obtained no managed-identity
-token, and performed no hosted readiness, Foundry verification, or agent
-invocation. Infrastructure deployment, RBAC deployment, RBAC verification,
+This repository implements and offline-tests separate deployment and read-only
+assignment-verification boundaries. This slice ran no live Azure operation, did
+not read a deployed assignment, obtained no managed-identity token, and performed
+no hosted readiness, Foundry verification, or agent invocation. Infrastructure deployment, RBAC deployment, RBAC verification,
 hosted readiness, Foundry verification, and invocation remain separate stages.
 Mock providers remain the safe default, hosted notifications remain suppressed,
 only fictional data may be used in future live validation, human nurse review

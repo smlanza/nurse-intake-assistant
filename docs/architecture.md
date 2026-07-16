@@ -360,10 +360,30 @@ and unsupported counts. Delete, Deploy, or Unsupported entries require manual
 review; only Delete sets the separate delete-review flag. Truly unknown values
 fail closed, raw output is discarded, and preview never continues to deployment.
 Live success records only Azure CLI acceptance
-of the deployment request and directs the operator to a future separate
+of the deployment request and directs the operator to a separate
 read-only assignment verifier. No role-definition override is exposed, and
 sanitized results contain no principal, tenant, subscription, token, credential,
 or complete resource identifier.
+
+`src/app/services/foundry_agent_consumer_rbac_verification.py` and
+`scripts/verify_foundry_agent_consumer_rbac.py` provide that distinct read-only
+proof boundary. Offline `--check` reuses the deployment-owned fixed Consumer
+role and exact Bicep contract and creates no runner. Only explicit
+`--live --json` issues three bounded argument-list reads: the Web App system
+identity, the expected Foundry project scope, and projected role assignments for
+that principal and scope. Azure CLI projections minimize the fields entering
+Python; the immutable result exposes only sanitized status booleans, a category,
+and a next step—not IDs, endpoints, commands, raw output, errors, or unrelated
+assignments.
+
+Success requires one unambiguous Consumer assignment for the exact Web App
+principal at the exact project scope. Broader inherited assignments, a different
+role, a different principal, missing or malformed data, and unknown response
+shapes fail closed. Duplicate exact records deterministically return sanitized
+`response_parse_failed`. The verifier never deploys or repairs RBAC, acquires a
+token, invokes Foundry or an agent, retries, polls, or mutates Azure. Deployment
+request acceptance and assignment verification are therefore separate proofs;
+both remain offline-tested only in this repository state.
 
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
