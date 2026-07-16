@@ -136,6 +136,48 @@ the current least-privilege boundary available without coupling RBAC to prompt
 agent lifecycle ownership. Agent-specific scope is a possible future hardening
 step after that lifecycle has an appropriate infrastructure owner.
 
+The offline-tested operator boundary is
+`scripts/deploy_foundry_agent_consumer_rbac.py`. It exposes no template or role
+override and preserves this staged workflow:
+
+```text
+offline check
+-> explicit Azure what-if
+-> separately authorized live deployment request
+-> future separate read-only assignment verification
+```
+
+Check mode validates safe input, the exact expected entry point and parameter
+names, its existing Web App identity lookup and module reference, and the
+module's project-scoped Consumer role contract. It builds the inert command
+plan without constructing a runner or executing `az`:
+
+```bash
+.venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
+  --check \
+  --resource-group fictional-resource-group \
+  --web-app-name fictional-nurse-intake-web-app \
+  --foundry-account-name fictional-foundry-account \
+  --foundry-project-name fictional-foundry-project \
+  --json
+```
+
+After reviewing that result, `--what-if` is the only preview mode. It issues one
+`az deployment group what-if` against the named existing resource group,
+requests JSON, accepts only the expected change collection, discards raw Azure
+output, and returns separate counts for all seven documented resource change
+types: Create, Delete, Ignore, Deploy, NoChange, Modify, and Unsupported. Ignore
+remains distinct from NoChange. Delete sets `delete_review_required=true`;
+Delete, Deploy, or Unsupported sets `manual_review_required=true`. Truly unknown
+types fail closed, and the CLI never advances to live deployment automatically.
+
+Only a separately chosen `--live` issues one `az deployment group create`.
+Success means Azure CLI accepted the deployment request; it does not mean the
+assignment exists, authorization works, a managed-identity token can be
+obtained, or a Foundry agent can be verified or invoked. The command never
+creates or deletes a resource group, changes the Consumer role, retries, cleans
+up, deploys app code, modifies or restarts the Web App, or calls Foundry.
+
 Build all RBAC templates offline:
 
 ```bash
@@ -144,26 +186,31 @@ az bicep build --file infra/foundry-agent-consumer-rbac.bicep --stdout > /dev/nu
 az bicep build --file infra/main.bicep --stdout > /dev/null
 ```
 
-The following commands are future manual operator actions and were not run in
-this slice. Use only fictional or carefully reviewed resource names.
+The following CLI modes are future manual operator actions and were not run in
+this slice. Use only fictional, reviewed resource names and data.
 
 Preview the independent assignment:
 
 ```bash
-az deployment group what-if \
-  --resource-group <existing-resource-group> \
-  --template-file infra/foundry-agent-consumer-rbac.bicep \
-  --parameters webAppName=<existing-web-app> foundryAccountName=<existing-foundry-account> foundryProjectName=<existing-foundry-project>
+.venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
+  --what-if \
+  --resource-group fictional-resource-group \
+  --web-app-name fictional-nurse-intake-web-app \
+  --foundry-account-name fictional-foundry-account \
+  --foundry-project-name fictional-foundry-project \
+  --json
 ```
 
 Deploy it explicitly after review:
 
 ```bash
-az deployment group create \
-  --resource-group <existing-resource-group> \
-  --name foundry-agent-consumer-rbac \
-  --template-file infra/foundry-agent-consumer-rbac.bicep \
-  --parameters webAppName=<existing-web-app> foundryAccountName=<existing-foundry-account> foundryProjectName=<existing-foundry-project>
+.venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
+  --live \
+  --resource-group fictional-resource-group \
+  --web-app-name fictional-nurse-intake-web-app \
+  --foundry-account-name fictional-foundry-account \
+  --foundry-project-name fictional-foundry-project \
+  --json
 ```
 
 Verify the assignment read-only:
@@ -204,6 +251,15 @@ az role assignment delete \
 Deleting the assignment does not delete the Web App, Foundry project, agents,
 or resource group. Resource-group deletion also remains a separate, explicit
 manual action.
+
+This slice implemented and tested only the deployment boundary. It ran no live
+Azure operation, did not verify a role assignment, obtained no managed-identity
+token, and performed no hosted readiness, Foundry verification, or agent
+invocation. Infrastructure deployment, RBAC deployment, RBAC verification,
+hosted readiness, Foundry verification, and invocation remain separate stages.
+Mock providers remain the safe default, hosted notifications remain suppressed,
+only fictional data may be used in future live validation, human nurse review
+remains mandatory, and this is not production clinical software.
 
 ## Existing Web App Configuration Verification
 

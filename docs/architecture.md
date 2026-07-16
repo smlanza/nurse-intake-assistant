@@ -343,6 +343,28 @@ ID, and role-definition ID, and embeds no secret or API key. Application and
 Foundry provisioning remain independent and never grant this access
 automatically.
 
+`src/app/services/foundry_agent_consumer_rbac_deployment.py` and
+`scripts/deploy_foundry_agent_consumer_rbac.py` now provide an offline-tested
+operator boundary around that exact entry point. `--check` validates safe names,
+the expected file location, its three exact parameters, its existing Web App
+identity lookup, its exact module reference, and the module's project-scoped
+Consumer-only assignment without constructing a runner or calling Azure.
+`--what-if` and `--live` each issue at most one argument-list resource-group
+deployment command against an existing group. Neither mode creates or deletes a
+group, retries, cleans up, verifies RBAC, obtains a token, invokes an agent,
+deploys application code, restarts the Web App, or changes infrastructure.
+
+What-if requests JSON, accepts all seven documented resource change types, and
+returns separate sanitized create, delete, ignore, deploy, no-change, modify,
+and unsupported counts. Delete, Deploy, or Unsupported entries require manual
+review; only Delete sets the separate delete-review flag. Truly unknown values
+fail closed, raw output is discarded, and preview never continues to deployment.
+Live success records only Azure CLI acceptance
+of the deployment request and directs the operator to a future separate
+read-only assignment verifier. No role-definition override is exposed, and
+sanitized results contain no principal, tenant, subscription, token, credential,
+or complete resource identifier.
+
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
 is deferred because prompt-agent provisioning remains a separate lifecycle and
@@ -410,7 +432,10 @@ Foundry infrastructure
 -> deterministic source deployment package
 -> explicit Web App code deployment-request acceptance
 -> explicit hosted health/readiness verification
--> explicit Foundry Agent Consumer RBAC assignment
+-> offline RBAC check
+-> explicit RBAC what-if
+-> separately authorized Foundry Agent Consumer RBAC deployment request
+-> read-only RBAC assignment verification
 -> hosted managed-identity Foundry Agent verification
 -> hosted fictional-data agent invocation
 ```
@@ -421,6 +446,14 @@ Foundry. Configuration verification does not prove code deployment;
 deployment-request acceptance does not prove startup. Hosted defaults remain
 mock-only with notifications suppressed, and human nurse review remains
 mandatory.
+
+Infrastructure deployment, RBAC deployment, RBAC verification, hosted
+readiness, Foundry verification, and agent invocation remain separate stages.
+This RBAC deployment-boundary slice ran no live Azure operation, performed no
+role-assignment verification, obtained no managed-identity token, and performed
+no hosted Foundry verification or invocation. Future live validation must use
+only fictional data. The project remains a capstone/demo and is not production
+clinical software.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
@@ -440,8 +473,9 @@ validation of `main.bicep` with `deployApp=true`, `deployFoundry=false`, B1, and
 `PYTHON|3.12` succeeded on July 15, 2026; validation created no Azure resources.
 The new deployment CLI is offline-tested only: no Web App infrastructure was
 previewed, deployed, or authenticated with its system-assigned identity. The
-RBAC templates have also compiled and passed offline tests, but the assignment
-has not been deployed.
+RBAC templates and the explicit RBAC deployment boundary have also compiled or
+passed offline tests, but the assignment has not been previewed, deployed, or
+verified.
 
 Not demonstrated live:
 

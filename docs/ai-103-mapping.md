@@ -37,7 +37,7 @@ or SMS.
 | Notification status semantics | Legacy booleans remain backward-compatible while explicit email/SMS status fields distinguish `MockRecorded`, `Accepted`, `Failed`, `Suppressed`, and `NotAttempted`; SMS delivery confirmation remains false until future tracking exists | `src/app/models/case.py`, `src/app/services/case_processing_service.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented semantics |
 | Testing and reliability | Pytest suite covers provider factories, repositories, routes, red-flag rules, notification behavior, OpenAPI examples, static pages, and documentation guardrails; demo smoke-test guide supports manual validation | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/manual-local-mock-demo.md` | Implemented project discipline |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it; a read-only verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Live Foundry-only deployment plus account, project, endpoint-format, and model verification succeeded; no agent, inference, runtime change, or production clinical claim |
-| Managed-identity and RBAC readiness | Optional IaC defines a Linux Azure Web App with a system-assigned managed identity; a separate explicit template derives that identity and grants only Foundry Agent Consumer at the Foundry project scope | `infra/modules/web-app.bicep`, `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | Implemented and compiled offline only; no RBAC deployment, managed-identity authentication, hosted verification, or invocation has occurred; human nurse review, safe fallback, mock defaults, and suppressed notifications remain unchanged |
+| Managed-identity and RBAC readiness | Optional IaC defines a Linux Azure Web App with a system-assigned managed identity; a separate explicit template derives that identity and grants only Foundry Agent Consumer at the Foundry project scope. An injected-runner service and CLI keep offline check, JSON what-if, and separately authorized live request distinct; preview output is reduced to safe counts and deletes require review | `infra/modules/web-app.bicep`, `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_deployment.py`, `scripts/deploy_foundry_agent_consumer_rbac.py`, `tests/test_foundry_agent_consumer_rbac_deployment.py`, `tests/test_deploy_foundry_agent_consumer_rbac_script.py`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | Deployment boundary implemented and tested offline only; no live preview or deployment, role-assignment verification, managed-identity token acquisition, hosted Foundry verification, or invocation occurred. The assignment remains project-scoped and Consumer-only; human nurse review, mock defaults, and suppressed hosted notifications remain unchanged |
 | Repeatable application deployment readiness | An explicit CLI deploys Web App infrastructure through the existing `main.bicep` with Foundry disabled; its local reader enforces the exact shared hosted settings contract, and what-if exposes sanitized change counts only. Separate boundaries verify Bicep-owned configuration, package and deploy code, and check `/health`, `/version`, and `/demo/status` | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_infra_deployment.py`, `scripts/deploy_web_app_infra.py`, `src/app/services/web_app_configuration_verification.py`, `scripts/verify_web_app_configuration.py`, `src/app/services/web_app_package.py`, `scripts/deploy_web_app_code.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/verify_web_app_readiness.py` | Manual resource-group validation succeeded July 15, 2026, without creating resources. All new CLI behavior is offline-tested with fakes. Extra and duplicate settings fail; proposed deletes are reported but never acted on automatically. Check modes make no Azure or HTTP call; what-if remains preview-only and live remains explicit. No live preview, infrastructure deployment, configuration read, code deployment, hosted request, RBAC, Foundry verification, or invocation occurred; no production-readiness claim is made |
 
 ## 3. Generative AI And Foundry Relevance
@@ -144,7 +144,11 @@ Scope boundaries:
   and notification-suppression contract. What-if emits only sanitized counts;
   proposed deletes require review and never trigger deployment automatically
 - System-assigned identity and project-scoped Foundry Agent Consumer RBAC are represented in separate IaC boundaries
-- RBAC deployment, live authorization, and managed-identity invocation are deferred
+- The explicit RBAC deployment boundary is offline-tested; no live preview,
+  deployment, assignment verification, token acquisition, hosted Foundry
+  verification, or invocation occurred
+- Infrastructure deployment, RBAC deployment, RBAC verification, hosted
+  readiness, Foundry verification, and agent invocation remain separate stages
 - Configuration verification does not prove code deployment. Package creation
   and deployment-request acceptance do not imply hosted health; hosted readiness
   does not imply RBAC, managed-identity authentication, Foundry access, or
@@ -164,7 +168,8 @@ The following are future work, not current implementation:
 - Azure Speech transcription service
 - Live Web App infrastructure and configuration verification, code deployment,
   and execution of hosted readiness checks
-- Live RBAC deployment and hosted managed-identity authentication/invocation
+- Live RBAC deployment, read-only assignment verification, and hosted
+  managed-identity authentication/invocation
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication / Entra ID protection

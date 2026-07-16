@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,183 passed
+- 1,236 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -23,7 +23,7 @@ Disposable Foundry infrastructure
 -> deterministic source deployment packaging
 -> explicit Web App code-deployment request
 -> offline-tested hosted Web App readiness verification
--> project-scoped Foundry Agent Consumer RBAC
+-> explicit offline-tested project-scoped Foundry Agent Consumer RBAC deployment boundary
 -> hosted managed-identity Foundry verification
 -> fictional-data Foundry Agent invocation
 ```
@@ -42,12 +42,11 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 Latest completed slice:
-- Corrected the Web App infrastructure CLI to parse the exact active Bicep
-  app-settings declaration against the configuration verifier's shared safe
-  contract; extra, duplicate, conflicting, commented-only, and override entries fail.
-- What-if emits sanitized counts; deletes require review, malformed output fails.
-- Correction RED: 22 failed, 50 passed. GREEN: 72 focused tests; all 1,183 tests
-  pass with one existing warning and no live Azure operation.
+- Added an explicit offline-tested check/what-if/live request boundary around
+  the existing project-scoped Foundry Agent Consumer Bicep entry point.
+- RED stopped at collection with 1 missing-service error; focused GREEN is 56
+  passed; the current full suite is 1,236 passed with one existing warning.
+- No live Azure operation ran.
 
 ## Current Resume Point
 
@@ -74,6 +73,9 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `infra/foundry-agent-consumer-rbac.bicep`: explicit independent assignment
   entry point; `infra/modules/foundry-agent-consumer-rbac.bicep`: project-scoped
   Foundry Agent Consumer role module.
+- `src/app/services/foundry_agent_consumer_rbac_deployment.py` and
+  `scripts/deploy_foundry_agent_consumer_rbac.py`: offline check plus explicit
+  what-if/live request boundary for that exact entry point.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
 - `scripts/deploy_foundry_infra.py`: approved deployment boundary; `scripts/verify_foundry_infra.py`: approved read-only verification boundary.
@@ -116,11 +118,11 @@ Do not claim as complete:
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next move: Review the sanitized infrastructure check, then decide
-whether to run the separate `--what-if` against an existing resource group.
-If run, review only the sanitized counts and any delete warning before a
-separate live choice. Infrastructure deployment, configuration verification,
-code deployment, readiness, RBAC, and Foundry invocation remain separate stages.
+Recommended next boundary: implement read-only verification of the deployed
+project-scoped Foundry Agent Consumer assignment, but only after an explicitly
+authorized live RBAC deployment and review. Infrastructure deployment, RBAC
+deployment, RBAC verification, hosted readiness, Foundry verification, and
+agent invocation remain separate stages.
 
 ## Current Working Local Pipeline
 
@@ -319,9 +321,10 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-After review, explicitly decide whether to run Web App infrastructure what-if.
-Keep deployment, configuration verification, code acceptance, hosted readiness,
-RBAC, and Foundry invocation separate. Do not launch a repository-wide cleanup.
+After explicit live RBAC deployment and review, add a read-only verifier for the
+project-scoped Foundry Agent Consumer assignment. Keep infrastructure, RBAC
+deployment, RBAC verification, hosted readiness, Foundry verification, and
+invocation separate. Do not launch a repository-wide cleanup.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -333,21 +336,17 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Correction RED: 22 failed and 50 passed across the deployment and existing
-  configuration-verification boundaries. Focused GREEN: 72 passed.
-- A small shared hosting contract prevents safe-setting drift. The scoped Bicep
-  reader requires seven safe settings plus remote build; contract drift fails.
-- What-if requests JSON through the same single argument-list command. Valid
-  output becomes counts only; raw resource details and CLI output are discarded.
-  Malformed/missing change collections fail as `what_if_parse_failed`; delete
-  counts produce a manual-review warning without blocking or invoking live mode.
-- Check, preview, and live success messages now distinguish local validation,
-  completed preview, and Azure request acceptance without claiming readiness.
-- Full: 1,183 passed with one existing FastAPI/TestClient
-  `StarletteDeprecationWarning`. Offline check and Bicep build passed; no live
-  preview, deployment, Azure resource/API, or application network operation ran.
-- Files include the shared contract, services, CLI, tests, and required docs.
-- Mock hosted providers, suppressed notifications, mandatory nurse review, and
+- Correction RED: 6 failed/54 passed for rejected Ignore, Deploy, and Unsupported results and absent fields; focused GREEN: 60 passed.
+- What-if now counts all seven documented ARM resource change types separately.
+  Delete, Deploy, or Unsupported requires review; unknown values fail closed.
+- No role override, resource-group creation/deletion, retry, cleanup, assignment
+  verification, token, app restart, Foundry verification, or invocation is included.
+- Added the service, CLI, two test modules, and four doc updates; Bicep was unchanged.
+- Full pytest: 1,236 passed with one existing FastAPI/TestClient warning.
+  Offline Bicep build passed with only an available-upgrade notice.
+- No live Azure operation ran, no assignment was verified, and no hosted Foundry
+  verification or invocation occurred. Mock defaults, suppressed hosted
+  notifications, fictional-only future validation, mandatory nurse review, and
   the non-production clinical boundary remain unchanged.
 
 ## Reference Docs
