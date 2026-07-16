@@ -12,5 +12,6 @@ azure-cosmos
 azure-communication-email
 azure-communication-sms
 azure-ai-inference
+azure-ai-projects>=2.3.0,<3
 azure-identity
 openai

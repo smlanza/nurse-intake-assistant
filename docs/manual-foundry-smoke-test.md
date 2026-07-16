@@ -194,6 +194,57 @@ run a live Azure authentication test. `AGENT_PROVIDER=mock` remains the safe
 default, human nurse review remains mandatory, and managed-identity readiness
 does not establish production or clinical readiness.
 
+### App Service-hosted identity verification of the Foundry prompt agent
+
+After separately verifying Foundry infrastructure, deploying and checking the
+Web App, reviewing hosted readiness, deploying the Consumer assignment, and
+verifying that exact assignment read-only, run the packaged operation from the
+deployed Web App environment:
+
+```bash
+python -m src.app.operations.verify_hosted_foundry_agent --check --json
+python -m src.app.operations.verify_hosted_foundry_agent --live --json
+```
+
+The existing settings must contain the agent project endpoint, stable endpoint,
+name, immutable version, and model deployment name. Check mode validates those
+contracts and SDK visibility without reading hosted markers or creating a
+credential/client. Only explicit live JSON mode requires nonblank
+`WEBSITE_INSTANCE_ID`, `IDENTITY_ENDPOINT`, and sensitive `IDENTITY_HEADER`, then creates `ManagedIdentityCredential()` with no
+client ID or fallback credential chain. It reads the configured agent and exact
+version, then reuses the existing stable endpoint, Responses protocol,
+immutable routing, model, and centralized instruction comparisons.
+
+This operation never creates a Responses client, sends a prompt, invokes an
+agent, provisions or updates a version, repairs RBAC, retries, polls, or exposes
+an HTTP diagnostic route. Success recommends the later separate fictional-data
+hosted invocation but does not start it. Results contain no endpoint, hostname,
+identity, resource ID, environment value, token, raw SDK response, or exception.
+The command closes the project client and credential on success and failure;
+cleanup errors are suppressed without replacing the verification result.
+This repository has not run the live command and makes no hosted authentication
+or authorization claim.
+
+Here, “hosted” means the command runs inside Azure App Service. It verifies a
+Foundry prompt agent and is not the Microsoft Foundry Hosted Agents runtime.
+
+```text
+Foundry infrastructure verification
+-> Web App infrastructure deployment
+-> Web App configuration verification
+-> Web App code deployment
+-> hosted readiness verification
+-> Foundry Agent Consumer RBAC deployment
+-> read-only RBAC assignment verification
+-> hosted managed-identity Foundry Agent verification
+-> later, separate fictional-data hosted agent invocation
+```
+
+Each arrow is a separate operator-reviewed proof. Keep application, AI, agent,
+email, SMS, and Speech providers at their mock defaults and keep hosted
+notifications suppressed. Human nurse review and the non-production clinical
+boundary remain mandatory.
+
 The application Foundry Agent adapter prefers the current stable per-agent
 OpenAI protocol endpoint:
 

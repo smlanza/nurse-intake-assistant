@@ -385,6 +385,29 @@ token, invokes Foundry or an agent, retries, polls, or mutates Azure. Deployment
 request acceptance and assignment verification are therefore separate proofs;
 both remain offline-tested only in this repository state.
 
+`src/app/services/hosted_foundry_agent_verification.py` and the packaged
+`src/app/operations/verify_hosted_foundry_agent.py` add the next separate proof
+boundary. Check mode validates the configured project endpoint, stable agent
+endpoint, agent name, immutable version, model, centralized instructions, and
+SDK visibility without reading hosted markers or constructing a credential or
+client. Explicit live JSON mode first requires nonblank `WEBSITE_INSTANCE_ID`,
+`IDENTITY_ENDPOINT`, and sensitive `IDENTITY_HEADER` markers, then lazily creates only a system-assigned
+`ManagedIdentityCredential` and one Foundry project client. It cannot fall back
+to developer, CLI, environment-secret, browser, cache, workload, user-assigned,
+or interactive credentials.
+
+The App Service-hosted verification command admits only the configured prompt
+agent and exact-version metadata reads; it is not a Microsoft Foundry Hosted
+Agent product/runtime. A narrow adapter validates SDK shapes, exposes no Responses/inference or
+mutation method, and passes metadata into the existing stable-endpoint,
+Responses-protocol, exclusive-version-routing, model, and centralized
+instruction verifier. Its fixed result excludes endpoints, hostnames,
+identities, resource IDs, settings, raw SDK values, exceptions, prompts, and
+credentials. Missing, malformed, unauthorized, or drifted responses fail
+closed. The command closes the project client and credential synchronously on
+every post-construction outcome; cleanup failures are suppressed and cannot
+replace the primary result. No live managed-identity verification has run.
+
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
 is deferred because prompt-agent provisioning remains a separate lifecycle and
@@ -431,8 +454,9 @@ or Foundry call. The result exposes only application-owned booleans and
 sanitized categories; it never serializes the origin, hostname, response body,
 or exception details.
 
-The ZIP contains Python source plus `requirements.txt`; dependencies are not
-vendored. The Web App module now declares the required
+The ZIP contains Python source plus `requirements.txt`, including this packaged
+operation and its Foundry project SDK dependency; dependencies are not vendored.
+The Web App module now declares the required
 `SCM_DO_BUILD_DURING_DEPLOYMENT=true` application setting so App Service remote
 build automation can install those dependencies. This configuration is tested
 only against the compiled Bicep/ARM representation. The readiness verifier is
@@ -445,7 +469,7 @@ proof boundaries.
 The intended operator sequence is:
 
 ```text
-Foundry infrastructure
+Foundry infrastructure verification
 -> explicit optional Linux Web App infrastructure deployment with system-assigned identity
 -> reviewed App Service Python build-automation prerequisite
 -> explicit read-only Web App configuration verification
@@ -457,7 +481,7 @@ Foundry infrastructure
 -> separately authorized Foundry Agent Consumer RBAC deployment request
 -> read-only RBAC assignment verification
 -> hosted managed-identity Foundry Agent verification
--> hosted fictional-data agent invocation
+-> later separate fictional-data hosted agent invocation
 ```
 
 Each arrow is a separate boundary. Code deployment does not provision
@@ -468,12 +492,11 @@ mock-only with notifications suppressed, and human nurse review remains
 mandatory.
 
 Infrastructure deployment, RBAC deployment, RBAC verification, hosted
-readiness, Foundry verification, and agent invocation remain separate stages.
-This RBAC deployment-boundary slice ran no live Azure operation, performed no
-role-assignment verification, obtained no managed-identity token, and performed
-no hosted Foundry verification or invocation. Future live validation must use
-only fictional data. The project remains a capstone/demo and is not production
-clinical software.
+readiness, Web App-hosted managed-identity prompt-agent verification, and agent invocation remain
+separate stages. This hosted verifier is offline-tested only: no live Azure
+operation, identity authentication, Foundry metadata read, inference, or agent
+invocation ran. Future live validation must use only fictional data. The
+project remains a capstone/demo and is not production clinical software.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
@@ -505,7 +528,7 @@ Not demonstrated live:
 - Hosted `/health`, `/version`, or `/demo/status` verification
 - Foundry Agent Consumer RBAC deployment
 - Managed-identity token acquisition
-- Immutable-version verification from the hosted application
+- Live immutable-version verification from the hosted application
 - Hosted agent invocation
 
 Deferred infrastructure:
@@ -527,7 +550,7 @@ The following are intentionally not implemented in the current MVP:
 - Live Hosting infrastructure and application code deployment for the Web App
 - Live execution of Web App configuration verification
 - Live execution of hosted health/readiness verification
-- Live RBAC deployment plus hosted verification and invocation
+- Live RBAC deployment, hosted managed-identity verification, and invocation
 - Agent-specific RBAC scope
 - Authentication / RBAC beyond the offline-tested Consumer assignment
 - Application authentication and private networking

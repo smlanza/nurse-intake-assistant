@@ -36,6 +36,11 @@ The implementation should prioritize demoability, cost control, and clear Azure 
   agent; `scripts/smoke_foundry_agent.py --live --json` remains the separate
   fictional-data invocation boundary. Neither command runs during app startup
   or intake, and live acceptance remains manual.
+- A separate operation packaged beneath `src/app` can check or explicitly read
+  the configured prompt agent and immutable version from inside the Web App. It
+  uses only the system-assigned managed identity and never invokes the agent;
+  it is not a Foundry Hosted Agent runtime. Automated coverage is offline only
+  and does not prove hosted authorization.
 - Azure Speech remains scaffolded with offline/manual preflight only; no live
   audio transcription or phone intake is part of the default demo.
 - ACS Email/SMS have provider scaffolds and offline-safe preflight/manual smoke

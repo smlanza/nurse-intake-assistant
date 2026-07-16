@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,278 passed
+- 1,326 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -25,7 +25,7 @@ Disposable Foundry infrastructure
 -> offline-tested hosted Web App readiness verification
 -> explicit offline-tested project-scoped Foundry Agent Consumer RBAC deployment boundary
 -> offline-tested read-only RBAC assignment verification
--> hosted managed-identity Foundry verification
+-> offline-tested Web App-hosted managed-identity prompt-agent verification
 -> fictional-data Foundry Agent invocation
 ```
 
@@ -42,11 +42,11 @@ Important constraints:
 - AI output requires human nurse review
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
-Current RBAC verification slice:
-- Focused collection stopped with 1 missing-service import error before any
-  production implementation; no Azure operation ran.
-- Focused GREEN is 49 passed; full GREEN is 1,278 passed with one existing
-  warning. Both required Bicep entry points compile successfully offline.
+Current hosted managed-identity verification slice:
+- Corrective RED is 9 failed/39 passed: `IDENTITY_HEADER` was not guarded and
+  constructed resources were not closed. No Azure operation or invocation ran.
+- Corrective GREEN is 48 passed; full GREEN is 1,326 passed with one existing
+  warning. Both unchanged Bicep entry points compile offline.
 
 ## Current Resume Point
 
@@ -79,6 +79,8 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `src/app/services/foundry_agent_consumer_rbac_verification.py` and
   `scripts/verify_foundry_agent_consumer_rbac.py`: offline check plus explicit
   read-only assignment proof for the exact identity, role, and project scope.
+- Packaged `src/app/operations/verify_hosted_foundry_agent.py`: strict
+  system-identity metadata verification using the existing agent contract.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
 - `scripts/deploy_foundry_infra.py`: approved deployment boundary; `scripts/verify_foundry_infra.py`: approved read-only verification boundary.
@@ -121,9 +123,8 @@ Do not claim as complete:
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next boundary: hosted managed-identity Foundry Agent verification,
-after separately authorized deployment and successful read-only RBAC proof.
-Agent invocation remains a later, distinct stage.
+Recommended next boundary: separate fictional-data hosted Foundry Agent
+invocation, contingent on successful live managed-identity verification.
 
 ## Current Working Local Pipeline
 
@@ -312,7 +313,7 @@ Completed work by feature area:
 - Live Foundry RBAC deployment for the Web App identity
 - Live read-only RBAC assignment verification
 - Agent-specific RBAC scope
-- Hosted Foundry verification and invocation
+- Live hosted managed-identity verification and agent invocation
 - Key Vault
 - Azure Speech/voice intake
 - live Azure AI Foundry extraction
@@ -323,9 +324,8 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-After separately authorized RBAC deployment and successful read-only assignment
-verification, add hosted managed-identity Foundry Agent verification. Keep agent
-invocation separate and do not launch a repository-wide cleanup.
+Next boundary: explicitly authorized live deployment and proof sequence,
+followed later by separate fictional-data agent invocation.
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -337,16 +337,16 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- RED: focused collection failed on the missing verification service; focused
-  GREEN: 49 passed; full GREEN: 1,278 passed with one existing warning.
-- Added a sanitized offline check and explicit read-only live verifier for one
-  exact Web App principal, Consumer role, and Foundry project scope. Broader
-  scope, wrong roles/principals, malformed data, and duplicates fail closed.
-- Added the service, CLI, two test modules, and updated architecture, AI-103,
-  progress, and operator docs; Bicep stayed unchanged and both required entry
-  points compiled successfully. No live Azure operation ran. Mock defaults, suppressed hosted notifications,
-  fictional-only validation, mandatory nurse review, and the non-production
-  clinical boundary remain unchanged.
+- Corrective RED was 9 failed/39 passed; focused GREEN is 48 passed and full
+  GREEN is 1,326 passed with one existing warning.
+- Live now requires nonblank `WEBSITE_INSTANCE_ID`, `IDENTITY_ENDPOINT`, and
+  sensitive `IDENTITY_HEADER` before credential construction.
+- The command owns synchronous cleanup: client then credential on every outcome;
+  cleanup errors cannot replace or leak through the primary sanitized result.
+- Both unchanged Bicep entry points compile successfully offline.
+- No live Azure operation or agent invocation ran. Mock defaults, suppressed
+  notifications, fictional-only validation, nurse review, and the
+  non-production clinical boundary remain unchanged.
 
 ## Reference Docs
 
