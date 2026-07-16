@@ -48,6 +48,7 @@ Browser or API client
 | `FoundryAiService` | Azure AI Foundry provider boundary/scaffold with offline structured extraction prompt/schema/parser contract, injected fake-client seam, and opt-in lazy live adapter; live extraction is deferred |
 | `NurseIntakeAgent` | External reasoning boundary for future agent orchestration; output is contract-validated before case processing trusts it |
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
+| `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
 | Speech transcription services | Offline mock transcription boundary and Azure Speech scaffold/factory; live audio transcription is deferred |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
@@ -408,6 +409,33 @@ closed. The command closes the project client and credential synchronously on
 every post-construction outcome; cleanup failures are suppressed and cannot
 replace the primary result. No live managed-identity verification has run.
 
+`src/app/services/hosted_foundry_agent_invocation.py` and the packaged
+`src/app/operations/invoke_hosted_foundry_agent.py` implement the following,
+strictly separate fictional-data invocation proof. Check mode validates local
+configuration, the fixed repository-owned fictional request, the expected
+application contract, and lazy SDK visibility without reading App Service
+identity markers, creating a credential or client, or performing inference.
+Only explicit live JSON mode can continue. It requires valid nonblank
+`WEBSITE_INSTANCE_ID`, `IDENTITY_ENDPOINT`, and sensitive `IDENTITY_HEADER`
+values before constructing dependencies, uses system-assigned
+`ManagedIdentityCredential()` with no client ID or credential fallback, and
+submits the fixed request exactly once through the existing stable per-agent
+Responses path.
+
+The hosted invocation validates extraction, advisory urgency, summary, and the
+application-generated handoff note through existing contracts. Its result
+contains only status, safe category/message, invocation and validation
+booleans, approved field names, the fictional-data flag, and a next step. It
+never returns prompt or patient text, generated clinical content, endpoints,
+agent identifiers, identity values, raw responses, exceptions, or credentials.
+The owned Responses/project client is closed before the credential on every
+post-construction result; partial construction and cleanup failures are also
+sanitized. This operation does not call an intake route or metadata verifier,
+persist a case, send or record notifications, run deterministic urgency rules,
+change RBAC, provision or modify an agent, alter infrastructure, or repeat the
+request. Automated tests make no Azure calls, and neither live hosted metadata
+verification nor live hosted invocation ran in this slice.
+
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
 is deferred because prompt-agent provisioning remains a separate lifecycle and
@@ -481,7 +509,7 @@ Foundry infrastructure verification
 -> separately authorized Foundry Agent Consumer RBAC deployment request
 -> read-only RBAC assignment verification
 -> hosted managed-identity Foundry Agent verification
--> later separate fictional-data hosted agent invocation
+-> separate fixed-fictional-data hosted Foundry Agent invocation
 ```
 
 Each arrow is a separate boundary. Code deployment does not provision
@@ -491,12 +519,14 @@ deployment-request acceptance does not prove startup. Hosted defaults remain
 mock-only with notifications suppressed, and human nurse review remains
 mandatory.
 
-Infrastructure deployment, RBAC deployment, RBAC verification, hosted
-readiness, Web App-hosted managed-identity prompt-agent verification, and agent invocation remain
-separate stages. This hosted verifier is offline-tested only: no live Azure
-operation, identity authentication, Foundry metadata read, inference, or agent
-invocation ran. Future live validation must use only fictional data. The
-project remains a capstone/demo and is not production clinical software.
+Infrastructure deployment, code deployment, readiness, RBAC deployment, RBAC
+verification, Web App-hosted managed-identity prompt-agent verification, and
+the fixed fictional invocation remain separate stages. Both packaged hosted
+agent operations are offline-tested only: no live Azure operation, identity
+authentication, Foundry metadata read, inference, or agent invocation ran.
+Mock defaults and notification suppression remain unchanged, and a successful
+fictional proof would still require human nurse review. The project remains a
+capstone/demo and is not production clinical software.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:

@@ -41,6 +41,14 @@ The implementation should prioritize demoability, cost control, and clear Azure 
   uses only the system-assigned managed identity and never invokes the agent;
   it is not a Foundry Hosted Agent runtime. Automated coverage is offline only
   and does not prove hosted authorization.
+- A second packaged operation can check or, with explicit live JSON opt-in,
+  perform exactly one repository-owned fictional prompt-agent invocation from
+  the Web App system identity. It accepts no patient or prompt argument, reuses
+  the stable endpoint and application output contracts, returns no clinical
+  content, and performs no persistence or notifications. It remains separate
+  from deployment, readiness, RBAC, and metadata verification. Only check mode
+  has been exercised; no live hosted metadata verification or invocation has
+  run.
 - Azure Speech remains scaffolded with offline/manual preflight only; no live
   audio transcription or phone intake is part of the default demo.
 - ACS Email/SMS have provider scaffolds and offline-safe preflight/manual smoke

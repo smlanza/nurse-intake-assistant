@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,326 passed
+- 1,389 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -26,7 +26,7 @@ Disposable Foundry infrastructure
 -> explicit offline-tested project-scoped Foundry Agent Consumer RBAC deployment boundary
 -> offline-tested read-only RBAC assignment verification
 -> offline-tested Web App-hosted managed-identity prompt-agent verification
--> fictional-data Foundry Agent invocation
+-> offline-tested fixed-fictional-data Web App-hosted prompt-agent invocation boundary
 ```
 
 Mock mode remains the safe default, hosted notifications remain suppressed,
@@ -41,12 +41,6 @@ Important constraints:
 - Mock mode sends no real email or SMS
 - AI output requires human nurse review
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
-
-Current hosted managed-identity verification slice:
-- Corrective RED is 9 failed/39 passed: `IDENTITY_HEADER` was not guarded and
-  constructed resources were not closed. No Azure operation or invocation ran.
-- Corrective GREEN is 48 passed; full GREEN is 1,326 passed with one existing
-  warning. Both unchanged Bicep entry points compile offline.
 
 ## Current Resume Point
 
@@ -81,6 +75,9 @@ Authoritative Foundry infrastructure for future TDD slices:
   read-only assignment proof for the exact identity, role, and project scope.
 - Packaged `src/app/operations/verify_hosted_foundry_agent.py`: strict
   system-identity metadata verification using the existing agent contract.
+- Packaged `src/app/operations/invoke_hosted_foundry_agent.py`: separate strict
+  system-identity boundary for one fixed fictional invocation and sanitized
+  application-contract proof; check mode is offline and live remains explicit.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
 - `scripts/deploy_foundry_infra.py`: approved deployment boundary; `scripts/verify_foundry_infra.py`: approved read-only verification boundary.
@@ -123,8 +120,9 @@ Do not claim as complete:
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next boundary: separate fictional-data hosted Foundry Agent
-invocation, contingent on successful live managed-identity verification.
+Recommended next boundary: an explicitly authorized live deployment and proof
+sequence culminating in the already-implemented separate fixed-fictional-data
+hosted invocation. No live stage is implied complete.
 
 ## Current Working Local Pipeline
 
@@ -337,16 +335,14 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Corrective RED was 9 failed/39 passed; focused GREEN is 48 passed and full
-  GREEN is 1,326 passed with one existing warning.
-- Live now requires nonblank `WEBSITE_INSTANCE_ID`, `IDENTITY_ENDPOINT`, and
-  sensitive `IDENTITY_HEADER` before credential construction.
-- The command owns synchronous cleanup: client then credential on every outcome;
-  cleanup errors cannot replace or leak through the primary sanitized result.
-- Both unchanged Bicep entry points compile successfully offline.
-- No live Azure operation or agent invocation ran. Mock defaults, suppressed
-  notifications, fictional-only validation, nurse review, and the
-  non-production clinical boundary remain unchanged.
+- Focused RED stopped with one expected missing-module import error; focused GREEN is 63 passed and full GREEN is 1,389 passed with one existing warning.
+- Check mode validates configuration, the fixed fictional request/response contracts, and SDK visibility without hosted markers, dependencies, calls, or inference.
+- Live requires valid `WEBSITE_INSTANCE_ID`, `IDENTITY_ENDPOINT`, and sensitive `IDENTITY_HEADER`, then uses only system-assigned `ManagedIdentityCredential()`.
+- Owned invocation/project clients close before the credential; partial construction and cleanup failures remain sanitized without replacing the primary result.
+- One repository-owned fictional routine request is fixed. No prompt option exists; output exposes only safe status and `extraction`, `urgency`, and `handoffNote` names.
+- Deployment, readiness, RBAC, metadata verification, and invocation remain separate; invocation adds no persistence, notifications, rules, mutation, retry, or polling.
+- Automated tests make no Azure calls. Neither live hosted operation ran; mock defaults, notification suppression, human nurse review, and non-production scope remain unchanged.
+- The placeholder check and packaging check passed; both unchanged Bicep entry points compile offline (upgrade warning only).
 
 ## Reference Docs
 
