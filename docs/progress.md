@@ -99,11 +99,17 @@ Future-slice rules:
 - Keep environment-file updates manual unless explicitly and safely introduced by a future TDD slice.
 - Keep cleanup manual and explicit; never automatically delete resource groups.
 
-Approved daily Foundry workflow:
-```text
-edit ignored infra/foundry-only.bicepparam -> compile Bicep parameters -> deploy_foundry_infra.py --check -> create/reuse disposable resource group -> deploy_foundry_infra.py --what-if --json -> deploy_foundry_infra.py --live --json -> verify_foundry_infra.py --json -> optionally run the separate prompt-agent workflow -> manually delete the resource group after review
-```
+## Prerequisites Before The Next TDD Slice
 
+The live RBAC slice stopped safely because Azure had zero AIServices accounts, zero Foundry projects, and therefore no valid project scope for the Consumer assignment.
+Before restarting, verify all of these prerequisites:
+- An existing Linux Web App with system-assigned identity, the verified mock-safe hosted configuration, deployed application code, and passing `/health`, `/version`, and `/demo/status` checks.
+- An existing AIServices account, child Foundry project, and required model deployment; `scripts/verify_foundry_infra.py` must verify the account, project, endpoint contract, and model.
+- Web App and Foundry names/resource-group scope compatible with the existing RBAC CLI; all resources must be fictional and disposable, with no secrets, credentials, or real patient/contact data committed.
+Create the Foundry prerequisites only through `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, and `scripts/verify_foundry_infra.py`, not portal-only creation or a duplicate stack.
+A prompt agent is not required for project-scoped Consumer assignment. A provisioned prompt agent and immutable version are required later for hosted metadata verification; agent provisioning, agent verification, RBAC, hosted metadata verification, and invocation remain separate steps.
+Required operator sequence:
+`Prepare ignored fictional Foundry parameter file -> compile Foundry Bicep -> run Foundry infrastructure offline check -> create or select the approved disposable resource group -> run Foundry infrastructure what-if -> manually review the sanitized result -> deploy Foundry-only infrastructure -> verify the AIServices account, Foundry project, endpoint contract, and model deployment -> confirm the existing Web App and its system identity -> run RBAC offline checks -> run RBAC what-if -> manually review the RBAC changes -> deploy the project-scoped Foundry Agent Consumer assignment -> run the separate read-only assignment verifier`
 Do not claim as complete:
 - Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path
 - Historical evidence only: Manual live Foundry Agent smoke passed in an
@@ -117,9 +123,6 @@ Do not claim as complete:
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
-
-Recommended next boundary: live Foundry Agent Consumer RBAC what-if, explicit
-RBAC deployment, then separate read-only assignment verification.
 
 ## Current Working Local Pipeline
 
@@ -323,6 +326,9 @@ Completed work by feature area:
 
 The exact recommended next boundary is:
 
+Prerequisite setup: recreate and verify the disposable Foundry AIServices account, project, and model deployment before giving Codex the live RBAC slice.
+Next TDD slice after prerequisites:
+
 ```text
 Live Foundry Agent Consumer RBAC what-if
 -> explicit RBAC deployment
@@ -339,14 +345,9 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- No repository defect required RED/GREEN work; 67 focused package, deployment, readiness, and documentation tests passed.
-- Package check and deterministic ZIP creation succeeded with 62 sorted, timestamp-normalized allowlisted members, including both hosted Foundry operations and no forbidden paths or symlinks.
-- The existing explicit code-deployment request completed successfully; deployment acceptance remained separate from hosted startup proof.
-- The separate readiness verifier proved `/health`, `/version`, and `/demo/status`, including exact mock providers and suppressed hosted notifications.
-- Infrastructure acceptance, configuration proof, package creation, code-deployment acceptance, and hosted readiness remain distinct verified stages.
-- Full GREEN is 1,393 passed with one existing FastAPI/TestClient `StarletteDeprecationWarning`; both required Bicep entry points compile.
-- No RBAC operation, managed-identity authentication, Foundry metadata read, model inference, or agent invocation occurred.
-- Safe mock defaults, mandatory human nurse review, and the non-production clinical boundary remain unchanged. Cleanup remains manual and no resource was deleted automatically.
+- Verified evidence remains: Web App infrastructure and configuration, deterministic packaging, code deployment, and separate `/health`, `/version`, and `/demo/status` readiness all succeeded with mock-safe providers and suppressed notifications.
+- Full GREEN remains 1,393 passed with one existing warning; both RBAC offline contracts passed, but zero AIServices accounts and projects prevented live RBAC what-if, deployment, or assignment verification.
+- No managed-identity authentication, Foundry metadata read, inference, invocation, or live notification occurred; nurse review and non-production boundaries remain unchanged, and cleanup stays manual.
 
 ## Reference Docs
 
