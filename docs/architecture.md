@@ -466,6 +466,8 @@ symlinks, then writes a stably ordered, timestamp-normalized source deployment
 ZIP beneath the ignored `.artifacts/` directory. `.env`, Bicep parameter, test,
 documentation, cache, repository metadata, and prior artifact content cannot
 enter through the allowlist.
+Live package creation succeeded with the same deterministic ordering,
+timestamp normalization, required hosted operations, and exclusion contract.
 
 `scripts/package_web_app.py` performs local package checks and builds.
 `scripts/deploy_web_app_code.py` keeps check, package, and explicit live modes
@@ -473,6 +475,8 @@ separate. Only `--live --json` with an existing resource group and Web App name
 can issue one `az webapp deploy` command through an injected runner. The result
 distinguishes package creation, deployment request acceptance, and hosted
 verification; it never treats one as evidence of the next.
+The explicit live code-deployment request completed successfully against the
+existing fictional Web App; that acceptance alone did not prove startup.
 
 `src/app/services/web_app_readiness_verification.py` and
 `scripts/verify_web_app_readiness.py` implement the next read-only boundary for
@@ -484,6 +488,8 @@ no credentials, body, retry, polling, mutation, Azure discovery, RBAC action,
 or Foundry call. The result exposes only application-owned booleans and
 sanitized categories; it never serializes the origin, hostname, response body,
 or exception details.
+Separate live verification subsequently proved `/health`, `/version`, and
+`/demo/status`, including exact mock providers and suppressed notifications.
 
 The ZIP contains Python source plus `requirements.txt`, including this packaged
 operation and its Foundry project SDK dependency; dependencies are not vendored.
@@ -492,7 +498,7 @@ The Web App module now declares the required
 build automation can install those dependencies. This configuration is tested
 against both the compiled Bicep/ARM representation and the live read-only
 configuration boundary. The readiness verifier is tested offline with fake
-transports, but no code deployment, application startup, health check,
+transports and has also passed the bounded live hosted checks. No
 managed-identity authentication, Foundry verification, or agent invocation has
 occurred. Deployment-request acceptance, configuration proof, code deployment,
 and hosted startup remain separate proof boundaries.
@@ -553,11 +559,12 @@ managed-identity access. Live read-only configuration verification subsequently
 proved the Linux runtime, startup command, remote build, security, health path,
 system identity, safe mock providers, and notification suppression. RBAC remains
 unpreviewed, undeployed, and unverified.
+Deterministic packaging and explicit code deployment then succeeded, followed
+by separate live proof of all three hosted readiness routes in the mock-safe
+posture.
 
 Not demonstrated live:
 
-- Application code deployment
-- Hosted `/health`, `/version`, or `/demo/status` verification
 - Foundry Agent Consumer RBAC deployment
 - Managed-identity token acquisition
 - Live immutable-version verification from the hosted application
@@ -565,7 +572,6 @@ Not demonstrated live:
 
 Deferred infrastructure:
 
-- Application code deployment and execution of hosted readiness verification
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication
@@ -578,8 +584,6 @@ Deferred infrastructure:
 
 The following are intentionally not implemented in the current MVP:
 
-- Application code deployment for the Web App
-- Live execution of hosted health/readiness verification
 - Live RBAC deployment, hosted managed-identity verification, and invocation
 - Agent-specific RBAC scope
 - Authentication / RBAC beyond the offline-tested Consumer assignment

@@ -113,14 +113,13 @@ Do not claim as complete:
   `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
   review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
-- Web App code deployment or hosted readiness; Foundry RBAC, managed identity,
-  verification, and invocation remain unrun live
+- Foundry RBAC, managed identity, verification, and invocation remain unrun live
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next boundary: deterministic Web App source packaging, explicit
-code deployment, then separate hosted readiness verification.
+Recommended next boundary: live Foundry Agent Consumer RBAC what-if, explicit
+RBAC deployment, then separate read-only assignment verification.
 
 ## Current Working Local Pipeline
 
@@ -287,6 +286,8 @@ Completed work by feature area:
   acceptance does not prove configuration, code deployment, or startup.
 - Live read-only configuration verification then proved the complete Bicep-owned
   hosting contract while retaining mock providers and suppressed notifications.
+- Deterministic packaging, explicit code deployment, and separate hosted
+  `/health`, `/version`, and `/demo/status` verification also succeeded.
 - No secrets are stored in infrastructure files.
 
 ## Known Issues And Future Enhancements
@@ -306,8 +307,6 @@ Completed work by feature area:
 ## Not Yet Implemented / Deferred Scope
 
 - Authentication
-- Live Hosting code deployment
-- Live execution of hosted `/health`, `/version`, and `/demo/status` verification
 - Live Foundry RBAC deployment for the Web App identity
 - Live read-only RBAC assignment verification
 - Agent-specific RBAC scope
@@ -325,9 +324,9 @@ Completed work by feature area:
 The exact recommended next boundary is:
 
 ```text
-Deterministic Web App source packaging
--> explicit code-deployment request
--> separate hosted /health, /version, and /demo/status readiness verification
+Live Foundry Agent Consumer RBAC what-if
+-> explicit RBAC deployment
+-> separate read-only assignment verification
 ```
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
@@ -340,14 +339,14 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- The Web App infrastructure deployment completed with state `Succeeded` and no error code or message; this proves deployment acceptance only.
-- First live configuration verification falsely returned `provisioning_incomplete` although the projected CLI-native state was running and enabled. The legacy ARM `properties.provisioningState` projection was null.
-- Focused RED reproduced that false negative. The bounded `az webapp show` projection now requires exact running, enabled, and Linux evidence; the earlier what-if correction retains `--no-pretty-print --result-format ResourceIdOnly --output json`.
-- Final read-only verification succeeded for Linux `PYTHON|3.12`, the expected `src.app.main:app` uvicorn command, `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, HTTPS-only, disabled FTPS, TLS 1.2 minimum, `/health`, system identity, exact mock providers, and suppressed notifications.
-- The intervening `web_app_not_found` result was stale operator input, not another implementation defect; the verified literal fictional target succeeded without another code change.
-- Focused GREEN is 24 passed. Full GREEN is 1,393 passed with one existing FastAPI/TestClient `StarletteDeprecationWarning`; both required Bicep entry points compile.
-- No code deployment, hosted HTTP readiness check, RBAC operation, managed-identity authentication, Foundry metadata read, or agent invocation occurred.
-- Safe mock providers, suppressed hosted notifications, mandatory human nurse review, and the non-production clinical boundary remain unchanged. Cleanup remains manual; no resource group was created or deleted.
+- No repository defect required RED/GREEN work; 67 focused package, deployment, readiness, and documentation tests passed.
+- Package check and deterministic ZIP creation succeeded with 62 sorted, timestamp-normalized allowlisted members, including both hosted Foundry operations and no forbidden paths or symlinks.
+- The existing explicit code-deployment request completed successfully; deployment acceptance remained separate from hosted startup proof.
+- The separate readiness verifier proved `/health`, `/version`, and `/demo/status`, including exact mock providers and suppressed hosted notifications.
+- Infrastructure acceptance, configuration proof, package creation, code-deployment acceptance, and hosted readiness remain distinct verified stages.
+- Full GREEN is 1,393 passed with one existing FastAPI/TestClient `StarletteDeprecationWarning`; both required Bicep entry points compile.
+- No RBAC operation, managed-identity authentication, Foundry metadata read, model inference, or agent invocation occurred.
+- Safe mock defaults, mandatory human nurse review, and the non-production clinical boundary remain unchanged. Cleanup remains manual and no resource was deleted automatically.
 
 ## Reference Docs
 

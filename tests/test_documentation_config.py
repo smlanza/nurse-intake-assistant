@@ -467,6 +467,8 @@ def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() 
             "validation created no Azure resources",
             "live Web App infrastructure deployment request completed successfully",
             "Live read-only verification succeeded for this complete hosting contract",
+            "explicit live code-deployment request completed successfully",
+            "Separate live verification subsequently proved `/health`, `/version`, and `/demo/status`",
         },
     )
 
@@ -494,7 +496,7 @@ def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
         },
     )
     assert mapping.index("1. Live Azure AI Foundry structured extraction") < mapping.index(
-        "8. ACS phone intake"
+        "7. ACS phone intake"
     )
 
 
@@ -563,6 +565,7 @@ def test_infrastructure_docs_keep_operator_boundaries_manual_and_explicit() -> N
             "live Web App infrastructure deployment request succeeded",
             "acceptance does not prove configuration",
             "Live read-only configuration verification then proved",
+            "explicit code deployment, and separate hosted",
         },
     )
     assert {".env", ".env.*", "infra/foundry-only.bicepparam"} <= gitignore
