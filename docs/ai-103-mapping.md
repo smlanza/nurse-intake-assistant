@@ -38,7 +38,7 @@ or SMS.
 | Testing and reliability | Pytest suite covers provider factories, repositories, routes, red-flag rules, notification behavior, OpenAPI examples, static pages, and documentation guardrails; demo smoke-test guide supports manual validation | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/manual-local-mock-demo.md` | Implemented project discipline |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it; a read-only verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Live Foundry-only deployment plus account, project, endpoint-format, and model verification succeeded; no agent, inference, runtime change, or production clinical claim |
 | Managed-identity and RBAC readiness | Optional IaC defines a Linux Web App system identity and separate project-scoped Consumer assignment. Deployment, assignment proof, App Service-hosted metadata verification, and one fixed-fictional-data prompt-agent invocation remain distinct. Both packaged hosted operations use only system-assigned `ManagedIdentityCredential`, require all three App Service identity markers, sanitize results, and close owned clients before credentials. The verifier reads one agent and exact version without inference; the invocation performs exactly one stable-endpoint Responses request and validates only the application-owned output contract without persistence or notifications. Neither operation is the Foundry Hosted Agents product runtime | `infra/modules/web-app.bicep`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, `src/app/services/hosted_foundry_agent_verification.py`, `src/app/operations/verify_hosted_foundry_agent.py`, `src/app/services/hosted_foundry_agent_invocation.py`, `src/app/operations/invoke_hosted_foundry_agent.py`, `tests/test_hosted_foundry_agent_verification.py`, `tests/test_hosted_foundry_agent_invocation.py` | These boundaries are offline-tested only. Automated tests make no Azure calls; no live RBAC deployment/read, managed-identity authentication, Foundry metadata read, or hosted invocation occurred. The fixed request is fictional only. Least privilege, mandatory human review, mock defaults, suppressed hosted notifications, and the non-production clinical boundary remain unchanged |
-| Repeatable application deployment readiness | An explicit CLI deploys Web App infrastructure through the existing `main.bicep` with Foundry disabled; its local reader enforces the exact shared hosted settings contract, and what-if exposes sanitized change counts only. Separate boundaries verify Bicep-owned configuration, package and deploy code, and check `/health`, `/version`, and `/demo/status` | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_infra_deployment.py`, `scripts/deploy_web_app_infra.py`, `src/app/services/web_app_configuration_verification.py`, `scripts/verify_web_app_configuration.py`, `src/app/services/web_app_package.py`, `scripts/deploy_web_app_code.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/verify_web_app_readiness.py` | Manual resource-group validation succeeded July 15, 2026, without creating resources. All new CLI behavior is offline-tested with fakes. Extra and duplicate settings fail; proposed deletes are reported but never acted on automatically. Check modes make no Azure or HTTP call; what-if remains preview-only and live remains explicit. No live preview, infrastructure deployment, configuration read, code deployment, hosted request, RBAC, Foundry verification, or invocation occurred; no production-readiness claim is made |
+| Repeatable application deployment readiness | An explicit CLI deploys Web App infrastructure through the existing `main.bicep` with Foundry disabled; its local reader enforces the exact shared hosted settings contract, and what-if exposes sanitized change counts only. Separate boundaries verify Bicep-owned configuration, package and deploy code, and check `/health`, `/version`, and `/demo/status` | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_infra_deployment.py`, `scripts/deploy_web_app_infra.py`, `src/app/services/web_app_configuration_verification.py`, `scripts/verify_web_app_configuration.py`, `src/app/services/web_app_package.py`, `scripts/deploy_web_app_code.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/verify_web_app_readiness.py` | Live disposable Web App infrastructure deployment and read-only configuration proof succeeded. The Linux runtime, startup, remote build, security, health path, system identity, exact mock-provider posture, and notification suppression were verified. Check modes make no Azure or HTTP call. Code deployment, hosted requests, RBAC, managed-identity Foundry access, and invocation remain unproven; no production-readiness claim is made |
 
 ## 3. Generative AI And Foundry Relevance
 
@@ -138,8 +138,8 @@ Scope boundaries:
 - Web App infrastructure, its explicit deployment CLI, remote-build setting,
   deterministic packaging, read-only configuration verifier, code-deployment request, and
   read-only hosted-readiness verifier are represented and offline-tested; live
-  infrastructure deployment, configuration verification, code deployment, and
-  readiness execution are deferred
+  infrastructure deployment and configuration verification succeeded, while
+  code deployment and readiness execution remain deferred
 - The deployment CLI and configuration verifier share one exact mock-provider
   and notification-suppression contract. What-if emits only sanitized counts;
   proposed deletes require review and never trigger deployment automatically
@@ -171,8 +171,7 @@ The following are future work, not current implementation:
 - Azure AI Foundry Agent/tool orchestration, if still useful after the simpler
   Foundry provider path
 - Azure Speech transcription service
-- Live Web App infrastructure and configuration verification, code deployment,
-  and execution of hosted readiness checks
+- Live Web App code deployment and execution of hosted readiness checks
 - Live RBAC deployment, live read-only assignment verification, hosted
   managed-identity metadata verification, and fixed-fictional-data invocation
 - Agent-specific RBAC scope
@@ -196,8 +195,8 @@ Highest AI-103 ROI:
 Medium AI-103 ROI:
 
 - Live RBAC deployment and managed-identity authentication
-- Disposable Web App infrastructure and code deployment followed by hosted
-  readiness verification; the Python build setting is already offline-tested
+- Web App code deployment followed by hosted readiness verification; disposable
+  infrastructure and the Python hosting configuration are already proven live
 - Key Vault
 - App Service Authentication / Entra ID route protection
 - Application Insights telemetry hardening
@@ -213,8 +212,8 @@ Lower direct exam ROI but strong portfolio value:
 1. Live Azure AI Foundry structured extraction
 2. Foundry prompt/schema/evaluation notes
 3. Azure Speech transcription service boundary
-4. Disposable mock-only Web App infrastructure and code deployment, followed
-   by separately proven hosted readiness checks
+4. Mock-only Web App code deployment followed by separately proven hosted
+   readiness checks
 5. Live RBAC and managed-identity validation when explicitly approved
 6. Key Vault and App Service auth/protected routes
 7. Application Insights telemetry hardening

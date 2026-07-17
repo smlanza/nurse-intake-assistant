@@ -332,6 +332,8 @@ def test_what_if_command_requests_machine_readable_json(
     )
 
     command = runner.calls[0]
+    assert "--no-pretty-print" in command
+    assert command[command.index("--result-format") + 1] == "ResourceIdOnly"
     assert command[command.index("--output") + 1] == "json"
 
 

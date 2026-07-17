@@ -22,8 +22,8 @@ EXPECTED_HEALTH_CHECK_PATH = EXPECTED_LOCAL_CONTRACT["health_check_path"]
 SAFE_APP_SETTINGS = dict(EXPECTED_SAFE_APP_SETTINGS)
 
 SITE_QUERY = (
-    "{provisioningState:properties.provisioningState,kind:kind,"
-    "httpsOnly:properties.httpsOnly,identityType:identity.type}"
+    "{state:state,enabled:enabled,httpsOnly:httpsOnly,kind:kind,"
+    "reserved:reserved,identityType:identity.type}"
 )
 SITE_CONFIG_QUERY = (
     "{linuxFxVersion:linuxFxVersion,appCommandLine:appCommandLine,"
@@ -293,16 +293,12 @@ def verify_web_app_configuration(
         runner,
         [
             "az",
-            "resource",
+            "webapp",
             "show",
             "--resource-group",
             resource_group,
-            "--resource-type",
-            "Microsoft.Web/sites",
             "--name",
             web_app_name,
-            "--api-version",
-            "2024-04-01",
             "--query",
             SITE_QUERY,
             "--output",
@@ -320,16 +316,18 @@ def verify_web_app_configuration(
         )
     progress["web_app_present"] = True
 
-    if site.get("provisioningState") != "Succeeded":
+    if site.get("state") != "Running" or site.get("enabled") is not True:
         return WebAppConfigurationVerificationResult.failure(
             "provisioning_incomplete", **progress
         )
     progress["provisioning_state_verified"] = True
 
     kind = site.get("kind")
-    if not isinstance(kind, str) or "linux" not in {
-        part.strip().lower() for part in kind.split(",")
-    }:
+    if (
+        not isinstance(kind, str)
+        or "linux" not in {part.strip().lower() for part in kind.split(",")}
+        or site.get("reserved") is not True
+    ):
         return WebAppConfigurationVerificationResult.failure(
             "runtime_contract_invalid", **progress
         )

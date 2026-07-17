@@ -17,8 +17,10 @@ def _service():
 
 def _site(**overrides: object) -> str:
     payload = {
-        "provisioningState": "Succeeded",
+        "state": "Running",
+        "enabled": True,
         "kind": "app,linux",
+        "reserved": True,
         "httpsOnly": True,
         "identityType": "SystemAssigned",
     }
@@ -138,16 +140,12 @@ def test_success_uses_three_targeted_read_only_commands_and_sanitized_result() -
     assert runner.calls == [
         [
             "az",
-            "resource",
+            "webapp",
             "show",
             "--resource-group",
             RESOURCE_GROUP,
-            "--resource-type",
-            "Microsoft.Web/sites",
             "--name",
             WEB_APP_NAME,
-            "--api-version",
-            "2024-04-01",
             "--query",
             service.SITE_QUERY,
             "--output",
@@ -204,6 +202,34 @@ def test_success_uses_three_targeted_read_only_commands_and_sanitized_result() -
     assert WEB_APP_NAME not in serialized
 
 
+def test_running_enabled_cli_site_shape_proceeds_to_full_configuration_verification() -> None:
+    runner = FakeRunner(
+        [
+            _result(
+                0,
+                json.dumps(
+                    {
+                        "state": "Running",
+                        "enabled": True,
+                        "httpsOnly": True,
+                        "kind": "app,linux",
+                        "reserved": True,
+                        "identityType": "SystemAssigned",
+                    }
+                ),
+            ),
+            _result(0, _config()),
+            _result(0, _settings()),
+        ]
+    )
+
+    result = _verify(runner)
+
+    assert result.ok is True
+    assert result.category == "success"
+    assert len(runner.calls) == 3
+
+
 def test_missing_live_arguments_make_no_azure_call() -> None:
     service = _service()
     for resource_group, web_app_name in (("", WEB_APP_NAME), (RESOURCE_GROUP, "")):
@@ -248,11 +274,22 @@ def test_malformed_json_at_each_stage_stops_immediately() -> None:
 
 def test_site_contract_failures_are_distinct_and_stop_before_config_reads() -> None:
     cases = (
-        ({"provisioningState": "Updating"}, "provisioning_incomplete"),
-        ({"provisioningState": None}, "provisioning_incomplete"),
+        ({"state": "Stopped"}, "provisioning_incomplete"),
+        ({"state": "Stopping"}, "provisioning_incomplete"),
+        ({"state": "Starting"}, "provisioning_incomplete"),
+        ({"state": "Unknown"}, "provisioning_incomplete"),
+        ({"state": ""}, "provisioning_incomplete"),
+        ({"state": None}, "provisioning_incomplete"),
+        ({"enabled": False}, "provisioning_incomplete"),
+        ({"enabled": None}, "provisioning_incomplete"),
+        ({"enabled": "true"}, "provisioning_incomplete"),
         ({"kind": "app"}, "runtime_contract_invalid"),
+        ({"kind": "app,windows"}, "runtime_contract_invalid"),
+        ({"reserved": False}, "runtime_contract_invalid"),
+        ({"reserved": None}, "runtime_contract_invalid"),
         ({"httpsOnly": False}, "security_configuration_invalid"),
         ({"identityType": "None"}, "managed_identity_missing"),
+        ({"identityType": None}, "managed_identity_missing"),
     )
     for overrides, category in cases:
         runner = FakeRunner([_result(0, _site(**overrides))])
@@ -260,6 +297,31 @@ def test_site_contract_failures_are_distinct_and_stop_before_config_reads() -> N
         assert result.category == category
         assert result.web_app_present is True
         assert len(runner.calls) == 1
+
+
+@pytest.mark.parametrize("missing_field", ["state", "enabled"])
+def test_missing_site_availability_field_fails_closed(missing_field: str) -> None:
+    payload = json.loads(_site())
+    payload.pop(missing_field)
+    runner = FakeRunner([_result(0, json.dumps(payload))])
+
+    result = _verify(runner)
+
+    assert result.category == "provisioning_incomplete"
+    assert result.web_app_present is True
+    assert result.provisioning_state_verified is False
+    assert len(runner.calls) == 1
+
+
+def test_multiple_site_records_fail_as_ambiguous_response() -> None:
+    site = json.loads(_site())
+    runner = FakeRunner([_result(0, json.dumps([site, site]))])
+
+    result = _verify(runner)
+
+    assert result.category == "response_parse_failed"
+    assert result.web_app_present is False
+    assert len(runner.calls) == 1
 
 
 def test_runtime_startup_and_security_config_failures_stop_before_settings() -> None:
@@ -433,9 +495,11 @@ def test_site_query_selects_only_required_nonidentifying_fields() -> None:
     query = _service().SITE_QUERY
 
     assert _projection_fields(query) == {
-        "provisioningState": "properties.provisioningState",
+        "state": "state",
+        "enabled": "enabled",
         "kind": "kind",
-        "httpsOnly": "properties.httpsOnly",
+        "reserved": "reserved",
+        "httpsOnly": "httpsOnly",
         "identityType": "identity.type",
     }
     lowered = query.lower()

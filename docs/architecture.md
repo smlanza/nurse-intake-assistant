@@ -455,6 +455,9 @@ uvicorn startup command, remote build, HTTPS-only access, disabled FTPS, TLS
 1.2 minimums, `/health`, system-assigned identity presence, mock providers, and
 suppressed notifications. Its immutable result never exposes resource or
 identity IDs, hostnames, raw settings, command output, errors, or secrets.
+Live read-only verification succeeded for this complete hosting contract. The
+live response did not populate `properties.provisioningState`, so the bounded
+site read now uses CLI-native exact running, enabled, and Linux evidence.
 
 `WebAppPackage` and the two thin CLIs add the next offline-tested boundaries.
 The package service selects only the root dependency manifest and required
@@ -487,12 +490,12 @@ operation and its Foundry project SDK dependency; dependencies are not vendored.
 The Web App module now declares the required
 `SCM_DO_BUILD_DURING_DEPLOYMENT=true` application setting so App Service remote
 build automation can install those dependencies. This configuration is tested
-only against the compiled Bicep/ARM representation. The readiness verifier is
-also tested offline with fake transports, but no live Web App infrastructure
-deployment, code deployment, application startup, health check,
+against both the compiled Bicep/ARM representation and the live read-only
+configuration boundary. The readiness verifier is tested offline with fake
+transports, but no code deployment, application startup, health check,
 managed-identity authentication, Foundry verification, or agent invocation has
-occurred. Deployment-request acceptance and hosted startup remain separate
-proof boundaries.
+occurred. Deployment-request acceptance, configuration proof, code deployment,
+and hosted startup remain separate proof boundaries.
 
 The intended operator sequence is:
 
@@ -544,16 +547,15 @@ manually tested once, including Cosmos point-read/upsert behavior, and the test
 resource group was cleaned up afterward. A manual Azure resource-group
 validation of `main.bicep` with `deployApp=true`, `deployFoundry=false`, B1, and
 `PYTHON|3.12` succeeded on July 15, 2026; validation created no Azure resources.
-The new deployment CLI is offline-tested only: no Web App infrastructure was
-previewed, deployed, or authenticated with its system-assigned identity. The
-RBAC templates and the explicit RBAC deployment boundary have also compiled or
-passed offline tests, but the assignment has not been previewed, deployed, or
-verified.
+A later live Web App infrastructure deployment request completed successfully.
+That acceptance does not prove configuration, code deployment, startup, or
+managed-identity access. Live read-only configuration verification subsequently
+proved the Linux runtime, startup command, remote build, security, health path,
+system identity, safe mock providers, and notification suppression. RBAC remains
+unpreviewed, undeployed, and unverified.
 
 Not demonstrated live:
 
-- Web App deployment
-- Live Web App configuration verification
 - Application code deployment
 - Hosted `/health`, `/version`, or `/demo/status` verification
 - Foundry Agent Consumer RBAC deployment
@@ -563,8 +565,7 @@ Not demonstrated live:
 
 Deferred infrastructure:
 
-- Live Web App configuration verification, code deployment, and execution of
-  hosted readiness verification
+- Application code deployment and execution of hosted readiness verification
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication
@@ -577,8 +578,7 @@ Deferred infrastructure:
 
 The following are intentionally not implemented in the current MVP:
 
-- Live Hosting infrastructure and application code deployment for the Web App
-- Live execution of Web App configuration verification
+- Application code deployment for the Web App
 - Live execution of hosted health/readiness verification
 - Live RBAC deployment, hosted managed-identity verification, and invocation
 - Agent-specific RBAC scope

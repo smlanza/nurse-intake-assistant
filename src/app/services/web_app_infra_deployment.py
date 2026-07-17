@@ -464,7 +464,15 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
         command.extend(["--name", _deployment_name(request) or ""])
     command.extend(["--template-file", str(request.template_file)])
     if request.mode == "what-if":
-        command.extend(["--output", "json"])
+        command.extend(
+            [
+                "--no-pretty-print",
+                "--result-format",
+                "ResourceIdOnly",
+                "--output",
+                "json",
+            ]
+        )
     command.extend(
         [
             "--parameters",

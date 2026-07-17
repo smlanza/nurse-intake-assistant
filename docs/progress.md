@@ -113,16 +113,14 @@ Do not claim as complete:
   `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
   review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
-- Live Web App infrastructure deployment, configuration verification, code deployment, or
-  hosted readiness; Foundry RBAC, managed identity, verification, and invocation
-  also remain unrun live
+- Web App code deployment or hosted readiness; Foundry RBAC, managed identity,
+  verification, and invocation remain unrun live
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
-Recommended next boundary: an explicitly authorized live deployment and proof
-sequence culminating in the already-implemented separate fixed-fictional-data
-hosted invocation. No live stage is implied complete.
+Recommended next boundary: deterministic Web App source packaging, explicit
+code deployment, then separate hosted readiness verification.
 
 ## Current Working Local Pipeline
 
@@ -284,9 +282,11 @@ Completed work by feature area:
   commands.
 - Manual Cosmos smoke testing verified local `APP_MODE=cosmos` with a deployed
   Cosmos account and a point read via `createdDate`.
-- Manual Azure resource-group validation with Web App deployment selected
-  succeeded July 15, 2026, and created no resources; the CLI remains
-  offline-tested only.
+- Manual Azure resource-group validation succeeded July 15, 2026, and created no
+  resources. A later live Web App infrastructure deployment request succeeded;
+  acceptance does not prove configuration, code deployment, or startup.
+- Live read-only configuration verification then proved the complete Bicep-owned
+  hosting contract while retaining mock providers and suppressed notifications.
 - No secrets are stored in infrastructure files.
 
 ## Known Issues And Future Enhancements
@@ -306,7 +306,7 @@ Completed work by feature area:
 ## Not Yet Implemented / Deferred Scope
 
 - Authentication
-- Live Hosting infrastructure, configuration verification, and code deployment
+- Live Hosting code deployment
 - Live execution of hosted `/health`, `/version`, and `/demo/status` verification
 - Live Foundry RBAC deployment for the Web App identity
 - Live read-only RBAC assignment verification
@@ -322,8 +322,13 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Next boundary: explicitly authorized live deployment and proof sequence,
-followed later by separate fictional-data agent invocation.
+The exact recommended next boundary is:
+
+```text
+Deterministic Web App source packaging
+-> explicit code-deployment request
+-> separate hosted /health, /version, and /demo/status readiness verification
+```
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
 diagnostics, fictional data, explicit manual opt-in for live Azure operations,
@@ -335,14 +340,14 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Completed
 
-- Focused RED stopped with one expected missing-module import error; focused GREEN is 63 passed and full GREEN is 1,389 passed with one existing warning.
-- Check mode validates configuration, the fixed fictional request/response contracts, and SDK visibility without hosted markers, dependencies, calls, or inference.
-- Live requires valid `WEBSITE_INSTANCE_ID`, `IDENTITY_ENDPOINT`, and sensitive `IDENTITY_HEADER`, then uses only system-assigned `ManagedIdentityCredential()`.
-- Owned invocation/project clients close before the credential; partial construction and cleanup failures remain sanitized without replacing the primary result.
-- One repository-owned fictional routine request is fixed. No prompt option exists; output exposes only safe status and `extraction`, `urgency`, and `handoffNote` names.
-- Deployment, readiness, RBAC, metadata verification, and invocation remain separate; invocation adds no persistence, notifications, rules, mutation, retry, or polling.
-- Automated tests make no Azure calls. Neither live hosted operation ran; mock defaults, notification suppression, human nurse review, and non-production scope remain unchanged.
-- The placeholder check and packaging check passed; both unchanged Bicep entry points compile offline (upgrade warning only).
+- The Web App infrastructure deployment completed with state `Succeeded` and no error code or message; this proves deployment acceptance only.
+- First live configuration verification falsely returned `provisioning_incomplete` although the projected CLI-native state was running and enabled. The legacy ARM `properties.provisioningState` projection was null.
+- Focused RED reproduced that false negative. The bounded `az webapp show` projection now requires exact running, enabled, and Linux evidence; the earlier what-if correction retains `--no-pretty-print --result-format ResourceIdOnly --output json`.
+- Final read-only verification succeeded for Linux `PYTHON|3.12`, the expected `src.app.main:app` uvicorn command, `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, HTTPS-only, disabled FTPS, TLS 1.2 minimum, `/health`, system identity, exact mock providers, and suppressed notifications.
+- The intervening `web_app_not_found` result was stale operator input, not another implementation defect; the verified literal fictional target succeeded without another code change.
+- Focused GREEN is 24 passed. Full GREEN is 1,393 passed with one existing FastAPI/TestClient `StarletteDeprecationWarning`; both required Bicep entry points compile.
+- No code deployment, hosted HTTP readiness check, RBAC operation, managed-identity authentication, Foundry metadata read, or agent invocation occurred.
+- Safe mock providers, suppressed hosted notifications, mandatory human nurse review, and the non-production clinical boundary remain unchanged. Cleanup remains manual; no resource group was created or deleted.
 
 ## Reference Docs
 

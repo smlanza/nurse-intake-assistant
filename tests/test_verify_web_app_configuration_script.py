@@ -51,8 +51,10 @@ def test_live_mode_lazily_uses_injected_runner_and_prints_sanitized_json(
                     0,
                     json.dumps(
                         {
-                            "provisioningState": "Succeeded",
+                            "state": "Running",
+                            "enabled": True,
                             "kind": "app,linux",
+                            "reserved": True,
                             "httpsOnly": True,
                             "identityType": "SystemAssigned",
                         }

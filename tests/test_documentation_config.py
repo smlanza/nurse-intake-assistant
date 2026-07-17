@@ -459,13 +459,14 @@ def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() 
             "/health",
             "/version",
             "/demo/status",
-            "Deployment-request acceptance and hosted startup remain separate proof boundaries",
+            "Deployment-request acceptance, configuration proof, code deployment, and hosted startup remain separate proof boundaries",
             "Code deployment does not provision infrastructure",
             "Hosted defaults remain mock-only with notifications suppressed",
             "human nurse review remains mandatory",
             "succeeded on July 15, 2026",
             "validation created no Azure resources",
-            "deployment CLI is offline-tested only",
+            "live Web App infrastructure deployment request completed successfully",
+            "Live read-only verification succeeded for this complete hosting contract",
         },
     )
 
@@ -559,7 +560,9 @@ def test_infrastructure_docs_keep_operator_boundaries_manual_and_explicit() -> N
             "Keep cleanup manual and explicit",
             "scripts/deploy_web_app_infra.py",
             "succeeded July 15, 2026, and created no resources",
-            "the CLI remains offline-tested only",
+            "live Web App infrastructure deployment request succeeded",
+            "acceptance does not prove configuration",
+            "Live read-only configuration verification then proved",
         },
     )
     assert {".env", ".env.*", "infra/foundry-only.bicepparam"} <= gitignore
