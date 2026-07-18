@@ -37,7 +37,7 @@ or SMS.
 | Notification status semantics | Legacy booleans remain backward-compatible while explicit email/SMS status fields distinguish `MockRecorded`, `Accepted`, `Failed`, `Suppressed`, and `NotAttempted`; SMS delivery confirmation remains false until future tracking exists | `src/app/models/case.py`, `src/app/services/case_processing_service.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented semantics |
 | Testing and reliability | Pytest covers provider factories, repositories, routes, safety rules, notification behavior, static pages, and stable documentation guardrails. Azure-dependent slices additionally require a checked-in prerequisite runbook with authentication, authoritative Bicep, fail-fast stages, and current read-only proof | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` | Implemented project discipline; automated tests make no Azure calls |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it. The Foundry what-if boundary returns sanitized counts for seven allowed change types and fails closed on malformed or unknown shapes; a separate verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Current read-only verification of an explicit operator-approved parameter set proved the AIServices account, child project, endpoint contract, and model deployment. Disposable names are not permanent defaults |
-| Managed-identity and RBAC readiness | Optional IaC defines a Linux Web App system identity and separate project-scoped Consumer assignment. The verifier resolves the project through the dedicated Foundry command, accepts leaf or qualified names, validates Azure's returned ARM ID against the approved tuple, and uses it internally without manual ID construction. Deployment, assignment proof, hosted metadata verification, and fictional invocation remain distinct | `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, `tests/test_foundry_agent_consumer_rbac_verification.py` | Direct diagnostics isolated the verifier lookup defect; RED was 3 failed/112 passed and GREEN is 115 focused tests. Current prerequisites passed. Corrected what-if remained ten ignored and one Unsupported role-assignment category with all other counts zero. Unsupported requires review and is not deployment proof; live RBAC deployment/read, token use, agent operation, and invocation remain unproven |
+| Managed-identity and RBAC readiness | Optional IaC defines a Linux Web App system identity and separate project-scoped Consumer assignment. The verifier resolves and validates Azure's returned project ID without manual construction. The outer deployment name is deterministic while the nested module derives the distinct `${deployment().name}-assignment` name; project scope, fixed role, deterministic assignment GUID, and identity lookup remain unchanged | `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | After the collision correction and a fresh matching preview, Azure accepted the project-scoped Consumer assignment deployment. A separate read-only verifier proved exactly one direct assignment for the Web App system identity at the exact project scope. Token use, hosted metadata access, agent operation, and invocation remain unproven |
 | Repeatable application deployment readiness | An explicit CLI deploys Web App infrastructure through the existing `main.bicep` with Foundry disabled; its local reader enforces the exact shared hosted settings contract, and what-if exposes sanitized change counts only. Separate boundaries verify Bicep-owned configuration, package and deploy code, and check `/health`, `/version`, and `/demo/status` | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_infra_deployment.py`, `scripts/deploy_web_app_infra.py`, `src/app/services/web_app_configuration_verification.py`, `scripts/verify_web_app_configuration.py`, `src/app/services/web_app_package.py`, `scripts/deploy_web_app_code.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/verify_web_app_readiness.py` | Current verification of the operator-approved Web App proved configuration, system identity, mock-safe hosted posture, and `/health`, `/version`, and `/demo/status`. Check modes make no Azure or HTTP call. Successful RBAC, managed-identity Foundry access, and invocation remain unproven; no production-readiness claim is made |
 
 ## 3. Generative AI And Foundry Relevance
@@ -145,8 +145,9 @@ Scope boundaries:
   proposed deletes require review and never trigger deployment automatically
 - System-assigned identity and project-scoped Foundry Agent Consumer RBAC are represented in separate IaC boundaries
 - The explicit RBAC deployment and read-only assignment-verification boundaries
-  are offline-tested; no live preview, deployment, assignment read, token
-  acquisition, hosted Foundry verification, or invocation occurred
+  are live-proven separately: Azure accepted the project-scoped Consumer
+  deployment, then a read-only verifier proved exactly one direct assignment.
+  No token acquisition, hosted Foundry verification, or invocation occurred
 - The packaged App Service-hosted prompt-agent verifier is offline-tested only. Its system-assigned
   identity credential and metadata reads do not prove hosted authorization
 - The separate packaged hosted invocation boundary is offline-tested only. It
@@ -171,8 +172,7 @@ The following are future work, not current implementation:
 - Azure AI Foundry Agent/tool orchestration, if still useful after the simpler
   Foundry provider path
 - Azure Speech transcription service
-- Live RBAC deployment, live read-only assignment verification, hosted
-  managed-identity metadata verification, and fixed-fictional-data invocation
+- Hosted managed-identity metadata verification and fixed-fictional-data invocation
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication / Entra ID protection
@@ -193,7 +193,7 @@ Highest AI-103 ROI:
 
 Medium AI-103 ROI:
 
-- Live RBAC deployment and managed-identity authentication
+- Managed-identity authentication and hosted Foundry verification
 - Key Vault
 - App Service Authentication / Entra ID route protection
 - Application Insights telemetry hardening
@@ -209,7 +209,7 @@ Lower direct exam ROI but strong portfolio value:
 1. Live Azure AI Foundry structured extraction
 2. Foundry prompt/schema/evaluation notes
 3. Azure Speech transcription service boundary
-4. Live RBAC and managed-identity validation when explicitly approved
+4. Hosted managed-identity Foundry validation when explicitly approved
 5. Key Vault and App Service auth/protected routes
 6. Application Insights telemetry hardening
 7. ACS phone intake

@@ -6,6 +6,8 @@ import subprocess
 
 import pytest
 
+from src.app.services.foundry_agent_consumer_rbac_deployment import DEPLOYMENT_NAME
+
 
 ROOT = Path(__file__).resolve().parents[1]
 INFRA = ROOT / "infra"
@@ -32,6 +34,13 @@ def test_separate_entry_point_derives_principal_from_existing_web_app() -> None:
 
     parameters = re.findall(r"^param\s+(\w+)\s+", entry_point, re.MULTILINE)
     assert parameters == ["webAppName", "foundryAccountName", "foundryProjectName"]
+
+
+def test_nested_module_deployment_name_is_distinct_from_outer_deployment() -> None:
+    entry_point = _text(ENTRY_POINT)
+
+    assert f"name: '{DEPLOYMENT_NAME}'" not in entry_point
+    assert "name: '${deployment().name}-assignment'" in entry_point
 
 
 def test_module_uses_existing_foundry_project_as_assignment_scope() -> None:

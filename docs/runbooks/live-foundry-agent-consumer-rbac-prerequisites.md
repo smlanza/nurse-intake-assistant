@@ -206,6 +206,16 @@ that exact project symbol. If what-if reports Unsupported only for the
 Unsupported count for manual review. It is not Create, Ignore, or proof of
 deployment success; stop for separate approval before live deployment.
 
+Latest execution evidence: current Foundry, Web App configuration/identity, and
+readiness verification each passed once. The offline RBAC check passed. One
+fresh what-if reported ten ignored, one expected Unsupported role assignment,
+and zero creates, modifies, deletes, deploys, no-changes, or unrelated changes.
+After explicit approval, Azure accepted the project-scoped Foundry Agent
+Consumer assignment deployment. A separate read-only verifier proved exactly
+one direct assignment for the Web App system identity at the exact Foundry
+project scope. No retry or polling occurred. Managed-identity token acquisition,
+hosted Foundry metadata access, and agent invocation remain unproven.
+
 ## 7. Fail-Fast And Bounded Completion Policy
 
 This runbook enforces fail-fast execution. Missing authentication or prerequisite

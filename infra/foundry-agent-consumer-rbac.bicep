@@ -14,7 +14,7 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' existing = {
 }
 
 module foundryAgentConsumerRbac 'modules/foundry-agent-consumer-rbac.bicep' = {
-  name: 'foundry-agent-consumer-rbac'
+  name: '${deployment().name}-assignment'
   params: {
     foundryAccountName: foundryAccountName
     foundryProjectName: foundryProjectName

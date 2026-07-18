@@ -23,8 +23,8 @@ Disposable Foundry infrastructure
 -> deterministic source deployment packaging
 -> explicit Web App code-deployment request
 -> offline-tested hosted Web App readiness verification
--> explicit offline-tested project-scoped Foundry Agent Consumer RBAC deployment boundary
--> offline-tested read-only RBAC assignment verification
+-> live-proven project-scoped Foundry Agent Consumer RBAC deployment boundary
+-> live-proven read-only direct-assignment verification
 -> offline-tested Web App-hosted managed-identity prompt-agent verification
 -> offline-tested fixed-fictional-data Web App-hosted prompt-agent invocation boundary
 ```
@@ -56,61 +56,80 @@ Safe to demo today:
 Authoritative Foundry infrastructure for future TDD slices:
 - `infra/main.bicep`: authoritative full application entry point; Foundry remains optional through `deployFoundry=false` by default.
 - `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
-- `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned
-  identity boundary with offline-tested remote-build automation; application
-  hosting remains disabled by default.
-- `src/app/services/web_app_infra_deployment.py`: sanitized infrastructure
-  deployment contract; `scripts/deploy_web_app_infra.py`: offline check and
-  explicit what-if/live operator CLI for the existing `main.bicep`.
+- `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned identity boundary with offline-tested remote-build automation; application hosting remains disabled by default.
+- `src/app/services/web_app_infra_deployment.py`: sanitized infrastructure deployment contract; `scripts/deploy_web_app_infra.py`: offline check and explicit what-if/live operator CLI for the existing `main.bicep`.
 - `src/app/services/web_app_hosting_contract.py`: exact seven-setting contract
   shared by infrastructure deployment and configuration verification.
-- `infra/foundry-agent-consumer-rbac.bicep`: explicit independent assignment
-  entry point; `infra/modules/foundry-agent-consumer-rbac.bicep`: project-scoped
-  Foundry Agent Consumer role module.
-- `src/app/services/foundry_agent_consumer_rbac_deployment.py` and
-  `scripts/deploy_foundry_agent_consumer_rbac.py`: offline check plus explicit
-  what-if/live request boundary for that exact entry point.
-- `src/app/services/foundry_agent_consumer_rbac_verification.py` and
-  `scripts/verify_foundry_agent_consumer_rbac.py`: offline check plus explicit
-  read-only assignment proof for the exact identity, role, and project scope.
-- Packaged `src/app/operations/verify_hosted_foundry_agent.py`: strict
-  system-identity metadata verification using the existing agent contract.
-- Packaged `src/app/operations/invoke_hosted_foundry_agent.py`: separate strict
-  system-identity boundary for one fixed fictional invocation and sanitized
-  application-contract proof; check mode is offline and live remains explicit.
+- `infra/foundry-agent-consumer-rbac.bicep`: explicit independent assignment entry point; `infra/modules/foundry-agent-consumer-rbac.bicep`: project-scoped Foundry Agent Consumer role module.
+- `src/app/services/foundry_agent_consumer_rbac_deployment.py` and `scripts/deploy_foundry_agent_consumer_rbac.py`: offline check plus explicit what-if/live request boundary for that exact entry point.
+- `src/app/services/foundry_agent_consumer_rbac_verification.py` and `scripts/verify_foundry_agent_consumer_rbac.py`: offline check plus explicit read-only assignment proof for the exact identity, role, and project scope.
+- Packaged `src/app/operations/verify_hosted_foundry_agent.py`: strict system-identity metadata verification using the existing agent contract.
+- Packaged `src/app/operations/invoke_hosted_foundry_agent.py`: separate strict system-identity boundary for one fixed fictional invocation and sanitized application-contract proof; check mode is offline and live remains explicit.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
 - `scripts/deploy_foundry_infra.py`: approved deployment boundary; `scripts/verify_foundry_infra.py`: approved read-only verification boundary.
-- `src/app/services/web_app_package.py`: deterministic source deployment package
-  boundary; `scripts/package_web_app.py`: offline check/package CLI;
-  `scripts/deploy_web_app_code.py`: explicit existing-Web-App deployment CLI.
-- `src/app/services/web_app_readiness_verification.py`: sanitized hosted
-  readiness contract; `scripts/verify_web_app_readiness.py`: offline check and
-  explicit read-only live CLI.
-- `src/app/services/web_app_configuration_verification.py`: Bicep-owned hosting
-  contract verifier; `scripts/verify_web_app_configuration.py`: offline check
-  and explicit read-only Azure CLI boundary.
+- `src/app/services/web_app_package.py`: deterministic source deployment package boundary; `scripts/package_web_app.py`: offline check/package CLI; `scripts/deploy_web_app_code.py`: explicit existing-Web-App deployment CLI.
+- `src/app/services/web_app_readiness_verification.py`: sanitized hosted readiness contract; `scripts/verify_web_app_readiness.py`: offline check and explicit read-only live CLI.
+- `src/app/services/web_app_configuration_verification.py`: Bicep-owned hosting contract verifier; `scripts/verify_web_app_configuration.py`: offline check and explicit read-only Azure CLI boundary.
 
-### Azure-Dependent Slice Execution Gate
+## Pre-Codex Azure Readiness Checklist
 
-Before starting any TDD slice whose acceptance criteria require live Azure resources, identify, deploy, and verify all required infrastructure through the repository's authoritative Bicep entry points and approved deployment and verification scripts. As applicable, this includes:
-- The required resource group and Bicep-managed application infrastructure.
-- The Foundry AIServices account, child project, and model deployment.
-- Any prompt agent and immutable version required by that slice.
-- The Linux Web App, deployed code, system-assigned identity, safe hosted configuration, and required readiness endpoints.
-- Any prerequisite RBAC assignment required before managed-identity testing.
+This checklist is mandatory before starting any Codex prompt whose acceptance criteria include live Azure operations or depend on Azure infrastructure, Foundry resources, hosted application code, managed identity, RBAC, an agent, or another live prerequisite. The operator, not Codex, must complete it before the implementation thread begins. Every applicable item must prove that required resources are deployed, currently verified, correctly named, and usable.
 
-Do not substitute portal-only creation, duplicate infrastructure definitions, ad hoc Azure CLI provisioning, or historical deployment evidence for the required Bicep deployment and current read-only verification. Offline RED-to-GREEN development may occur without deployed Azure resources, but live Azure-dependent execution may not begin and the slice may not be declared complete until its required infrastructure and Foundry components are deployed and verified.
+### 1. Azure authentication and subscription
 
-Infrastructure deployment, Foundry provisioning, prompt-agent lifecycle, RBAC deployment, RBAC verification, hosted managed-identity verification, and model or agent invocation must remain explicit, separately verifiable stages. Keep infrastructure deployment separate from prompt-agent creation. Deploy only what the current slice requires. Reuse the authoritative implementation; do not add duplicate or portal-only resources or a parallel subscription-scope stack unless genuinely required, and do not refactor unrelated infrastructure. Keep fictional disposable resources and environment updates manual. Keep cleanup manual and explicit, and never commit secrets, credentials, real patient data, or real contact information.
+- [ ] Run the operator login and current-account check:
 
-### Azure-Dependent Slice Runbook Gate
+```bash
+az login
 
-Before any Azure-dependent TDD slice performs live execution, create or update a checked-in slice-specific prerequisite runbook under `docs/runbooks/`, name it in the slice's acceptance criteria, and complete it. The operator must explicitly approve the resource group, Foundry account, project, model deployment, and Web App parameter set for that slice; no disposable name is a permanent default. The runbook must begin with operator-run `az login` and one `az account show` verification; identify every required resource and its authoritative Bicep owner; give exact repository-approved compile, check, what-if, manual-review, live-deployment, and read-only-verification stages; and define the success contract and stop conditions.
+az account show \
+  --query "{subscription:name,state:state,isDefault:isDefault}" \
+  --output table
+```
 
-Missing authentication or prerequisite resources, and deterministic configuration, naming, policy, quota, or authorization failures, must produce one fail-fast result and stop without retry. A repository-owned live deployment command may block until Azure returns. After Azure accepts an asynchronous deployment, use at most one repository-approved bounded completion check, and only when the runbook explicitly requires it. General-purpose shell polling loops, repeated sleeps, indefinite waits, and improvised repeated verifier calls are prohibited. Read-only verification remains a distinct stage after deployment completion. Do not improvise alternate credentials or provisioning, use portal-only resources, duplicate infrastructure, or bypass repository-owned boundaries. Offline RED-to-GREEN work may precede deployment, but no live acceptance criterion may run or be declared complete until the runbook is followed and current verifiers pass.
+- [ ] Confirm the intended subscription by name, an `Enabled` state, and the intended default selection. Stop before Codex begins if authentication or subscription selection is wrong; never copy subscription or tenant IDs into prompts or documentation.
 
-Runbooks use fictional disposable names and never contain secrets, credentials, subscription or tenant IDs, principal IDs, full resource IDs, identity headers, real patient data, or real contact information. Cleanup remains manual and explicit.
+### 2. Exact approved resource inventory
+
+- [ ] Record the operator-approved names for every applicable resource group, Foundry account, child project, model deployment, Linux Web App, prompt agent and immutable version, managed identity, RBAC role and exact scope, hosted endpoint, and other slice prerequisite.
+- [ ] Match every name to fresh repository-owned verifier output. Historical deployment evidence, portal screenshots, assumed names, previous conversation history, and inferred resource groups are not sufficient.
+
+### 3. Authoritative deployment and current usability proof
+
+- [ ] Deploy every missing prerequisite before the Codex prompt through the repository's authoritative Bicep entry points and approved scripts; never substitute portal-only creation, duplicate definitions, or ad hoc Azure CLI provisioning.
+- [ ] Run current read-only verification proving provisioning state and usability: Foundry account/project/model and required agent version; hosted code, safe configuration, system identity, and readiness endpoints; and any exact direct RBAC assignment required before managed-identity access.
+- [ ] Deploy only the current slice's prerequisites. Keep infrastructure deployment separate from prompt-agent creation; keep hosted code, Foundry provisioning, agent lifecycle, RBAC deployment, RBAC verification, managed-identity verification, and invocation explicit and separately verifiable.
+
+### 4. Azure-Dependent Slice Execution Gate and Azure-Dependent Slice Runbook Gate
+
+- [ ] Complete a checked-in slice-specific runbook under `docs/runbooks/` and name it in the acceptance criteria. It must identify authoritative Bicep ownership, exact approved parameters, repository-approved compile/check/what-if/manual-review/deploy/verify stages, success contracts, and fail-fast stop conditions.
+- [ ] Hand Codex only sanitized current evidence and the completed checklist. No Codex implementation prompt or live acceptance criterion may begin until every applicable item is checked; offline RED-to-GREEN work may begin only when it does not claim live readiness.
+
+Missing or unusable prerequisites stop the thread without retry or inferred replacements. General-purpose shell polling loops, repeated sleeps, indefinite waits, and improvised repeated verifier calls are prohibited; use at most one repository-approved bounded completion check only when the runbook requires it. Keep cleanup manual and explicit, use fictional disposable resources, and never commit or disclose secrets, credentials, IDs, real patient data, or real contact information.
+
+### Azure RBAC Slice Lessons Learned
+
+- Foundry infrastructure was not deployed before dependent work began.
+- An obsolete resource group was inferred from prior history, and the Azure portal truncated the Foundry account name.
+- Foundry existed while the required Linux Web App did not.
+- Web App infrastructure existence did not prove application code deployment or hosted readiness.
+- Healthy resources did not prove the Consumer RBAC assignment existed.
+- The verifier initially used the wrong Foundry project ARM lookup.
+- The outer ARM deployment and nested Bicep module used the same deployment name, causing `DeploymentActive`.
+- Oversized Codex runs mixed infrastructure deployment, application deployment, readiness monitoring, defect correction, RBAC, and documentation, making state reconciliation difficult.
+- Future Azure-dependent slices must complete prerequisite preparation before the narrow Codex implementation prompt begins.
+
+Preferred workflow:
+
+```text
+Operator completes runbook and checklist
+-> operator supplies exact verified resource inventory
+-> Codex performs narrow offline RED-to-GREEN work
+-> Codex performs only the explicitly approved live operation
+-> separate read-only verification
+-> documentation and commit
+```
 
 ## Prerequisites Before The Next TDD Slice
 
@@ -124,7 +143,7 @@ Do not claim as complete:
   `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
   review remains mandatory.
 - Live Azure Speech transcription, audio upload, or audio processing
-- Successful Foundry RBAC deployment and assignment verification, managed-identity access, and invocation remain unproven live
+- Managed-identity token acquisition, hosted Foundry metadata access, and invocation remain unproven live despite separately proven RBAC deployment and direct assignment
 - ACS phone intake/call automation, Key Vault, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
@@ -311,8 +330,6 @@ Completed work by feature area:
 ## Not Yet Implemented / Deferred Scope
 
 - Authentication
-- Successful live Foundry RBAC deployment for the Web App identity
-- Successful live read-only RBAC assignment verification
 - Agent-specific RBAC scope
 - Live hosted managed-identity verification and agent invocation
 - Key Vault
@@ -327,11 +344,11 @@ Completed work by feature area:
 
 The exact recommended next boundary is:
 
-Current prerequisites and the corrected project-scope verifier are proven; the reviewed preview still requires separate operator approval.
+Project-scoped Consumer deployment and exact direct-assignment verification are separately proven.
 Next narrow live boundary:
 ```text
-Separately approved Foundry Agent Consumer RBAC deployment
--> separate read-only assignment verification
+Verify the required immutable prompt-agent version
+-> hosted managed-identity Foundry metadata verification
 ```
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
@@ -344,11 +361,11 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Status
 
-- A documentation guardrail first failed because the prerequisite runbook was absent, then passed after `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` and the permanent runbook gate were added. Full GREEN is 1,395 passed with one existing warning.
-- Direct read-only diagnostics proved Azure returns a qualified project name, nonblank exact ARM ID, and successful provisioning. The earlier verifier defect was its generic `az resource show` lookup; the failed deployment separately reported sanitized `DeploymentFailed` / `DeploymentActive`, not a project-scope error.
+- A documentation guardrail first failed because the prerequisite runbook was absent, then passed after `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` and the permanent runbook gate were added. Full GREEN is 1,409 passed with one existing warning.
+- Direct read-only diagnostics proved the project scope. Azure then conclusively identified the failed `Microsoft.Resources/deployments` operation as a nested deployment whose name equaled the deterministic outer name, producing `DeploymentActive`.
 - RED was 3 failed and 112 passed. GREEN is 115 focused tests after the verifier switched to `az cognitiveservices account project show`, projected only name/ID, accepted leaf or qualified names, validated Azure's returned ID against the approved tuple, and failed closed before assignment reads for malformed or mismatched shapes. The existing Bicep parent/leaf project declaration already matched the authoritative API and was retained.
-- Current Foundry, Web App configuration/system identity, and all three readiness verifiers passed once. Corrected what-if remained create 0, modify 0, delete 0, no-change 0, ignore 10, deploy 0, unsupported 1. The sole state-changing template category is `Microsoft.Authorization/roleAssignments`, so Unsupported remains manual-review-only and is not deployment proof.
-- Live RBAC deployment and assignment verification remain unproven pending separate approval. No live deployment, role assignment, retry, polling, token, inference, invocation, infrastructure or code deployment, restart, provider change, cleanup, commit, or push occurred; nurse review and non-production boundaries remain unchanged.
+- Nested-name RED was 1 failed/8 passed; GREEN is 116 focused RBAC tests after the entry point changed only the module deployment name to `${deployment().name}-assignment`. Bicep compiled. One corrected what-if reported create 0, modify 0, delete 0, no-change 0, ignore 10, deploy 0, unsupported 1; the sole Unsupported category remains the expected `Microsoft.Authorization/roleAssignments` resource with no unrelated change.
+- After one fresh matching what-if, Azure accepted the project-scoped Foundry Agent Consumer assignment deployment. A separate read-only verifier proved exactly one direct assignment for the Web App system identity at the exact Foundry project scope. Managed-identity token acquisition, hosted Foundry metadata access, and agent invocation remain unproven. No retry, polling, manual assignment, infrastructure or code deployment, token, inference, invocation, cleanup, commit, or push occurred; nurse review and non-production boundaries remain unchanged.
 
 ## Reference Docs
 - `docs/archive/progress-2026-06.md`

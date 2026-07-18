@@ -582,7 +582,7 @@ def test_progress_is_active_resume_with_honest_safety_and_history_boundaries() -
     archive = _read("docs/archive/progress-2026-06.md")
     normalized = _normalized(progress)
 
-    assert len(progress.splitlines()) <= 400
+    assert len(progress.splitlines()) <= 500
     assert len(progress.splitlines()) < len(archive.splitlines())
     _assert_contains_all(
         normalized,
@@ -638,10 +638,28 @@ def test_azure_dependent_slices_require_a_checked_in_prerequisite_runbook() -> N
     _assert_contains_all(
         progress,
         {
+            "Pre-Codex Azure Readiness Checklist",
             "Azure-Dependent Slice Runbook Gate",
             "docs/runbooks/",
             "az login",
             "az account show",
+            '--query "{subscription:name,state:state,isDefault:isDefault}"',
+            "The operator, not Codex",
+            "before the implementation thread begins",
+            "currently verified, correctly named, and usable",
+            "Historical deployment evidence, portal screenshots, assumed names, previous conversation history, and inferred resource groups are not sufficient",
+            "Azure RBAC Slice Lessons Learned",
+            "Foundry infrastructure was not deployed before dependent work began",
+            "obsolete resource group",
+            "portal truncated the Foundry account name",
+            "Foundry existed while the required Linux Web App did not",
+            "Web App infrastructure existence did not prove application code deployment or hosted readiness",
+            "Healthy resources did not prove the Consumer RBAC assignment existed",
+            "wrong Foundry project ARM lookup",
+            "same deployment name, causing `DeploymentActive`",
+            "Oversized Codex runs mixed infrastructure deployment, application deployment, readiness monitoring, defect correction, RBAC, and documentation",
+            "Future Azure-dependent slices must complete prerequisite preparation before the narrow Codex implementation prompt begins",
+            "Operator completes runbook and checklist -> operator supplies exact verified resource inventory -> Codex performs narrow offline RED-to-GREEN work -> Codex performs only the explicitly approved live operation -> separate read-only verification -> documentation and commit",
             "authoritative Bicep",
             "fail-fast",
             "General-purpose shell polling loops",

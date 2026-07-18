@@ -408,25 +408,29 @@ role, a different principal, missing or malformed data, and unknown response
 shapes fail closed. Duplicate exact records deterministically return sanitized
 `response_parse_failed`. The verifier never deploys or repairs RBAC, acquires a
 token, invokes Foundry or an agent, retries, polls, or mutates Azure. Deployment
-request acceptance and assignment verification are therefore separate proofs;
-both were attempted but remain uncompleted live in this repository state.
+request acceptance and assignment verification are therefore separate proofs.
+Azure accepted the corrected project-scoped Consumer assignment deployment. A
+separate read-only verifier then proved exactly one direct assignment for the
+Web App system identity at the exact Foundry project scope.
 
 Direct diagnostics established a qualified project name, nonblank exact ARM ID,
-and successful provisioning. The repository defect was the verifier's generic
-`az resource show` project lookup. The failed deterministic deployment was a
-separate `DeploymentFailed` / `DeploymentActive` condition, not evidence of a
-bad project declaration. RED was 3 failed and 112 passed; GREEN is 115 focused
-tests. Both RBAC Bicep files compile, and the existing account-parent/project-leaf
-declaration already matches the authoritative Foundry API.
+and successful provisioning. Azure then conclusively identified the failed
+`Microsoft.Resources/deployments` operation as a nested deployment whose name
+equaled the deterministic outer name, producing `DeploymentActive`; it was not
+a project declaration or assignment-scope failure. Nested-name RED was 1
+failed/8 passed. GREEN is 116 focused RBAC tests after the entry point changed
+only the module deployment name to `${deployment().name}-assignment`; the
+existing account-parent/project-leaf declarations, role, assignment GUID, and
+Web App identity lookup remain unchanged, and the Bicep entry point compiles.
 
-Current Foundry, Web App configuration/system identity, and readiness verifiers
-passed once. Corrected what-if reported zero creates, modifications, deletes,
+The corrected what-if reported zero creates, modifications, deletes,
 deploy-uncertain entries, and no-changes, ten ignored, and one Unsupported. The
-compiled contract's sole state-changing resource category is
-`Microsoft.Authorization/roleAssignments`; Azure's inability to preview it is
-not deployment proof and still requires manual review. This correction stopped
-before deployment, so live assignment deployment and verification remain
-unproven. No retry or polling followed.
+sole Unsupported category remains the expected project-scoped
+`Microsoft.Authorization/roleAssignments` resource with no unrelated change.
+After explicit review, one live request was accepted and the separate verifier
+proved the exact direct assignment. No retry or polling followed. Managed-
+identity token acquisition, hosted Foundry metadata access, and agent invocation
+remain separate and unproven.
 
 `src/app/services/hosted_foundry_agent_verification.py` and the packaged
 `src/app/operations/verify_hosted_foundry_agent.py` add the next separate proof
@@ -599,16 +603,15 @@ A later live Web App infrastructure deployment request completed successfully.
 That acceptance does not prove configuration, code deployment, startup, or
 managed-identity access. Live read-only configuration verification subsequently
 proved the Linux runtime, startup command, remote build, security, health path,
-system identity, safe mock providers, and notification suppression. The RBAC
-preview was initiated without a captured result; RBAC remains undeployed and
-unverified.
+system identity, safe mock providers, and notification suppression. The
+project-scoped Consumer deployment was later accepted and a separate read-only
+verifier proved exactly one direct assignment for that Web App identity.
 Deterministic packaging and explicit code deployment then succeeded, followed
 by separate live proof of all three hosted readiness routes in the mock-safe
 posture.
 
 Not demonstrated live:
 
-- Foundry Agent Consumer RBAC deployment
 - Managed-identity token acquisition
 - Live immutable-version verification from the hosted application
 - Hosted agent invocation
@@ -627,9 +630,9 @@ Deferred infrastructure:
 
 The following are intentionally not implemented in the current MVP:
 
-- Live RBAC deployment, hosted managed-identity verification, and invocation
+- Hosted managed-identity verification and invocation
 - Agent-specific RBAC scope
-- Authentication / RBAC beyond the offline-tested Consumer assignment
+- Authentication / RBAC beyond the proven direct Consumer assignment
 - Application authentication and private networking
 - Key Vault
 - Azure Speech / voice intake
