@@ -627,3 +627,44 @@ def test_progress_documents_future_tdd_and_test_maintenance_guardrails() -> None
             "Prefer a small number of high-value guardrail tests",
         },
     )
+
+
+def test_azure_dependent_slices_require_a_checked_in_prerequisite_runbook() -> None:
+    progress = _normalized(_read("docs/progress.md"))
+    runbook = _normalized(
+        _read("docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md")
+    )
+
+    _assert_contains_all(
+        progress,
+        {
+            "Azure-Dependent Slice Runbook Gate",
+            "docs/runbooks/",
+            "az login",
+            "az account show",
+            "authoritative Bicep",
+            "fail-fast",
+            "General-purpose shell polling loops",
+            "one repository-approved bounded completion check",
+        },
+    )
+    _assert_contains_all(
+        runbook,
+        {
+            "az login",
+            "az account show --output json",
+            "infra/foundry-only.bicep",
+            "scripts/deploy_foundry_infra.py",
+            "scripts/verify_foundry_infra.py",
+            "scripts/deploy_web_app_infra.py",
+            "scripts/verify_web_app_configuration.py",
+            "scripts/verify_web_app_readiness.py",
+            "optional explicitly required bounded completion check",
+            "Read-only verification remains a distinct stage",
+            "fail-fast",
+            "Do not retry it without an operator correction",
+            "General-purpose shell polling loops",
+            "portal-only",
+            "ad hoc Azure provisioning",
+        },
+    )

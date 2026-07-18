@@ -53,6 +53,33 @@ def test_module_uses_existing_foundry_project_as_assignment_scope() -> None:
     assert "principalType: 'ServicePrincipal'" in module
 
 
+def test_project_scope_uses_authoritative_api_parent_and_leaf_name() -> None:
+    authoritative = _text("modules/foundry.bicep")
+    rbac = _text(MODULE)
+    authoritative_version = re.search(
+        r"Microsoft\.CognitiveServices/accounts/projects@(\d{4}-\d{2}-\d{2})",
+        authoritative,
+    )
+
+    assert authoritative_version is not None
+    assert (
+        "resource foundryAccount "
+        f"'Microsoft.CognitiveServices/accounts@{authoritative_version.group(1)}' existing"
+        in rbac
+    )
+    assert (
+        "resource foundryProject "
+        f"'Microsoft.CognitiveServices/accounts/projects@{authoritative_version.group(1)}' existing"
+        in rbac
+    )
+    assert re.search(
+        r"resource\s+foundryProject\s+[^=]+existing\s*=\s*\{\s*"
+        r"parent:\s*foundryAccount\s*name:\s*foundryProjectName\s*\}",
+        rbac,
+        re.DOTALL,
+    )
+
+
 def test_module_uses_exact_consumer_role_and_deterministic_assignment_name() -> None:
     module = _text(MODULE)
 

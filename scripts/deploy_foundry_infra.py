@@ -56,6 +56,36 @@ class DeploymentRequest:
     location: str
 
 
+def _parse_what_if_counts(stdout: str) -> dict[str, int] | None:
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("changes"), list):
+        return None
+
+    counts = {
+        "create": 0,
+        "modify": 0,
+        "nochange": 0,
+        "delete": 0,
+        "ignore": 0,
+        "deploy": 0,
+        "unsupported": 0,
+    }
+    for change in payload["changes"]:
+        if not isinstance(change, dict):
+            return None
+        change_type = change.get("changeType")
+        if not isinstance(change_type, str):
+            return None
+        normalized = change_type.casefold()
+        if normalized not in counts:
+            return None
+        counts[normalized] += 1
+    return counts
+
+
 def _base(
     request: DeploymentRequest, category: str, ok: bool = False
 ) -> dict[str, object]:
@@ -176,9 +206,31 @@ def execute(request: DeploymentRequest, runner: CommandRunner | None = None) -> 
         if outcome.return_code != 0:
             category = "authentication_or_authorization_failed" if _authorization_failure(outcome.stderr) else "what_if_failed"
             return _base(request, category)
+        counts = _parse_what_if_counts(outcome.stdout)
+        if counts is None:
+            return _base(request, "what_if_parse_failed")
         result = _base(request, "success", True)
         result["resource_group_ready"] = True
-        result["recommended_next_step"] = "Review the what-if result, then run --live --json when ready."
+        result.update(
+            {
+                "create_count": counts["create"],
+                "modify_count": counts["modify"],
+                "no_change_count": counts["nochange"],
+                "delete_count": counts["delete"],
+                "ignore_count": counts["ignore"],
+                "deploy_count": counts["deploy"],
+                "unsupported_count": counts["unsupported"],
+                "delete_review_required": counts["delete"] > 0,
+                "manual_review_required": any(
+                    counts[name] > 0 for name in ("delete", "deploy", "unsupported")
+                ),
+            }
+        )
+        result["recommended_next_step"] = (
+            "Manual review is required before any live request."
+            if result["manual_review_required"]
+            else "Review the sanitized preview, then run --live --json when ready."
+        )
         return result
 
     group = runner.run(

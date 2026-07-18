@@ -1,6 +1,6 @@
 using './foundry-only.bicep'
 
-param location = 'eastus2'
+param location = 'centralus'
 param projectName = 'fictional-intake'
 param environmentName = 'daily'
 param foundryProjectName = 'fictional-intake-project'

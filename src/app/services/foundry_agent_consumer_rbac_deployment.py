@@ -229,8 +229,12 @@ def _template_contract_valid(template_file: Path) -> bool:
     module_contract = (
         r"^\s*targetScope\s*=\s*'resourceGroup'\s*$",
         rf"foundryAgentConsumerRoleDefinitionGuid\s*=\s*'{CONSUMER_ROLE_GUID}'",
+        r"resource\s+foundryAccount\s+'Microsoft\.CognitiveServices/accounts@2025-06-01'\s+existing\s*=",
         r"resource\s+foundryProject\s+'Microsoft\.CognitiveServices/accounts/projects@2025-06-01'\s+existing\s*=",
+        r"parent\s*:\s*foundryAccount",
+        r"name\s*:\s*foundryProjectName",
         r"resource\s+foundryAgentConsumerRoleAssignment\s+'Microsoft\.Authorization/roleAssignments@2022-04-01'\s*=",
+        r"name\s*:\s*guid\(\s*foundryProject\.id,\s*webAppPrincipalId,\s*foundryAgentConsumerRoleDefinitionId\s*\)",
         r"scope\s*:\s*foundryProject",
         r"roleDefinitionId\s*:\s*foundryAgentConsumerRoleDefinitionId",
         r"principalType\s*:\s*'ServicePrincipal'",

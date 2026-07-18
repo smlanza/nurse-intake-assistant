@@ -301,6 +301,28 @@ Log Analytics, and Application Insights and adds Foundry only when
 AIServices account, child project, and explicitly parameterized model for
 disposable validation. Agent creation remains separate.
 
+Every Azure-dependent slice must first complete a checked-in, slice-specific
+prerequisite runbook under `docs/runbooks/`. The runbook starts with operator
+authentication and one active-account check, identifies authoritative Bicep
+ownership, and keeps compile, check, sanitized what-if, manual review, live
+deployment, optional bounded completion, and read-only verification separate.
+Before execution, the operator must explicitly approve the resource group,
+Foundry account, child project, model deployment, and Linux Web App parameter
+set for that slice; disposable names are never permanent architecture defaults.
+Missing prerequisites and deterministic failures fail fast without retry. A
+repository-owned deployment may block for Azure, and an accepted asynchronous
+deployment permits at most one explicitly required, repository-approved bounded
+completion check. General shell polling loops, repeated sleeps, indefinite
+waits, repeated verifier calls, alternate credentials, portal-only resources,
+and ad hoc provisioning are prohibited. The current RBAC prerequisite runbook is
+`docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md`.
+
+The Foundry infrastructure preview boundary now reduces Azure's change
+collection to sanitized counts for all seven supported change types and fails
+closed on malformed or unknown shapes. Resource details remain discarded, and
+Delete, Deploy, or Unsupported entries require manual review before any live
+request.
+
 `main.bicep` also references the reusable `infra/modules/web-app.bicep` module
 only when `deployApp=true` (default `false`). The module defines a Linux App
 Service plan and Web App with a system-assigned managed identity, HTTPS-only
@@ -371,11 +393,14 @@ or complete resource identifier.
 proof boundary. Offline `--check` reuses the deployment-owned fixed Consumer
 role and exact Bicep contract and creates no runner. Only explicit
 `--live --json` issues three bounded argument-list reads: the Web App system
-identity, the expected Foundry project scope, and projected role assignments for
-that principal and scope. Azure CLI projections minimize the fields entering
-Python; the immutable result exposes only sanitized status booleans, a category,
-and a next step—not IDs, endpoints, commands, raw output, errors, or unrelated
-assignments.
+identity, the expected Foundry project through dedicated `az cognitiveservices
+account project show`, and projected role assignments for that principal and
+scope. The project read projects only name and ID, accepts Azure's leaf or
+`<account>/<project>` name, validates the Azure-returned ARM ID against the
+approved resource-group/account/project tuple, and never constructs that ID.
+Azure CLI projections minimize the fields entering Python; the immutable result
+exposes only sanitized status booleans, a category, and a next step—not IDs,
+endpoints, commands, raw output, errors, or unrelated assignments.
 
 Success requires one unambiguous Consumer assignment for the exact Web App
 principal at the exact project scope. Broader inherited assignments, a different
@@ -384,7 +409,24 @@ shapes fail closed. Duplicate exact records deterministically return sanitized
 `response_parse_failed`. The verifier never deploys or repairs RBAC, acquires a
 token, invokes Foundry or an agent, retries, polls, or mutates Azure. Deployment
 request acceptance and assignment verification are therefore separate proofs;
-both remain offline-tested only in this repository state.
+both were attempted but remain uncompleted live in this repository state.
+
+Direct diagnostics established a qualified project name, nonblank exact ARM ID,
+and successful provisioning. The repository defect was the verifier's generic
+`az resource show` project lookup. The failed deterministic deployment was a
+separate `DeploymentFailed` / `DeploymentActive` condition, not evidence of a
+bad project declaration. RED was 3 failed and 112 passed; GREEN is 115 focused
+tests. Both RBAC Bicep files compile, and the existing account-parent/project-leaf
+declaration already matches the authoritative Foundry API.
+
+Current Foundry, Web App configuration/system identity, and readiness verifiers
+passed once. Corrected what-if reported zero creates, modifications, deletes,
+deploy-uncertain entries, and no-changes, ten ignored, and one Unsupported. The
+compiled contract's sole state-changing resource category is
+`Microsoft.Authorization/roleAssignments`; Azure's inability to preview it is
+not deployment proof and still requires manual review. This correction stopped
+before deployment, so live assignment deployment and verification remain
+unproven. No retry or polling followed.
 
 `src/app/services/hosted_foundry_agent_verification.py` and the packaged
 `src/app/operations/verify_hosted_foundry_agent.py` add the next separate proof
@@ -557,8 +599,9 @@ A later live Web App infrastructure deployment request completed successfully.
 That acceptance does not prove configuration, code deployment, startup, or
 managed-identity access. Live read-only configuration verification subsequently
 proved the Linux runtime, startup command, remote build, security, health path,
-system identity, safe mock providers, and notification suppression. RBAC remains
-unpreviewed, undeployed, and unverified.
+system identity, safe mock providers, and notification suppression. The RBAC
+preview was initiated without a captured result; RBAC remains undeployed and
+unverified.
 Deterministic packaging and explicit code deployment then succeeded, followed
 by separate live proof of all three hosted readiness routes in the mock-safe
 posture.

@@ -23,7 +23,7 @@ VerificationCategory = Literal[
 ]
 
 WEB_APP_IDENTITY_QUERY = "{principalId:principalId,type:type}"
-FOUNDRY_PROJECT_QUERY = "{id:id}"
+FOUNDRY_PROJECT_QUERY = "{name:name,id:id}"
 ROLE_ASSIGNMENT_QUERY = (
     "[].{principalId:principalId,roleDefinitionId:roleDefinitionId,scope:scope}"
 )
@@ -210,16 +210,16 @@ def verify_foundry_agent_consumer_rbac(
         runner,
         [
             "az",
-            "resource",
+            "cognitiveservices",
+            "account",
+            "project",
             "show",
             "--resource-group",
             request.resource_group,
-            "--resource-type",
-            "Microsoft.CognitiveServices/accounts/projects",
             "--name",
-            f"{request.foundry_account_name}/{request.foundry_project_name}",
-            "--api-version",
-            "2025-06-01",
+            request.foundry_account_name,
+            "--project-name",
+            request.foundry_project_name,
             "--query",
             FOUNDRY_PROJECT_QUERY,
             "--output",
@@ -232,7 +232,11 @@ def verify_foundry_agent_consumer_rbac(
         return _result(request, failure, **progress)
     project_scope = _project_scope(project, request)
     if project_scope is None:
-        if isinstance(project, dict) and set(project) == {"id"} and project.get("id") is None:
+        if (
+            isinstance(project, dict)
+            and set(project) == {"name", "id"}
+            and project.get("id") is None
+        ):
             return _result(request, "foundry_project_scope_not_found", **progress)
         return _result(request, "response_parse_failed", **progress)
     progress["foundry_project_scope_resolved"] = True
@@ -360,10 +364,24 @@ def _project_scope(
     payload: object,
     request: FoundryAgentConsumerRbacVerificationRequest,
 ) -> str | None:
-    if not isinstance(payload, dict) or set(payload) != {"id"}:
+    if not isinstance(payload, dict) or set(payload) != {"name", "id"}:
         return None
+    project_name = payload.get("name")
     resource_id = payload.get("id")
-    if not isinstance(resource_id, str) or not resource_id.strip():
+    if (
+        not isinstance(project_name, str)
+        or not project_name.strip()
+        or project_name != project_name.strip()
+        or not isinstance(resource_id, str)
+        or not resource_id.strip()
+        or resource_id != resource_id.strip()
+    ):
+        return None
+    valid_names = {
+        request.foundry_project_name.casefold(),
+        f"{request.foundry_account_name}/{request.foundry_project_name}".casefold(),
+    }
+    if project_name.casefold() not in valid_names:
         return None
     match = re.fullmatch(
         r"/subscriptions/[^/]+/resourceGroups/([^/]+)/providers/"

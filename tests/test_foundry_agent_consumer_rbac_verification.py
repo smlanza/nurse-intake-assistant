@@ -63,7 +63,7 @@ def _identity(**overrides: object) -> str:
 
 
 def _project(**overrides: object) -> str:
-    payload = {"id": PROJECT_SCOPE}
+    payload = {"name": FOUNDRY_PROJECT_NAME, "id": PROJECT_SCOPE}
     payload.update(overrides)
     return json.dumps(payload)
 
@@ -179,6 +179,82 @@ def test_missing_project_scope_fails_safely(verification_request) -> None:
 
     assert result.category == "foundry_project_scope_not_found"
     assert result.web_app_identity_present is True
+    assert result.foundry_project_scope_resolved is False
+    assert len(runner.calls) == 2
+    assert "secret" not in json.dumps(result.to_json_dict())
+
+
+@pytest.mark.parametrize(
+    "project_name",
+    [
+        FOUNDRY_PROJECT_NAME,
+        f"{FOUNDRY_ACCOUNT_NAME}/{FOUNDRY_PROJECT_NAME}",
+    ],
+)
+def test_live_project_lookup_uses_foundry_command_and_azure_returned_scope(
+    verification_request, project_name: str
+) -> None:
+    runner = FakeRunner(
+        [
+            _result(0, _identity()),
+            _result(0, _project(name=project_name)),
+            _result(0, json.dumps([_assignment()])),
+        ]
+    )
+
+    result = _verify(verification_request, runner)
+
+    assert result.ok is True
+    assert runner.calls[1] == [
+        "az", "cognitiveservices", "account", "project", "show",
+        "--resource-group", RESOURCE_GROUP,
+        "--name", FOUNDRY_ACCOUNT_NAME,
+        "--project-name", FOUNDRY_PROJECT_NAME,
+        "--query", "{name:name,id:id}",
+        "--output", "json",
+        "--only-show-errors",
+    ]
+    assert runner.calls[2][runner.calls[2].index("--scope") + 1] == PROJECT_SCOPE
+
+
+@pytest.mark.parametrize(
+    "project",
+    [
+        {"name": FOUNDRY_PROJECT_NAME},
+        {"name": FOUNDRY_PROJECT_NAME, "id": None},
+        {"name": FOUNDRY_PROJECT_NAME, "id": ""},
+        {"name": FOUNDRY_PROJECT_NAME, "id": "not-an-arm-id"},
+        {"name": "different-project", "id": PROJECT_SCOPE},
+        {"name": f"different-account/{FOUNDRY_PROJECT_NAME}", "id": PROJECT_SCOPE},
+        {
+            "name": FOUNDRY_PROJECT_NAME,
+            "id": PROJECT_SCOPE.replace(RESOURCE_GROUP, "different-resource-group"),
+        },
+        {
+            "name": FOUNDRY_PROJECT_NAME,
+            "id": PROJECT_SCOPE.replace(FOUNDRY_ACCOUNT_NAME, "different-account"),
+        },
+        {
+            "name": FOUNDRY_PROJECT_NAME,
+            "id": PROJECT_SCOPE.replace(FOUNDRY_PROJECT_NAME, "different-project"),
+        },
+        {"name": FOUNDRY_PROJECT_NAME, "id": PROJECT_SCOPE, "raw": "secret"},
+    ],
+)
+def test_invalid_live_project_shapes_fail_before_assignment_query(
+    verification_request, project: dict[str, object]
+) -> None:
+    runner = FakeRunner(
+        [_result(0, _identity()), _result(0, json.dumps(project))]
+    )
+
+    result = _verify(verification_request, runner)
+
+    assert result.ok is False
+    assert result.category in {
+        "foundry_project_scope_not_found",
+        "response_parse_failed",
+    }
     assert result.foundry_project_scope_resolved is False
     assert len(runner.calls) == 2
     assert "secret" not in json.dumps(result.to_json_dict())
@@ -359,11 +435,10 @@ def test_live_uses_only_three_bounded_read_only_projection_commands(verification
             "--only-show-errors",
         ],
         [
-            "az", "resource", "show",
+            "az", "cognitiveservices", "account", "project", "show",
             "--resource-group", RESOURCE_GROUP,
-            "--resource-type", "Microsoft.CognitiveServices/accounts/projects",
-            "--name", f"{FOUNDRY_ACCOUNT_NAME}/{FOUNDRY_PROJECT_NAME}",
-            "--api-version", "2025-06-01",
+            "--name", FOUNDRY_ACCOUNT_NAME,
+            "--project-name", FOUNDRY_PROJECT_NAME,
             "--query", verification.FOUNDRY_PROJECT_QUERY,
             "--output", "json",
             "--only-show-errors",

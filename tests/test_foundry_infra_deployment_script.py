@@ -92,7 +92,12 @@ def test_what_if_checks_group_then_runs_non_mutating_deployment(
     files: tuple[Path, Path, Path],
 ) -> None:
     parameters = _paths(monkeypatch, files)
-    runner = FakeRunner([script.CommandResult(0, "true", ""), script.CommandResult(0, "{}", "")])
+    runner = FakeRunner(
+        [
+            script.CommandResult(0, "true", ""),
+            script.CommandResult(0, json.dumps({"changes": []}), ""),
+        ]
+    )
     result = script.execute(
         script.DeploymentRequest("what-if", "foundry-only", parameters, "existing-rg", "eastus2"),
         runner,
@@ -108,6 +113,44 @@ def test_what_if_checks_group_then_runs_non_mutating_deployment(
     ]
     assert "--template-file" not in command
     assert not any(argument.startswith("@") for argument in command)
+
+
+def test_what_if_returns_sanitized_change_counts_and_review_flags(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    preview = json.dumps(
+        {
+            "changes": [
+                {"changeType": "Create", "resourceId": "private-resource-id"},
+                {"changeType": "Modify", "delta": "private-detail"},
+                {"changeType": "Delete", "before": "private-detail"},
+                {"changeType": "Unsupported", "after": "private-detail"},
+            ]
+        }
+    )
+    runner = FakeRunner(
+        [script.CommandResult(0, "true", ""), script.CommandResult(0, preview, "")]
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+    )
+
+    assert result["category"] == "success"
+    assert result["create_count"] == 1
+    assert result["modify_count"] == 1
+    assert result["delete_count"] == 1
+    assert result["unsupported_count"] == 1
+    assert result["manual_review_required"] is True
+    assert result["delete_review_required"] is True
+    rendered = json.dumps(result)
+    assert "private-resource-id" not in rendered
+    assert "private-detail" not in rendered
 
 
 def test_what_if_missing_group_never_attempts_deployment(

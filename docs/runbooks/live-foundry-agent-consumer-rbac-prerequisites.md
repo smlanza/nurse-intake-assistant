@@ -1,0 +1,249 @@
+# Live Foundry Agent Consumer RBAC Prerequisites
+
+## 1. Scope
+
+This runbook prepares only the prerequisites for live project-scoped Foundry
+Agent Consumer RBAC deployment and read-only verification. Complete it before
+Codex begins the live RBAC slice.
+
+Before execution, the operator must explicitly approve one resource group,
+Foundry account, child project, model deployment, and Linux Web App parameter
+set. Do not infer replacements from documentation, naming conventions, Azure
+history, or prior transcripts, and do not treat disposable names as defaults.
+
+It does not provision an agent, invoke a model or agent, acquire a
+managed-identity token, change production providers, send notifications, or
+establish production clinical readiness. Mock-safe providers, suppressed
+hosted notifications, and mandatory human nurse review remain unchanged.
+
+## 2. Azure Authentication
+
+The operator must authenticate and inspect the active account before any
+automated live Azure operation:
+
+```bash
+az login
+az account show --output json
+```
+
+Manually confirm the intended subscription. Do not copy subscription or tenant
+identifiers into documentation, logs, commits, or AI responses. If login is
+missing or expired, stop immediately with a sanitized `prerequisite_missing`
+result. Do not retry Azure commands or attempt alternate credentials.
+
+## 3. Safe Shell Variables
+
+Use placeholders or fictional disposable values only:
+
+```bash
+export rg="<existing-disposable-resource-group>"
+export loc="centralus"
+export web_app_name="<existing-fictional-linux-web-app>"
+export base_url="https://${web_app_name}.azurewebsites.net"
+export foundry_project_endpoint="<verified-project-endpoint>"
+export foundry_account_name="<existing-foundry-account-name>"
+export foundry_project_name="<existing-foundry-project-name>"
+export model_deployment_name="<existing-model-deployment>"
+```
+
+Never hard-code secrets, credentials, subscription or tenant IDs, principal
+IDs, complete Azure resource IDs, identity headers, real patient data, or real
+contact information.
+
+## 4. Foundry Prerequisite Deployment Through Authoritative Bicep
+
+The only authoritative boundaries for this prerequisite are:
+
+- `infra/foundry-only.bicep`
+- `infra/modules/foundry.bicep`
+- `infra/foundry-only.bicepparam`
+- `scripts/deploy_foundry_infra.py`
+- `scripts/verify_foundry_infra.py`
+
+The operator-local `infra/foundry-only.bicepparam` must remain ignored and
+uncommitted. Compile and check locally, then preview against the existing
+disposable group:
+
+```bash
+az bicep build \
+  --file infra/foundry-only.bicep \
+  --stdout > /dev/null
+
+az bicep build-params \
+  --file infra/foundry-only.bicepparam \
+  --stdout > /dev/null
+
+python scripts/deploy_foundry_infra.py \
+  --mode foundry-only \
+  --parameters infra/foundry-only.bicepparam \
+  --resource-group "$rg" \
+  --location "$loc" \
+  --check
+
+python scripts/deploy_foundry_infra.py \
+  --mode foundry-only \
+  --parameters infra/foundry-only.bicepparam \
+  --resource-group "$rg" \
+  --location "$loc" \
+  --what-if \
+  --json
+```
+
+Manually review the sanitized counts. Stop for deletes, unsupported or unknown
+changes, destructive replacement, or unrelated changes. Only after a safe
+preview may the operator request deployment:
+
+```bash
+python scripts/deploy_foundry_infra.py \
+  --mode foundry-only \
+  --parameters infra/foundry-only.bicepparam \
+  --resource-group "$rg" \
+  --location "$loc" \
+  --live \
+  --json
+
+python scripts/verify_foundry_infra.py \
+  --resource-group "$rg" \
+  --project-endpoint "$foundry_project_endpoint" \
+  --model-deployment-name "$model_deployment_name" \
+  --json
+```
+
+Current read-only proof must verify the AIServices account, child Foundry
+project, valid project endpoint contract, model deployment, and successful
+provisioning state. Historical deployment evidence is insufficient.
+
+`CustomDomainInUse` is a deterministic naming conflict. Select a new safe
+`environmentName` in the ignored Bicep parameter file, then rerun validation
+and what-if. Do not repeatedly retry the same unavailable name.
+
+## 5. Linux Web App Deployment And Verification
+
+The authoritative application boundaries are:
+
+- `infra/main.bicep`
+- `infra/modules/web-app.bicep`
+- `scripts/deploy_web_app_infra.py`
+- `scripts/verify_web_app_configuration.py`
+- `scripts/package_web_app.py`
+- `scripts/deploy_web_app_code.py`
+- `scripts/verify_web_app_readiness.py`
+
+Reuse an already verified Web App; do not redeploy it merely because this
+runbook is being executed. If the app is absent, use this exact staged flow:
+
+```text
+Bicep compile
+-> infrastructure check
+-> infrastructure what-if
+-> manual review
+-> explicit infrastructure deployment
+-> read-only configuration verification
+-> deterministic package
+-> explicit code deployment
+-> read-only hosted readiness verification
+```
+
+Compile and run the offline check:
+
+```bash
+az bicep build --file infra/main.bicep --stdout > /dev/null
+
+python scripts/deploy_web_app_infra.py \
+  --check \
+  --resource-group "$rg" \
+  --location "$loc" \
+  --environment-name demo \
+  --project-name nurse-intake \
+  --web-app-name "$web_app_name" \
+  --json
+```
+
+Use the same arguments for separate `--what-if` and `--live` commands. Review
+the sanitized preview before live deployment. Then verify configuration,
+package deterministically, deploy code explicitly, and verify readiness:
+
+```bash
+python scripts/verify_web_app_configuration.py \
+  --live \
+  --json \
+  --resource-group "$rg" \
+  --web-app-name "$web_app_name"
+
+python scripts/package_web_app.py --package --json
+
+python scripts/deploy_web_app_code.py \
+  --live \
+  --json \
+  --resource-group "$rg" \
+  --web-app "$web_app_name"
+
+python scripts/verify_web_app_readiness.py \
+  --base-url "$base_url" \
+  --live \
+  --json
+```
+
+Current proof must cover an existing running Linux Web App, system-assigned
+identity, expected Python runtime and startup command, remote build,
+HTTPS/TLS/FTPS safety settings, mock-safe providers, suppressed hosted
+notifications, and passing `/health`, `/version`, and `/demo/status`.
+
+## 6. RBAC Project Scope And Preview Review
+
+The assignment verifier must resolve the exact project with `az
+cognitiveservices account project show`, project only its name and ID, accept
+either the project leaf name or qualified `<account>/<project>` name, and use
+Azure's returned nonblank ARM ID only internally. It must never concatenate a
+project resource ID. A missing, malformed, differently named, or differently
+scoped response stops before role-assignment reads.
+
+The Bicep contract uses the authoritative Foundry API version, an existing
+AIServices account, its existing child project with the account as parent and
+the project leaf as name, and one deterministic Consumer assignment scoped to
+that exact project symbol. If what-if reports Unsupported only for the
+`Microsoft.Authorization/roleAssignments` extension resource, preserve the
+Unsupported count for manual review. It is not Create, Ignore, or proof of
+deployment success; stop for separate approval before live deployment.
+
+## 7. Fail-Fast And Bounded Completion Policy
+
+This runbook enforces fail-fast execution. Missing authentication or prerequisite
+resources and deterministic configuration, naming, policy, quota, or
+authorization failures are not transient application defects.
+
+- Stop after the first failed prerequisite or deterministic failure. Do not retry
+  it without an operator correction.
+- A repository-owned live deployment command may block until Azure returns.
+- After Azure accepts an asynchronous deployment, use at most one
+  repository-approved bounded completion check, and only when this runbook
+  explicitly requires it for that command.
+- General-purpose shell polling loops, repeated sleeps, indefinite waits, and
+  improvised repeated verifier calls are prohibited.
+- Do not substitute portal-only resources, duplicate Bicep, historical
+  evidence, alternate credentials, or ad hoc Azure provisioning.
+- Begin a new attempt only after the operator corrects the stated prerequisite.
+- Keep cleanup manual and explicit.
+
+Read-only verification remains a distinct stage after deployment completion.
+The required stage order is: check -> what-if -> manual review -> live
+deployment -> optional explicitly required bounded completion check -> read-only
+verification.
+
+Reconciliation note: the previous execution used `az deployment group wait`,
+shell loops, repeated status checks, `sleep`, and repeated readiness verification.
+Those bounded polling actions occurred; they are not evidence of RBAC completion
+and are prohibited as improvised completion handling in future slices.
+
+## 8. Completion Checklist
+
+- [ ] Azure login verified.
+- [ ] Intended Azure account and complete slice parameter set manually confirmed.
+- [ ] Foundry Bicep compiled.
+- [ ] Foundry infrastructure currently verified.
+- [ ] Linux Web App configuration currently verified.
+- [ ] Web App system identity currently verified.
+- [ ] Web App readiness currently verified.
+- [ ] RBAC Bicep compiled.
+- [ ] Fictional names and data only.
+- [ ] No secrets or identifiers committed.

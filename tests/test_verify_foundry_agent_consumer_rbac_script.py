@@ -114,7 +114,11 @@ def test_live_success_and_failure_have_distinct_sanitized_exit_codes(
             self.results = (
                 [
                     service.CommandResult(0, json.dumps({"principalId": principal, "type": "SystemAssigned"}), ""),
-                    service.CommandResult(0, json.dumps({"id": scope}), ""),
+                    service.CommandResult(
+                        0,
+                        json.dumps({"name": FOUNDRY_PROJECT_NAME, "id": scope}),
+                        "",
+                    ),
                     service.CommandResult(0, json.dumps([{"principalId": principal, "roleDefinitionId": role, "scope": scope}]), ""),
                 ]
                 if success
@@ -180,4 +184,3 @@ def test_missing_azure_cli_is_sanitized(monkeypatch, capsys) -> None:
     assert exit_code == 2
     assert json.loads(output)["category"] == "azure_cli_unavailable"
     assert "secret executable" not in output
-
