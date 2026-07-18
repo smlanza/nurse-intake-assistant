@@ -91,23 +91,24 @@ Authoritative Foundry infrastructure for future TDD slices:
   contract verifier; `scripts/verify_web_app_configuration.py`: offline check
   and explicit read-only Azure CLI boundary.
 
-Future-slice rules:
-- Future TDD slices requiring Foundry infrastructure must extend or reuse this implementation rather than create another `main.bicep`, duplicate resources, or return to portal-only creation.
-- Do not add a parallel subscription-scope Foundry stack unless subscription-scope resources are genuinely required.
-- Do not refactor Cosmos, Storage, Log Analytics, or Application Insights merely to add a Foundry feature.
-- Keep infrastructure deployment separate from prompt-agent creation; keep prompt-agent creation separate from application startup and intake requests.
-- Keep environment-file updates manual unless explicitly and safely introduced by a future TDD slice.
-- Keep cleanup manual and explicit; never automatically delete resource groups.
+### Azure-Dependent Slice Execution Gate
+
+Before starting any TDD slice whose acceptance criteria require live Azure resources, identify, deploy, and verify all required infrastructure through the repository's authoritative Bicep entry points and approved deployment and verification scripts. As applicable, this includes:
+- The required resource group and Bicep-managed application infrastructure.
+- The Foundry AIServices account, child project, and model deployment.
+- Any prompt agent and immutable version required by that slice.
+- The Linux Web App, deployed code, system-assigned identity, safe hosted configuration, and required readiness endpoints.
+- Any prerequisite RBAC assignment required before managed-identity testing.
+
+Do not substitute portal-only creation, duplicate infrastructure definitions, ad hoc Azure CLI provisioning, or historical deployment evidence for the required Bicep deployment and current read-only verification. Offline RED-to-GREEN development may occur without deployed Azure resources, but live Azure-dependent execution may not begin and the slice may not be declared complete until its required infrastructure and Foundry components are deployed and verified.
+
+Infrastructure deployment, Foundry provisioning, prompt-agent lifecycle, RBAC deployment, RBAC verification, hosted managed-identity verification, and model or agent invocation must remain explicit, separately verifiable stages. Keep infrastructure deployment separate from prompt-agent creation. Deploy only what the current slice requires. Reuse the authoritative implementation; do not add duplicate or portal-only resources or a parallel subscription-scope stack unless genuinely required, and do not refactor unrelated infrastructure. Keep fictional disposable resources and environment updates manual. Keep cleanup manual and explicit, and never commit secrets, credentials, real patient data, or real contact information.
 
 ## Prerequisites Before The Next TDD Slice
 
-The live RBAC slice stopped safely because Azure had zero AIServices accounts, zero Foundry projects, and therefore no valid project scope for the Consumer assignment.
-Before restarting, verify all of these prerequisites:
-- An existing Linux Web App with system-assigned identity, the verified mock-safe hosted configuration, deployed application code, and passing `/health`, `/version`, and `/demo/status` checks.
-- An existing AIServices account, child Foundry project, and required model deployment; `scripts/verify_foundry_infra.py` must verify the account, project, endpoint contract, and model.
-- Web App and Foundry names/resource-group scope compatible with the existing RBAC CLI; all resources must be fictional and disposable, with no secrets, credentials, or real patient/contact data committed.
-Create the Foundry prerequisites only through `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, and `scripts/verify_foundry_infra.py`, not portal-only creation or a duplicate stack.
-A prompt agent is not required for project-scoped Consumer assignment. A provisioned prompt agent and immutable version are required later for hosted metadata verification; agent provisioning, agent verification, RBAC, hosted metadata verification, and invocation remain separate steps.
+The live RBAC slice stopped safely because Azure had zero AIServices accounts, zero Foundry projects, and no valid project scope for the Consumer assignment.
+Before restarting, deploy and verify the disposable Foundry AIServices account, child project, and model deployment specifically through `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, and `scripts/verify_foundry_infra.py`. Also verify the existing Linux Web App, deployed code, system identity, mock-safe hosted configuration, readiness endpoints, and compatible Web App/Foundry names and resource-group scope.
+A prompt agent is not required for project-scoped Consumer assignment; its immutable version is required later for hosted metadata verification.
 Required operator sequence:
 `Prepare ignored fictional Foundry parameter file -> compile Foundry Bicep -> run Foundry infrastructure offline check -> create or select the approved disposable resource group -> run Foundry infrastructure what-if -> manually review the sanitized result -> deploy Foundry-only infrastructure -> verify the AIServices account, Foundry project, endpoint contract, and model deployment -> confirm the existing Web App and its system identity -> run RBAC offline checks -> run RBAC what-if -> manually review the RBAC changes -> deploy the project-scoped Foundry Agent Consumer assignment -> run the separate read-only assignment verifier`
 Do not claim as complete:
