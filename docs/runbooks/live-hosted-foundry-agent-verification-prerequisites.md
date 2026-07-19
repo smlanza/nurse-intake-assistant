@@ -79,6 +79,7 @@ alternate provisioner, or substitute portal-only instructions.
 | Hosted readiness verification | `src/app/services/web_app_readiness_verification.py` and `scripts/verify_web_app_readiness.py` |
 | Project-scoped Consumer RBAC deployment and exact direct-assignment verification | `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_deployment.py`, `scripts/deploy_foundry_agent_consumer_rbac.py`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, and `scripts/verify_foundry_agent_consumer_rbac.py` |
 | Packaged hosted Foundry metadata verification | `src/app/services/hosted_foundry_agent_verification.py` and `src/app/operations/verify_hosted_foundry_agent.py` |
+| Fixed hosted execution boundary | `App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`, `src/app/services/hosted_foundry_agent_webjob_execution.py`, and `scripts/run_hosted_foundry_agent_verification.py` |
 
 Infrastructure deployment, prompt-agent lifecycle, Web App deployment,
 configuration verification, packaging, code deployment, readiness, RBAC,
@@ -118,19 +119,47 @@ construction. Missing, stale, or historical evidence fails the gate.
 
 ## 6. Hosted execution mechanism and configuration gates
 
-The package allowlist currently includes the hosted verification service and
-operation. The deployed Web App startup command, however, starts only the
-FastAPI application through uvicorn. The repository currently provides no
-repository-owned execution mechanism that launches the packaged operation
-inside the Linux Web App as one bounded operator-reviewed execution. The
-operation is not an HTTP route, startup task, WebJob, or other deployed control
-surface. This is a blocking prerequisite and requires a separate implementation
-slice before live hosted metadata verification can be authorized.
+The deterministic application package now includes exactly one manually
+triggered Python WebJob at
+`App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`. Its fixed entry
+point calls only the existing metadata verifier in live JSON mode. Offline
+check validates the entry point, package allowlist, Bicep/configuration path,
+and lazy SDK imports without constructing an Azure runner. The entry point
+resolves only the absolute App Service `HOME`, puts validated
+`$HOME/site/wwwroot` first on `sys.path`, rejects unexpected preloaded parent or
+target packages, proves the imported module is the exact HOME-owned operation
+file, and never derives imports from temporary Kudu staging, `cwd`, or
+`WEBJOBS_PATH`. Separate discovery performs one name-only
+read. Before separate trigger reads state or constructs a runner, it atomically
+creates the fixed
+`.artifacts/hosted-foundry-agent-webjob/trigger-reservation.lock`. That local
+reservation excludes trigger processes sharing this checkout's artifact
+filesystem; it is not a distributed lock across workstations or checkouts.
+Accepted context is then written once to immutable `accepted-trigger.json`.
+Accepted-but-uncorrelatable execution writes immutable `blocked-trigger.json`,
+or preserves the reservation when neither artifact can be made durable. No
+automatic expiry, cleanup, reset, or retrigger is allowed. After the trigger
+runner is entered, any nonzero result, timeout, exception, or empty, malformed,
+or unknown acceptance response is ambiguous and must create blocked state before
+reservation release. Only a specifically modeled local process-not-started
+failure is conclusively pre-submission and may permit a later explicit attempt.
 
-Do not fill that gap with interactive Kudu manipulation, improvised SSH or
-shell commands, a portal console, a temporary startup-command change, an ad hoc
-HTTP endpoint, a new WebJob, local execution masquerading as hosted proof, or
-any Azure CLI command that mutates application configuration.
+Separate status requires the immutable accepted receipt and one projected
+history read. It never mutates the receipt. Correlated terminal success or
+failure is written separately to immutable `terminal-outcome.json`; a repeated
+status request validates both artifacts and returns the recorded sanitized
+result without another Azure read. All lifecycle reads use descriptor-relative
+no-follow handling and reject symlinked parents, symlinked targets, and
+nonregular files. No mode retries, polls, sleeps, invokes the agent, or changes
+configuration.
+
+This repository-owned execution mechanism is offline-tested only. Before its
+first live use, current evidence must prove that the exact package is deployed
+and the fixed WebJob is discoverable in the approved Linux Web App. Do not use
+interactive Kudu manipulation, improvised SSH or shell commands, a portal
+console, a temporary startup-command change, an ad hoc HTTP endpoint, another
+WebJob, local execution masquerading as hosted proof, or any Azure CLI command
+that mutates application configuration.
 
 The operation also requires these five non-secret values:
 
@@ -140,17 +169,26 @@ The operation also requires these five non-secret values:
 - `AZURE_AI_FOUNDRY_AGENT_VERSION`
 - `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`
 
-The current Web App Bicep and shared hosted-configuration contract supply only
-the seven mock-safe provider/notification settings plus the remote-build
-setting. They do not supply these five verifier values through a
-repository-owned configuration boundary. This is a second blocking prerequisite
-and requires a separate implementation slice. Do not use manual environment-
-variable injection or ad hoc App Service setting changes as a substitute.
+These five values now flow through one disabled/enabled tagged configuration in
+`infra/main.bicep` and `infra/modules/web-app.bicep`. Disabled is the default for
+ordinary Web App deployment and emits none of the five settings. Explicit opt-in
+requires all five complete nonblank values. Direct `main.bicep` and reusable
+`web-app.bicep` deployment each map any empty, whitespace-only, or
+surrounding-whitespace enabled value to an empty nested-module value, where the
+compiled ARM `minLength: 1` constraint rejects deployment before an App Service
+setting can be emitted. The internal validation module creates no Azure service
+resource and uses no experimental Bicep feature. The seven
+mock-safe settings remain
+unchanged. Baseline configuration verification projects none of the five;
+explicit hosted-verifier verification compares all five to operator-approved
+values without returning them. This path is offline-tested only. Fresh live
+configuration proof is still required, and manual environment-variable
+injection or ad hoc App Service setting changes remain prohibited.
 
-These blockers mean the repository is not currently ready for the future live
-hosted metadata-verification execution. The packaged command and offline tests
-remain valid, but packaging alone does not prove hosted executability or
-configuration availability.
+The four reviewed lifecycle and raw-Bicep blockers are resolved offline. Live readiness is
+still blocked until the runbook's current infrastructure, immutable-version,
+configuration, package/code, WebJob discovery, readiness, and RBAC evidence is
+complete and manually reviewed.
 
 ## 7. Approved stage sequence
 
@@ -164,12 +202,21 @@ Operator authentication/current account
 -> exact immutable prompt-agent version verification
 -> current Web App configuration verification
 -> current hosted readiness verification
+-> current fixed WebJob discovery
 -> current exact direct RBAC verification
 -> offline hosted-verifier check
 -> manual review of all sanitized evidence
--> one explicitly authorized hosted metadata-verification execution
+-> one explicitly authorized WebJob trigger request
+-> review of trigger acceptance without treating it as verification success
+-> one separately authorized receipt-correlated status read
+-> immutable separate terminal outcome or fail-closed nonterminal result
 -> review of the sanitized result
 ```
+
+Trigger acceptance is not completion. Status discards every historical run
+before the current receipt lower bound and proves metadata success only when
+exactly one eligible run exists and is terminal `Success`; zero or multiple
+eligible runs, including stale successful history, fail closed.
 
 The final hosted execution belongs to a future slice. It must not run while
 preparing or reviewing this runbook, and it remains separate from every agent
@@ -233,8 +280,9 @@ following ad hoc Azure changes and unsafe operations:
   indefinite waiting, or retrying against alternate names, scopes, or
   credentials.
 - Portal-only substitutes, inferred names, historical evidence, interactive
-  Kudu or SSH manipulation, temporary startup changes, new WebJobs, ad hoc HTTP
-  endpoints, and manual environment-variable injection.
+  Kudu or SSH manipulation, temporary startup changes, any WebJob other than
+  the fixed repository-owned metadata verifier, ad hoc HTTP endpoints, and
+  manual environment-variable injection.
 - Raw CLI or SDK output in documentation.
 - Secrets, identity values, tokens, endpoints with embedded secrets, real
   patient data, or real contact information.
@@ -263,13 +311,17 @@ general polling, repeated calls, or indefinite waiting.
 - [ ] Every required non-secret verifier setting has a repository-owned
   deployment/configuration path and is currently available to the Web App.
 - [ ] A repository-owned bounded hosted execution mechanism exists and has been
-  separately implemented and reviewed.
+  separately implemented, packaged, deployed, discovered, and reviewed.
 - [ ] Offline hosted-verifier check passed without a credential, client, Azure
   call, metadata read, inference, invocation, or mutation.
 - [ ] All sanitized evidence has been manually reviewed; no raw output, secret,
   identity value, complete resource ID, patient data, or real contact data was
   captured.
 - [ ] No stop condition remains.
-- [ ] The operator explicitly authorizes exactly one hosted metadata-verification
-  execution. This authorization applies only to that metadata read and not to
-  agent invocation, model inference, deployment, RBAC change, or retry.
+- [ ] The operator explicitly authorizes exactly one WebJob trigger request.
+  This authorization applies only to the fixed metadata verifier and not to
+  agent invocation, model inference, status polling, deployment, RBAC change,
+  or retry.
+- [ ] After trigger acceptance, the operator separately authorizes at most one
+  receipt-correlated status read; trigger acceptance itself is not verification
+  success, and historical latest-run evidence is insufficient.

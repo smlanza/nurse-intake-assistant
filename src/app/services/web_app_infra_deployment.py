@@ -5,9 +5,11 @@ import re
 from typing import Literal, Protocol
 
 from src.app.services.web_app_hosting_contract import (
+    HOSTED_VERIFIER_BICEP_PARAMETERS,
     REMOTE_BUILD_SETTING,
     REMOTE_BUILD_VALUE,
     SAFE_HOSTED_SETTINGS,
+    hosted_verifier_settings_valid,
 )
 
 
@@ -62,6 +64,12 @@ class WebAppInfrastructureDeploymentRequest:
     cosmos_database_name: str
     cosmos_container_name: str
     template_file: Path
+    enable_hosted_foundry_verifier: bool = False
+    hosted_verifier_project_endpoint: str | None = None
+    hosted_verifier_stable_agent_endpoint: str | None = None
+    hosted_verifier_agent_name: str | None = None
+    hosted_verifier_agent_version: str | None = None
+    hosted_verifier_model_deployment_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -79,6 +87,7 @@ class WebAppInfrastructureDeploymentResult:
     deployment_attempted: bool
     deploy_app: bool
     deploy_foundry: bool
+    hosted_verifier_configuration_supplied: bool
     create_count: int | None
     modify_count: int | None
     delete_count: int | None
@@ -105,6 +114,9 @@ class WebAppInfrastructureDeploymentResult:
             "deployment_attempted": self.deployment_attempted,
             "deploy_app": self.deploy_app,
             "deploy_foundry": self.deploy_foundry,
+            "hosted_verifier_configuration_supplied": (
+                self.hosted_verifier_configuration_supplied
+            ),
             "create_count": self.create_count,
             "modify_count": self.modify_count,
             "delete_count": self.delete_count,
@@ -184,6 +196,9 @@ def _result(
         deployment_attempted=deployment_attempted,
         deploy_app=True,
         deploy_foundry=False,
+        hosted_verifier_configuration_supplied=(
+            local_validation_passed and request.enable_hosted_foundry_verifier
+        ),
         create_count=(what_if_summary.create_count if what_if_summary else None),
         modify_count=(what_if_summary.modify_count if what_if_summary else None),
         delete_count=(what_if_summary.delete_count if what_if_summary else None),
@@ -240,7 +255,37 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
         and _safe_argument(request.cosmos_container_name, maximum=255)
         and re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9])?", request.cosmos_container_name)
         is not None
+        and _hosted_verifier_arguments_valid(request)
     )
+
+
+def _hosted_verifier_settings(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> dict[str, object]:
+    return {
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": (
+            request.hosted_verifier_project_endpoint
+        ),
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT": (
+            request.hosted_verifier_stable_agent_endpoint
+        ),
+        "AZURE_AI_FOUNDRY_AGENT_NAME": request.hosted_verifier_agent_name,
+        "AZURE_AI_FOUNDRY_AGENT_VERSION": request.hosted_verifier_agent_version,
+        "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": (
+            request.hosted_verifier_model_deployment_name
+        ),
+    }
+
+
+def _hosted_verifier_arguments_valid(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> bool:
+    if not isinstance(request.enable_hosted_foundry_verifier, bool):
+        return False
+    values = _hosted_verifier_settings(request)
+    if request.enable_hosted_foundry_verifier:
+        return hosted_verifier_settings_valid(values)
+    return all(value is None for value in values.values())
 
 
 def _strip_bicep_comments(text: str) -> str:
@@ -371,7 +416,7 @@ def _app_settings_entries(module: str) -> list[tuple[str, str]] | None:
         return None
     app_settings = _body_after_pattern(
         site_config,
-        r"\bappSettings\s*:\s*\[",
+        r"\bappSettings\s*:\s*(?:concat\s*\(\s*)?\[",
         "[",
         "]",
     )
@@ -394,7 +439,8 @@ def _app_settings_entries(module: str) -> list[tuple[str, str]] | None:
             return None
         entry_body, index = extracted
         fields = re.fullmatch(
-            r"\s*name\s*:\s*'([^']+)'\s+value\s*:\s*'([^']*)'\s*",
+            r"\s*name\s*:\s*'([^']+)'\s+value\s*:\s*"
+            r"('(?:[^']|'')*'|[A-Za-z][A-Za-z0-9]*)\s*",
             entry_body,
         )
         if fields is None:
@@ -412,10 +458,104 @@ def _exact_hosted_settings_valid(module: str) -> bool:
         return False
     actual_settings = dict(entries)
     remote_build_value = actual_settings.pop(REMOTE_BUILD_SETTING, None)
+    safe_settings = {
+        name: actual_settings.pop(name, None) for name in SAFE_HOSTED_SETTINGS
+    }
     return (
-        actual_settings == SAFE_HOSTED_SETTINGS
-        and remote_build_value == REMOTE_BUILD_VALUE
+        not actual_settings
+        and safe_settings
+        == {name: repr(value) for name, value in SAFE_HOSTED_SETTINGS.items()}
+        and remote_build_value == repr(REMOTE_BUILD_VALUE)
     )
+
+
+def _optional_hosted_verifier_contract_valid(module: str) -> bool:
+    active = _strip_bicep_comments(module)
+    if not re.search(
+        r"var\s+hostedFoundryVerifierAppSettings\s*=\s*"
+        r"validatedHostedFoundryVerifierConfiguration\.mode\s*==\s*'enabled'\s*\?\s*\[",
+        active,
+    ):
+        return False
+    if not re.search(
+        r"appSettings\s*:\s*concat\s*\(\s*\[.*?\]\s*,\s*"
+        r"hostedFoundryVerifierAppSettings\s*\)",
+        active,
+        re.DOTALL,
+    ):
+        return False
+    for setting_name, property_name in HOSTED_VERIFIER_BICEP_PARAMETERS.items():
+        if re.search(
+            rf"name\s*:\s*'{re.escape(setting_name)}'\s+"
+            rf"value\s*:\s*validatedHostedFoundryVerifierConfiguration\.{property_name}",
+            active,
+        ) is None:
+            return False
+    expected_names = {
+        *SAFE_HOSTED_SETTINGS,
+        REMOTE_BUILD_SETTING,
+        *HOSTED_VERIFIER_BICEP_PARAMETERS,
+    }
+    return all(
+        len(re.findall(rf"\bname\s*:\s*'{re.escape(name)}'", active)) == 1
+        for name in expected_names
+    )
+
+
+def _module_local_hosted_verifier_validation_valid(
+    module: str,
+    validation_module: str,
+) -> bool:
+    active = _strip_bicep_comments(module)
+    validation = _strip_bicep_comments(validation_module)
+    if re.search(r"\bresource\s+[A-Za-z][A-Za-z0-9_]*\s+", validation):
+        return False
+    required_module_contract = (
+        r"param\s+hostedFoundryVerifierConfiguration\s+"
+        r"hostedFoundryVerifierConfigurationType\s*=\s*"
+        r"\{\s*mode\s*:\s*'disabled'\s*\}",
+        r"module\s+hostedFoundryVerifierConfigValidation\s+"
+        r"'hosted-foundry-verifier-config-validation\.bicep'\s*=\s*"
+        r"if\s*\(hostedFoundryVerifierConfiguration\.mode\s*==\s*'enabled'\)",
+        r"hostedFoundryVerifierConfiguration\s*:\s*"
+        r"validatedHostedFoundryVerifierConfiguration",
+        r"dependsOn\s*:\s*\[\s*hostedFoundryVerifierConfigValidation\s*\]",
+    )
+    if any(
+        re.search(pattern, active, re.DOTALL) is None
+        for pattern in required_module_contract
+    ):
+        return False
+    required_validation_contract = (
+        r"@discriminator\('mode'\)",
+        r"mode\s*:\s*'disabled'",
+        r"mode\s*:\s*'enabled'",
+        r"param\s+hostedFoundryVerifierConfiguration\s+"
+        r"hostedFoundryVerifierConfigurationType",
+    )
+    if any(
+        re.search(pattern, validation, re.DOTALL) is None
+        for pattern in required_validation_contract
+    ):
+        return False
+    for property_name in HOSTED_VERIFIER_BICEP_PARAMETERS.values():
+        value = rf"hostedFoundryVerifierConfiguration\.{property_name}"
+        if re.search(
+            rf"{value}\s*==\s*trim\(\s*{value}\s*\)\s*\?\s*{value}\s*:\s*''",
+            active,
+        ) is None:
+            return False
+        if re.search(
+            rf"@minLength\(1\)\s+{property_name}\s*:\s*string",
+            validation,
+        ) is None:
+            return False
+        if re.search(
+            rf"value\s*:\s*hostedFoundryVerifierConfiguration\.{property_name}",
+            active,
+        ) is not None:
+            return False
+    return True
 
 
 def _local_contract_valid(template_file: Path) -> bool:
@@ -427,6 +567,13 @@ def _local_contract_valid(template_file: Path) -> bool:
         if not web_app_module.is_file():
             return False
         module = web_app_module.read_text()
+        validation_module_path = (
+            template_file.parent
+            / "modules/hosted-foundry-verifier-config-validation.bicep"
+        )
+        if not validation_module_path.is_file():
+            return False
+        validation_module = validation_module_path.read_text()
     except OSError:
         return False
 
@@ -437,7 +584,41 @@ def _local_contract_valid(template_file: Path) -> bool:
     )
     if any(re.search(pattern, template) is None for pattern in template_contract):
         return False
-    return _exact_hosted_settings_valid(module)
+    tagged_configuration_contract = (
+        r"@discriminator\('mode'\)",
+        r"mode\s*:\s*'disabled'",
+        r"mode\s*:\s*'enabled'",
+        r"param\s+hostedFoundryVerifierConfiguration\s+"
+        r"hostedFoundryVerifierConfigurationType\s*=\s*\{\s*mode\s*:\s*'disabled'\s*\}",
+        r"hostedFoundryVerifierConfiguration\s*:\s*"
+        r"validatedHostedFoundryVerifierConfiguration",
+    )
+    if any(
+        re.search(pattern, template, re.DOTALL) is None
+        for pattern in tagged_configuration_contract
+    ):
+        return False
+    for property_name in HOSTED_VERIFIER_BICEP_PARAMETERS.values():
+        value = rf"hostedFoundryVerifierConfiguration\.{property_name}"
+        if re.search(
+            rf"{value}\s*==\s*trim\(\s*{value}\s*\)\s*\?\s*{value}\s*:\s*''",
+            template,
+        ) is None:
+            return False
+    return (
+        _exact_hosted_settings_valid(module)
+        and _optional_hosted_verifier_contract_valid(module)
+        and _module_local_hosted_verifier_validation_valid(
+            module,
+            validation_module,
+        )
+    )
+
+
+def web_app_infrastructure_local_contract_valid(template_file: Path) -> bool:
+    """Expose the offline Bicep contract check for related operator boundaries."""
+
+    return _local_contract_valid(template_file)
 
 
 def validate_web_app_infrastructure_request(
@@ -484,9 +665,30 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
             "deployApp=true",
             "deployFoundry=false",
             f"webAppName={request.web_app_name}",
+            "hostedFoundryVerifierConfiguration="
+            + json.dumps(
+                _hosted_verifier_bicep_configuration(request),
+                separators=(",", ":"),
+                sort_keys=True,
+            ),
         ]
     )
     return command
+
+
+def _hosted_verifier_bicep_configuration(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> dict[str, str]:
+    if not request.enable_hosted_foundry_verifier:
+        return {"mode": "disabled"}
+    settings = _hosted_verifier_settings(request)
+    return {
+        "mode": "enabled",
+        **{
+            property_name: str(settings[setting_name])
+            for setting_name, property_name in HOSTED_VERIFIER_BICEP_PARAMETERS.items()
+        },
+    }
 
 
 def _parse_what_if_summary(stdout: str) -> WhatIfSummary | None:

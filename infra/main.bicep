@@ -1,5 +1,28 @@
 targetScope = 'resourceGroup'
 
+type hostedFoundryVerifierDisabledConfiguration = {
+  mode: 'disabled'
+}
+
+type hostedFoundryVerifierEnabledConfiguration = {
+  mode: 'enabled'
+  @minLength(1)
+  projectEndpoint: string
+  @minLength(1)
+  agentEndpoint: string
+  @minLength(1)
+  agentName: string
+  @minLength(1)
+  agentVersion: string
+  @minLength(1)
+  modelDeploymentName: string
+}
+
+@discriminator('mode')
+type hostedFoundryVerifierConfigurationType =
+  | hostedFoundryVerifierDisabledConfiguration
+  | hostedFoundryVerifierEnabledConfiguration
+
 @description('Short environment name, such as dev, test, or demo.')
 @minLength(3)
 @maxLength(10)
@@ -36,6 +59,22 @@ param appServicePlanSkuName string = 'B1'
 
 @description('Linux runtime stack for optional Python application hosting.')
 param pythonLinuxFxVersion string = 'PYTHON|3.12'
+
+@description('Optional complete hosted metadata-verifier configuration; disabled for ordinary Web App deployment.')
+param hostedFoundryVerifierConfiguration hostedFoundryVerifierConfigurationType = {
+  mode: 'disabled'
+}
+
+var validatedHostedFoundryVerifierConfiguration = hostedFoundryVerifierConfiguration.mode == 'enabled' ? {
+  mode: 'enabled'
+  projectEndpoint: hostedFoundryVerifierConfiguration.projectEndpoint == trim(hostedFoundryVerifierConfiguration.projectEndpoint) ? hostedFoundryVerifierConfiguration.projectEndpoint : ''
+  agentEndpoint: hostedFoundryVerifierConfiguration.agentEndpoint == trim(hostedFoundryVerifierConfiguration.agentEndpoint) ? hostedFoundryVerifierConfiguration.agentEndpoint : ''
+  agentName: hostedFoundryVerifierConfiguration.agentName == trim(hostedFoundryVerifierConfiguration.agentName) ? hostedFoundryVerifierConfiguration.agentName : ''
+  agentVersion: hostedFoundryVerifierConfiguration.agentVersion == trim(hostedFoundryVerifierConfiguration.agentVersion) ? hostedFoundryVerifierConfiguration.agentVersion : ''
+  modelDeploymentName: hostedFoundryVerifierConfiguration.modelDeploymentName == trim(hostedFoundryVerifierConfiguration.modelDeploymentName) ? hostedFoundryVerifierConfiguration.modelDeploymentName : ''
+} : {
+  mode: 'disabled'
+}
 
 param foundryProjectName string = 'nurse-intake-project'
 param foundryProjectDisplayName string = 'Nurse Intake Assistant'
@@ -164,6 +203,7 @@ module webApp 'modules/web-app.bicep' = if (deployApp) {
     webAppName: resolvedWebAppName
     appServicePlanSkuName: appServicePlanSkuName
     pythonLinuxFxVersion: pythonLinuxFxVersion
+    hostedFoundryVerifierConfiguration: validatedHostedFoundryVerifierConfiguration
   }
 }
 

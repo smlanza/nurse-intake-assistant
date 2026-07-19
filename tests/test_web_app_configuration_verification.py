@@ -7,6 +7,18 @@ import pytest
 
 RESOURCE_GROUP = "fictional-rg"
 WEB_APP_NAME = "fictional-web-app"
+EXPECTED_HOSTED_VERIFIER_SETTINGS = {
+    "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": (
+        "https://fictional.services.ai.azure.com/api/projects/demo"
+    ),
+    "AZURE_AI_FOUNDRY_AGENT_ENDPOINT": (
+        "https://fictional.services.ai.azure.com/api/projects/demo/agents/"
+        "fictional-agent/endpoint/protocols/openai"
+    ),
+    "AZURE_AI_FOUNDRY_AGENT_NAME": "fictional-agent",
+    "AZURE_AI_FOUNDRY_AGENT_VERSION": "7",
+    "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": "fictional-model",
+}
 
 
 def _service():
@@ -53,6 +65,7 @@ def _settings(**overrides: str | None) -> str:
         "SMS_PROVIDER": "mock",
         "DEMO_SUPPRESS_NOTIFICATIONS": "true",
         "SCM_DO_BUILD_DURING_DEPLOYMENT": "true",
+        **EXPECTED_HOSTED_VERIFIER_SETTINGS,
     }
     for name, value in overrides.items():
         if value is None:
@@ -93,6 +106,8 @@ def _verify(runner: FakeRunner):
     return _service().verify_web_app_configuration(
         RESOURCE_GROUP,
         WEB_APP_NAME,
+        EXPECTED_HOSTED_VERIFIER_SETTINGS,
+        verify_hosted_foundry_verifier=True,
         runner=runner,
     )
 
@@ -107,6 +122,7 @@ def test_check_validates_local_contract_without_runner_or_azure_call() -> None:
     assert result.azure_request_attempted is False
     assert result.web_app_present is False
     assert result.managed_identity_present is False
+    assert result.hosted_verifier_configuration_verified is False
     assert result.recommended_next_step == (
         "Run explicit --live --json Web App configuration verification after operator review."
     )
@@ -134,6 +150,7 @@ def test_success_uses_three_targeted_read_only_commands_and_sanitized_result() -
     assert result.health_check_verified is True
     assert result.managed_identity_present is True
     assert result.safe_provider_posture_verified is True
+    assert result.hosted_verifier_configuration_verified is True
     assert result.recommended_next_step == (
         "Run the separate application code-deployment command."
     )
@@ -202,6 +219,26 @@ def test_success_uses_three_targeted_read_only_commands_and_sanitized_result() -
     assert WEB_APP_NAME not in serialized
 
 
+def test_baseline_live_verification_needs_no_hosted_values_and_uses_narrow_query() -> None:
+    service = _service()
+    runner = _success_runner()
+
+    result = service.verify_web_app_configuration(
+        RESOURCE_GROUP,
+        WEB_APP_NAME,
+        runner=runner,
+    )
+
+    assert result.ok is True
+    assert result.safe_provider_posture_verified is True
+    assert result.hosted_verifier_configuration_verified is False
+    assert runner.calls[2][runner.calls[2].index("--query") + 1] == (
+        service.BASE_APP_SETTINGS_QUERY
+    )
+    for name in EXPECTED_HOSTED_VERIFIER_SETTINGS:
+        assert name not in service.BASE_APP_SETTINGS_QUERY
+
+
 def test_running_enabled_cli_site_shape_proceeds_to_full_configuration_verification() -> None:
     runner = FakeRunner(
         [
@@ -237,6 +274,8 @@ def test_missing_live_arguments_make_no_azure_call() -> None:
         result = service.verify_web_app_configuration(
             resource_group,
             web_app_name,
+            EXPECTED_HOSTED_VERIFIER_SETTINGS,
+            verify_hosted_foundry_verifier=True,
             runner=runner,
         )
         assert result.category == "missing_arguments"
@@ -365,6 +404,62 @@ def test_remote_build_and_safe_provider_posture_failures_are_distinct() -> None:
         assert len(runner.calls) == 3
 
 
+@pytest.mark.parametrize(
+    ("setting_name", "actual_value"),
+    [
+        ("AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT", None),
+        ("AZURE_AI_FOUNDRY_AGENT_ENDPOINT", "https://mismatch.example"),
+        ("AZURE_AI_FOUNDRY_AGENT_NAME", "different-agent"),
+        ("AZURE_AI_FOUNDRY_AGENT_VERSION", "8"),
+        ("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", "different-model"),
+    ],
+)
+def test_hosted_verifier_setting_missing_or_mismatch_fails_closed(
+    setting_name: str,
+    actual_value: str | None,
+) -> None:
+    runner = FakeRunner(
+        [
+            _result(0, _site()),
+            _result(0, _config()),
+            _result(0, _settings(**{setting_name: actual_value})),
+        ]
+    )
+
+    result = _verify(runner)
+
+    assert result.ok is False
+    assert result.category == "hosted_verifier_configuration_invalid"
+    assert result.safe_provider_posture_verified is True
+    assert result.hosted_verifier_configuration_verified is False
+    rendered = json.dumps(result.to_json_dict())
+    assert actual_value not in rendered if actual_value else True
+
+
+def test_duplicate_projected_setting_fails_as_ambiguous_response() -> None:
+    payload = json.loads(_settings())
+    payload.append(
+        {
+            "name": "AZURE_AI_FOUNDRY_AGENT_VERSION",
+            "value": EXPECTED_HOSTED_VERIFIER_SETTINGS[
+                "AZURE_AI_FOUNDRY_AGENT_VERSION"
+            ],
+        }
+    )
+    runner = FakeRunner(
+        [
+            _result(0, _site()),
+            _result(0, _config()),
+            _result(0, json.dumps(payload)),
+        ]
+    )
+
+    result = _verify(runner)
+
+    assert result.category == "response_parse_failed"
+    assert result.hosted_verifier_configuration_verified is False
+
+
 def test_raw_identifiers_settings_errors_and_exceptions_never_leak() -> None:
     service = _service()
     sensitive = (
@@ -393,6 +488,8 @@ def test_raw_identifiers_settings_errors_and_exceptions_never_leak() -> None:
         service.verify_web_app_configuration(
             RESOURCE_GROUP,
             WEB_APP_NAME,
+            EXPECTED_HOSTED_VERIFIER_SETTINGS,
+            verify_hosted_foundry_verifier=True,
             runner=FakeRunner([RuntimeError(sensitive)]),
         ),
     ]
@@ -455,6 +552,8 @@ def test_local_contract_rejects_exact_mapping_and_scalar_mutations_before_reads(
             live_result = service.verify_web_app_configuration(
                 RESOURCE_GROUP,
                 WEB_APP_NAME,
+                EXPECTED_HOSTED_VERIFIER_SETTINGS,
+                verify_hosted_foundry_verifier=True,
                 runner=runner,
             )
 
@@ -476,6 +575,7 @@ def test_local_contract_rejects_exact_mapping_and_scalar_mutations_before_reads(
             assert live_result.health_check_verified is False
             assert live_result.managed_identity_present is False
             assert live_result.safe_provider_posture_verified is False
+            assert live_result.hosted_verifier_configuration_verified is False
             assert "local contract" in live_result.recommended_next_step.lower()
             assert runner.calls == []
         assert getattr(service, attribute) == original_value
@@ -544,6 +644,7 @@ def test_app_settings_query_filters_to_exact_bicep_owned_allowlist() -> None:
         "SMS_PROVIDER",
         "DEMO_SUPPRESS_NOTIFICATIONS",
         "SCM_DO_BUILD_DURING_DEPLOYMENT",
+        *EXPECTED_HOSTED_VERIFIER_SETTINGS,
     }
 
     requested_names = re.findall(r"name=='([^']+)'", query)
@@ -554,10 +655,6 @@ def test_app_settings_query_filters_to_exact_bicep_owned_allowlist() -> None:
     lowered = query.lower()
     for forbidden in (
         "connection",
-        "foundry",
-        "endpoint",
-        "agent_name",
-        "agent_version",
         "email_address",
         "phone",
         "secret",

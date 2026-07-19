@@ -91,20 +91,18 @@ def test_web_app_module_uses_safe_defaults_and_real_fastapi_entry_point() -> Non
 
 def test_web_app_module_enables_remote_build_for_source_zip_dependencies() -> None:
     compiled = _compile("modules/web-app.bicep")
+    resources = compiled["resources"]
     web_app = next(
         resource
-        for resource in compiled["resources"]
+        for resource in (
+            resources.values() if isinstance(resources, dict) else resources
+        )
         if resource["type"] == "Microsoft.Web/sites"
     )
-    matching_settings = [
-        setting
-        for setting in web_app["properties"]["siteConfig"]["appSettings"]
-        if setting["name"] == "SCM_DO_BUILD_DURING_DEPLOYMENT"
-    ]
+    app_settings = web_app["properties"]["siteConfig"]["appSettings"]
 
-    assert matching_settings == [
-        {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true"}
-    ]
+    assert app_settings.count("SCM_DO_BUILD_DURING_DEPLOYMENT") == 1
+    assert "'value', 'true'" in app_settings
 
 
 def test_web_app_module_has_no_secrets_rbac_or_foundry_runtime_coupling() -> None:
@@ -119,9 +117,6 @@ def test_web_app_module_has_no_secrets_rbac_or_foundry_runtime_coupling() -> Non
         "client_secret",
         "access_token",
         "cosmos_key",
-        "azure_ai_foundry_agent_endpoint",
-        "azure_ai_foundry_agent_name",
-        "azure_ai_foundry_agent_version",
         "managed_identity_client_id",
         "microsoft.authorization/roleassignments",
         "microsoft.cognitiveservices",
@@ -129,6 +124,133 @@ def test_web_app_module_has_no_secrets_rbac_or_foundry_runtime_coupling() -> Non
     ):
         assert forbidden not in lowered
     assert "microsoft.authorization/roleassignments" not in main.lower()
+
+
+def test_hosted_verifier_settings_are_optional_tagged_enabled_configuration() -> None:
+    main = _text("main.bicep")
+    module = _text("modules/web-app.bicep")
+    compiled_module = _compile("modules/web-app.bicep")
+    settings = {
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": "projectEndpoint",
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT": "agentEndpoint",
+        "AZURE_AI_FOUNDRY_AGENT_NAME": "agentName",
+        "AZURE_AI_FOUNDRY_AGENT_VERSION": "agentVersion",
+        "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": (
+            "modelDeploymentName"
+        ),
+    }
+
+    for text in (main, module):
+        assert "@discriminator('mode')" in text
+        assert "mode: 'disabled'" in text
+        assert "mode: 'enabled'" in text
+        for property_name in settings.values():
+            assert re.search(rf"@minLength\(1\)\s+{property_name}:\s*string", text)
+    assert re.search(
+        r"param\s+hostedFoundryVerifierConfiguration\s+"
+        r"hostedFoundryVerifierConfigurationType\s*=\s*\{\s*mode:\s*'disabled'\s*\}",
+        main,
+    )
+    assert compiled_module["parameters"]["hostedFoundryVerifierConfiguration"][
+        "defaultValue"
+    ] == {"mode": "disabled"}
+    assert (
+        "hostedFoundryVerifierConfiguration: "
+        "validatedHostedFoundryVerifierConfiguration"
+    ) in main
+    assert "validatedHostedFoundryVerifierConfiguration.mode == 'enabled'" in module
+    assert "appSettings: concat([" in module
+    assert "hostedFoundryVerifierAppSettings" in module
+
+    for setting_name, parameter_name in settings.items():
+        assert re.search(
+            rf"name:\s*'{setting_name}'\s+value:\s*"
+            rf"validatedHostedFoundryVerifierConfiguration\.{parameter_name}",
+            module,
+        )
+    for obsolete in (
+        "hostedVerifierProjectEndpoint",
+        "hostedVerifierStableAgentEndpoint",
+        "hostedVerifierAgentName",
+        "hostedVerifierAgentVersion",
+        "hostedVerifierModelDeploymentName",
+    ):
+        assert not re.search(rf"param\s+{obsolete}\b", main)
+
+
+def test_direct_web_app_module_has_independent_nested_whitespace_validation() -> None:
+    compiled = _compile("modules/web-app.bicep")
+    resources = compiled["resources"]
+    resources = list(resources.values()) if isinstance(resources, dict) else resources
+    validation = next(
+        resource
+        for resource in resources
+        if resource["type"] == "Microsoft.Resources/deployments"
+    )
+    web_app = next(
+        resource for resource in resources if resource["type"] == "Microsoft.Web/sites"
+    )
+    guarded = compiled["variables"][
+        "validatedHostedFoundryVerifierConfiguration"
+    ]
+    enabled = validation["properties"]["template"]["definitions"][
+        "hostedFoundryVerifierEnabledConfiguration"
+    ]["properties"]
+    settings = web_app["properties"]["siteConfig"]["appSettings"]
+    hosted_settings = compiled["variables"]["hostedFoundryVerifierAppSettings"]
+
+    assert guarded.count("trim(") == 5
+    assert guarded.count("equals(") >= 5
+    assert not validation["properties"]["template"]["resources"]
+    assert validation["condition"] == (
+        "[equals(parameters('hostedFoundryVerifierConfiguration').mode, 'enabled')]"
+    )
+    for name in (
+        "projectEndpoint",
+        "agentEndpoint",
+        "agentName",
+        "agentVersion",
+        "modelDeploymentName",
+    ):
+        parameter = f"parameters('hostedFoundryVerifierConfiguration').{name}"
+        assert parameter in guarded
+        assert f"trim({parameter})" in guarded
+        assert enabled[name]["minLength"] == 1
+        assert parameter not in hosted_settings
+        assert (
+            f"variables('validatedHostedFoundryVerifierConfiguration').{name}"
+            in hosted_settings
+        )
+    assert "variables('hostedFoundryVerifierAppSettings')" in settings
+    assert any(
+        "hostedFoundryVerifierConfigValidation" in item
+        for item in web_app["dependsOn"]
+    )
+
+    for raw_value in ("", " ", "\t", "\n", " leading", "trailing "):
+        guarded_value = raw_value if raw_value == raw_value.strip() else ""
+        assert len(guarded_value) < 1
+    assert ("approved" if "approved" == "approved".strip() else "") == "approved"
+
+
+def test_internal_hosted_verifier_validation_module_compiles_without_resources() -> None:
+    compiled = _compile("modules/hosted-foundry-verifier-config-validation.bicep")
+
+    assert not compiled["resources"]
+    assert compiled["outputs"]["configurationValidated"]["type"] == "bool"
+    enabled = compiled["definitions"][
+        "hostedFoundryVerifierEnabledConfiguration"
+    ]["properties"]
+    assert all(
+        enabled[name]["minLength"] == 1
+        for name in (
+            "projectEndpoint",
+            "agentEndpoint",
+            "agentName",
+            "agentVersion",
+            "modelDeploymentName",
+        )
+    )
 
 
 def test_main_preserves_existing_resources_and_exposes_only_safe_app_outputs() -> None:

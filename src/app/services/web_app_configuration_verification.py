@@ -1,10 +1,13 @@
 from dataclasses import dataclass
 import json
+from collections.abc import Mapping
 from typing import Literal, Protocol
 
 from src.app.services.web_app_hosting_contract import (
+    HOSTED_VERIFIER_SETTING_NAMES,
     REMOTE_BUILD_SETTING,
     SAFE_HOSTED_SETTINGS,
+    hosted_verifier_settings_valid,
 )
 
 EXPECTED_LOCAL_CONTRACT = {
@@ -20,6 +23,7 @@ EXPECTED_LINUX_FX_VERSION = EXPECTED_LOCAL_CONTRACT["linux_fx_version"]
 EXPECTED_STARTUP_COMMAND = EXPECTED_LOCAL_CONTRACT["startup_command"]
 EXPECTED_HEALTH_CHECK_PATH = EXPECTED_LOCAL_CONTRACT["health_check_path"]
 SAFE_APP_SETTINGS = dict(EXPECTED_SAFE_APP_SETTINGS)
+EXPECTED_HOSTED_VERIFIER_SETTING_NAMES = HOSTED_VERIFIER_SETTING_NAMES
 
 SITE_QUERY = (
     "{state:state,enabled:enabled,httpsOnly:httpsOnly,kind:kind,"
@@ -30,12 +34,25 @@ SITE_CONFIG_QUERY = (
     "ftpsState:ftpsState,minTlsVersion:minTlsVersion,"
     "scmMinTlsVersion:scmMinTlsVersion,healthCheckPath:healthCheckPath}"
 )
-_APP_SETTING_NAMES = (*SAFE_APP_SETTINGS, REMOTE_BUILD_SETTING)
-APP_SETTINGS_QUERY = (
-    "[?"
-    + " || ".join(f"name=='{name}'" for name in _APP_SETTING_NAMES)
-    + "].{name:name,value:value}"
+_BASE_APP_SETTING_NAMES = (
+    *SAFE_APP_SETTINGS,
+    REMOTE_BUILD_SETTING,
 )
+
+
+def _app_settings_query(include_hosted_verifier: bool) -> str:
+    names = _BASE_APP_SETTING_NAMES + (
+        EXPECTED_HOSTED_VERIFIER_SETTING_NAMES if include_hosted_verifier else ()
+    )
+    return (
+        "[?"
+        + " || ".join(f"name=='{name}'" for name in names)
+        + "].{name:name,value:value}"
+    )
+
+
+BASE_APP_SETTINGS_QUERY = _app_settings_query(False)
+APP_SETTINGS_QUERY = _app_settings_query(True)
 
 ConfigurationCategory = Literal[
     "success",
@@ -48,6 +65,7 @@ ConfigurationCategory = Literal[
     "security_configuration_invalid",
     "managed_identity_missing",
     "safe_posture_invalid",
+    "hosted_verifier_configuration_invalid",
     "azure_cli_unavailable",
     "authentication_or_authorization_failed",
     "azure_request_failed",
@@ -67,6 +85,9 @@ MESSAGES: dict[ConfigurationCategory, str] = {
     "security_configuration_invalid": "The Web App security configuration is invalid.",
     "managed_identity_missing": "A system-assigned managed identity is missing.",
     "safe_posture_invalid": "The hosted provider posture is not safe.",
+    "hosted_verifier_configuration_invalid": (
+        "The hosted verifier configuration is missing or does not match."
+    ),
     "azure_cli_unavailable": "Azure CLI is unavailable.",
     "authentication_or_authorization_failed": (
         "Azure authentication or authorization failed."
@@ -87,6 +108,9 @@ NEXT_STEPS: dict[ConfigurationCategory, str] = {
     "security_configuration_invalid": "Review HTTPS, FTPS, TLS, and health-check configuration.",
     "managed_identity_missing": "Provision the Bicep-owned system-assigned identity before continuing.",
     "safe_posture_invalid": "Restore mock providers and suppressed notifications before continuing.",
+    "hosted_verifier_configuration_invalid": (
+        "Review the five approved non-secret hosted verifier settings."
+    ),
     "azure_cli_unavailable": "Install Azure CLI before an explicit live verification.",
     "authentication_or_authorization_failed": (
         "Authenticate with least-privilege read access before verifying again."
@@ -134,6 +158,7 @@ class WebAppConfigurationVerificationResult:
     health_check_verified: bool
     managed_identity_present: bool
     safe_provider_posture_verified: bool
+    hosted_verifier_configuration_verified: bool
     recommended_next_step: str
 
     @classmethod
@@ -147,7 +172,11 @@ class WebAppConfigurationVerificationResult:
         )
 
     @classmethod
-    def live_success(cls) -> "WebAppConfigurationVerificationResult":
+    def live_success(
+        cls,
+        *,
+        hosted_verifier_configuration_verified: bool = False,
+    ) -> "WebAppConfigurationVerificationResult":
         return cls._create(
             "live",
             "success",
@@ -165,6 +194,9 @@ class WebAppConfigurationVerificationResult:
             health_check_verified=True,
             managed_identity_present=True,
             safe_provider_posture_verified=True,
+            hosted_verifier_configuration_verified=(
+                hosted_verifier_configuration_verified
+            ),
         )
 
     @classmethod
@@ -206,6 +238,7 @@ class WebAppConfigurationVerificationResult:
         health_check_verified: bool = False,
         managed_identity_present: bool = False,
         safe_provider_posture_verified: bool = False,
+        hosted_verifier_configuration_verified: bool = False,
         recommended_next_step: str | None = None,
     ) -> "WebAppConfigurationVerificationResult":
         return cls(
@@ -227,6 +260,9 @@ class WebAppConfigurationVerificationResult:
             health_check_verified=health_check_verified,
             managed_identity_present=managed_identity_present,
             safe_provider_posture_verified=safe_provider_posture_verified,
+            hosted_verifier_configuration_verified=(
+                hosted_verifier_configuration_verified
+            ),
             recommended_next_step=recommended_next_step or NEXT_STEPS[category],
         )
 
@@ -250,6 +286,9 @@ class WebAppConfigurationVerificationResult:
             "health_check_verified": self.health_check_verified,
             "managed_identity_present": self.managed_identity_present,
             "safe_provider_posture_verified": self.safe_provider_posture_verified,
+            "hosted_verifier_configuration_verified": (
+                self.hosted_verifier_configuration_verified
+            ),
             "recommended_next_step": self.recommended_next_step,
         }
 
@@ -263,10 +302,29 @@ def check_web_app_configuration_contract() -> WebAppConfigurationVerificationRes
 def verify_web_app_configuration(
     resource_group: str | None,
     web_app_name: str | None,
+    expected_hosted_verifier_settings: Mapping[str, object] | None = None,
     *,
+    verify_hosted_foundry_verifier: bool = False,
     runner: AzureCliRunner,
 ) -> WebAppConfigurationVerificationResult:
-    if not _nonempty(resource_group) or not _nonempty(web_app_name):
+    if (
+        not _nonempty(resource_group)
+        or not _nonempty(web_app_name)
+        or not isinstance(verify_hosted_foundry_verifier, bool)
+        or (
+            verify_hosted_foundry_verifier
+            and (
+                not isinstance(expected_hosted_verifier_settings, Mapping)
+                or not hosted_verifier_settings_valid(
+                    expected_hosted_verifier_settings
+                )
+            )
+        )
+        or (
+            not verify_hosted_foundry_verifier
+            and expected_hosted_verifier_settings is not None
+        )
+    ):
         return WebAppConfigurationVerificationResult.failure("missing_arguments")
     if not _local_contract_valid():
         return WebAppConfigurationVerificationResult.local_contract_failure("live")
@@ -285,6 +343,7 @@ def verify_web_app_configuration(
         "health_check_verified": False,
         "managed_identity_present": False,
         "safe_provider_posture_verified": False,
+        "hosted_verifier_configuration_verified": False,
     }
     resource_group = resource_group.strip()
     web_app_name = web_app_name.strip()
@@ -418,7 +477,7 @@ def verify_web_app_configuration(
             "--name",
             web_app_name,
             "--query",
-            APP_SETTINGS_QUERY,
+            _app_settings_query(verify_hosted_foundry_verifier),
             "--output",
             "json",
             "--only-show-errors",
@@ -443,7 +502,21 @@ def verify_web_app_configuration(
             "safe_posture_invalid", **progress
         )
     progress["safe_provider_posture_verified"] = True
-    return WebAppConfigurationVerificationResult.live_success()
+    if verify_hosted_foundry_verifier:
+        assert isinstance(expected_hosted_verifier_settings, Mapping)
+        if any(
+            settings.get(name) != expected_hosted_verifier_settings[name]
+            for name in EXPECTED_HOSTED_VERIFIER_SETTING_NAMES
+        ):
+            return WebAppConfigurationVerificationResult.failure(
+                "hosted_verifier_configuration_invalid", **progress
+            )
+        progress["hosted_verifier_configuration_verified"] = True
+    return WebAppConfigurationVerificationResult.live_success(
+        hosted_verifier_configuration_verified=(
+            verify_hosted_foundry_verifier
+        )
+    )
 
 
 def _read_json(
@@ -503,6 +576,8 @@ def _settings_dict(payload: object) -> dict[str, str] | None:
         value = item.get("value")
         if not isinstance(name, str) or not isinstance(value, str):
             return None
+        if name in settings:
+            return None
         settings[name] = value
     return settings
 
@@ -528,5 +603,6 @@ def _local_contract_valid() -> bool:
         and EXPECTED_HEALTH_CHECK_PATH
         == EXPECTED_LOCAL_CONTRACT["health_check_path"]
         and SAFE_APP_SETTINGS == EXPECTED_SAFE_APP_SETTINGS
+        and EXPECTED_HOSTED_VERIFIER_SETTING_NAMES == HOSTED_VERIFIER_SETTING_NAMES
         and REMOTE_BUILD_SETTING == EXPECTED_LOCAL_CONTRACT["remote_build_setting"]
     )

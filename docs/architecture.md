@@ -455,6 +455,72 @@ closed. The command closes the project client and credential synchronously on
 every post-construction outcome; cleanup failures are suppressed and cannot
 replace the primary result. No live managed-identity verification has run.
 
+The five non-secret values consumed by that verifier now use one optional
+tagged configuration from `infra/main.bicep` through
+`infra/modules/web-app.bicep` into App Service settings. The default disabled
+form requires and writes none of them, preserving ordinary Web App deployment.
+Explicit `--enable-hosted-foundry-verifier` requires all five complete,
+nonblank values before runner construction. Both raw deployable boundaries,
+`main.bicep` and `modules/web-app.bicep`, reject empty, whitespace-only, and
+surrounding-whitespace values: each maps any non-exact trimmed value to an empty
+nested-module property, whose compiled ARM `minLength: 1` contract fails
+deployment validation before Web App settings are emitted. The reusable module
+uses a resource-free internal validation template and no experimental Bicep
+feature. The read-only
+configuration verifier likewise defaults to the baseline
+hosting projection; explicit hosted-verifier opt-in projects and exactly
+compares all five without serializing either side. The exact seven mock-safe
+provider and notification settings remain unchanged, and remote build remains
+enabled; this does not enable a live provider in FastAPI.
+
+`App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py` is the sole
+allowlisted `App_Data` member in the deterministic Web App package. This thin,
+manually triggered Python WebJob calls only the existing hosted metadata
+operation with fixed `--live --json` arguments. It accepts no prompt or
+configuration override and adds no schedule, continuous job, HTTP route,
+credential implementation, persistence, notification, inference, or
+invocation path. Before importing `src`, it resolves only the App
+Service-provided absolute `HOME`, unconditionally puts the validated
+`$HOME/site/wwwroot` first on `sys.path`, fails closed for unexpected preloaded
+parent or target modules, and proves after import that the module's resolved
+file is exactly the validated HOME-owned operation. Temporary Kudu staging
+ancestry, the working directory, and `WEBJOBS_PATH` cannot select the import.
+
+`src/app/services/hosted_foundry_agent_webjob_execution.py` and
+`scripts/run_hosted_foundry_agent_verification.py` provide four separate
+operator stages. Offline check validates the fixed entry point, package,
+Bicep/configuration, and lazy-SDK contracts without a runner. Explicit discovery
+performs exactly one name-only read and distinguishes remote discovery from
+local package presence. Explicit trigger submits one fixed run request and,
+before reading lifecycle state or constructing a runner, atomically creates one
+fixed exclusive reservation beneath
+`.artifacts/hosted-foundry-agent-webjob/`. The reservation excludes concurrent
+trigger processes sharing that repository artifact filesystem; it is not a
+distributed lock across machines or checkouts. Accepted context is atomically
+recorded once in immutable `accepted-trigger.json`. Receipt-persistence failure
+after acceptance creates immutable `blocked-trigger.json`; if both writes fail,
+the reservation is preserved for manual investigation. After runner entry, a
+nonzero return, timeout, exception, or empty, malformed, or unknown acceptance
+response is ambiguous and creates the same immutable blocked state before
+reservation release. Only the repository-owned process-not-started exception
+conclusively proves a local pre-submission failure and permits a later explicit
+attempt. There is no automatic expiry, cleanup, reset, or retrigger path.
+
+Explicit status requires the immutable resource/app/job receipt before runner
+construction, discards runs before its UTC lower bound, and requires exactly one
+eligible known run. It never changes the receipt. A correlated terminal success
+or failure is atomically recorded separately in immutable
+`terminal-outcome.json`; repeated status returns that sanitized recorded result
+without another Azure read, while mismatched or conflicting evidence fails
+closed. Descriptor-relative no-follow reads reject symlinked state parents,
+targets, and nonregular files. Trigger acceptance is never metadata success;
+only the single receipt-correlated terminal `Success` can prove the operation
+exited successfully. Raw history, timestamps, lifecycle contents, paths, lock
+information, logs, identifiers, endpoints, and operator values are never
+serialized.
+The boundary has only offline test evidence; no WebJob was deployed, discovered,
+triggered, or read live in this slice.
+
 `src/app/services/hosted_foundry_agent_invocation.py` and the packaged
 `src/app/operations/invoke_hosted_foundry_agent.py` implement the following,
 strictly separate fictional-data invocation proof. Check mode validates local
@@ -493,9 +559,10 @@ already-existing Web App before code deployment. Check mode validates the local
 contract without creating an Azure CLI runner. Only explicit `--live --json`
 uses three read-only Azure CLI commands with explicit JSON output projections.
 JMESPath `--query` shapes the JSON emitted to the Python verifier; it does not
-limit what Azure reads. The app-settings projection emits only the eight
-Bicep-owned settings to the verifier. The application never returns, logs, or
-serializes raw unfiltered Azure CLI output.
+limit what Azure reads. The baseline app-settings projection emits only the
+eight hosting settings; hosted-verifier opt-in adds the five verifier names.
+The application never returns, logs, or serializes raw unfiltered Azure CLI
+output.
 The verifier checks successful provisioning, Linux `PYTHON|3.12`, the current
 uvicorn startup command, remote build, HTTPS-only access, disabled FTPS, TLS
 1.2 minimums, `/health`, system-assigned identity presence, mock providers, and

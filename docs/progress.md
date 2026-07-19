@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,410 passed
+- 1,521 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -59,11 +59,16 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned identity boundary with offline-tested remote-build automation; application hosting remains disabled by default.
 - `src/app/services/web_app_infra_deployment.py`: sanitized infrastructure deployment contract; `scripts/deploy_web_app_infra.py`: offline check and explicit what-if/live operator CLI for the existing `main.bicep`.
 - `src/app/services/web_app_hosting_contract.py`: exact seven-setting contract
-  shared by infrastructure deployment and configuration verification.
+  plus a separate exact five-setting hosted-verifier contract shared by
+  infrastructure deployment and configuration verification.
 - `infra/foundry-agent-consumer-rbac.bicep`: explicit independent assignment entry point; `infra/modules/foundry-agent-consumer-rbac.bicep`: project-scoped Foundry Agent Consumer role module.
 - `src/app/services/foundry_agent_consumer_rbac_deployment.py` and `scripts/deploy_foundry_agent_consumer_rbac.py`: offline check plus explicit what-if/live request boundary for that exact entry point.
 - `src/app/services/foundry_agent_consumer_rbac_verification.py` and `scripts/verify_foundry_agent_consumer_rbac.py`: offline check plus explicit read-only assignment proof for the exact identity, role, and project scope.
 - Packaged `src/app/operations/verify_hosted_foundry_agent.py`: strict system-identity metadata verification using the existing agent contract.
+- Fixed packaged WebJob `App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`
+  and `scripts/run_hosted_foundry_agent_verification.py`: offline check plus
+  separate one-read discovery, one-request trigger, and receipt-correlated
+  one-read status boundaries.
 - Packaged `src/app/operations/invoke_hosted_foundry_agent.py`: separate strict system-identity boundary for one fixed fictional invocation and sanitized application-contract proof; check mode is offline and live remains explicit.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
@@ -135,11 +140,11 @@ Operator completes runbook and checklist
 
 Before any hosted managed-identity metadata proof, complete
 `docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md` with an
-exact operator-approved inventory and fresh evidence. The repository currently
-lacks both a repository-owned mechanism to launch the packaged verifier inside
-the Web App and a repository-owned deployment/configuration path for its five
-required non-secret settings. Those are explicit blockers; implement and verify
-them in a separate slice before authorizing hosted metadata verification.
+exact operator-approved inventory and fresh evidence. The repository-owned
+optional five-setting Bicep/configuration path and fixed manually triggered
+WebJob now exist offline. They remain unproven in App Service until separately
+authorized infrastructure/configuration verification, code deployment, WebJob
+discovery, readiness, and the other runbook prerequisites are freshly completed.
 Do not claim as complete:
 - Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path
 - Historical evidence only: Manual live Foundry Agent smoke passed in an
@@ -352,13 +357,13 @@ The exact recommended next boundary is:
 
 Project-scoped Consumer deployment and exact direct-assignment verification are
 separately proven. The hosted-verification prerequisite runbook now exists, but
-its repository-owned execution and non-secret configuration gates are blocked.
-Next narrow implementation boundary:
+its new configuration and WebJob boundaries are offline-tested only. Next
+narrow live prerequisite boundary:
 ```text
-Add a bounded repository-owned hosted execution mechanism
-and a repository-owned non-secret verifier configuration path
--> complete the prerequisite runbook with fresh proof
--> separately authorize one hosted managed-identity metadata verification
+Complete the runbook with fresh infrastructure, agent-version,
+configuration, package/code, readiness, WebJob discovery, and RBAC proof
+-> separately authorize one WebJob trigger
+-> separately authorize one receipt-correlated status read
 ```
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
@@ -371,12 +376,46 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Status
 
+- The five non-secret hosted-verifier settings now use a disabled-by-default
+  tagged Bicep configuration: ordinary Web App deployment omits them, while
+  explicit opt-in requires all five complete nonblank values and enables exact
+  read-only comparison. Direct `main.bicep` and reusable `web-app.bicep`
+  deployments reject empty, whitespace-only, and surrounding-whitespace values
+  through trim-aware nested-module `minLength` contracts. The fixed WebJob
+  resolves only validated App Service `$HOME/site/wwwroot`, forces that root to
+  import precedence, rejects unexpected preloaded packages, and proves the
+  imported operation is the exact HOME-owned file before calling it. Local package
+  presence and remote name-only discovery remain distinct. Before any trigger
+  runner is constructed, an atomic fixed reservation excludes concurrent
+  trigger processes sharing one checkout's artifact filesystem; it is not a
+  distributed cross-machine lock. Accepted receipts are immutable. After runner
+  entry, any nonzero result, exception, timeout, or unvalidated response leaves
+  durable blocked state and cannot permit a duplicate trigger; only a specifically
+  modeled local process-not-started failure is conclusively pre-submission.
+  An accepted but uncorrelatable request also leaves durable blocked state, and terminal status
+  is recorded separately without changing the receipt. Descriptor-relative
+  no-follow reads reject symlinked state parents and targets. Status proof still
+  requires exactly one run after the receipt's UTC lower bound; stale 2020
+  history is rejected and invocation remains later and separate. No Azure operation,
+  deployment, discovery, WebJob trigger or status read, token, metadata read,
+  inference, invocation, or RBAC change ran.
+  Mock providers, notification suppression, fictional-data restrictions,
+  mandatory nurse review, and the non-production boundary remain unchanged.
+  These repository boundaries are offline-implemented and have not run live.
+  The next stage is completing the checked-in prerequisite runbook with fresh
+  operator evidence; discovery, trigger, correlated status, hosted metadata
+  verification, and later agent invocation remain separately authorized stages.
+  Correction-focused GREEN is 239 passed.
+
+### Historical Slice Results
+
 - `docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md` now
-  guards the future hosted system-identity metadata proof. RED was the focused
+  guards the future hosted system-identity metadata proof. At that historical
+  point, RED was the focused
   documentation test failing because the runbook was absent. No Azure operation
   or hosted metadata verification ran. The next execution step is conditional
-  on completing the runbook, and the missing hosted execution and configuration
-  boundaries above become the next implementation slice. Agent invocation
+  on completing the runbook, and the then-missing hosted execution and configuration
+  boundaries were the next implementation slice. Agent invocation
   remains later and separate. Mock defaults, notification suppression,
   fictional-data restrictions, mandatory nurse review, and the non-production
   boundary are unchanged. Focused documentation GREEN is 22 passed; full GREEN

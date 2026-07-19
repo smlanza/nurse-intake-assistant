@@ -57,13 +57,42 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--web-app-name", required=True)
     parser.add_argument("--cosmos-database-name", default="nurse-intake")
     parser.add_argument("--cosmos-container-name", default="cases")
+    parser.add_argument("--enable-hosted-foundry-verifier", action="store_true")
+    for option in (
+        "hosted-verifier-project-endpoint",
+        "hosted-verifier-stable-agent-endpoint",
+        "hosted-verifier-agent-name",
+        "hosted-verifier-agent-version",
+        "hosted-verifier-model-deployment-name",
+    ):
+        parser.add_argument(f"--{option}", action="append")
     parser.add_argument(
         "--template-file",
         type=Path,
         default=ROOT / "infra/main.bicep",
     )
     parser.add_argument("--json", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    for attribute in (
+        "hosted_verifier_project_endpoint",
+        "hosted_verifier_stable_agent_endpoint",
+        "hosted_verifier_agent_name",
+        "hosted_verifier_agent_version",
+        "hosted_verifier_model_deployment_name",
+    ):
+        values = getattr(args, attribute)
+        if args.enable_hosted_foundry_verifier:
+            if not isinstance(values, list) or len(values) != 1:
+                parser.error(
+                    f"--{attribute.replace('_', '-')} is required exactly once "
+                    "with --enable-hosted-foundry-verifier"
+                )
+            setattr(args, attribute, values[0])
+        elif values:
+            parser.error(
+                "hosted verifier values require --enable-hosted-foundry-verifier"
+            )
+    return args
 
 
 def _request(args: argparse.Namespace) -> WebAppInfrastructureDeploymentRequest:
@@ -77,6 +106,16 @@ def _request(args: argparse.Namespace) -> WebAppInfrastructureDeploymentRequest:
         web_app_name=args.web_app_name,
         cosmos_database_name=args.cosmos_database_name,
         cosmos_container_name=args.cosmos_container_name,
+        enable_hosted_foundry_verifier=args.enable_hosted_foundry_verifier,
+        hosted_verifier_project_endpoint=args.hosted_verifier_project_endpoint,
+        hosted_verifier_stable_agent_endpoint=(
+            args.hosted_verifier_stable_agent_endpoint
+        ),
+        hosted_verifier_agent_name=args.hosted_verifier_agent_name,
+        hosted_verifier_agent_version=args.hosted_verifier_agent_version,
+        hosted_verifier_model_deployment_name=(
+            args.hosted_verifier_model_deployment_name
+        ),
         template_file=args.template_file,
     )
 

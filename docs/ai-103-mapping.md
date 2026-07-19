@@ -150,11 +150,36 @@ Scope boundaries:
   No token acquisition, hosted Foundry verification, or invocation occurred
 - The packaged App Service-hosted prompt-agent verifier is offline-tested only. Its system-assigned
   identity credential and metadata reads do not prove hosted authorization
+- The verifier's exact five non-secret settings use a disabled-by-default tagged
+  Bicep configuration; ordinary Web App deployment omits them, while explicit
+  opt-in requires all five nonblank values and enables matching read-only proof.
+  Direct `main.bicep` and reusable `web-app.bicep` deployments reject whitespace
+  through trim-aware nested-module `minLength` validation without experimental
+  Bicep features.
+  The seven mock-safe application settings remain unchanged. The deterministic
+  package contains one manually triggered Python WebJob that calls only the
+  metadata verifier, forces validated `$HOME/site/wwwroot` to import precedence,
+  rejects unexpected preloaded packages, and proves the exact HOME-owned module
+  file after import, independent of temporary Kudu staging. A fixed exclusive
+  local reservation protects one
+  checkout's shared artifact filesystem; it is not a cross-machine lock.
+  Accepted receipts remain immutable. Any unvalidated result after trigger-runner
+  entry is durably blocked before reservation release; only a proven local
+  process-not-started failure permits a later explicit attempt.
+  Accepted-but-uncorrelatable attempts are likewise durably blocked, symlinked
+  state is rejected, and terminal outcomes are stored
+  separately. Local presence, remote discovery, reservation, trigger acceptance,
+  receipt-correlated status, terminal outcome, metadata proof, and invocation
+  are separate. Status accepts only exactly one run at or after the current
+  trigger's UTC lower bound; all evidence remains offline-tested and no WebJob
+  stage has run live
 - The separate packaged hosted invocation boundary is offline-tested only. It
   accepts no operator prompt, uses one fixed fictional request, validates only
   approved output sections, and performs no persistence or notification work
-- Infrastructure deployment, RBAC deployment, RBAC verification, hosted
-  readiness, Foundry verification, and agent invocation remain separate stages
+- Infrastructure deployment, configuration verification, code deployment,
+  hosted readiness, WebJob discovery, WebJob trigger acceptance, correlated
+  status, managed-identity metadata verification, RBAC verification, and agent
+  invocation remain separate stages
 - Configuration verification does not prove code deployment. Package creation
   and deployment-request acceptance do not imply hosted health; hosted readiness
   does not imply RBAC, managed-identity authentication, Foundry access, or

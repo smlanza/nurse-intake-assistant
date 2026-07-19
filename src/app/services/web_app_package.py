@@ -7,10 +7,14 @@ import zipfile
 
 PACKAGE_FILENAME = "nurse-intake-web-app.zip"
 FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
+HOSTED_VERIFIER_WEBJOB_ENTRYPOINT = (
+    "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py"
+)
 REQUIRED_MEMBERS = (
     "requirements.txt",
     "src/__init__.py",
     "src/app/main.py",
+    HOSTED_VERIFIER_WEBJOB_ENTRYPOINT,
 )
 HIGH_RISK_CONTENT_MARKERS = (
     b"-----BEGIN " + b"PRIVATE KEY-----",
@@ -57,6 +61,8 @@ class WebAppPackage:
 
 
 def _is_allowlisted(relative_path: PurePosixPath) -> bool:
+    if relative_path.as_posix() == HOSTED_VERIFIER_WEBJOB_ENTRYPOINT:
+        return True
     parts = relative_path.parts
     if relative_path.as_posix() == "requirements.txt":
         return True
@@ -126,7 +132,16 @@ def plan_web_app_package(
     if not requirements.is_file() or not src_root.is_dir():
         raise PackageSafetyError("incomplete_package")
 
-    selected: list[str] = ["requirements.txt"]
+    webjob_entrypoint = resolved_root / HOSTED_VERIFIER_WEBJOB_ENTRYPOINT
+    current = resolved_root
+    for part in PurePosixPath(HOSTED_VERIFIER_WEBJOB_ENTRYPOINT).parts:
+        current = current / part
+        if current.is_symlink():
+            raise PackageSafetyError("unsafe_symlink")
+    if not webjob_entrypoint.is_file():
+        raise PackageSafetyError("incomplete_package")
+
+    selected: list[str] = ["requirements.txt", HOSTED_VERIFIER_WEBJOB_ENTRYPOINT]
     for path in src_root.rglob("*"):
         if path.is_symlink():
             raise PackageSafetyError("unsafe_symlink")

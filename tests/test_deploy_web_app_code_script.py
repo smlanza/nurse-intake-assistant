@@ -23,6 +23,9 @@ def source_tree(tmp_path: Path) -> Path:
         "requirements.txt": "fastapi\nuvicorn[standard]\n",
         "src/__init__.py": "",
         "src/app/main.py": "app_name = 'deploy-cli-fixture'\n",
+        "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py": (
+            "from src.app.operations import verify_hosted_foundry_agent\n"
+        ),
     }.items():
         path = tmp_path / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)

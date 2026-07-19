@@ -6,6 +6,31 @@ import pytest
 
 RESOURCE_GROUP = "fictional-rg"
 WEB_APP_NAME = "fictional-web-app"
+HOSTED_SETTINGS = {
+    "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": (
+        "https://fictional.services.ai.azure.com/api/projects/demo"
+    ),
+    "AZURE_AI_FOUNDRY_AGENT_ENDPOINT": (
+        "https://fictional.services.ai.azure.com/api/projects/demo/agents/"
+        "fictional-agent/endpoint/protocols/openai"
+    ),
+    "AZURE_AI_FOUNDRY_AGENT_NAME": "fictional-agent",
+    "AZURE_AI_FOUNDRY_AGENT_VERSION": "7",
+    "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": "fictional-model",
+}
+VALID_HOSTED_ARGS = [
+    "--verify-hosted-foundry-verifier",
+    "--hosted-verifier-project-endpoint",
+    HOSTED_SETTINGS["AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"],
+    "--hosted-verifier-stable-agent-endpoint",
+    HOSTED_SETTINGS["AZURE_AI_FOUNDRY_AGENT_ENDPOINT"],
+    "--hosted-verifier-agent-name",
+    HOSTED_SETTINGS["AZURE_AI_FOUNDRY_AGENT_NAME"],
+    "--hosted-verifier-agent-version",
+    HOSTED_SETTINGS["AZURE_AI_FOUNDRY_AGENT_VERSION"],
+    "--hosted-verifier-model-deployment-name",
+    HOSTED_SETTINGS["AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME"],
+]
 
 
 def _script():
@@ -87,6 +112,10 @@ def test_live_mode_lazily_uses_injected_runner_and_prints_sanitized_json(
                             {"name": "SMS_PROVIDER", "value": "mock"},
                             {"name": "DEMO_SUPPRESS_NOTIFICATIONS", "value": "true"},
                             {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true"},
+                            *[
+                                {"name": name, "value": value}
+                                for name, value in HOSTED_SETTINGS.items()
+                            ],
                         ]
                     ),
                     "",
@@ -108,6 +137,7 @@ def test_live_mode_lazily_uses_injected_runner_and_prints_sanitized_json(
             RESOURCE_GROUP,
             "--web-app-name",
             WEB_APP_NAME,
+            *VALID_HOSTED_ARGS,
         ]
     )
 
@@ -126,7 +156,6 @@ def test_cli_requires_explicit_exclusive_mode_and_live_arguments() -> None:
     invalid_argv = (
         [],
         ["--check", "--live"],
-        ["--live", "--resource-group", RESOURCE_GROUP, "--web-app-name", WEB_APP_NAME],
         ["--live", "--json", "--web-app-name", WEB_APP_NAME],
         ["--live", "--json", "--resource-group", RESOURCE_GROUP],
         ["--check", "--resource-group", RESOURCE_GROUP],
@@ -135,6 +164,41 @@ def test_cli_requires_explicit_exclusive_mode_and_live_arguments() -> None:
     for argv in invalid_argv:
         with pytest.raises(SystemExit):
             script.main(argv)
+
+
+def test_baseline_live_cli_accepts_no_hosted_verifier_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    captured: list[tuple[object, bool]] = []
+    runner = object()
+    monkeypatch.setattr(script, "_create_live_runner", lambda: runner)
+
+    def fake_verify(
+        _resource_group,
+        _web_app_name,
+        expected,
+        *,
+        verify_hosted_foundry_verifier,
+        runner,
+    ):
+        captured.append((expected, verify_hosted_foundry_verifier))
+        return script.WebAppConfigurationVerificationResult.live_success()
+
+    monkeypatch.setattr(script, "verify_web_app_configuration", fake_verify)
+
+    exit_code = script.main([
+        "--live", "--json",
+        "--resource-group", RESOURCE_GROUP,
+        "--web-app-name", WEB_APP_NAME,
+    ])
+
+    assert exit_code == 0
+    assert captured == [(None, False)]
+    assert json.loads(capsys.readouterr().out)[
+        "hosted_verifier_configuration_verified"
+    ] is False
 
 
 def test_live_failure_is_nonzero_and_sanitized(
@@ -164,6 +228,7 @@ def test_live_failure_is_nonzero_and_sanitized(
             RESOURCE_GROUP,
             "--web-app-name",
             WEB_APP_NAME,
+            *VALID_HOSTED_ARGS,
         ]
     )
 
@@ -230,6 +295,8 @@ def test_missing_azure_cli_maps_to_sanitized_unavailable_result(
     result = service.verify_web_app_configuration(
         RESOURCE_GROUP,
         WEB_APP_NAME,
+        HOSTED_SETTINGS,
+        verify_hosted_foundry_verifier=True,
         runner=script.SubprocessAzureCliRunner(),
     )
 
@@ -266,6 +333,7 @@ def test_live_invalid_local_contract_does_not_construct_runner(
             RESOURCE_GROUP,
             "--web-app-name",
             WEB_APP_NAME,
+            *VALID_HOSTED_ARGS,
         ]
     )
 

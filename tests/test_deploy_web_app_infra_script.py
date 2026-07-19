@@ -17,6 +17,17 @@ VALID_ARGUMENTS = [
     "nurse-intake",
     "--web-app-name",
     "fictional-nurse-intake-web-app",
+    "--enable-hosted-foundry-verifier",
+    "--hosted-verifier-project-endpoint",
+    "https://fictional.services.ai.azure.com/api/projects/demo",
+    "--hosted-verifier-stable-agent-endpoint",
+    "https://fictional.services.ai.azure.com/api/projects/demo/agents/fictional-agent/endpoint/protocols/openai",
+    "--hosted-verifier-agent-name",
+    "fictional-agent",
+    "--hosted-verifier-agent-version",
+    "7",
+    "--hosted-verifier-model-deployment-name",
+    "fictional-model",
 ]
 
 
@@ -57,11 +68,30 @@ def test_required_operator_arguments_are_enforced() -> None:
         "--environment-name",
         "--project-name",
         "--web-app-name",
+        "--hosted-verifier-project-endpoint",
+        "--hosted-verifier-stable-agent-endpoint",
+        "--hosted-verifier-agent-name",
+        "--hosted-verifier-agent-version",
+        "--hosted-verifier-model-deployment-name",
     ):
         index = VALID_ARGUMENTS.index(flag)
         argv = ["--check", *VALID_ARGUMENTS[:index], *VALID_ARGUMENTS[index + 2 :]]
         with pytest.raises(SystemExit):
             script.main(argv)
+
+
+def test_duplicate_hosted_verifier_argument_is_rejected() -> None:
+    script = _script()
+
+    with pytest.raises(SystemExit):
+        script.main(
+            [
+                "--check",
+                *VALID_ARGUMENTS,
+                "--hosted-verifier-agent-name",
+                "duplicate-agent",
+            ]
+        )
 
 
 def test_check_prints_sanitized_json_without_constructing_runner(
@@ -83,6 +113,32 @@ def test_check_prints_sanitized_json_without_constructing_runner(
     assert payload["azure_operation_attempted"] is False
     assert payload["deploy_app"] is True
     assert payload["deploy_foundry"] is False
+    assert payload["hosted_verifier_configuration_supplied"] is True
+    for supplied_value in (
+        "fictional.services.ai.azure.com",
+        "fictional-agent",
+        "fictional-model",
+    ):
+        assert supplied_value not in json.dumps(payload)
+
+
+def test_check_allows_ordinary_web_app_without_hosted_verifier_values(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    ordinary = VALID_ARGUMENTS[: VALID_ARGUMENTS.index("--enable-hosted-foundry-verifier")]
+    monkeypatch.setattr(
+        script,
+        "_create_azure_cli_runner",
+        lambda: pytest.fail("check must not construct a runner"),
+    )
+
+    exit_code = script.main(["--check", "--json", *ordinary])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["hosted_verifier_configuration_supplied"] is False
 
 
 def test_unsafe_argument_fails_before_runner_construction(

@@ -20,6 +20,11 @@ def source_tree(tmp_path: Path) -> Path:
         "src/app/config/settings.py": "APP_MODE = 'mock'\n",
         "src/app/config/red_flags.yaml": "rules: []\n",
         "src/app/static/demo.html": "<main>fixture demo</main>\n",
+        "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py": (
+            "from src.app.operations import verify_hosted_foundry_agent\n"
+            "def run():\n"
+            "    return verify_hosted_foundry_agent.main(['--live', '--json'])\n"
+        ),
     }
     for relative_path, content in files.items():
         path = tmp_path / relative_path
@@ -39,6 +44,7 @@ def test_plan_uses_minimal_allowlist_and_excludes_repository_content(
         ".github/workflows/deploy.yml": "do-not-package\n",
         "src/app/__pycache__/main.pyc": "do-not-package\n",
         ".artifacts/web-app/old.zip": "do-not-package\n",
+        "App_Data/jobs/triggered/unrelated/run.py": "do-not-package\n",
     }
     for relative_path, content in excluded.items():
         path = source_tree / relative_path
@@ -48,6 +54,7 @@ def test_plan_uses_minimal_allowlist_and_excludes_repository_content(
     plan = plan_web_app_package(source_tree)
 
     assert plan.member_names == (
+        "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py",
         "requirements.txt",
         "src/__init__.py",
         "src/app/config/red_flags.yaml",
@@ -58,6 +65,7 @@ def test_plan_uses_minimal_allowlist_and_excludes_repository_content(
     serialized = " ".join(plan.member_names)
     for forbidden in (".env", ".bicepparam", "tests/", "docs/", ".artifacts"):
         assert forbidden not in serialized
+    assert "App_Data/jobs/triggered/unrelated" not in serialized
 
 
 def test_repeated_builds_are_byte_for_byte_deterministic(source_tree: Path) -> None:
@@ -89,6 +97,26 @@ def test_symlink_in_allowlisted_tree_is_rejected(source_tree: Path) -> None:
     link = source_tree / "src/app/external.py"
     try:
         link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlinks are not available")
+
+    with pytest.raises(PackageSafetyError) as error:
+        plan_web_app_package(source_tree)
+
+    assert error.value.category == "unsafe_symlink"
+    assert "do-not-package" not in str(error.value)
+
+
+def test_symlink_at_fixed_webjob_entrypoint_is_rejected(source_tree: Path) -> None:
+    outside = source_tree.parent / "outside-webjob.py"
+    outside.write_text("do-not-package")
+    entrypoint = (
+        source_tree
+        / "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py"
+    )
+    entrypoint.unlink()
+    try:
+        entrypoint.symlink_to(outside)
     except OSError:
         pytest.skip("symlinks are not available")
 

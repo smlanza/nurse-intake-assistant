@@ -40,6 +40,17 @@ def deployment_request() -> deployment.WebAppInfrastructureDeploymentRequest:
         web_app_name="fictional-nurse-intake-web-app",
         cosmos_database_name="nurse-intake",
         cosmos_container_name="cases",
+        enable_hosted_foundry_verifier=True,
+        hosted_verifier_project_endpoint=(
+            "https://fictional.services.ai.azure.com/api/projects/demo"
+        ),
+        hosted_verifier_stable_agent_endpoint=(
+            "https://fictional.services.ai.azure.com/api/projects/demo/agents/"
+            "fictional-agent/endpoint/protocols/openai"
+        ),
+        hosted_verifier_agent_name="fictional-agent",
+        hosted_verifier_agent_version="7",
+        hosted_verifier_model_deployment_name="fictional-model",
         template_file=ROOT / "infra/main.bicep",
     )
 
@@ -63,6 +74,9 @@ def _request_with_module(
     module.parent.mkdir()
     template.write_text(deployment_request.template_file.read_text())
     module.write_text(module_text)
+    validation_name = "hosted-foundry-verifier-config-validation.bicep"
+    validation_source = deployment_request.template_file.parent / "modules" / validation_name
+    (module.parent / validation_name).write_text(validation_source.read_text())
     return replace(deployment_request, template_file=template)
 
 
@@ -75,7 +89,7 @@ def _current_module(
 
 
 def _append_app_setting(module: str, name: str, value: str) -> str:
-    marker = "      ]\n    }\n  }\n"
+    marker = "      ], hostedFoundryVerifierAppSettings)\n"
     assert marker in module
     return module.replace(marker, _setting_block(name, value) + marker, 1)
 
@@ -98,7 +112,27 @@ def test_check_validates_local_contract_without_runner_or_azure_operation(
     assert result.deployment_attempted is False
     assert result.deploy_app is True
     assert result.deploy_foundry is False
+    assert result.hosted_verifier_configuration_supplied is True
     assert runner.calls == []
+
+
+def test_ordinary_web_app_deployment_defaults_hosted_verifier_to_disabled(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    request = replace(
+        deployment_request,
+        enable_hosted_foundry_verifier=False,
+        hosted_verifier_project_endpoint=None,
+        hosted_verifier_stable_agent_endpoint=None,
+        hosted_verifier_agent_name=None,
+        hosted_verifier_agent_version=None,
+        hosted_verifier_model_deployment_name=None,
+    )
+
+    result = deployment.deploy_web_app_infrastructure(request)
+
+    assert result.ok is True
+    assert result.hosted_verifier_configuration_supplied is False
 
 
 @pytest.mark.parametrize(
@@ -111,6 +145,11 @@ def test_check_validates_local_contract_without_runner_or_azure_operation(
         ("web_app_name", "unsafe/name"),
         ("cosmos_database_name", "bad?name"),
         ("cosmos_container_name", "-leading-option"),
+        ("hosted_verifier_project_endpoint", ""),
+        ("hosted_verifier_stable_agent_endpoint", "not-an-endpoint"),
+        ("hosted_verifier_agent_name", "different-agent"),
+        ("hosted_verifier_agent_version", " "),
+        ("hosted_verifier_model_deployment_name", "\nunsafe"),
     ],
 )
 def test_missing_or_unsafe_arguments_fail_before_runner_call(
@@ -165,6 +204,9 @@ def test_check_rejects_non_mock_hosted_posture(
         deployment_request.template_file.parent / "modules/web-app.bicep"
     ).read_text()
     module.write_text(current_module.replace("value: 'mock'", "value: 'live'", 1))
+    validation_name = "hosted-foundry-verifier-config-validation.bicep"
+    validation_source = deployment_request.template_file.parent / "modules" / validation_name
+    (module.parent / validation_name).write_text(validation_source.read_text())
 
     result = deployment.deploy_web_app_infrastructure(
         replace(deployment_request, template_file=template)
@@ -194,6 +236,13 @@ def test_exact_safe_hosted_settings_contract_is_shared_with_configuration_verifi
         "SMS_PROVIDER": "mock",
         "DEMO_SUPPRESS_NOTIFICATIONS": "true",
     }
+    assert tuple(hosting_contract.HOSTED_VERIFIER_SETTING_NAMES) == (
+        "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_ENDPOINT",
+        "AZURE_AI_FOUNDRY_AGENT_NAME",
+        "AZURE_AI_FOUNDRY_AGENT_VERSION",
+        "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+    )
 
 
 def test_local_contract_rejects_missing_setting(
@@ -318,6 +367,20 @@ def test_azure_modes_issue_one_allowlisted_infrastructure_command(
     assert f"webAppName={deployment_request.web_app_name}" in parameters
     assert f"cosmosDatabaseName={deployment_request.cosmos_database_name}" in parameters
     assert f"cosmosContainerName={deployment_request.cosmos_container_name}" in parameters
+    hosted_parameter = next(
+        parameter
+        for parameter in parameters
+        if parameter.startswith("hostedFoundryVerifierConfiguration=")
+    )
+    assert json.loads(hosted_parameter.split("=", 1)[1]) == {
+        "mode": "enabled",
+        "projectEndpoint": deployment_request.hosted_verifier_project_endpoint,
+        "agentEndpoint": deployment_request.hosted_verifier_stable_agent_endpoint,
+        "agentName": deployment_request.hosted_verifier_agent_name,
+        "agentVersion": deployment_request.hosted_verifier_agent_version,
+        "modelDeploymentName": deployment_request.hosted_verifier_model_deployment_name,
+    }
+    assert not any(parameter.startswith("hostedVerifier") for parameter in parameters)
     assert result.what_if_attempted is (mode == "what-if")
     assert result.deployment_attempted is (mode == "live")
 
@@ -574,6 +637,7 @@ def test_json_result_is_exactly_the_approved_sanitized_projection(
         "deployment_attempted",
         "deploy_app",
         "deploy_foundry",
+        "hosted_verifier_configuration_supplied",
         "create_count",
         "modify_count",
         "delete_count",

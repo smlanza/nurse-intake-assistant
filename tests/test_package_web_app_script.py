@@ -13,6 +13,9 @@ def source_tree(tmp_path: Path) -> Path:
         "requirements.txt": "fastapi\nuvicorn[standard]\n",
         "src/__init__.py": "",
         "src/app/main.py": "app_name = 'package-cli-fixture'\n",
+        "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py": (
+            "from src.app.operations import verify_hosted_foundry_agent\n"
+        ),
     }.items():
         path = tmp_path / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,7 +41,7 @@ def test_package_creates_only_ignored_local_zip(source_tree: Path) -> None:
     assert result["ok"] is True
     assert result["package_created"] is True
     assert result["package_filename"] == "nurse-intake-web-app.zip"
-    assert result["package_file_count"] == 3
+    assert result["package_file_count"] == 4
     assert result["package_sha256_present"] is True
     assert result["azure_command_attempted"] is False
     assert result["recommended_next_step"] == (

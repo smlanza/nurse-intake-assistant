@@ -8,6 +8,21 @@ def _read(relative_path: str) -> str:
     return (PROJECT_ROOT / relative_path).read_text()
 
 
+def test_progress_has_one_current_hosted_verifier_state_and_baseline() -> None:
+    progress = _read("docs/progress.md")
+    active = progress.split("## Current Slice Status", 1)[1].split(
+        "### Historical Slice Results", 1
+    )[0]
+    normalized_active = _normalized(active).casefold()
+
+    assert "missing hosted execution and configuration boundaries" not in normalized_active
+    assert progress.count("Latest verified test baseline:") == 1
+    assert "offline-tested only" in progress
+    assert "complete the runbook" in progress.casefold()
+    assert "later agent invocation" in progress.casefold()
+    assert len(progress.splitlines()) <= 500
+
+
 def _normalized(text: str) -> str:
     return " ".join(text.split())
 
@@ -711,7 +726,7 @@ def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> Non
             "Metadata verification and invocation remain separate",
             "repository-owned execution mechanism",
             "repository-owned configuration boundary",
-            "blocking prerequisite",
+            "offline-tested only",
             "Fail-fast stop conditions",
             "Historical output",
             "portal screenshots",
@@ -720,7 +735,15 @@ def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> Non
             "repeated sleeps",
             "repeated verifier calls",
             "ad hoc Azure changes",
-            "one hosted metadata-verification execution",
+            "one explicitly authorized WebJob trigger request",
+            "one separately authorized receipt-correlated status read",
+            "$HOME/site/wwwroot",
+            ".artifacts/hosted-foundry-agent-webjob/trigger-reservation.lock",
+            "accepted-trigger.json",
+            "blocked-trigger.json",
+            "terminal-outcome.json",
+            "not a distributed lock across workstations or checkouts",
+            "trigger acceptance without treating it as verification success",
             "not to agent invocation",
         },
     )
