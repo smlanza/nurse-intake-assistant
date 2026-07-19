@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,408 passed
+- 1,410 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -133,7 +133,13 @@ Operator completes runbook and checklist
 
 ## Prerequisites Before The Next TDD Slice
 
-For every attempt, complete `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` with an explicit operator-approved parameter set. Deploy and verify Foundry through `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, and `scripts/verify_foundry_infra.py` only when those resources are absent; otherwise obtain current Foundry, Linux Web App configuration, system-identity, and readiness proof before the RBAC stages. A prompt agent is not required for this project-scoped assignment; its immutable version remains a later prerequisite for hosted metadata verification.
+Before any hosted managed-identity metadata proof, complete
+`docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md` with an
+exact operator-approved inventory and fresh evidence. The repository currently
+lacks both a repository-owned mechanism to launch the packaged verifier inside
+the Web App and a repository-owned deployment/configuration path for its five
+required non-secret settings. Those are explicit blockers; implement and verify
+them in a separate slice before authorizing hosted metadata verification.
 Do not claim as complete:
 - Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path
 - Historical evidence only: Manual live Foundry Agent smoke passed in an
@@ -344,11 +350,15 @@ Completed work by feature area:
 
 The exact recommended next boundary is:
 
-Project-scoped Consumer deployment and exact direct-assignment verification are separately proven.
-Next narrow live boundary:
+Project-scoped Consumer deployment and exact direct-assignment verification are
+separately proven. The hosted-verification prerequisite runbook now exists, but
+its repository-owned execution and non-secret configuration gates are blocked.
+Next narrow implementation boundary:
 ```text
-Verify the required immutable prompt-agent version
--> hosted managed-identity Foundry metadata verification
+Add a bounded repository-owned hosted execution mechanism
+and a repository-owned non-secret verifier configuration path
+-> complete the prerequisite runbook with fresh proof
+-> separately authorize one hosted managed-identity metadata verification
 ```
 
 Continue in small RED-to-GREEN slices with offline automated tests, sanitized
@@ -361,6 +371,16 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Status
 
+- `docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md` now
+  guards the future hosted system-identity metadata proof. RED was the focused
+  documentation test failing because the runbook was absent. No Azure operation
+  or hosted metadata verification ran. The next execution step is conditional
+  on completing the runbook, and the missing hosted execution and configuration
+  boundaries above become the next implementation slice. Agent invocation
+  remains later and separate. Mock defaults, notification suppression,
+  fictional-data restrictions, mandatory nurse review, and the non-production
+  boundary are unchanged. Focused documentation GREEN is 22 passed; full GREEN
+  is 1,410 passed with the one existing FastAPI/TestClient warning.
 - A documentation guardrail first failed because the prerequisite runbook was absent, then passed after `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` and the permanent runbook gate were added. Full GREEN is 1,409 passed with one existing warning.
 - Direct read-only diagnostics proved the project scope. Azure then conclusively identified the failed `Microsoft.Resources/deployments` operation as a nested deployment whose name equaled the deterministic outer name, producing `DeploymentActive`.
 - RED was 3 failed and 112 passed. GREEN is 115 focused tests after the verifier switched to `az cognitiveservices account project show`, projected only name/ID, accepted leaf or qualified names, validated Azure's returned ID against the approved tuple, and failed closed before assignment reads for malformed or mismatched shapes. The existing Bicep parent/leaf project declaration already matched the authoritative API and was retained.
@@ -369,6 +389,7 @@ frontend deferred unless explicitly scoped.
 
 ## Reference Docs
 - `docs/archive/progress-2026-06.md`
+- `docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md`
 - `docs/manual-local-mock-demo.md`
 - `docs/demo-smoke-test.md`
 - `docs/manual-foundry-smoke-test.md`

@@ -686,3 +686,48 @@ def test_azure_dependent_slices_require_a_checked_in_prerequisite_runbook() -> N
             "ad hoc Azure provisioning",
         },
     )
+
+
+def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> None:
+    path = (
+        PROJECT_ROOT
+        / "docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md"
+    )
+    assert path.is_file(), "The hosted Foundry verification runbook must be checked in."
+
+    runbook = _normalized(path.read_text())
+    _assert_contains_all(
+        runbook,
+        {
+            "az login",
+            "az account show",
+            "subscription:name,state:state,isDefault:isDefault",
+            "Exact operator-approved inventory",
+            "Exact immutable prompt-agent version",
+            "read-only prompt-agent metadata verification",
+            "system-assigned managed identity",
+            "current prerequisite",
+            "does not invoke the agent or model",
+            "Metadata verification and invocation remain separate",
+            "repository-owned execution mechanism",
+            "repository-owned configuration boundary",
+            "blocking prerequisite",
+            "Fail-fast stop conditions",
+            "Historical output",
+            "portal screenshots",
+            "inferred resource",
+            "General-purpose shell polling loops",
+            "repeated sleeps",
+            "repeated verifier calls",
+            "ad hoc Azure changes",
+            "one hosted metadata-verification execution",
+            "not to agent invocation",
+        },
+    )
+    for unauthorized_command in {
+        "python -m src.app.operations.invoke_hosted_foundry_agent",
+        "az role assignment create",
+        "az webapp config appsettings set",
+        "az webapp ssh",
+    }:
+        assert unauthorized_command not in runbook
