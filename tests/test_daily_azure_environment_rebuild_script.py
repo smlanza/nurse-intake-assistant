@@ -80,13 +80,28 @@ def test_live_json_output_is_sanitized_and_exit_code_is_deterministic(
         def __init__(self, *args, **kwargs):
             self.runner_factory = kwargs["runner_factory"]
 
-        def live(self):
+        def live(self, *, approver):
             assert self.runner_factory() is sentinel_runner
-            return DailyAzureEnvironmentRebuildResult(
-                ok=True,
-                category="success",
-                mode="live",
-                daily_environment_ready=True,
+            assert callable(approver)
+            return DailyAzureEnvironmentRebuildResult._verified_ready(
+                {
+                    "local_orchestration_ready": True,
+                    "account_verified": True,
+                    "resource_group_ready": True,
+                    "foundry_infrastructure_verified": True,
+                    "prompt_agent_verified": True,
+                    "immutable_routing_verified": True,
+                    "web_app_configuration_verified": True,
+                    "application_package_created": True,
+                    "application_artifact_current": True,
+                    "application_deployment_attempted": True,
+                    "application_deployment_accepted": True,
+                    "hosted_readiness_verified": True,
+                    "consumer_rbac_verified": True,
+                    "webjob_discovered": True,
+                },
+                azure_mutation_made=False,
+                require_webjob_discovery=True,
             )
 
     monkeypatch.setattr(script, "DailyAzureEnvironmentRebuild", Service)

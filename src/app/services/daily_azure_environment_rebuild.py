@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, fields, replace
+from dataclasses import InitVar, dataclass, fields, replace
+import hashlib
 from importlib.util import find_spec
 import os
 from pathlib import Path
@@ -8,7 +9,7 @@ import re
 import json
 import subprocess
 import tempfile
-from typing import Callable, Literal, Protocol
+from typing import Callable, Literal, Mapping, Protocol
 
 from src.app.services.azure_what_if_evidence import SanitizedWhatIfChange
 
@@ -24,6 +25,9 @@ FAILURE_NEXT_STEP = (
 )
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SESSION_FILE = Path(".artifacts/daily-azure-rebuild/current-session.env")
+RESOURCE_GROUP_PURPOSE = "fictional-daily-validation"
+NESTED_DEPLOYMENT_RESOURCE_TYPE = "Microsoft.Resources/deployments"
+_READY_CONSTRUCTION_SENTINEL = object()
 
 _REQUIRED_SETTINGS = (
     "AZURE_SUBSCRIPTION_NAME",
@@ -130,6 +134,7 @@ class StageResult:
     attempted: bool = False
     accepted: bool = False
     artifact_current: bool = False
+    approval_binding: str | None = None
 
     def __post_init__(self) -> None:
         if self.ok and not isinstance(self.mutation_made, bool):
@@ -189,6 +194,7 @@ class ChangeEvidence:
     expected_parent_match: bool = False
     expected_scope_match: bool = False
     expected_multiplicity_match: bool = False
+    resource_type: str = ""
 
 
 @dataclass(frozen=True)
@@ -210,9 +216,85 @@ class PlanResult:
     def create_only(cls) -> "PlanResult":
         return cls(create_count=1)
 
+
+ApprovalStage = Literal[
+    "resource_group",
+    "foundry_deployment",
+    "web_app_deployment",
+    "application_code_deployment",
+]
+_APPROVAL_STAGES = frozenset(
+    {
+        "resource_group",
+        "foundry_deployment",
+        "web_app_deployment",
+        "application_code_deployment",
+    }
+)
+
+
+@dataclass(frozen=True)
+class ApprovalSummary:
+    stage: ApprovalStage
+    heading: str
+    facts: tuple[tuple[str, str], ...]
+    evidence_binding: str
+
+
+class GuidedApprovalSession:
+    """One-process, one-use approvals bound to stage, environment, and evidence."""
+
+    def __init__(
+        self,
+        *,
+        environment_binding: str,
+        approver: Callable[[ApprovalSummary], bool] | None,
+    ) -> None:
+        self._run_nonce = os.urandom(32)
+        self._environment_binding = hashlib.sha256(
+            environment_binding.encode()
+        ).digest()
+        self._approver = approver
+        self._used_stages: set[str] = set()
+        self._consumed_fingerprints: set[bytes] = set()
+
+    def request(self, summary: ApprovalSummary) -> bool:
+        fingerprint = self._fingerprint(summary)
+        if (
+            self._approver is None
+            or summary.stage not in _APPROVAL_STAGES
+            or summary.stage in self._used_stages
+            or fingerprint in self._consumed_fingerprints
+        ):
+            return False
+        try:
+            approved = self._approver(summary) is True
+        except (EOFError, KeyboardInterrupt, OSError, TimeoutError):
+            return False
+        if not approved:
+            return False
+        self._used_stages.add(summary.stage)
+        self._consumed_fingerprints.add(fingerprint)
+        return True
+
+    def _fingerprint(self, summary: ApprovalSummary) -> bytes:
+        payload = json.dumps(
+            {
+                "stage": summary.stage,
+                "facts": summary.facts,
+                "evidence": summary.evidence_binding,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        return hashlib.sha256(
+            self._run_nonce + self._environment_binding + payload
+        ).digest()
+
 class DailyAzureStageRunner(Protocol):
     def verify_account(self, context: DailyAzureRuntimeContext) -> StageResult: ...
-    def ensure_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def inspect_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def create_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_foundry(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def plan_foundry(self, context: DailyAzureRuntimeContext) -> PlanResult: ...
     def deploy_foundry(self, context: DailyAzureRuntimeContext) -> StageResult: ...
@@ -236,6 +318,7 @@ class DailyAzureEnvironmentRebuildResult:
     mode: Literal["check", "live"]
     local_orchestration_ready: bool = False
     daily_environment_ready: bool = False
+    account_verified: bool = False
     resource_group_ready: bool = False
     foundry_infrastructure_verified: bool = False
     prompt_agent_verified: bool = False
@@ -255,12 +338,65 @@ class DailyAzureEnvironmentRebuildResult:
     webjob_status_read: bool = False
     managed_identity_verification_performed: bool = False
     recommended_next_step: str = FAILURE_NEXT_STEP
+    _ready_authority: InitVar[object | None] = None
 
-    def __post_init__(self) -> None:
-        if self.daily_environment_ready and (
-            not self.ok or not isinstance(self.azure_mutation_made, bool)
+    def __post_init__(self, _ready_authority: object | None) -> None:
+        if self.daily_environment_ready:
+            if (
+                _ready_authority is not _READY_CONSTRUCTION_SENTINEL
+                or not self.ok
+                or not isinstance(self.azure_mutation_made, bool)
+            ):
+                raise ValueError("READY construction is coordinator-owned.")
+
+    @classmethod
+    def _verified_ready(
+        cls,
+        proofs: Mapping[str, bool],
+        *,
+        azure_mutation_made: bool | None,
+        require_webjob_discovery: bool,
+    ) -> "DailyAzureEnvironmentRebuildResult":
+        required = (
+            "local_orchestration_ready",
+            "account_verified",
+            "resource_group_ready",
+            "foundry_infrastructure_verified",
+            "prompt_agent_verified",
+            "immutable_routing_verified",
+            "web_app_configuration_verified",
+            "application_package_created",
+            "application_artifact_current",
+            "application_deployment_attempted",
+            "application_deployment_accepted",
+            "hosted_readiness_verified",
+            "consumer_rbac_verified",
+        )
+        if (
+            not isinstance(azure_mutation_made, bool)
+            or any(proofs.get(name) is not True for name in required)
+            or (
+                require_webjob_discovery
+                and proofs.get("webjob_discovered") is not True
+            )
         ):
-            raise ValueError("READY requires conclusive mutation state.")
+            raise ValueError("READY requires every enabled proof.")
+        allowed = {field.name for field in fields(cls)}
+        progress = {
+            name: value
+            for name, value in proofs.items()
+            if name in allowed and isinstance(value, bool)
+        }
+        return cls(
+            ok=True,
+            category="success",
+            mode="live",
+            daily_environment_ready=True,
+            azure_mutation_made=azure_mutation_made,
+            recommended_next_step=RECOMMENDED_NEXT_STEP,
+            _ready_authority=_READY_CONSTRUCTION_SENTINEL,
+            **progress,
+        )
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -270,6 +406,7 @@ class DailyAzureEnvironmentRebuildResult:
             "mode": self.mode,
             "local_orchestration_ready": self.local_orchestration_ready,
             "daily_environment_ready": self.daily_environment_ready,
+            "account_verified": self.account_verified,
             "resource_group_ready": self.resource_group_ready,
             "foundry_infrastructure_verified": self.foundry_infrastructure_verified,
             "prompt_agent_verified": self.prompt_agent_verified,
@@ -359,6 +496,13 @@ def load_daily_azure_config(
     ):
         if not _valid(values[name], _RESOURCE_NAME, minimum, maximum):
             raise ConfigValidationError("invalid_configuration")
+    foundry_account_name = values["AZURE_FOUNDRY_ACCOUNT_NAME"]
+    if (
+        foundry_account_name != foundry_account_name.casefold()
+        or foundry_account_name.startswith("-")
+        or foundry_account_name.endswith("-")
+    ):
+        raise ConfigValidationError("invalid_configuration")
     if not _VERSION.fullmatch(values["AZURE_FOUNDRY_MODEL_NAME"]):
         raise ConfigValidationError("invalid_configuration")
     if not _VERSION.fullmatch(values["AZURE_FOUNDRY_MODEL_VERSION"]):
@@ -451,7 +595,15 @@ def safe_automatic_plan(
         or plan.deploy_count
         or plan.unknown_count
         or plan.unrelated_resource_count
-        or (require_create and plan.create_count == 0)
+        or (
+            require_create
+            and not any(
+                change.action == "Create"
+                and change.resource_type.casefold()
+                != NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
+                for change in plan.change_evidence
+            )
+        )
     ):
         return False
     if plan.unsupported_count:
@@ -499,6 +651,147 @@ def safe_automatic_plan(
             )
         )
     )
+
+
+def safe_guided_plan(
+    plan: PlanResult,
+    *,
+    expected_boundary: str,
+    require_create: bool,
+) -> bool:
+    if (
+        plan.malformed
+        or not plan.exact_topology_match
+        or plan.modify_count
+        or plan.delete_count
+        or plan.unknown_count
+        or plan.unrelated_resource_count
+        or (
+            require_create
+            and not any(
+                change.action == "Create"
+                and change.resource_type.casefold()
+                != NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
+                for change in plan.change_evidence
+            )
+        )
+        or not _plan_counts_match_evidence(plan)
+    ):
+        return False
+    for change in plan.change_evidence:
+        if change.boundary != expected_boundary:
+            return False
+        nested = change.resource_type.casefold() == NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
+        if nested:
+            if (
+                change.logical_category != "nested_deployment"
+                or change.action
+                not in {"Create", "NoChange", "Ignore", "Deploy", "Unsupported"}
+                or not change.expected_scope_match
+                or not change.expected_multiplicity_match
+            ):
+                return False
+            continue
+        if (
+            change.action not in {"Create", "NoChange", "Ignore"}
+            or not change.approved_boundary
+            or not change.expected_identity_match
+            or not change.expected_parent_match
+            or not change.expected_scope_match
+            or not change.expected_multiplicity_match
+        ):
+            return False
+    return bool(plan.change_evidence)
+
+
+def _plan_counts_match_evidence(plan: PlanResult) -> bool:
+    expected = {
+        "Create": plan.create_count,
+        "Modify": plan.modify_count,
+        "NoChange": plan.no_change_count,
+        "Delete": plan.delete_count,
+        "Ignore": plan.ignore_count,
+        "Deploy": plan.deploy_count,
+        "Unsupported": plan.unsupported_count,
+    }
+    actual = {
+        action: sum(change.action == action for change in plan.change_evidence)
+        for action in expected
+    }
+    return expected == actual and sum(expected.values()) == len(plan.change_evidence)
+
+
+def _plan_approval_summary(
+    stage: ApprovalStage,
+    heading: str,
+    plan: PlanResult,
+) -> ApprovalSummary:
+    nested = any(
+        change.resource_type.casefold()
+        == NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
+        for change in plan.change_evidence
+    )
+    categories = tuple(
+        sorted(
+            {
+                change.logical_category
+                for change in plan.change_evidence
+                if change.logical_category != "nested_deployment"
+            }
+        )
+    )
+    evidence = {
+        "counts": {
+            "create": plan.create_count,
+            "modify": plan.modify_count,
+            "no_change": plan.no_change_count,
+            "delete": plan.delete_count,
+            "ignore": plan.ignore_count,
+            "deploy": plan.deploy_count,
+            "unsupported": plan.unsupported_count,
+        },
+        "categories": categories,
+        "nested": nested,
+        "topology": plan.exact_topology_match,
+        "changes": [
+            {
+                "action": change.action,
+                "category": change.logical_category,
+                "boundary": change.boundary,
+                "resource_type": change.resource_type,
+                "identity": change.expected_identity_match,
+                "parent": change.expected_parent_match,
+                "scope": change.expected_scope_match,
+                "multiplicity": change.expected_multiplicity_match,
+            }
+            for change in plan.change_evidence
+        ],
+    }
+    binding = hashlib.sha256(
+        json.dumps(evidence, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()
+    return ApprovalSummary(
+        stage=stage,
+        heading=heading,
+        facts=(
+            ("Creates", str(plan.create_count)),
+            ("Modifies", str(plan.modify_count)),
+            ("Deletes", str(plan.delete_count)),
+            ("Approved categories", ", ".join(categories) or "none"),
+            ("Nested deployment record present", _yes_no(nested)),
+            ("Destructive change", "no"),
+            ("Topology evidence complete", _yes_no(plan.exact_topology_match)),
+            (
+                "Mutation required",
+                _yes_no(bool(plan.create_count or plan.deploy_count or plan.unsupported_count)),
+            ),
+        ),
+        evidence_binding=binding,
+    )
+
+
+def _yes_no(value: bool) -> str:
+    return "yes" if value else "no"
 
 
 def validate_local_orchestration_contract(repository_root: Path) -> tuple[str, ...]:
@@ -767,7 +1060,10 @@ class DailyAzureEnvironmentRebuild:
         )
 
     def live(
-        self, runner: DailyAzureStageRunner | None = None
+        self,
+        runner: DailyAzureStageRunner | None = None,
+        *,
+        approver: Callable[[ApprovalSummary], bool] | None = None,
     ) -> DailyAzureEnvironmentRebuildResult:
         progress: dict[str, bool] = {}
         mutation: list[bool | None] = [False]
@@ -787,7 +1083,11 @@ class DailyAzureEnvironmentRebuild:
             except Exception:
                 return self._failure("runner_unavailable", progress)
         try:
-            return self._live(runner, progress, mutation)
+            approvals = GuidedApprovalSession(
+                environment_binding=self._environment_binding(),
+                approver=approver,
+            )
+            return self._live(runner, approvals, progress, mutation)
         except Exception:
             if mutation[0] is False:
                 mutation[0] = None
@@ -796,6 +1096,7 @@ class DailyAzureEnvironmentRebuild:
     def _live(
         self,
         runner: DailyAzureStageRunner,
+        approvals: GuidedApprovalSession,
         progress: dict[str, bool],
         mutation: list[bool | None],
     ) -> DailyAzureEnvironmentRebuildResult:
@@ -812,7 +1113,31 @@ class DailyAzureEnvironmentRebuild:
         account = runner.verify_account(context)
         if not apply(account):
             return self._failure(account.category, progress, mutation[0])
-        group = runner.ensure_resource_group(context)
+        progress["account_verified"] = True
+        group = runner.inspect_resource_group(context)
+        if group.state == "absent":
+            group_summary = ApprovalSummary(
+                stage="resource_group",
+                heading="RESOURCE GROUP CREATE",
+                facts=(
+                    ("Action", "create"),
+                    ("Location verified", "yes"),
+                    ("Ownership tag will be applied", "yes"),
+                    ("Mutation required", "yes"),
+                ),
+                evidence_binding=hashlib.sha256(
+                    (
+                        self._environment_binding()
+                        + "\0resource-group\0create\0"
+                        + context.location.casefold()
+                    ).encode()
+                ).hexdigest(),
+            )
+            if not approvals.request(group_summary):
+                return self._failure(
+                    "resource_group_approval_required", progress, mutation[0]
+                )
+            group = runner.create_resource_group(context)
         if not apply(group):
             return self._failure(group.category, progress, mutation[0])
         progress["resource_group_ready"] = True
@@ -820,12 +1145,20 @@ class DailyAzureEnvironmentRebuild:
         foundry = runner.verify_foundry(context)
         if foundry.state == "absent":
             plan = runner.plan_foundry(context)
-            if not safe_automatic_plan(
+            if not safe_guided_plan(
                 plan,
                 expected_boundary="foundry",
                 require_create=True,
             ):
                 return self._failure("unsafe_foundry_plan", progress, mutation[0])
+            if not approvals.request(
+                _plan_approval_summary(
+                    "foundry_deployment", "FOUNDRY DEPLOYMENT", plan
+                )
+            ):
+                return self._failure(
+                    "foundry_deployment_approval_required", progress, mutation[0]
+                )
             deployed = runner.deploy_foundry(context)
             if not apply(deployed):
                 return self._failure(deployed.category, progress, mutation[0])
@@ -853,12 +1186,20 @@ class DailyAzureEnvironmentRebuild:
         web_config = runner.verify_web_app_configuration(context)
         if web_config.state == "absent":
             plan = runner.plan_web_app(context)
-            if not safe_automatic_plan(
+            if not safe_guided_plan(
                 plan,
                 expected_boundary="web_app",
                 require_create=True,
             ):
                 return self._failure("unsafe_web_app_plan", progress, mutation[0])
+            if not approvals.request(
+                _plan_approval_summary(
+                    "web_app_deployment", "WEB APP INFRASTRUCTURE DEPLOYMENT", plan
+                )
+            ):
+                return self._failure(
+                    "web_app_deployment_approval_required", progress, mutation[0]
+                )
             deployed = runner.deploy_web_app(context)
             if not apply(deployed):
                 return self._failure(deployed.category, progress, mutation[0])
@@ -871,6 +1212,26 @@ class DailyAzureEnvironmentRebuild:
         if not apply(package):
             return self._failure(package.category, progress, mutation[0])
         progress["application_package_created"] = True
+        if not package.approval_binding:
+            return self._failure("package_proof_invalid", progress, mutation[0])
+        if not approvals.request(
+            ApprovalSummary(
+                stage="application_code_deployment",
+                heading="APPLICATION CODE DEPLOYMENT",
+                facts=(
+                    ("Current package validated", "yes"),
+                    ("Artifact marker included", "yes"),
+                    ("Current-run authorization", "yes"),
+                    ("Deployment required", "yes"),
+                ),
+                evidence_binding=package.approval_binding,
+            )
+        ):
+            return self._failure(
+                "application_code_deployment_approval_required",
+                progress,
+                mutation[0],
+            )
         code = runner.deploy_code(context)
         progress["application_deployment_attempted"] = code.attempted
         progress["application_deployment_reused"] = code.reused
@@ -911,14 +1272,20 @@ class DailyAzureEnvironmentRebuild:
                 return self._failure(discovery.category, progress, mutation[0])
             progress["webjob_discovered"] = True
 
-        return DailyAzureEnvironmentRebuildResult(
-            ok=True,
-            category="success",
-            mode="live",
-            daily_environment_ready=True,
+        return DailyAzureEnvironmentRebuildResult._verified_ready(
+            progress,
             azure_mutation_made=mutation[0],
-            recommended_next_step=RECOMMENDED_NEXT_STEP,
-            **progress,
+            require_webjob_discovery=self.config.discover_hosted_foundry_webjob,
+        )
+
+    def _environment_binding(self) -> str:
+        return json.dumps(
+            {
+                field.name: getattr(self.config, field.name)
+                for field in fields(self.config)
+            },
+            separators=(",", ":"),
+            sort_keys=True,
         )
 
     def _initial_context(self) -> DailyAzureRuntimeContext:
@@ -954,11 +1321,32 @@ class DailyAzureEnvironmentRebuild:
         safe_progress = {
             key: value for key, value in (progress or {}).items() if key in allowed
         }
+        next_steps = {
+            "resource_group_ownership_approval_required": (
+                "Follow runbook section 5 for explicit resource-group adoption, then rerun."
+            ),
+            "resource_group_approval_required": (
+                "Rerun guided live mode and explicitly approve the current create summary."
+            ),
+            "foundry_deployment_approval_required": (
+                "Rerun guided live mode and review the fresh Foundry preview."
+            ),
+            "web_app_deployment_approval_required": (
+                "Rerun guided live mode and review the fresh Web App preview."
+            ),
+            "application_code_deployment_approval_required": (
+                "Rerun guided live mode and review the newly built current package."
+            ),
+            "manual_rbac_action_required": (
+                "Run the repository-owned manual Consumer RBAC workflow, verify it, then rerun."
+            ),
+        }
         return DailyAzureEnvironmentRebuildResult(
             ok=False,
             category=category,
             mode="live",
             azure_mutation_made=mutation_made,
+            recommended_next_step=next_steps.get(category, FAILURE_NEXT_STEP),
             **safe_progress,
         )
 
@@ -1067,7 +1455,7 @@ class RepositoryDailyAzureStageRunner:
             )
         return StageResult.success(reused=True)
 
-    def ensure_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult:
+    def inspect_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult:
         exists = self.command_runner.run(
             [
                 "az",
@@ -1083,39 +1471,7 @@ class RepositoryDailyAzureStageRunner:
         if exists.return_code != 0:
             return StageResult.failure("resource_group_read_failed")
         if exists.stdout.strip().casefold() == "false":
-            created = self.command_runner.run(
-                [
-                    "az",
-                    "group",
-                    "create",
-                    "--name",
-                    context.resource_group,
-                    "--location",
-                    context.location,
-                    "--tags",
-                    "purpose=fictional-daily-validation",
-                    "--query",
-                    "{location:location,provisioningState:properties.provisioningState}",
-                    "--output",
-                    "json",
-                    "--only-show-errors",
-                ]
-            )
-            payload = _json_object(created.stdout) if created.return_code == 0 else None
-            if payload is None or not _location_matches(payload.get("location"), context.location):
-                return StageResult.failure(
-                    "resource_group_creation_failed",
-                    mutation_made=None,
-                    attempted=True,
-                )
-            state = payload.get("provisioningState")
-            if state not in {None, "Succeeded"}:
-                return StageResult.failure(
-                    "resource_group_creation_failed",
-                    mutation_made=None,
-                    attempted=True,
-                )
-            return StageResult.success(mutation_made=True)
+            return StageResult.absent("resource_group_absent")
         if exists.stdout.strip().casefold() != "true":
             return StageResult.failure("resource_group_response_invalid")
         shown = self.command_runner.run(
@@ -1126,7 +1482,7 @@ class RepositoryDailyAzureStageRunner:
                 "--name",
                 context.resource_group,
                 "--query",
-                "{location:location,provisioningState:properties.provisioningState}",
+                "{location:location,provisioningState:properties.provisioningState,ownershipTag:tags.purpose}",
                 "--output",
                 "json",
                 "--only-show-errors",
@@ -1135,9 +1491,60 @@ class RepositoryDailyAzureStageRunner:
         payload = _json_object(shown.stdout) if shown.return_code == 0 else None
         if payload is None or not _location_matches(payload.get("location"), context.location):
             return StageResult.failure("resource_group_location_mismatch")
-        if payload.get("provisioningState") not in {None, "Succeeded"}:
+        if payload.get("provisioningState") != "Succeeded":
             return StageResult.failure("resource_group_not_ready")
+        if payload.get("ownershipTag") != RESOURCE_GROUP_PURPOSE:
+            return StageResult.failure("resource_group_ownership_approval_required")
         return StageResult.success(reused=True)
+
+    def create_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult:
+        exists = self.command_runner.run(
+            [
+                "az",
+                "group",
+                "exists",
+                "--name",
+                context.resource_group,
+                "--output",
+                "tsv",
+                "--only-show-errors",
+            ]
+        )
+        if exists.return_code != 0:
+            return StageResult.failure("resource_group_read_failed")
+        if exists.stdout.strip().casefold() != "false":
+            return StageResult.failure("resource_group_state_changed")
+        created = self.command_runner.run(
+            [
+                "az",
+                "group",
+                "create",
+                "--name",
+                context.resource_group,
+                "--location",
+                context.location,
+                "--tags",
+                f"purpose={RESOURCE_GROUP_PURPOSE}",
+                "--query",
+                "{location:location,provisioningState:properties.provisioningState,ownershipTag:tags.purpose}",
+                "--output",
+                "json",
+                "--only-show-errors",
+            ]
+        )
+        payload = _json_object(created.stdout) if created.return_code == 0 else None
+        if (
+            payload is None
+            or not _location_matches(payload.get("location"), context.location)
+            or payload.get("provisioningState") != "Succeeded"
+            or payload.get("ownershipTag") != RESOURCE_GROUP_PURPOSE
+        ):
+            return StageResult.failure(
+                "resource_group_creation_failed",
+                mutation_made=None,
+                attempted=True,
+            )
+        return StageResult.success(mutation_made=True, attempted=True, accepted=True)
 
     def verify_foundry(self, context: DailyAzureRuntimeContext) -> StageResult:
         from scripts.verify_foundry_infra import VerificationRequest, verify
@@ -1368,7 +1775,7 @@ class RepositoryDailyAzureStageRunner:
             )
         except PackageSafetyError as error:
             return StageResult.failure(error.category)
-        return StageResult.success()
+        return StageResult.success(approval_binding=self._package.sha256)
 
     def deploy_code(self, context: DailyAzureRuntimeContext) -> StageResult:
         from scripts.deploy_web_app_code import DeploymentRequest, execute
@@ -1624,6 +2031,7 @@ def _change_evidence(value: object) -> tuple[ChangeEvidence, ...] | None:
                     item.expected_parent_match,
                     item.expected_scope_match,
                     item.expected_multiplicity_match,
+                    item.resource_type,
                 )
             )
             continue
@@ -1637,6 +2045,7 @@ def _change_evidence(value: object) -> tuple[ChangeEvidence, ...] | None:
         parent_match = item.get("expected_parent_match")
         scope_match = item.get("expected_scope_match")
         multiplicity_match = item.get("expected_multiplicity_match")
+        resource_type = item.get("resource_type")
         if (
             not isinstance(action, str)
             or not isinstance(category, str)
@@ -1646,6 +2055,7 @@ def _change_evidence(value: object) -> tuple[ChangeEvidence, ...] | None:
             or not isinstance(parent_match, bool)
             or not isinstance(scope_match, bool)
             or not isinstance(multiplicity_match, bool)
+            or not isinstance(resource_type, str)
         ):
             return None
         parsed.append(
@@ -1658,6 +2068,7 @@ def _change_evidence(value: object) -> tuple[ChangeEvidence, ...] | None:
                 parent_match,
                 scope_match,
                 multiplicity_match,
+                resource_type,
             )
         )
     return tuple(parsed)

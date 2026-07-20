@@ -171,6 +171,43 @@ def test_exact_topology_requires_every_expected_resource_once() -> None:
     assert summary.exact_topology_match is False
 
 
+def test_exact_topology_can_sanitize_nested_deployment_for_guided_review() -> None:
+    expected = (
+        ExpectedWhatIfResource(
+            "Microsoft.CognitiveServices/accounts",
+            "foundry_account",
+            "daily-rg",
+            ("expected-account",),
+        ),
+    )
+    summary = parse_sanitized_what_if(
+        json.dumps(
+            {
+                "changes": [
+                    _change("Microsoft.CognitiveServices/accounts/expected-account"),
+                    {
+                        **_change("Microsoft.Resources/deployments/private-name"),
+                        "changeType": "Deploy",
+                    },
+                ]
+            }
+        ),
+        boundary="foundry",
+        expected_resources=expected,
+        sanitized_additional_resource_types={
+            "Microsoft.Resources/deployments": "nested_deployment"
+        },
+    )
+
+    assert summary is not None
+    assert summary.exact_topology_match is True
+    nested = summary.changes[1]
+    assert nested.logical_category == "nested_deployment"
+    assert nested.resource_type == "Microsoft.Resources/deployments"
+    assert nested.approved_boundary is False
+    assert "private-name" not in json.dumps(summary.to_json_list())
+
+
 def _change(resource_path: str, *, group: str = "daily-rg") -> dict[str, str]:
     return {
         "changeType": "Create",

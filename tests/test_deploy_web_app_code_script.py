@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -15,10 +16,16 @@ class FakeRunner:
     def __init__(self, result: script.CommandResult | None = None) -> None:
         self.result = result or script.CommandResult(0, "sensitive stdout", "")
         self.calls: list[list[str]] = []
+        self.deployment_bytes: bytes | None = None
+        self.deployment_mode: int | None = None
 
     def run(self, args: list[str]) -> script.CommandResult:
         assert isinstance(args, list)
         self.calls.append(args)
+        if "--src-path" in args:
+            path = Path(args[args.index("--src-path") + 1])
+            self.deployment_bytes = path.read_bytes()
+            self.deployment_mode = os.stat(path).st_mode & 0o777
         return self.result
 
 
@@ -74,8 +81,10 @@ def test_live_uses_one_narrow_discrete_azure_deployment_command(
         source_root=source_tree,
     )
 
-    package_path = source_tree / ".artifacts/web-app/nurse-intake-web-app.zip"
-    assert runner.calls == [[
+    assert len(runner.calls) == 1
+    call = runner.calls[0]
+    deployment_path = Path(call[call.index("--src-path") + 1])
+    assert call[: call.index("--src-path") + 1] == [
         "az",
         "webapp",
         "deploy",
@@ -84,7 +93,8 @@ def test_live_uses_one_narrow_discrete_azure_deployment_command(
         "--name",
         "fictional-web-app",
         "--src-path",
-        str(package_path),
+    ]
+    assert call[call.index("--src-path") + 2 :] == [
         "--type",
         "zip",
         "--clean",
@@ -93,7 +103,12 @@ def test_live_uses_one_narrow_discrete_azure_deployment_command(
         "true",
         "--output",
         "none",
-    ]]
+    ]
+    assert deployment_path.name == "nurse-intake-web-app.zip"
+    assert deployment_path.parent.parent.name == "deployments"
+    assert runner.deployment_bytes
+    assert runner.deployment_mode == 0o400
+    assert deployment_path.exists() is False
     assert result["ok"] is True
     assert result["azure_command_attempted"] is True
     assert result["deployment_accepted"] is True

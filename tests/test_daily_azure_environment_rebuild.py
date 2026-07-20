@@ -18,6 +18,7 @@ from src.app.services.daily_azure_environment_rebuild import (
     StageResult,
     load_daily_azure_config,
     safe_automatic_plan,
+    safe_guided_plan,
     write_runtime_session_file,
 )
 
@@ -206,6 +207,7 @@ class FakeRunner:
         self.foundry_absent = True
         self.web_app_absent = True
         self.rbac_absent = True
+        self.resource_group_absent = True
         self.plan_overrides: dict[str, PlanResult] = {}
         self.contexts: dict[str, DailyAzureRuntimeContext] = {}
 
@@ -219,8 +221,18 @@ class FakeRunner:
     def verify_account(self, context):
         return self._stage("verify_account", context)
 
-    def ensure_resource_group(self, context):
-        return self._stage("ensure_resource_group", context)
+    def inspect_resource_group(self, context):
+        result = self._stage("inspect_resource_group", context)
+        if result.ok and self.resource_group_absent:
+            return StageResult.absent("resource_group_absent")
+        return result
+
+    def create_resource_group(self, context):
+        result = self._stage("create_resource_group", context)
+        if result.ok:
+            self.resource_group_absent = False
+            return replace(result, mutation_made=True, attempted=True, accepted=True)
+        return result
 
     def verify_foundry(self, context):
         result = self._stage("verify_foundry", context)
@@ -307,7 +319,8 @@ class FakeRunner:
         return result
 
     def build_package(self, context):
-        return self._stage("build_package", context)
+        result = self._stage("build_package", context)
+        return replace(result, approval_binding="package-a") if result.ok else result
 
     def deploy_code(self, context):
         result = self._stage("deploy_code", context)
@@ -355,12 +368,17 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
     )
+    approval_stages: list[str] = []
 
-    result = service.live(runner)
+    result = service.live(
+        runner,
+        approver=lambda summary: approval_stages.append(summary.stage) is None,
+    )
 
     assert runner.calls == [
         "verify_account",
-        "ensure_resource_group",
+        "inspect_resource_group",
+        "create_resource_group",
         "verify_foundry",
         "plan_foundry",
         "deploy_foundry",
@@ -388,6 +406,12 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
     assert payload["readiness_declaration"] == "DAILY AZURE ENVIRONMENT READY"
     assert payload["agent_invoked"] is False
     assert payload["webjob_triggered"] is False
+    assert approval_stages == [
+        "resource_group",
+        "foundry_deployment",
+        "web_app_deployment",
+        "application_code_deployment",
+    ]
     serialized = json.dumps(payload)
     for hidden in (
         "fictional-account",
@@ -407,12 +431,13 @@ def test_existing_environment_reuses_without_infrastructure_or_rbac_mutation(
     runner.foundry_absent = False
     runner.web_app_absent = False
     runner.rbac_absent = False
+    runner.resource_group_absent = False
 
     result = DailyAzureEnvironmentRebuild(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.ok is True
     assert "plan_foundry" not in runner.calls
@@ -421,6 +446,84 @@ def test_existing_environment_reuses_without_infrastructure_or_rbac_mutation(
     assert "deploy_web_app" not in runner.calls
     assert "plan_rbac" not in runner.calls
     assert "deploy_rbac" not in runner.calls
+
+
+def test_absent_resource_group_without_approval_never_mutates(tmp_path: Path) -> None:
+    runner = FakeRunner()
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner)
+
+    assert result.category == "resource_group_approval_required"
+    assert runner.calls == ["verify_account", "inspect_resource_group"]
+    assert result.azure_mutation_made is False
+
+
+def test_foundry_delete_stops_without_prompt_or_deployment(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.plan_overrides["plan_foundry"] = PlanResult(
+        delete_count=1,
+        exact_topology_match=True,
+        change_evidence=(
+            _exact_change("Delete", "foundry_account", "foundry"),
+        ),
+    )
+    prompts: list[str] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: prompts.append(summary.stage) is None,
+    )
+
+    assert result.category == "unsafe_foundry_plan"
+    assert prompts == []
+    assert "deploy_foundry" not in runner.calls
+
+
+def test_guided_plan_accepts_sanitized_nested_deployment_for_operator_review() -> None:
+    plan = PlanResult(
+        create_count=1,
+        deploy_count=1,
+        exact_topology_match=True,
+        change_evidence=(
+            _exact_change("Create", "foundry_account", "foundry"),
+            ChangeEvidence(
+                "Deploy",
+                "nested_deployment",
+                "foundry",
+                False,
+                False,
+                False,
+                True,
+                True,
+                "Microsoft.Resources/deployments",
+            ),
+        ),
+    )
+
+    assert safe_guided_plan(
+        plan, expected_boundary="foundry", require_create=True
+    ) is True
+    assert safe_automatic_plan(plan, expected_boundary="foundry") is False
+
+    nested_only_create = PlanResult(
+        create_count=1,
+        exact_topology_match=True,
+        change_evidence=(
+            replace(plan.change_evidence[1], action="Create"),
+        ),
+    )
+    assert safe_guided_plan(
+        nested_only_create, expected_boundary="foundry", require_create=True
+    ) is False
 
 
 @pytest.mark.parametrize(
@@ -446,7 +549,7 @@ def test_partial_reconstruction_runs_only_missing_safe_stages(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.ok is True
     assert expected_deploy in runner.calls
@@ -529,7 +632,7 @@ def test_missing_rbac_unsupported_preview_requires_manual_workflow(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.category == "manual_rbac_action_required"
     assert "plan_rbac" not in runner.calls
@@ -567,7 +670,7 @@ def test_missing_rbac_always_stops_for_manual_workflow(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.category == "manual_rbac_action_required"
     assert "plan_rbac" not in runner.calls
@@ -592,7 +695,8 @@ def _exact_change(action: str, category: str, boundary: str) -> ChangeEvidence:
     "failure_stage",
     [
         "verify_account",
-        "ensure_resource_group",
+        "inspect_resource_group",
+        "create_resource_group",
         "verify_foundry",
         "deploy_foundry",
         "provision_agent",
@@ -618,7 +722,7 @@ def test_major_stage_failures_stop_all_later_work(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.ok is False
     assert runner.calls[-1] == failure_stage
@@ -632,7 +736,7 @@ def test_dynamic_context_flows_without_aggregate_leakage(tmp_path: Path) -> None
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     routing_context = runner.contexts["configure_agent_routing"]
     assert routing_context.immutable_agent_version == "7"
@@ -673,19 +777,19 @@ def test_failed_stage_preserves_confirmed_or_ambiguous_mutation(tmp_path: Path) 
         runner = FakeRunner()
 
         def failed_group(_context, state=mutation_state):
-            runner.calls.append("ensure_resource_group")
+            runner.calls.append("create_resource_group")
             return StageResult.failure(
                 "resource_group_creation_failed",
                 mutation_made=state,
                 attempted=True,
             )
 
-        runner.ensure_resource_group = failed_group
+        runner.create_resource_group = failed_group
         result = DailyAzureEnvironmentRebuild(
             _config(tmp_path),
             repository_root=tmp_path,
             local_contract_checker=lambda _root: (),
-        ).live(runner)
+        ).live(runner, approver=lambda _summary: True)
 
         assert result.azure_mutation_made is mutation_state
 
@@ -722,7 +826,7 @@ def test_routing_mutation_survives_later_verification_failure(tmp_path: Path) ->
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.ok is False
     assert result.category == "stage_failed"
@@ -754,7 +858,7 @@ def test_confirmed_routing_mutation_followed_by_ambiguous_failure_never_succeeds
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.ok is False
     assert result.category == "agent_verification_ambiguous"
@@ -791,7 +895,7 @@ def test_ambiguous_readiness_stops_without_any_follow_on_mutation(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.category == category
     assert runner.calls.count("deploy_code") == 1
@@ -816,7 +920,7 @@ def test_successful_stage_without_deployment_or_artifact_proof_cannot_be_ready(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.category == "application_provenance_invalid"
     assert result.daily_environment_ready is False
@@ -839,7 +943,7 @@ def test_reused_package_claim_cannot_skip_current_deployment(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.category == "application_provenance_invalid"
     assert result.application_deployment_reused is True
@@ -864,7 +968,7 @@ def test_accepted_deployment_with_old_hosted_worker_cannot_be_ready(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner)
+    ).live(runner, approver=lambda _summary: True)
 
     assert result.application_deployment_accepted is True
     assert result.category == "application_artifact_mismatch"
@@ -956,7 +1060,13 @@ def test_repository_runner_creates_absent_resource_group_exactly_once(
     command_runner = CommandRunner(
         [
             (0, "false\n", ""),
-            (0, '{"location":"eastus2","provisioningState":"Succeeded"}', ""),
+            (0, "false\n", ""),
+            (
+                0,
+                '{"location":"eastus2","provisioningState":"Succeeded",'
+                '"ownershipTag":"fictional-daily-validation"}',
+                "",
+            ),
         ]
     )
     config = _config(tmp_path)
@@ -967,11 +1077,14 @@ def test_repository_runner_creates_absent_resource_group_exactly_once(
         config, repository_root=tmp_path
     )._initial_context()
 
-    result = runner.ensure_resource_group(context)
+    inspected = runner.inspect_resource_group(context)
+    result = runner.create_resource_group(context)
 
+    assert inspected.state == "absent"
     assert result.ok is True
     assert result.mutation_made is True
     assert [call[:3] for call in command_runner.calls] == [
+        ["az", "group", "exists"],
         ["az", "group", "exists"],
         ["az", "group", "create"],
     ]
@@ -987,12 +1100,17 @@ def test_repository_runner_reuses_only_matching_resource_group_location(
     matching = CommandRunner(
         [
             (0, "true\n", ""),
-            (0, '{"location":"East US 2","provisioningState":"Succeeded"}', ""),
+            (
+                0,
+                '{"location":"East US 2","provisioningState":"Succeeded",'
+                '"ownershipTag":"fictional-daily-validation"}',
+                "",
+            ),
         ]
     )
     result = RepositoryDailyAzureStageRunner(
         config, repository_root=tmp_path, command_runner=matching
-    ).ensure_resource_group(context)
+    ).inspect_resource_group(context)
     assert result.ok is True
     assert result.reused is True
     assert all(call[:3] != ["az", "group", "create"] for call in matching.calls)
@@ -1005,8 +1123,42 @@ def test_repository_runner_reuses_only_matching_resource_group_location(
     )
     failed = RepositoryDailyAzureStageRunner(
         config, repository_root=tmp_path, command_runner=mismatch
-    ).ensure_resource_group(context)
+    ).inspect_resource_group(context)
     assert failed.category == "resource_group_location_mismatch"
+
+
+@pytest.mark.parametrize("ownership", (None, "different-purpose", 7))
+def test_repository_runner_never_adopts_unowned_resource_group(
+    tmp_path: Path,
+    ownership: object,
+) -> None:
+    config = _config(tmp_path)
+    context = DailyAzureEnvironmentRebuild(
+        config, repository_root=tmp_path
+    )._initial_context()
+    command_runner = CommandRunner(
+        [
+            (0, "true\n", ""),
+            (
+                0,
+                json.dumps(
+                    {
+                        "location": "eastus2",
+                        "provisioningState": "Succeeded",
+                        "ownershipTag": ownership,
+                    }
+                ),
+                "",
+            ),
+        ]
+    )
+
+    result = RepositoryDailyAzureStageRunner(
+        config, repository_root=tmp_path, command_runner=command_runner
+    ).inspect_resource_group(context)
+
+    assert result.category == "resource_group_ownership_approval_required"
+    assert all(call[:3] != ["az", "group", "create"] for call in command_runner.calls)
 
 
 def test_repository_preview_adapters_require_real_allowlisted_resource_evidence(

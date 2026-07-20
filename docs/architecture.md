@@ -294,20 +294,20 @@ connection strings.
 
 ## 9. Infrastructure Architecture
 
-`scripts/rebuild_daily_azure_environment.py` is the preferred authoritative
-daily orchestration layer for the disposable environment. It owns only stable
+`scripts/rebuild_daily_azure_environment.py` is the preferred guided daily
+orchestration layer for the disposable environment. It owns stable
 configuration validation, stage ordering, typed runtime-value propagation,
-verification-driven reuse, safe continuation from conclusively allowlisted
-sanitized preview evidence, fail-fast behavior, and one sanitized aggregate
-readiness result. Automatic continuation requires every proposed resource to
-match the repository's exact expected identity, resource group, parent
-hierarchy, type, and multiplicity, with counts agreeing with evidence.
-Ambiguous, unidentified, extra, duplicate, missing, unsupported, or drifted
-plans stop.
+verification-driven reuse, sanitized approval summaries, stage-specific
+operator approval, fail-fast behavior, and one sanitized aggregate readiness
+result. It never supplies unattended approval. Resource-group creation,
+Foundry infrastructure deployment, Web App infrastructure deployment, and
+current package deployment each require approval for the current run and exact
+current evidence. An approval is stage-specific and one-use; a changed plan,
+package, environment, process, or earlier run cannot reuse it.
 The independent deployment, what-if, packaging, read-only verification, RBAC,
 readiness, and name-only WebJob discovery boundaries below remain authoritative
 for their resource-specific parsing and proof. The manual runbook remains the
-recovery and audit path. WebJob trigger and status, hosted managed-identity
+recovery, audit, and explicit resource-group adoption path. WebJob trigger and status, hosted managed-identity
 verification, and agent invocation remain separately authorized. The
 coordinator cannot trigger or read a WebJob run, process intake, send
 notifications, or clean up the resource group.
@@ -331,32 +331,29 @@ authoritative read-only verifier; a mismatch stops rather than repairing or
 retargeting the resource.
 
 Every Azure-dependent slice must first satisfy its checked-in prerequisite
-runbook. For the daily disposable environment, one explicitly authorized live
-coordinator invocation reruns the complete offline contract check, verifies the
-active account and current resource state, and may sequence a live deployment
-only when the authoritative preview boundary identifies every proposed change
-as exactly one member of the approved topology. Foundry topology comprises the
-configured AIServices account, its child project, and its model deployment. Web
-App topology comprises every resource owned by `main.bicep`, including nested
-Cosmos resources, Storage, monitoring, the App Service plan, and the Linux Web
-App. Sanitized evidence exposes match booleans and logical categories, never
-resource names, groups, or complete identifiers. Manual commands keep compile,
-check, preview,
-operator review, live deployment, and read-only verification separate for
-recovery and audit. Missing prerequisites, unidentified evidence, drift, and
-deterministic failures fail fast without retry. A repository-owned deployment
-may block for Azure, and an accepted asynchronous
-deployment permits at most one explicitly required, repository-approved bounded
-completion check. General shell polling loops, repeated sleeps, indefinite
-waits, repeated verifier calls, alternate credentials, portal-only resources,
-and ad hoc provisioning are prohibited. The current RBAC prerequisite runbook is
+runbook. Live guided mode reruns the complete offline contract before creating
+any live dependency. It verifies the active account and inspects the resource
+group. An absent group is created only after approval and receives the exact
+daily-purpose tag. An existing group is reused only when location, usable state,
+and that ownership tag already match; unowned groups stop for explicit manual
+adoption and a rerun.
+
+The Foundry and Web App adapters retain exact identity, scope, parent,
+multiplicity, and count/evidence proof for their application resources. They
+also recognize `Microsoft.Resources/deployments` only as a sanitized nested
+deployment category for operator review. Delete, Modify, malformed, unknown,
+unrelated, incomplete, or count-inconsistent evidence stops before prompting.
+Safe current evidence is summarized without names or IDs, approved explicitly,
+and followed by exactly one deployment request and its separate verifier.
+Missing prerequisites, drift, and deterministic failures fail fast without
+retry or polling. The current RBAC prerequisite runbook is
 `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md`.
 
 The Foundry infrastructure preview boundary reduces Azure's change collection
-to sanitized counts and exact topology evidence for all seven supported change
-types and fails closed on malformed IDs, unknown shapes, topology mismatch, or
-count disagreement. Resource details remain discarded, and Delete, Deploy, or
-Unsupported entries require manual review before any live request.
+to sanitized counts, logical categories, nested-deployment presence, and exact
+topology evidence. Resource details remain discarded. Safe evidence requires
+current operator approval; destructive or incomplete evidence cannot be
+approved through the coordinator.
 
 `main.bicep` also references the reusable `infra/modules/web-app.bicep` module
 only when `deployApp=true` (default `false`). The module defines a Linux App
@@ -447,28 +444,6 @@ shapes fail closed. Duplicate exact records deterministically return sanitized
 `response_parse_failed`. The verifier never deploys or repairs RBAC, acquires a
 token, invokes Foundry or an agent, retries, polls, or mutates Azure. Deployment
 request acceptance and assignment verification are therefore separate proofs.
-Azure accepted the corrected project-scoped Consumer assignment deployment. A
-separate read-only verifier then proved exactly one direct assignment for the
-Web App system identity at the exact Foundry project scope.
-
-Direct diagnostics established a qualified project name, nonblank exact ARM ID,
-and successful provisioning. Azure then conclusively identified the failed
-`Microsoft.Resources/deployments` operation as a nested deployment whose name
-equaled the deterministic outer name, producing `DeploymentActive`; it was not
-a project declaration or assignment-scope failure. Nested-name RED was 1
-failed/8 passed. GREEN is 116 focused RBAC tests after the entry point changed
-only the module deployment name to `${deployment().name}-assignment`; the
-existing account-parent/project-leaf declarations, role, assignment GUID, and
-Web App identity lookup remain unchanged, and the Bicep entry point compiles.
-
-The corrected what-if reported zero creates, modifications, deletes,
-deploy-uncertain entries, and no-changes, ten ignored, and one Unsupported. The
-sole Unsupported category remains the expected project-scoped
-`Microsoft.Authorization/roleAssignments` resource with no unrelated change.
-After explicit review, one live request was accepted and the separate verifier
-proved the exact direct assignment. No retry or polling followed. Managed-
-identity token acquisition, hosted Foundry metadata access, and agent invocation
-remain separate and unproven.
 
 `src/app/services/hosted_foundry_agent_verification.py` and the packaged
 `src/app/operations/verify_hosted_foundry_agent.py` add the next separate proof
@@ -606,9 +581,6 @@ uvicorn startup command, remote build, HTTPS-only access, disabled FTPS, TLS
 1.2 minimums, `/health`, system-assigned identity presence, mock providers, and
 suppressed notifications. Its immutable result never exposes resource or
 identity IDs, hostnames, raw settings, command output, errors, or secrets.
-Live read-only verification succeeded for this complete hosting contract. The
-live response did not populate `properties.provisioningState`, so the bounded
-site read now uses CLI-native exact running, enabled, and Linux evidence.
 
 `WebAppPackage` and the two thin CLIs add the next offline-tested boundaries.
 The package service selects only the root dependency manifest and required
@@ -623,8 +595,12 @@ current coordinator run and bound to the source root, member set, ZIP path, and
 exact bytes. Authorization is one-use; forgery, replay, a prior-run proof,
 rebuild, replacement, mutation, or symlink fails closed. Neither the proof nor
 its token, nonce, digest, hash, or path is serialized.
-Live package creation succeeded with the same deterministic ordering,
-timestamp normalization, required hosted operations, and exclusion contract.
+After code-deployment approval, no-follow file access copies the validated ZIP
+into a unique current-run directory. Exclusive creation rejects pre-existing
+and symlink targets, directory and file permissions are restrictive, and the
+copied bytes are verified before runner entry. The one-use authorization is
+then consumed, only the transient path reaches the Azure CLI, and that path is
+invalidated after the request.
 
 `scripts/package_web_app.py` performs local package checks and builds.
 `scripts/deploy_web_app_code.py` keeps check, package, and explicit live modes
@@ -632,8 +608,6 @@ separate. Only `--live --json` with an existing resource group and Web App name
 can issue one `az webapp deploy` command through an injected runner. The result
 distinguishes package creation, deployment request acceptance, and hosted
 verification; it never treats one as evidence of the next.
-The explicit live code-deployment request completed successfully against the
-existing fictional Web App; that acceptance alone did not prove startup.
 
 `src/app/services/web_app_readiness_verification.py` and
 `scripts/verify_web_app_readiness.py` implement the next read-only boundary for
@@ -650,29 +624,27 @@ requires an exact match before setting `application_artifact_current=true`. A
 healthy old worker cannot produce READY. The result exposes only
 application-owned booleans and sanitized categories; it never serializes the
 digest, origin, hostname, response body, marker contents, or exception details.
-Separate live verification subsequently proved `/health`, `/version`, and
-`/demo/status`, including exact mock providers and suppressed notifications.
 
 The ZIP contains Python source plus `requirements.txt`, including this packaged
 operation and its Foundry project SDK dependency; dependencies are not vendored.
 The Web App module now declares the required
 `SCM_DO_BUILD_DURING_DEPLOYMENT=true` application setting so App Service remote
-build automation can install those dependencies. This configuration is tested
-against both the compiled Bicep/ARM representation and the live read-only
-configuration boundary. The readiness verifier is tested offline with fake
-transports and has also passed the bounded live hosted checks. No
-managed-identity authentication, Foundry verification, or agent invocation has
-occurred. Deployment-request acceptance, configuration proof, code deployment,
-and hosted startup remain separate proof boundaries.
+build automation can install those dependencies. The compiled Bicep/ARM
+contract, configuration proof, code-deployment acceptance, and hosted startup
+remain separate proof boundaries.
 
 The coordinator's daily sequence is:
 
 ```text
-account and resource-group verification
--> exact Foundry preview, deployment, and verification when absent
+account verification and owned resource-group inspection
+-> approve absent resource-group creation, or stop for manual adoption
+-> exact Foundry preview and operator approval when absent
+-> one Foundry deployment request and verification
 -> prompt-agent provisioning, exclusive routing, and immutable-version verification
--> exact Web App preview, deployment, and configuration verification when absent
--> current-run deterministic source package and one deployment request
+-> exact Web App preview and operator approval when absent
+-> one Web App deployment request and configuration verification
+-> current-run deterministic source package and code-deployment approval
+-> immutable package handoff and one code-deployment request
 -> hosted package-digest and mock-safe readiness verification
 -> direct Consumer RBAC verification
 -> stop for the separate manual RBAC workflow when the assignment is missing
@@ -689,14 +661,12 @@ deployment-request acceptance does not prove startup. Hosted defaults remain
 mock-only with notifications suppressed, and human nurse review remains
 mandatory.
 
-Infrastructure deployment, code deployment, readiness, RBAC deployment, RBAC
-verification, Web App-hosted managed-identity prompt-agent verification, and
-the fixed fictional invocation remain separate stages. Both packaged hosted
-agent operations are offline-tested only: no live Azure operation, identity
-authentication, Foundry metadata read, inference, or agent invocation ran.
-Mock defaults and notification suppression remain unchanged, and a successful
-fictional proof would still require human nurse review. The project remains a
-capstone/demo and is not production clinical software.
+Infrastructure deployment, code deployment, readiness, manual RBAC deployment,
+RBAC verification, Web App-hosted managed-identity prompt-agent verification,
+and fixed fictional invocation remain separate stages. Mock defaults and
+notification suppression remain unchanged, and every fictional result still
+requires human nurse review. The project remains a capstone/demo and is not
+production clinical software.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
@@ -709,27 +679,9 @@ capstone. It provisions:
 - Application Insights component
 - Optional Linux App Service plan and Web App hosting contract
 
-The infrastructure files contain no secrets. The baseline was deployed and
-manually tested once, including Cosmos point-read/upsert behavior, and the test
-resource group was cleaned up afterward. A manual Azure resource-group
-validation of `main.bicep` with `deployApp=true`, `deployFoundry=false`, B1, and
-`PYTHON|3.12` succeeded on July 15, 2026; validation created no Azure resources.
-A later live Web App infrastructure deployment request completed successfully.
-That acceptance does not prove configuration, code deployment, startup, or
-managed-identity access. Live read-only configuration verification subsequently
-proved the Linux runtime, startup command, remote build, security, health path,
-system identity, safe mock providers, and notification suppression. The
-project-scoped Consumer deployment was later accepted and a separate read-only
-verifier proved exactly one direct assignment for that Web App identity.
-Deterministic packaging and explicit code deployment then succeeded, followed
-by separate live proof of all three hosted readiness routes in the mock-safe
-posture.
-
-Not demonstrated live:
-
-- Managed-identity token acquisition
-- Live immutable-version verification from the hosted application
-- Hosted agent invocation
+The infrastructure files contain no secrets. Deployment acceptance never proves
+configuration, code deployment, startup, managed-identity access, or agent
+behavior; each remains a separately authorized and verified boundary.
 
 Deferred infrastructure:
 

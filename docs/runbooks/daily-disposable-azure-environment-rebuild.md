@@ -1,6 +1,6 @@
 # Daily Disposable Azure Environment Rebuild
 
-## Normal Daily Automated Path
+## Normal Daily Guided Path
 
 The repository-owned coordinator is the preferred path for a normal daily
 rebuild. Follow this sequence without skipping a step:
@@ -17,7 +17,7 @@ rebuild. Follow this sequence without skipping a step:
   --json
 ```
 
-3. Only after separate approval, run the coordinator live once:
+3. Start the guided live coordinator in an interactive terminal:
 
 ```bash
 .venv/bin/python scripts/rebuild_daily_azure_environment.py \
@@ -26,13 +26,18 @@ rebuild. Follow this sequence without skipping a step:
   --json
 ```
 
-4. If that result reports `category=manual_rbac_action_required`, run the
+4. Review each sanitized prompt and answer `y` only for the current stage. The
+   default, EOF, malformed input, or noninteractive input stops without that
+   mutation. The possible approvals are resource-group creation, Foundry
+   infrastructure deployment, Web App infrastructure deployment, and current
+   package deployment. Already verified stages are not prompted.
+5. If that result reports `category=manual_rbac_action_required`, run the
    existing manual RBAC workflow in sections 13 and 14 exactly once under its
    own authorization.
-5. Rerun the coordinator from step 3. The rerun redeploys and verifies the
+6. Rerun the coordinator from step 3. The rerun rebuilds, approves, deploys, and verifies the
    current deterministic application package; it does not reuse an earlier
    package proof.
-6. Require `daily_environment_ready=true` from the current run before recording
+7. Require `daily_environment_ready=true` from the current run before recording
    the READY declaration below.
 
 Begin the approved Azure-dependent Codex slice only when the current live
@@ -42,10 +47,13 @@ result reports `daily_environment_ready=true` and the operator records:
 DAILY AZURE ENVIRONMENT READY
 ```
 
-The coordinator verifies current state, reuses conclusively valid resources,
-and creates only safe missing resources when every preview entry conclusively
-matches the exact expected identity, scope, parent topology, and multiplicity.
-It stops on drift, count disagreement, or ambiguity. Live mode reruns the
+The operator-approved coordinator verifies current state and reuses only an
+owned resource group and conclusively valid resources. It prepares sanitized
+Foundry and Web App previews, including whether nested deployment records are
+present, and requires current-run approval before either deployment. It stops
+on Delete, Modify, malformed, unknown, unrelated, incomplete, count-disagreeing,
+or otherwise ambiguous evidence. Package deployment has its own current-run
+approval and immutable transient handoff. Live mode reruns the
 complete offline contract; the prior standalone check is not reused as proof.
 When direct verification finds the Consumer assignment missing, the coordinator
 always stops for the manual workflow regardless of whether a separate preview
@@ -64,7 +72,7 @@ and individual-boundary reference. They are not the normal daily command path.
 This is the authoritative operator runbook for rebuilding the disposable Nurse
 Intake Assistant Azure environment at the start of a live-validation session.
 The default state is **NOT READY**. A session becomes **READY** only after the
-automated path, or every required manual recovery stage below, succeeds in
+guided path, or every required manual recovery stage below, succeeds in
 order and its sanitized result is reviewed during the current session.
 
 This file is the durable checked-in procedure. Command output is fresh
@@ -170,9 +178,45 @@ az account show \
 Stop if the account, subscription, or state is wrong. Do not paste IDs from the
 full account response into documentation or a prompt.
 
-## 5. Resource group creation
+## 5. Resource group creation or explicit adoption
 
-Create exactly one disposable resource group for this session:
+Guided mode inspects the configured group first. If it is absent, the
+coordinator displays the create summary and waits for approval before issuing
+one tagged creation request. If an existing group lacks the exact
+`purpose=fictional-daily-validation` tag, it stops with
+`resource_group_ownership_approval_required` and never adopts or retags it.
+
+For intentional adoption, first inspect the group and its contents outside the
+coordinator:
+
+```bash
+az group show \
+  --name <resource-group> \
+  --query "{location:location,state:properties.provisioningState,purpose:tags.purpose}" \
+  --output table
+
+az resource list \
+  --resource-group <resource-group> \
+  --query "[].{type:type,name:name}" \
+  --output table
+```
+
+Only after the operator establishes that this is the intended disposable group
+may the operator explicitly adopt it:
+
+```bash
+az group update \
+  --name <resource-group> \
+  --set tags.purpose=fictional-daily-validation \
+  --query "{location:location,state:properties.provisioningState,purpose:tags.purpose}" \
+  --output json
+```
+
+Review the projected response, then rerun the guided coordinator. Adoption is
+never an automatic continuation within the run that detected missing or
+different ownership.
+
+The equivalent manual recovery command for creating a new group is:
 
 ```bash
 az group create \

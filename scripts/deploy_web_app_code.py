@@ -18,9 +18,12 @@ from src.app.services.web_app_package import (
     build_web_app_package,
     consume_web_app_package_authorization,
     create_package_authorization_session,
+    discard_immutable_deployment_artifact,
+    materialize_immutable_deployment_artifact,
     PackageAuthorizationSession,
     plan_web_app_package,
     validate_web_app_package,
+    verify_immutable_deployment_artifact,
 )
 
 
@@ -88,6 +91,7 @@ def execute(
     authorization_session: PackageAuthorizationSession | None = None,
 ) -> dict[str, object]:
     source_root = source_root or ROOT
+    deployment_artifact = None
     if request.mode == "live" and (
         not request.resource_group or not request.web_app_name
     ):
@@ -112,8 +116,16 @@ def execute(
             )
         )
         if request.mode == "live":
+            deployment_artifact = materialize_immutable_deployment_artifact(
+                package,
+                source_root,
+                session,
+            )
             consume_web_app_package_authorization(package, source_root, session)
+            verify_immutable_deployment_artifact(deployment_artifact)
     except PackageSafetyError as error:
+        if deployment_artifact is not None:
+            discard_immutable_deployment_artifact(deployment_artifact)
         return _base(request, error.category)
 
     result = _base(request, "success", True)
@@ -132,27 +144,31 @@ def execute(
 
     command_runner = runner or SubprocessCommandRunner()
     result["azure_command_attempted"] = True
-    outcome = command_runner.run(
-        [
-            "az",
-            "webapp",
-            "deploy",
-            "--resource-group",
-            request.resource_group or "",
-            "--name",
-            request.web_app_name or "",
-            "--src-path",
-            str(package.package_path),
-            "--type",
-            "zip",
-            "--clean",
-            "true",
-            "--restart",
-            "true",
-            "--output",
-            "none",
-        ]
-    )
+    try:
+        outcome = command_runner.run(
+            [
+                "az",
+                "webapp",
+                "deploy",
+                "--resource-group",
+                request.resource_group or "",
+                "--name",
+                request.web_app_name or "",
+                "--src-path",
+                str(deployment_artifact.path),
+                "--type",
+                "zip",
+                "--clean",
+                "true",
+                "--restart",
+                "true",
+                "--output",
+                "none",
+            ]
+        )
+    finally:
+        if deployment_artifact is not None:
+            discard_immutable_deployment_artifact(deployment_artifact)
     if outcome.return_code != 0:
         result["ok"] = False
         if outcome.return_code == 127:

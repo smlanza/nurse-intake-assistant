@@ -209,6 +209,9 @@ def execute(
             outcome.stdout,
             boundary="foundry",
             expected_resources=_expected_foundry_resources(request),
+            sanitized_additional_resource_types={
+                "Microsoft.Resources/deployments": "nested_deployment"
+            },
         )
         if summary is None:
             return _base(request, "what_if_parse_failed")

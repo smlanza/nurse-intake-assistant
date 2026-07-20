@@ -474,18 +474,22 @@ def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() 
             "/health",
             "/version",
             "/demo/status",
-            "Deployment-request acceptance, configuration proof, code deployment, and hosted startup remain separate proof boundaries",
             "Code deployment does not provision infrastructure",
             "Hosted defaults remain mock-only with notifications suppressed",
             "human nurse review remains mandatory",
-            "succeeded on July 15, 2026",
-            "validation created no Azure resources",
-            "live Web App infrastructure deployment request completed successfully",
-            "Live read-only verification succeeded for this complete hosting contract",
-            "explicit live code-deployment request completed successfully",
-            "Separate live verification subsequently proved `/health`, `/version`, and `/demo/status`",
+            "current-run directory",
+            "copied bytes are verified before runner entry",
+            "Deployment acceptance never proves configuration",
         },
     )
+    for historical in (
+        "RED was",
+        "GREEN is",
+        "succeeded on July 15, 2026",
+        "live Web App infrastructure deployment request completed successfully",
+        "explicit live code-deployment request completed successfully",
+    ):
+        assert historical not in architecture
 
 
 def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
@@ -688,7 +692,7 @@ def test_progress_enforces_the_daily_disposable_azure_environment_gate() -> None
     )
 
 
-def test_daily_azure_coordinator_docs_define_the_automated_safe_path() -> None:
+def test_daily_azure_coordinator_docs_define_the_guided_safe_path() -> None:
     runbook = _normalized(
         _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")
     )
@@ -698,7 +702,7 @@ def test_daily_azure_coordinator_docs_define_the_automated_safe_path() -> None:
     _assert_contains_all(
         runbook,
         {
-            "Normal Daily Automated Path",
+            "Normal Daily Guided Path",
             "scripts/rebuild_daily_azure_environment.py",
             "--check",
             "--live",
@@ -707,19 +711,22 @@ def test_daily_azure_coordinator_docs_define_the_automated_safe_path() -> None:
             "does not trigger or read WebJob execution",
             "category=manual_rbac_action_required",
             "coordinator contains no live RBAC deployment path",
-            "exact expected identity, scope, parent topology, and multiplicity",
+            "current-run approval",
+            "resource_group_ownership_approval_required",
+            "immutable transient handoff",
         },
     )
     _assert_contains_all(
         architecture,
         {
-            "preferred authoritative daily orchestration layer",
+            "preferred guided daily orchestration layer",
             "independent deployment",
-            "manual",
+            "stage-specific operator approval",
+            "explicit manual adoption",
             "cannot trigger or read a WebJob run",
             "healthy old worker cannot produce READY",
             "never previews or deploys RBAC itself",
-            "exact expected identity",
+            "exact identity, scope, parent",
         },
     )
     assert set(values) == {
@@ -748,25 +755,25 @@ def test_daily_disposable_azure_runbook_has_ordered_stage_boundaries() -> None:
         _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")
     )
     ordered_stages = [
-        "Purpose and lifecycle",
-        "Required operator inputs",
-        "Local preflight",
-        "Authentication and subscription",
-        "Resource group creation",
-        "Foundry infrastructure",
-        "Prompt-agent provisioning and immutable-version proof",
-        "Web App infrastructure",
-        "Web App configuration verification",
-        "Package creation",
-        "Web App code deployment",
-        "Hosted readiness verification",
-        "Consumer RBAC deployment",
-        "Consumer RBAC verification",
-        "Optional WebJob discovery",
-        "Daily environment-ready declaration",
-        "End-of-session cleanup and evidence expiry",
-        "Fail-fast rules",
-        "Cost control",
+        "## 1. Purpose and lifecycle",
+        "## 2. Required operator inputs",
+        "## 3. Local preflight",
+        "## 4. Authentication and subscription",
+        "## 5. Resource group creation or explicit adoption",
+        "## 6. Foundry infrastructure",
+        "## 7. Prompt-agent provisioning and immutable-version proof",
+        "## 8. Web App infrastructure",
+        "## 9. Web App configuration verification",
+        "## 10. Package creation",
+        "## 11. Web App code deployment",
+        "## 12. Hosted readiness verification",
+        "## 13. Consumer RBAC deployment",
+        "## 14. Consumer RBAC verification",
+        "## 15. Optional WebJob discovery",
+        "## 16. Daily environment-ready declaration",
+        "## 17. End-of-session cleanup and evidence expiry",
+        "## 18. Fail-fast rules",
+        "## 19. Cost control",
     ]
     positions = [runbook.index(stage) for stage in ordered_stages]
     assert positions == sorted(positions)

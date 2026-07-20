@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
+import os
 from pathlib import Path, PurePosixPath
 import secrets
+import stat
 import tempfile
 import zipfile
 
@@ -141,6 +143,19 @@ class WebAppPackage:
             "package_file_count": self.file_count,
             "package_sha256_present": True,
         }
+
+
+@dataclass(frozen=True)
+class ImmutableDeploymentArtifact:
+    path: Path
+    sha256: str
+    directory: Path
+    deployment_root: Path
+    _sentinel: object = field(repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if self._sentinel is not _CONSTRUCTION_SENTINEL:
+            raise TypeError("Deployment artifacts are service-issued.")
 
 
 def create_package_authorization_session() -> PackageAuthorizationSession:
@@ -453,6 +468,122 @@ def consume_web_app_package_authorization(
     )
     if not authorization_session._consume(package._authorization_token, fingerprint):
         raise PackageSafetyError("package_proof_invalid")
+
+
+def materialize_immutable_deployment_artifact(
+    package: WebAppPackage,
+    source_root: Path,
+    authorization_session: PackageAuthorizationSession,
+) -> ImmutableDeploymentArtifact:
+    validate_web_app_package(package, source_root, authorization_session)
+    resolved_root = source_root.resolve(strict=True)
+    deployment_root = _safe_artifact_directory(
+        resolved_root,
+        resolved_root / ".artifacts/web-app/deployments",
+    )
+    deployment_root.mkdir(parents=True, exist_ok=True)
+    if deployment_root.is_symlink():
+        raise PackageSafetyError("unsafe_deployment_artifact")
+    os.chmod(deployment_root, 0o700)
+
+    source_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        source_descriptor = os.open(package.package_path, source_flags)
+        with os.fdopen(source_descriptor, "rb") as source_stream:
+            if not stat.S_ISREG(os.fstat(source_stream.fileno()).st_mode):
+                raise PackageSafetyError("package_proof_invalid")
+            package_bytes = source_stream.read()
+    except PackageSafetyError:
+        raise
+    except OSError as error:
+        raise PackageSafetyError("package_proof_invalid") from error
+    if (
+        len(package_bytes) != package.size_bytes
+        or hashlib.sha256(package_bytes).hexdigest() != package.sha256
+    ):
+        raise PackageSafetyError("package_proof_invalid")
+
+    try:
+        directory = Path(tempfile.mkdtemp(prefix="deployment-", dir=deployment_root))
+        os.chmod(directory, 0o700)
+        artifact_path = directory / PACKAGE_FILENAME
+        flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(artifact_path, flags, 0o400)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(package_bytes)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(artifact_path, 0o400)
+        artifact = ImmutableDeploymentArtifact(
+            artifact_path,
+            package.sha256,
+            directory,
+            deployment_root,
+            _CONSTRUCTION_SENTINEL,
+        )
+        verify_immutable_deployment_artifact(artifact)
+        return artifact
+    except PackageSafetyError:
+        raise
+    except OSError as error:
+        raise PackageSafetyError("unsafe_deployment_artifact") from error
+
+
+def verify_immutable_deployment_artifact(
+    artifact: ImmutableDeploymentArtifact,
+) -> None:
+    if (
+        not isinstance(artifact, ImmutableDeploymentArtifact)
+        or artifact.path.parent != artifact.directory
+        or artifact.directory.parent != artifact.deployment_root
+        or not artifact.directory.name.startswith("deployment-")
+        or artifact.path.is_symlink()
+        or artifact.directory.is_symlink()
+        or artifact.deployment_root.is_symlink()
+    ):
+        raise PackageSafetyError("unsafe_deployment_artifact")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(artifact.path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            metadata = os.fstat(stream.fileno())
+            content = stream.read()
+    except OSError as error:
+        raise PackageSafetyError("unsafe_deployment_artifact") from error
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_mode & 0o777 != 0o400
+        or hashlib.sha256(content).hexdigest() != artifact.sha256
+    ):
+        raise PackageSafetyError("unsafe_deployment_artifact")
+
+
+def discard_immutable_deployment_artifact(
+    artifact: ImmutableDeploymentArtifact,
+) -> None:
+    if (
+        not isinstance(artifact, ImmutableDeploymentArtifact)
+        or artifact._sentinel is not _CONSTRUCTION_SENTINEL
+        or artifact.path.parent != artifact.directory
+        or artifact.directory.parent != artifact.deployment_root
+        or not artifact.directory.name.startswith("deployment-")
+        or artifact.directory.is_symlink()
+        or artifact.deployment_root.is_symlink()
+    ):
+        return
+    try:
+        os.unlink(artifact.path)
+    except FileNotFoundError:
+        pass
+    try:
+        os.rmdir(artifact.directory)
+    except OSError:
+        pass
 
 
 def authorized_application_artifact_digest(

@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import zipfile
 
@@ -6,13 +7,17 @@ import pytest
 
 from src.app.services.web_app_package import (
     ARTIFACT_MARKER_MEMBER,
+    ImmutableDeploymentArtifact,
     PackageAuthorizationSession,
     PackageSafetyError,
     build_web_app_package,
     consume_web_app_package_authorization,
     create_package_authorization_session,
+    discard_immutable_deployment_artifact,
+    materialize_immutable_deployment_artifact,
     plan_web_app_package,
     validate_web_app_package,
+    verify_immutable_deployment_artifact,
 )
 
 
@@ -247,3 +252,85 @@ def test_modified_zip_is_rejected_after_authorization_issuance(source_tree: Path
 
     with pytest.raises(PackageSafetyError):
         validate_web_app_package(package, source_tree, session)
+
+
+def test_immutable_deployment_artifact_is_unique_restrictive_and_verified(
+    source_tree: Path,
+) -> None:
+    session = create_package_authorization_session()
+    package = build_web_app_package(source_tree, authorization_session=session)
+
+    artifact = materialize_immutable_deployment_artifact(
+        package, source_tree, session
+    )
+    try:
+        assert artifact.path != package.package_path
+        assert artifact.path.read_bytes() == package.package_path.read_bytes()
+        assert os.stat(artifact.path).st_mode & 0o777 == 0o400
+        assert os.stat(artifact.directory).st_mode & 0o777 == 0o700
+        verify_immutable_deployment_artifact(artifact)
+    finally:
+        discard_immutable_deployment_artifact(artifact)
+    assert artifact.path.exists() is False
+
+
+def test_immutable_deployment_artifact_cannot_be_caller_forged(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(TypeError):
+        ImmutableDeploymentArtifact(
+            tmp_path / "target.zip",
+            "0" * 64,
+            tmp_path,
+            tmp_path,
+            object(),
+        )
+
+
+def test_replacement_between_validation_and_materialization_is_rejected(
+    source_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.web_app_package as package_service
+
+    session = create_package_authorization_session()
+    package = build_web_app_package(source_tree, authorization_session=session)
+    original_validate = package_service.validate_web_app_package
+
+    def validate_then_replace(*args, **kwargs):
+        validated = original_validate(*args, **kwargs)
+        package.package_path.write_bytes(b"replacement")
+        return validated
+
+    monkeypatch.setattr(
+        package_service, "validate_web_app_package", validate_then_replace
+    )
+    with pytest.raises(PackageSafetyError) as error:
+        materialize_immutable_deployment_artifact(package, source_tree, session)
+    assert error.value.category == "package_proof_invalid"
+
+
+@pytest.mark.parametrize("target_kind", ("file", "symlink"))
+def test_preexisting_or_symlink_immutable_target_fails_closed(
+    source_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target_kind: str,
+) -> None:
+    import src.app.services.web_app_package as package_service
+
+    session = create_package_authorization_session()
+    package = build_web_app_package(source_tree, authorization_session=session)
+    directory = source_tree / ".artifacts/web-app/deployments/existing"
+    directory.mkdir(parents=True)
+    target = directory / package_service.PACKAGE_FILENAME
+    if target_kind == "file":
+        target.write_bytes(b"preserve")
+    else:
+        outside = source_tree / "outside.zip"
+        outside.write_bytes(b"preserve")
+        target.symlink_to(outside)
+    monkeypatch.setattr(package_service.tempfile, "mkdtemp", lambda **_kwargs: str(directory))
+
+    with pytest.raises(PackageSafetyError) as error:
+        materialize_immutable_deployment_artifact(package, source_tree, session)
+    assert error.value.category == "unsafe_deployment_artifact"

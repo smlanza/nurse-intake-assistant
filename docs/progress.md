@@ -342,11 +342,13 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The exact recommended next boundary is the separately authorized first live
-coordinator run after its offline check succeeds:
+The exact recommended next boundary is one operator-supervised live guided
+rebuild after its offline check succeeds:
 ```text
 run rebuild_daily_azure_environment.py --check --json
--> separately authorize one rebuild_daily_azure_environment.py --live --json
+-> run rebuild_daily_azure_environment.py --live --json
+-> review and approve only the resource-group, Foundry, Web App, and package stages presented
+-> use the separate manual RBAC workflow only when requested, then rerun
 -> require daily_environment_ready=true
 -> separately authorize one WebJob trigger
 -> separately authorize one receipt-correlated status read
@@ -362,28 +364,24 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Status
 
-- A second independent review classified the complete uncommitted coordinator
-  `UNSAFE — DO NOT RUN LIVE`. This final fail-closed remediation requires exact
-  identity, resource-group scope, parent hierarchy, topology, multiplicity, and
-  count agreement for automatic Foundry and Web App preview continuation.
-- The current deterministic package contains an application-owned source-digest
-  marker. Hosted readiness compares that marker with an internal current-run
-  package proof, so deployment acceptance or a healthy old worker cannot prove
-  the current artifact. Package authorization is opaque, run-scoped, bound to
-  the exact source/member/path/ZIP state, one-use, and non-replayable.
-- Missing direct Consumer RBAC now always stops with
-  `manual_rbac_action_required`; the coordinator has no RBAC preview or live
-  deployment path. A successful stage must carry a conclusive Boolean mutation
-  state, and READY rejects an ambiguous aggregate state.
-- No live coordinator, Azure, HTTP, Foundry, WebJob, identity, RBAC, readiness,
-  inference, or invocation operation occurred during hardening. Live daily
-  readiness remains unproven. A third independent review is required before
-  any live authorization. The coordinator still has no WebJob trigger/status,
-  managed-identity verification, agent invocation, retry, polling, or cleanup
-  path; hosted execution remains offline-tested only, and later agent invocation
-  remains separately deferred. Mock defaults, mandatory nurse review,
-  fictional-data restrictions, and the non-production boundary remain
-  unchanged.
+- The final independent review selected a guided, operator-approved coordinator
+  instead of another autonomous-hardening cycle. The coordinator automates
+  offline validation, safe reads, sequencing, dynamic value propagation, and
+  verification, but it cannot approve its own mutation boundaries.
+- An absent resource group requires current-run approval before creation. An
+  existing group is reusable only with the exact location, usable state, and
+  repository daily-purpose tag; otherwise the run stops for explicit manual
+  adoption and a rerun.
+- Foundry and Web App deployment each require approval bound to the current
+  sanitized preview. Current package deployment has a separate approval bound
+  to its current-run proof and uses a unique restrictive immutable handoff.
+- Missing direct Consumer RBAC always stops with
+  `manual_rbac_action_required`; the coordinator never previews or deploys
+  RBAC. READY is created only through a private proof-complete constructor.
+- No live guided rebuild has run. The next boundary is one supervised live run
+  after offline GREEN. WebJob trigger/status, hosted identity verification,
+  later agent invocation, retries, polling, and Azure cleanup remain outside the
+  coordinator; hosted execution remains offline-tested only.
 
 ### Historical Slice Results
 

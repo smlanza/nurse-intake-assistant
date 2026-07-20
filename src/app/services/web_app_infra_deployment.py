@@ -721,6 +721,9 @@ def _parse_what_if_summary(
         stdout,
         boundary="web_app",
         expected_resources=expected,
+        sanitized_additional_resource_types={
+            "Microsoft.Resources/deployments": "nested_deployment"
+        },
     )
     if parsed is None:
         return None

@@ -83,6 +83,7 @@ def parse_sanitized_what_if(
     boundary: str,
     expected_resources: tuple[ExpectedWhatIfResource, ...] | None = None,
     allowlisted_resource_types: Mapping[str, str] | None = None,
+    sanitized_additional_resource_types: Mapping[str, str] | None = None,
     automatically_approved_actions: frozenset[str] = frozenset(
         {"Create", "NoChange", "Ignore"}
     ),
@@ -99,6 +100,9 @@ def parse_sanitized_what_if(
             boundary=boundary,
             expected_resources=expected_resources,
             automatically_approved_actions=automatically_approved_actions,
+            sanitized_additional_resource_types=(
+                sanitized_additional_resource_types or {}
+            ),
         )
     if allowlisted_resource_types is None:
         return None
@@ -140,10 +144,38 @@ def _exact_summary(
     boundary: str,
     expected_resources: tuple[ExpectedWhatIfResource, ...],
     automatically_approved_actions: frozenset[str],
+    sanitized_additional_resource_types: Mapping[str, str],
 ) -> SanitizedWhatIfSummary:
     expected_keys = Counter(_expected_key(item) for item in expected_resources)
-    actual_keys = Counter(_identity_key(item) for item in identities)
-    multiplicity_match = actual_keys == expected_keys
+    additional_types = {
+        resource_type.casefold(): category
+        for resource_type, category in sanitized_additional_resource_types.items()
+    }
+    expected_type_keys = {
+        item.resource_type.casefold() for item in expected_resources
+    }
+    ordinary_identities = tuple(
+        identity
+        for identity in identities
+        if identity.resource_type.casefold() not in additional_types
+    )
+    actual_keys = Counter(_identity_key(item) for item in ordinary_identities)
+    allowed_additional = all(
+        identity.resource_type.casefold() in expected_type_keys
+        or identity.resource_type.casefold() in additional_types
+        for identity in identities
+    )
+    expected_groups = {
+        item.resource_group.casefold() for item in expected_resources
+    }
+    additional_scopes_match = all(
+        identity.resource_group.casefold() in expected_groups
+        for identity in identities
+        if identity.resource_type.casefold() in additional_types
+    )
+    multiplicity_match = bool(
+        actual_keys == expected_keys and allowed_additional and additional_scopes_match
+    )
     exact_topology_match = bool(expected_resources and multiplicity_match)
     evidence: list[SanitizedWhatIfChange] = []
 
@@ -153,6 +185,23 @@ def _exact_summary(
             for item in expected_resources
             if item.resource_type == identity.resource_type
         ]
+        additional_category = additional_types.get(identity.resource_type.casefold())
+        if additional_category is not None:
+            scope_match = identity.resource_group.casefold() in expected_groups
+            evidence.append(
+                SanitizedWhatIfChange(
+                    action=action,
+                    resource_type=identity.resource_type,
+                    logical_category=additional_category,
+                    boundary=boundary,
+                    approved_boundary=False,
+                    expected_identity_match=False,
+                    expected_parent_match=False,
+                    expected_scope_match=scope_match,
+                    expected_multiplicity_match=multiplicity_match,
+                )
+            )
+            continue
         scope_match = any(
             item.resource_group.casefold() == identity.resource_group.casefold()
             for item in type_expectations
