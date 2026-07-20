@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -10,6 +11,11 @@ from src.app.services.web_app_hosting_contract import (
     REMOTE_BUILD_VALUE,
     SAFE_HOSTED_SETTINGS,
     hosted_verifier_settings_valid,
+)
+from src.app.services.azure_what_if_evidence import (
+    ExpectedWhatIfResource,
+    SanitizedWhatIfChange,
+    parse_sanitized_what_if,
 )
 
 
@@ -97,7 +103,9 @@ class WebAppInfrastructureDeploymentResult:
     unsupported_count: int | None
     delete_detected: bool
     what_if_summary_available: bool
+    exact_topology_match: bool
     recommended_next_step: str
+    change_evidence: tuple[SanitizedWhatIfChange, ...]
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -126,7 +134,11 @@ class WebAppInfrastructureDeploymentResult:
             "unsupported_count": self.unsupported_count,
             "delete_detected": self.delete_detected,
             "what_if_summary_available": self.what_if_summary_available,
+            "exact_topology_match": self.exact_topology_match,
             "recommended_next_step": self.recommended_next_step,
+            "change_evidence": [
+                change.to_json_dict() for change in self.change_evidence
+            ],
         }
 
 
@@ -139,6 +151,8 @@ class WhatIfSummary:
     ignore_count: int
     deploy_count: int
     unsupported_count: int
+    change_evidence: tuple[SanitizedWhatIfChange, ...]
+    exact_topology_match: bool
 
 
 def _safe_result_identifier(value: object) -> str | None:
@@ -212,7 +226,11 @@ def _result(
             what_if_summary is not None and what_if_summary.delete_count > 0
         ),
         what_if_summary_available=what_if_summary is not None,
+        exact_topology_match=bool(
+            what_if_summary and what_if_summary.exact_topology_match
+        ),
         recommended_next_step=recommended_next_step,
+        change_evidence=(what_if_summary.change_evidence if what_if_summary else ()),
     )
 
 
@@ -580,6 +598,8 @@ def _local_contract_valid(template_file: Path) -> bool:
     template_contract = (
         r"param\s+deployApp\s+bool\s*=\s*false",
         r"param\s+deployFoundry\s+bool\s*=\s*false",
+        r"@minLength\(13\)\s*@maxLength\(13\)\s*param\s+resourceNameSuffix\s+string\?",
+        r"var\s+suffix\s*=\s*resourceNameSuffix\s*\?\?\s*uniqueString\([^\r\n]+\)",
         r"module\s+webApp\s+'modules/web-app\.bicep'\s*=\s*if\s*\(deployApp\)",
     )
     if any(re.search(pattern, template) is None for pattern in template_contract):
@@ -662,6 +682,7 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
             f"projectName={request.project_name}",
             f"cosmosDatabaseName={request.cosmos_database_name}",
             f"cosmosContainerName={request.cosmos_container_name}",
+            f"resourceNameSuffix={_resource_name_suffix(request)}",
             "deployApp=true",
             "deployFoundry=false",
             f"webAppName={request.web_app_name}",
@@ -691,40 +712,95 @@ def _hosted_verifier_bicep_configuration(
     }
 
 
-def _parse_what_if_summary(stdout: str) -> WhatIfSummary | None:
-    try:
-        payload = json.loads(stdout)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(payload, dict) or not isinstance(payload.get("changes"), list):
-        return None
-
-    counts = {
-        "create": 0,
-        "modify": 0,
-        "delete": 0,
-        "nochange": 0,
-        "ignore": 0,
-        "deploy": 0,
-        "unsupported": 0,
-    }
-    for change in payload["changes"]:
-        if not isinstance(change, dict):
-            return None
-        change_type = change.get("changeType")
-        if not isinstance(change_type, str) or not change_type.strip():
-            return None
-        normalized = change_type.strip().casefold()
-        counts[normalized if normalized in counts else "unsupported"] += 1
-    return WhatIfSummary(
-        create_count=counts["create"],
-        modify_count=counts["modify"],
-        delete_count=counts["delete"],
-        no_change_count=counts["nochange"],
-        ignore_count=counts["ignore"],
-        deploy_count=counts["deploy"],
-        unsupported_count=counts["unsupported"],
+def _parse_what_if_summary(
+    stdout: str,
+    request: WebAppInfrastructureDeploymentRequest,
+) -> WhatIfSummary | None:
+    expected = _expected_web_app_resources(stdout, request)
+    parsed = parse_sanitized_what_if(
+        stdout,
+        boundary="web_app",
+        expected_resources=expected,
     )
+    if parsed is None:
+        return None
+    return WhatIfSummary(
+        create_count=parsed.count("Create"),
+        modify_count=parsed.count("Modify"),
+        delete_count=parsed.count("Delete"),
+        no_change_count=parsed.count("NoChange"),
+        ignore_count=parsed.count("Ignore"),
+        deploy_count=parsed.count("Deploy"),
+        unsupported_count=parsed.count("Unsupported"),
+        change_evidence=parsed.changes,
+        exact_topology_match=parsed.exact_topology_match,
+    )
+
+
+def _expected_web_app_resources(
+    _stdout: str,
+    request: WebAppInfrastructureDeploymentRequest,
+) -> tuple[ExpectedWhatIfResource, ...]:
+    suffix = _resource_name_suffix(request)
+    project_environment = f"{request.project_name}-{request.environment_name}"
+    cosmos_account = f"{project_environment}-{suffix}".casefold()
+    plan_name = f"{project_environment}-plan-{suffix}".casefold()[:40]
+    expected = (
+        (
+            "Microsoft.DocumentDB/databaseAccounts",
+            "cosmos_account",
+            (cosmos_account,),
+        ),
+        (
+            "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+            "cosmos_database",
+            (cosmos_account, request.cosmos_database_name),
+        ),
+        (
+            "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+            "cosmos_container",
+            (
+                cosmos_account,
+                request.cosmos_database_name,
+                request.cosmos_container_name,
+            ),
+        ),
+        ("Microsoft.Storage/storageAccounts", "storage_account", (f"st{suffix}",)),
+        (
+            "Microsoft.OperationalInsights/workspaces",
+            "log_analytics",
+            (f"{project_environment}-logs-{suffix}",),
+        ),
+        (
+            "Microsoft.Insights/components",
+            "application_insights",
+            (f"{project_environment}-appi-{suffix}",),
+        ),
+        ("Microsoft.Web/serverfarms", "app_service_plan", (plan_name,)),
+        ("Microsoft.Web/sites", "web_app", (request.web_app_name,)),
+    )
+    return tuple(
+        ExpectedWhatIfResource(
+            resource_type,
+            category,
+            request.resource_group,
+            names,
+        )
+        for resource_type, category, names in expected
+    )
+
+
+def _resource_name_suffix(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> str:
+    identity = "\x00".join(
+        (
+            request.resource_group.casefold(),
+            request.project_name.casefold(),
+            request.environment_name.casefold(),
+        )
+    ).encode("utf-8")
+    return hashlib.sha256(identity).hexdigest()[:13]
 
 
 def deploy_web_app_infrastructure(
@@ -777,7 +853,7 @@ def deploy_web_app_infrastructure(
     if outcome.return_code != 0:
         return _result(request, "azure_operation_failed", **common)
     if request.mode == "what-if":
-        summary = _parse_what_if_summary(outcome.stdout)
+        summary = _parse_what_if_summary(outcome.stdout, request)
         if summary is None:
             return _result(request, "what_if_parse_failed", **common)
         if summary.delete_count:

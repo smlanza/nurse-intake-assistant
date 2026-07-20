@@ -96,11 +96,12 @@ def test_success_uses_exact_read_only_commands_in_order() -> None:
     runner = _success_runner()
     result = script.verify(_request(), runner)
     assert result["ok"] is True
+    assert result["model_capacity"] == 1
     assert runner.calls == [
         [
             "az", "cognitiveservices", "account", "show",
             "--resource-group", "fictional-rg", "--name", ACCOUNT_NAME,
-            "--query", "{name:name,kind:kind,provisioningState:properties.provisioningState,allowProjectManagement:properties.allowProjectManagement,disableLocalAuth:properties.disableLocalAuth}",
+            "--query", "{name:name,kind:kind,provisioningState:properties.provisioningState,allowProjectManagement:properties.allowProjectManagement,disableLocalAuth:properties.disableLocalAuth,tags:tags}",
             "--output", "json", "--only-show-errors",
         ],
         [
@@ -118,6 +119,49 @@ def test_success_uses_exact_read_only_commands_in_order() -> None:
             "--output", "json", "--only-show-errors",
         ],
     ]
+
+
+@pytest.mark.parametrize("capacity", [2, None, "1"])
+def test_configured_model_capacity_must_match_exactly(capacity: object) -> None:
+    runner = FakeRunner(
+        [
+            script.CommandResult(0, _account(), ""),
+            script.CommandResult(0, _project(), ""),
+            script.CommandResult(
+                0,
+                _deployment(sku={"name": "GlobalStandard", "capacity": capacity}),
+                "",
+            ),
+        ]
+    )
+    request = script.VerificationRequest(
+        "fictional-rg",
+        ENDPOINT,
+        DEPLOYMENT_NAME,
+        expected_model_capacity=1,
+    )
+
+    result = script.verify(request, runner)
+
+    assert result["ok"] is False
+    assert result["category"] == "model_capacity_mismatch"
+
+
+def test_explicit_daily_account_name_requires_expected_ownership_tag() -> None:
+    runner = FakeRunner(
+        [script.CommandResult(0, _account(tags={"purpose": "other"}), "")]
+    )
+    request = script.VerificationRequest(
+        "fictional-rg",
+        ENDPOINT,
+        DEPLOYMENT_NAME,
+        expected_purpose_tag="fictional-daily-validation",
+    )
+
+    result = script.verify(request, runner)
+
+    assert result["category"] == "account_contract_invalid"
+    assert len(runner.calls) == 1
     flattened = " ".join(" ".join(call).lower() for call in runner.calls)
     for forbidden in (" keys ", "listkeys", " create ", " update ", " delete ", "deployment group create"):
         assert forbidden not in f" {flattened} "
@@ -130,7 +174,7 @@ def test_success_returns_only_approved_contract() -> None:
         "model_deployment_verified", "project_endpoint_valid", "account_kind",
         "account_provisioning_state", "project_provisioning_state",
         "model_deployment_provisioning_state", "model_name", "model_version",
-        "model_format", "model_sku", "recommended_next_step",
+        "model_format", "model_sku", "model_capacity", "recommended_next_step",
     }
     assert result == {
         "ok": True,
@@ -148,6 +192,7 @@ def test_success_returns_only_approved_contract() -> None:
         "model_version": "fictional-version",
         "model_format": "OpenAI",
         "model_sku": "GlobalStandard",
+        "model_capacity": 1,
         "recommended_next_step": "Infrastructure verification succeeded. Review the result before creating the prompt agent.",
     }
 

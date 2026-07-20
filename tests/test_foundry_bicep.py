@@ -55,6 +55,33 @@ def test_shared_module_has_foundry_project_and_model_resources() -> None:
     assert "name: modelDeploymentName" in text
 
 
+def test_foundry_entry_points_forward_optional_explicit_account_name() -> None:
+    module = _text("modules/foundry.bicep")
+    foundry_only = _text("foundry-only.bicep")
+    main = _text("main.bicep")
+
+    assert "param foundryAccountName string = ''" in module
+    assert "empty(foundryAccountName)" in module
+    for entrypoint in (foundry_only, main):
+        assert "param foundryAccountName string = ''" in entrypoint
+        assert "foundryAccountName: foundryAccountName" in entrypoint
+
+
+def test_explicit_foundry_account_name_has_local_bicep_validation() -> None:
+    module = _text("modules/foundry.bicep")
+    validation = _text("modules/foundry-account-name-validation.bicep")
+    for source in (_text("foundry-only.bicep"), _text("main.bicep"), module):
+        declaration = source.index("param foundryAccountName string = ''")
+        assert "@maxLength(64)" in source[max(0, declaration - 160):declaration]
+    assert "trim(foundryAccountName)" in module
+    assert "length(foundryAccountName) >= 2" in module
+    assert "startsWith(foundryAccountName, '-')" in module
+    assert "endsWith(foundryAccountName, '-')" in module
+    assert "foundryAccountNameInvalidCharacters" in module
+    assert "@minLength(2)" in validation
+    assert "validatedFoundryAccountName" in validation
+
+
 def test_safe_outputs_exist_without_secret_operations() -> None:
     combined = _text("modules/foundry.bicep") + _text("foundry-only.bicep")
     for output_name in (

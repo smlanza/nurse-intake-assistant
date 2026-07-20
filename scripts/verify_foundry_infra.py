@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 ACCOUNT_QUERY = (
     "{name:name,kind:kind,provisioningState:properties.provisioningState,"
     "allowProjectManagement:properties.allowProjectManagement,"
-    "disableLocalAuth:properties.disableLocalAuth}"
+    "disableLocalAuth:properties.disableLocalAuth,tags:tags}"
 )
 PROJECT_QUERY = "{name:name,provisioningState:properties.provisioningState}"
 DEPLOYMENT_QUERY = (
@@ -50,6 +50,8 @@ class VerificationRequest:
     resource_group: str
     project_endpoint: str
     model_deployment_name: str
+    expected_model_capacity: int | None = None
+    expected_purpose_tag: str | None = None
 
 
 def parse_project_endpoint(endpoint: str) -> tuple[str, str]:
@@ -94,6 +96,7 @@ def _result(category: str, *, endpoint_valid: bool = False) -> dict[str, object]
         "model_version": None,
         "model_format": None,
         "model_sku": None,
+        "model_capacity": None,
         "recommended_next_step": "Review the sanitized failure category before retrying.",
     }
 
@@ -113,6 +116,12 @@ def _command_failure(result: CommandResult, ordinary_category: str) -> str | Non
         return "cli_unavailable"
     if _authorization_failure(result.stderr):
         return "authentication_or_authorization_failed"
+    lowered = result.stderr.casefold()
+    if any(
+        marker in lowered
+        for marker in ("resourcenotfound", "resource not found", "could not be found")
+    ):
+        return "resource_not_found"
     return ordinary_category
 
 
@@ -162,6 +171,14 @@ def verify(
             or account.get("allowProjectManagement") is not True
             or account.get("disableLocalAuth") is not True
             or not _state_succeeded_if_available(account)
+            or (
+                request.expected_purpose_tag is not None
+                and (
+                    not isinstance(account.get("tags"), dict)
+                    or account["tags"].get("purpose")
+                    != request.expected_purpose_tag
+                )
+            )
         ):
             return _result("account_contract_invalid", endpoint_valid=True)
         result["account_verified"] = True
@@ -228,6 +245,16 @@ def verify(
         if not isinstance(model, dict) or not isinstance(sku, dict):
             result["category"] = "model_deployment_contract_invalid"
             return result
+        capacity = sku.get("capacity")
+        if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < 1:
+            result["category"] = "model_capacity_mismatch"
+            return result
+        if (
+            request.expected_model_capacity is not None
+            and capacity != request.expected_model_capacity
+        ):
+            result["category"] = "model_capacity_mismatch"
+            return result
         result.update(
             {
                 "ok": True,
@@ -240,6 +267,7 @@ def verify(
                 "model_version": model.get("version"),
                 "model_format": model.get("format"),
                 "model_sku": sku.get("name"),
+                "model_capacity": capacity,
                 "recommended_next_step": "Infrastructure verification succeeded. Review the result before creating the prompt agent.",
             }
         )

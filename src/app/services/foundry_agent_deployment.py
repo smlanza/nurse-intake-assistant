@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from importlib.util import find_spec
+from collections.abc import Mapping
 from typing import Any, Callable, Literal
 
 from src.app.services.nurse_intake_agent_instructions import (
@@ -53,6 +54,10 @@ class FoundryAgentDeploymentResult:
     instruction_version: str
     agent_invoked: bool
     recommended_next_step: str
+    resolved_agent_name: str | None = None
+    resolved_agent_version: str | None = None
+    azure_call_made: bool = False
+    azure_mutation_made: bool | None = False
 
     @classmethod
     def success(
@@ -64,6 +69,8 @@ class FoundryAgentDeploymentResult:
         agent_name_present: bool = True,
         agent_version_present: bool = True,
         model_deployment_name_present: bool = True,
+        resolved_agent_name: str | None = None,
+        resolved_agent_version: str | None = None,
     ) -> "FoundryAgentDeploymentResult":
         return cls(
             ok=True,
@@ -80,6 +87,10 @@ class FoundryAgentDeploymentResult:
             instruction_version=NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
             agent_invoked=False,
             recommended_next_step=DEPLOYMENT_NEXT_STEP,
+            resolved_agent_name=resolved_agent_name,
+            resolved_agent_version=resolved_agent_version,
+            azure_call_made=True,
+            azure_mutation_made=agent_created or agent_updated,
         )
 
     @classmethod
@@ -89,6 +100,8 @@ class FoundryAgentDeploymentResult:
         *,
         agent_name_present: bool = False,
         model_deployment_name_present: bool = False,
+        azure_call_made: bool = False,
+        azure_mutation_made: bool | None = False,
     ) -> "FoundryAgentDeploymentResult":
         return cls(
             ok=False,
@@ -105,6 +118,8 @@ class FoundryAgentDeploymentResult:
             instruction_version=NURSE_INTAKE_AGENT_INSTRUCTION_VERSION,
             agent_invoked=False,
             recommended_next_step=DEPLOYMENT_NEXT_STEP,
+            azure_call_made=azure_call_made,
+            azure_mutation_made=azure_mutation_made,
         )
 
     def to_json_dict(self) -> dict[str, object]:
@@ -182,13 +197,27 @@ class FoundryAgentDeployment:
             existing_version,
             request,
         ):
-            return FoundryAgentDeploymentResult.success(agent_reused=True)
+            existing_name = _object_value(existing_version, "name")
+            existing_version_name = _object_value(existing_version, "version")
+            if not existing_name or not existing_version_name:
+                return FoundryAgentDeploymentResult.failure(
+                    "agent_provisioning_failed",
+                    agent_name_present=bool(request.agent_name),
+                    model_deployment_name_present=bool(request.model_deployment_name),
+                )
+            return FoundryAgentDeploymentResult.success(
+                agent_reused=True,
+                resolved_agent_name=existing_name,
+                resolved_agent_version=existing_version_name,
+            )
 
+        create_attempted = False
         try:
             definition = self.prompt_agent_definition_factory(
                 model=request.model_deployment_name,
                 instructions=request.instructions,
             )
+            create_attempted = True
             provisioned_version = project_client.agents.create_version(
                 agent_name=request.agent_name,
                 definition=definition,
@@ -207,6 +236,8 @@ class FoundryAgentDeployment:
                 _category_for_exception(exc, "agent_provisioning_failed"),
                 agent_name_present=bool(request.agent_name),
                 model_deployment_name_present=bool(request.model_deployment_name),
+                azure_call_made=create_attempted,
+                azure_mutation_made=None if create_attempted else False,
             )
 
         return FoundryAgentDeploymentResult.success(
@@ -214,6 +245,8 @@ class FoundryAgentDeployment:
             agent_updated=existing_version is not None,
             agent_name_present=bool(provisioned_name),
             agent_version_present=bool(provisioned_version_name),
+            resolved_agent_name=provisioned_name,
+            resolved_agent_version=provisioned_version_name,
         )
 
 
@@ -270,7 +303,7 @@ def _definition_matches(
 
 
 def _raw_object_value(value: Any, name: str) -> Any:
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         return value.get(name)
     return getattr(value, name, None)
 

@@ -3,6 +3,9 @@ targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 param projectName string = 'nurse-intake'
 param environmentName string = 'daily'
+@description('Optional explicit globally unique daily Foundry account name. Existing resources must pass separate ownership and drift verification.')
+@maxLength(64)
+param foundryAccountName string = ''
 param foundryProjectName string
 param foundryProjectDisplayName string
 param foundryProjectDescription string
@@ -20,6 +23,7 @@ module foundry 'modules/foundry.bicep' = {
     location: location
     projectName: projectName
     environmentName: environmentName
+    foundryAccountName: foundryAccountName
     foundryProjectName: foundryProjectName
     foundryProjectDisplayName: foundryProjectDisplayName
     foundryProjectDescription: foundryProjectDescription

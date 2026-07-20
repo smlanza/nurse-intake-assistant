@@ -257,7 +257,7 @@ def test_valid_what_if_output_returns_aggregate_counts_only(
         result.delete_count,
     ) == expected
     assert result.delete_review_required is (expected[3] > 0)
-    assert result.manual_review_required is (expected[3] > 0)
+    assert result.manual_review_required is bool(changes)
     serialized = json.dumps(result.to_json_dict())
     for secret in (
         "secret-principal-id",
@@ -287,7 +287,11 @@ def test_all_additional_documented_azure_change_types_parse_successfully(
             "changes": [
                 {
                     "changeType": change_type,
-                    "resourceId": "/subscriptions/raw/resourceGroups/raw/providers/raw",
+                    "resourceId": (
+                        "/subscriptions/raw/resourceGroups/raw/providers/"
+                        "Microsoft.CognitiveServices/accounts/account/projects/project/"
+                        "providers/Microsoft.Authorization/roleAssignments/assignment"
+                    ),
                     "principalId": "raw-principal",
                 }
             ],
@@ -455,5 +459,6 @@ def test_result_contract_exposes_only_sanitized_boundary_fields(rbac_request) ->
         "unsupported_count",
         "delete_review_required",
         "manual_review_required",
-        "recommended_next_step",
-    }
+            "recommended_next_step",
+            "change_evidence",
+        }

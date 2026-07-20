@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import json
+import re
 from typing import Callable, Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -15,6 +16,7 @@ ReadinessCategory = Literal[
     "malformed_json",
     "response_contract_mismatch",
     "unsafe_hosted_posture",
+    "application_artifact_mismatch",
     "unexpected_error",
 ]
 ReadinessMode = Literal["check", "live"]
@@ -34,6 +36,9 @@ FAILURE_MESSAGES: dict[ReadinessCategory, str] = {
     ),
     "unsafe_hosted_posture": (
         "Hosted application did not report the required safe mock posture."
+    ),
+    "application_artifact_mismatch": (
+        "Hosted application artifact did not match the current package."
     ),
     "unexpected_error": "Hosted readiness verification did not complete.",
 }
@@ -81,10 +86,16 @@ class WebAppReadinessVerificationResult:
     version_verified: bool
     demo_status_verified: bool
     safe_hosted_posture_verified: bool
+    application_artifact_matches: bool
     recommended_next_step: str
 
     @classmethod
-    def success(cls, mode: ReadinessMode) -> "WebAppReadinessVerificationResult":
+    def success(
+        cls,
+        mode: ReadinessMode,
+        *,
+        application_artifact_matches: bool = False,
+    ) -> "WebAppReadinessVerificationResult":
         live = mode == "live"
         return cls(
             ok=True,
@@ -98,6 +109,9 @@ class WebAppReadinessVerificationResult:
             version_verified=live,
             demo_status_verified=live,
             safe_hosted_posture_verified=live,
+            application_artifact_matches=(
+                live and application_artifact_matches
+            ),
             recommended_next_step=LIVE_NEXT_STEP if live else CHECK_NEXT_STEP,
         )
 
@@ -125,6 +139,7 @@ class WebAppReadinessVerificationResult:
             version_verified=version_verified,
             demo_status_verified=demo_status_verified,
             safe_hosted_posture_verified=False,
+            application_artifact_matches=False,
             recommended_next_step=FAILURE_NEXT_STEP,
         )
 
@@ -141,6 +156,7 @@ class WebAppReadinessVerificationResult:
             "version_verified": self.version_verified,
             "demo_status_verified": self.demo_status_verified,
             "safe_hosted_posture_verified": self.safe_hosted_posture_verified,
+            "application_artifact_matches": self.application_artifact_matches,
             "recommended_next_step": self.recommended_next_step,
         }
 
@@ -236,6 +252,7 @@ def verify_web_app_readiness(
     *,
     transport_factory: Callable[[str], WebAppReadinessTransport],
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    expected_application_artifact_digest: str | None = None,
 ) -> WebAppReadinessVerificationResult:
     try:
         normalized_base_url = normalize_web_app_base_url(base_url)
@@ -266,6 +283,7 @@ def verify_web_app_readiness(
         "version_verified": False,
         "demo_status_verified": False,
     }
+    application_artifact_matches = False
     validators = (
         ("/health", _health_contract_valid, "health_verified"),
         ("/version", _version_contract_valid, "version_verified"),
@@ -311,6 +329,19 @@ def verify_web_app_readiness(
             )
         progress[progress_field] = True
 
+        if path == "/version" and expected_application_artifact_digest is not None:
+            application_artifact_matches = bool(
+                isinstance(payload, dict)
+                and payload.get("artifactDigest")
+                == expected_application_artifact_digest
+            )
+            if not application_artifact_matches:
+                return WebAppReadinessVerificationResult.failure(
+                    "live",
+                    "application_artifact_mismatch",
+                    **progress,
+                )
+
         if path == "/demo/status" and not _safe_hosted_posture(payload):
             return WebAppReadinessVerificationResult.failure(
                 "live",
@@ -318,7 +349,10 @@ def verify_web_app_readiness(
                 **progress,
             )
 
-    return WebAppReadinessVerificationResult.success("live")
+    return WebAppReadinessVerificationResult.success(
+        "live",
+        application_artifact_matches=application_artifact_matches,
+    )
 
 
 def _health_contract_valid(payload: object) -> bool:
@@ -334,12 +368,18 @@ def _version_contract_valid(payload: object) -> bool:
         return False
     version = payload.get("version")
     environment = payload.get("environment")
+    artifact_digest = payload.get("artifactDigest")
     return bool(
         payload.get("service") == "nurse-intake-assistant"
         and isinstance(version, str)
         and version
         and isinstance(environment, str)
         and environment
+        and isinstance(artifact_digest, str)
+        and bool(
+            artifact_digest == "unpackaged"
+            or re.fullmatch(r"[0-9a-f]{64}", artifact_digest)
+        )
     )
 
 

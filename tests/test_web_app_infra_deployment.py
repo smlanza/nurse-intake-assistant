@@ -367,6 +367,10 @@ def test_azure_modes_issue_one_allowlisted_infrastructure_command(
     assert f"webAppName={deployment_request.web_app_name}" in parameters
     assert f"cosmosDatabaseName={deployment_request.cosmos_database_name}" in parameters
     assert f"cosmosContainerName={deployment_request.cosmos_container_name}" in parameters
+    assert (
+        f"resourceNameSuffix={deployment._resource_name_suffix(deployment_request)}"
+        in parameters
+    )
     hosted_parameter = next(
         parameter
         for parameter in parameters
@@ -498,7 +502,6 @@ def test_unexpected_runner_error_is_sanitized(
             ],
             (1, 1, 1, 1, 1, 1, 1),
         ),
-        ([{"changeType": "FutureChangeType"}], (0, 0, 0, 0, 0, 0, 1)),
     ],
 )
 def test_what_if_json_is_reduced_to_sanitized_change_counts(
@@ -544,6 +547,135 @@ def test_what_if_json_is_reduced_to_sanitized_change_counts(
         "changes",
     ):
         assert forbidden not in rendered
+
+
+def _web_app_topology_changes(
+    request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> list[dict[str, str]]:
+    suffix = deployment._resource_name_suffix(request)
+    project_environment = f"{request.project_name}-{request.environment_name}"
+    account_name = f"{project_environment}-{suffix}".lower()
+    plan_name = f"{project_environment}-plan-{suffix}".lower()[:40]
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers"
+    )
+    account = f"{root}/Microsoft.DocumentDB/databaseAccounts/{account_name}"
+    return [
+        {"changeType": "Create", "resourceId": account},
+        {
+            "changeType": "Create",
+            "resourceId": f"{account}/sqlDatabases/{request.cosmos_database_name}",
+        },
+        {
+            "changeType": "Create",
+            "resourceId": (
+                f"{account}/sqlDatabases/{request.cosmos_database_name}/containers/"
+                f"{request.cosmos_container_name}"
+            ),
+        },
+        {
+            "changeType": "Create",
+            "resourceId": f"{root}/Microsoft.Storage/storageAccounts/st{suffix}",
+        },
+        {
+            "changeType": "Create",
+            "resourceId": (
+                f"{root}/Microsoft.OperationalInsights/workspaces/"
+                f"{project_environment}-logs-{suffix}"
+            ),
+        },
+        {
+            "changeType": "Create",
+            "resourceId": (
+                f"{root}/Microsoft.Insights/components/"
+                f"{project_environment}-appi-{suffix}"
+            ),
+        },
+        {
+            "changeType": "Create",
+            "resourceId": f"{root}/Microsoft.Web/serverfarms/{plan_name}",
+        },
+        {
+            "changeType": "Create",
+            "resourceId": f"{root}/Microsoft.Web/sites/{request.web_app_name}",
+        },
+    ]
+
+
+def test_web_app_adapter_accepts_only_the_exact_expected_topology(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    changes = _web_app_topology_changes(deployment_request)
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"), runner=runner
+    )
+
+    assert result.exact_topology_match is True
+    assert all(change.approved_boundary for change in result.change_evidence)
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda changes: changes.__setitem__(
+            7,
+            {
+                **changes[7],
+                "resourceId": changes[7]["resourceId"].replace(
+                    "fictional-nurse-intake-web-app", "wrong-web-app"
+                ),
+            },
+        ),
+        lambda changes: changes.__setitem__(
+            7,
+            {
+                **changes[7],
+                "resourceId": changes[7]["resourceId"].replace(
+                    "fictional-webapp-rg", "wrong-rg"
+                ),
+            },
+        ),
+        lambda changes: changes.__setitem__(
+            2,
+            {
+                **changes[2],
+                "resourceId": changes[2]["resourceId"].replace(
+                    "/sqlDatabases/nurse-intake/", "/sqlDatabases/wrong-parent/"
+                ),
+            },
+        ),
+        lambda changes: changes.append(dict(changes[7])),
+        lambda changes: changes.append(
+            {
+                "changeType": "Create",
+                "resourceId": changes[7]["resourceId"].replace(
+                    "fictional-nurse-intake-web-app", "extra-web-app"
+                ),
+            }
+        ),
+    ],
+    ids=("wrong-name", "wrong-group", "wrong-parent", "duplicate", "extra"),
+)
+def test_web_app_adapter_rejects_inexact_same_type_topologies(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    mutate,
+) -> None:
+    changes = _web_app_topology_changes(deployment_request)
+    mutate(changes)
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"), runner=runner
+    )
+
+    assert result.exact_topology_match is False
+    assert not all(change.approved_boundary for change in result.change_evidence)
 
 
 @pytest.mark.parametrize(
@@ -646,9 +778,11 @@ def test_json_result_is_exactly_the_approved_sanitized_projection(
         "deploy_count",
         "unsupported_count",
         "delete_detected",
-        "what_if_summary_available",
-        "recommended_next_step",
-    }
+            "what_if_summary_available",
+            "exact_topology_match",
+            "recommended_next_step",
+            "change_evidence",
+        }
 
 
 def test_success_messages_are_mode_specific_and_never_claim_readiness(

@@ -5,9 +5,14 @@ import zipfile
 import pytest
 
 from src.app.services.web_app_package import (
+    ARTIFACT_MARKER_MEMBER,
+    PackageAuthorizationSession,
     PackageSafetyError,
     build_web_app_package,
+    consume_web_app_package_authorization,
+    create_package_authorization_session,
     plan_web_app_package,
+    validate_web_app_package,
 )
 
 
@@ -55,9 +60,10 @@ def test_plan_uses_minimal_allowlist_and_excludes_repository_content(
 
     assert plan.member_names == (
         "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py",
-        "requirements.txt",
-        "src/__init__.py",
-        "src/app/config/red_flags.yaml",
+            "requirements.txt",
+            "src/__init__.py",
+            "src/app/application-artifact.json",
+            "src/app/config/red_flags.yaml",
         "src/app/config/settings.py",
         "src/app/main.py",
         "src/app/static/demo.html",
@@ -157,7 +163,8 @@ def test_package_output_and_result_are_sanitized(source_tree: Path) -> None:
 
     assert package.package_path.parent == source_tree / ".artifacts" / "web-app"
     assert package.package_path.name == "nurse-intake-web-app.zip"
-    assert package.to_json_dict()["package_sha256"] == package.sha256
+    assert "package_sha256" not in package.to_json_dict()
+    assert package.to_json_dict()["package_sha256_present"] is True
     assert str(source_tree) not in payload
     for forbidden in (
         "secret-environment-value",
@@ -193,3 +200,50 @@ def test_artifact_root_symlink_cannot_redirect_output_outside_repository(
     assert error.value.category == "unsafe_output_location"
     assert str(outside) not in str(error.value)
     assert list(outside.iterdir()) == []
+
+
+def test_package_contains_deterministic_artifact_marker_without_digest_leakage(
+    source_tree: Path,
+) -> None:
+    session = create_package_authorization_session()
+    package = build_web_app_package(source_tree, authorization_session=session)
+
+    with zipfile.ZipFile(package.package_path) as archive:
+        marker = json.loads(archive.read(ARTIFACT_MARKER_MEMBER))
+        assert set(marker) == {"schemaVersion", "artifactDigest"}
+        assert marker["schemaVersion"] == 1
+        assert len(marker["artifactDigest"]) == 64
+    assert marker["artifactDigest"] not in json.dumps(package.to_json_dict())
+
+
+def test_package_authorization_is_run_scoped_one_use_and_non_replayable(
+    source_tree: Path,
+) -> None:
+    first_session = create_package_authorization_session()
+    old = build_web_app_package(source_tree, authorization_session=first_session)
+    current = build_web_app_package(source_tree, authorization_session=first_session)
+
+    with pytest.raises(PackageSafetyError):
+        validate_web_app_package(old, source_tree, first_session)
+    validate_web_app_package(current, source_tree, first_session)
+    consume_web_app_package_authorization(current, source_tree, first_session)
+    with pytest.raises(PackageSafetyError):
+        consume_web_app_package_authorization(current, source_tree, first_session)
+
+    next_session = create_package_authorization_session()
+    with pytest.raises(PackageSafetyError):
+        validate_web_app_package(current, source_tree, next_session)
+
+
+def test_package_authorization_session_cannot_be_forged() -> None:
+    with pytest.raises(TypeError):
+        PackageAuthorizationSession(object())
+
+
+def test_modified_zip_is_rejected_after_authorization_issuance(source_tree: Path) -> None:
+    session = create_package_authorization_session()
+    package = build_web_app_package(source_tree, authorization_session=session)
+    package.package_path.write_bytes(package.package_path.read_bytes() + b"replacement")
+
+    with pytest.raises(PackageSafetyError):
+        validate_web_app_package(package, source_tree, session)

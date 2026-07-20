@@ -1,12 +1,71 @@
 # Daily Disposable Azure Environment Rebuild
 
+## Normal Daily Automated Path
+
+The repository-owned coordinator is the preferred path for a normal daily
+rebuild. Follow this sequence without skipping a step:
+
+1. Copy `.env.daily-azure.example` to the ignored `.env.daily-azure.local`,
+   replace every placeholder with reviewed stable non-secret values, and keep
+   that configuration untracked.
+2. Run the coordinator's offline check:
+
+```bash
+.venv/bin/python scripts/rebuild_daily_azure_environment.py \
+  --config .env.daily-azure.local \
+  --check \
+  --json
+```
+
+3. Only after separate approval, run the coordinator live once:
+
+```bash
+.venv/bin/python scripts/rebuild_daily_azure_environment.py \
+  --config .env.daily-azure.local \
+  --live \
+  --json
+```
+
+4. If that result reports `category=manual_rbac_action_required`, run the
+   existing manual RBAC workflow in sections 13 and 14 exactly once under its
+   own authorization.
+5. Rerun the coordinator from step 3. The rerun redeploys and verifies the
+   current deterministic application package; it does not reuse an earlier
+   package proof.
+6. Require `daily_environment_ready=true` from the current run before recording
+   the READY declaration below.
+
+Begin the approved Azure-dependent Codex slice only when the current live
+result reports `daily_environment_ready=true` and the operator records:
+
+```text
+DAILY AZURE ENVIRONMENT READY
+```
+
+The coordinator verifies current state, reuses conclusively valid resources,
+and creates only safe missing resources when every preview entry conclusively
+matches the exact expected identity, scope, parent topology, and multiplicity.
+It stops on drift, count disagreement, or ambiguity. Live mode reruns the
+complete offline contract; the prior standalone check is not reused as proof.
+When direct verification finds the Consumer assignment missing, the coordinator
+always stops for the manual workflow regardless of whether a separate preview
+is empty, Create, NoChange, Ignore, Unsupported, malformed, or unavailable. The
+coordinator contains no live RBAC deployment path. It
+does not trigger or read WebJob execution,
+perform hosted managed-identity verification, invoke an agent, process intake,
+send notifications, or delete the resource group. Use
+`--skip-webjob-discovery` only when remote name-only discovery is not required.
+
+The detailed manual stages below remain the troubleshooting, recovery, audit,
+and individual-boundary reference. They are not the normal daily command path.
+
 ## 1. Purpose and lifecycle
 
-This is the single authoritative operator runbook for rebuilding the disposable
-Nurse Intake Assistant Azure environment at the start of a live-validation
-session. The default state is **NOT READY**. A session becomes **READY** only
-after every required stage below succeeds in order and its sanitized result is
-reviewed during the current session.
+This is the authoritative operator runbook for rebuilding the disposable Nurse
+Intake Assistant Azure environment at the start of a live-validation session.
+The default state is **NOT READY**. A session becomes **READY** only after the
+automated path, or every required manual recovery stage below, succeeds in
+order and its sanitized result is reviewed during the current session.
 
 This file is the durable checked-in procedure. Command output is fresh
 current-session evidence. Evidence expires when the resource group is deleted
@@ -28,9 +87,14 @@ establish production or clinical readiness.
 
 ## 2. Required operator inputs
 
-Choose new disposable values for each session and keep them in an ignored local
-note or shell session. Angle-bracket values below are placeholders, not
-permanent names:
+For normal coordinator use, retain the reviewed stable values in the ignored
+`.env.daily-azure.local`; a deleted resource supplies no current evidence, even
+when the same configured name is retained. Globally unique names may be reused
+only when Azure permits reuse and the current resource passes ownership and
+drift verification. During intentional manual recovery, the operator may
+select alternate disposable names and keep them in an ignored local note or
+shell session. Angle-bracket values below are placeholders, not architecture
+defaults:
 
 - subscription name, Azure region, and a new resource-group name;
 - short project and environment names, App Service plan/SKU parameters, and a

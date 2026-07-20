@@ -4,6 +4,11 @@ from pathlib import Path
 import re
 from typing import Literal, Protocol
 
+from src.app.services.azure_what_if_evidence import (
+    SanitizedWhatIfChange,
+    parse_sanitized_what_if,
+)
+
 
 DeploymentMode = Literal["check", "what-if", "live"]
 DeploymentCategory = Literal[
@@ -71,6 +76,7 @@ class WhatIfSummary:
     ignore_count: int
     deploy_count: int
     unsupported_count: int
+    change_evidence: tuple[SanitizedWhatIfChange, ...]
 
 
 @dataclass(frozen=True)
@@ -93,6 +99,7 @@ class FoundryAgentConsumerRbacDeploymentResult:
     delete_review_required: bool
     manual_review_required: bool
     recommended_next_step: str
+    change_evidence: tuple[SanitizedWhatIfChange, ...]
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -114,6 +121,9 @@ class FoundryAgentConsumerRbacDeploymentResult:
             "delete_review_required": self.delete_review_required,
             "manual_review_required": self.manual_review_required,
             "recommended_next_step": self.recommended_next_step,
+            "change_evidence": [
+                change.to_json_dict() for change in self.change_evidence
+            ],
         }
 
 
@@ -157,9 +167,13 @@ def _result(
                 summary.delete_count
                 or summary.deploy_count
                 or summary.unsupported_count
+                or not all(
+                    change.approved_boundary for change in summary.change_evidence
+                )
             )
         ),
         recommended_next_step=recommended_next_step,
+        change_evidence=summary.change_evidence if summary else (),
     )
 
 
@@ -288,40 +302,25 @@ def _azure_command(request: FoundryAgentConsumerRbacDeploymentRequest) -> list[s
 
 
 def _parse_what_if_summary(stdout: str) -> WhatIfSummary | None:
-    try:
-        payload = json.loads(stdout)
-    except (json.JSONDecodeError, TypeError):
+    parsed = parse_sanitized_what_if(
+        stdout,
+        boundary="consumer_rbac",
+        allowlisted_resource_types={
+            "Microsoft.Authorization/roleAssignments": "consumer_role_assignment"
+        },
+        automatically_approved_actions=frozenset({"NoChange", "Ignore"}),
+    )
+    if parsed is None:
         return None
-    if not isinstance(payload, dict) or not isinstance(payload.get("changes"), list):
-        return None
-
-    counts = {
-        "create": 0,
-        "modify": 0,
-        "nochange": 0,
-        "delete": 0,
-        "ignore": 0,
-        "deploy": 0,
-        "unsupported": 0,
-    }
-    for change in payload["changes"]:
-        if not isinstance(change, dict):
-            return None
-        change_type = change.get("changeType")
-        if not isinstance(change_type, str):
-            return None
-        normalized = change_type.casefold()
-        if normalized not in counts:
-            return None
-        counts[normalized] += 1
     return WhatIfSummary(
-        create_count=counts["create"],
-        modify_count=counts["modify"],
-        no_change_count=counts["nochange"],
-        delete_count=counts["delete"],
-        ignore_count=counts["ignore"],
-        deploy_count=counts["deploy"],
-        unsupported_count=counts["unsupported"],
+        create_count=parsed.count("Create"),
+        modify_count=parsed.count("Modify"),
+        no_change_count=parsed.count("NoChange"),
+        delete_count=parsed.count("Delete"),
+        ignore_count=parsed.count("Ignore"),
+        deploy_count=parsed.count("Deploy"),
+        unsupported_count=parsed.count("Unsupported"),
+        change_evidence=parsed.changes,
     )
 
 

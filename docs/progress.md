@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,566 passed
+- 1,651 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -85,6 +85,17 @@ resources are absent until the operator supplies fresh proof from the current
 session. The permanent rebuild procedure is
 `docs/runbooks/daily-disposable-azure-environment-rebuild.md`.
 
+`scripts/rebuild_daily_azure_environment.py` is the preferred daily path. Its
+offline `--check --json` validates stable local configuration and orchestration
+contracts; explicit `--live --json` sequences the existing deployment and
+verification boundaries, reuses conclusively valid resources, and returns one
+sanitized aggregate result. The detailed manual runbook remains the fallback,
+recovery, and audit reference. Azure-dependent Codex prompts still require a
+fresh current-session `daily_environment_ready=true` result. The coordinator
+does not trigger or read WebJob execution, perform hosted managed-identity
+verification, invoke an agent, process intake, send notifications, or delete
+the resource group.
+
 Deleting the resource group expires all prior evidence for the resource group,
 Foundry AIServices account, child project and model deployment, prompt agent and
 immutable version, Linux Web App and system-assigned identity, hosted-verifier
@@ -107,10 +118,10 @@ Classify each proposed prompt before work begins:
 If the environment is NOT READY, direct the operator to the daily runbook and
 do not issue the dependent prompt. Record the gate once; avoid repeated blocked
 slices and progress rewrites that merely rediscover the same absent resources.
-Keep infrastructure deployment separate from prompt-agent creation. Keep
-deployment, verification, WebJob discovery, trigger/status, managed-identity
-proof, metadata verification, and invocation separately authorized. Keep
-cleanup manual and explicit.
+The coordinator preserves the independent contracts: Keep infrastructure
+deployment separate from prompt-agent creation. WebJob trigger/status,
+managed-identity proof, metadata verification, and invocation remain separate
+and explicitly authorized. Keep cleanup manual and explicit.
 Never commit session identifiers, endpoints, credentials, tokens, secrets,
 real contact information, or patient data.
 
@@ -331,15 +342,12 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The exact recommended next boundary is:
-
-Project-scoped Consumer deployment and exact direct-assignment verification are
-separately proven. The hosted-verification prerequisite runbook now exists, but
-its new configuration and WebJob boundaries are offline-tested only. Next
-narrow live prerequisite boundary:
+The exact recommended next boundary is the separately authorized first live
+coordinator run after its offline check succeeds:
 ```text
-Complete the runbook with fresh infrastructure, agent-version,
-configuration, package/code, readiness, WebJob discovery, and RBAC proof
+run rebuild_daily_azure_environment.py --check --json
+-> separately authorize one rebuild_daily_azure_environment.py --live --json
+-> require daily_environment_ready=true
 -> separately authorize one WebJob trigger
 -> separately authorize one receipt-correlated status read
 ```
@@ -354,28 +362,28 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Status
 
-- The corrected `azure-ai-projects` 2.3.0 verifier now proves Responses metadata
-  but the current stable endpoint does not conclusively select the configured
-  immutable version. RED was one collection error because no repository-owned
-  routing boundary existed. A new explicit service and CLI use the SDK's
-  `agents.update_details` merge patch with one fixed 100% `FixedRatio` rule,
-  preserve supported protocol and authorization configuration, and never
-  provision or invoke an agent. Focused GREEN is 35 passed, related Foundry
-  GREEN is 831 passed, and full GREEN is 1,566 passed with the one existing
-  warning.
-- After the separately authorized single routing attempt, a separately
-  authorized live read-only verifier succeeded with `ok=true`,
-  `category=success`, `responses_protocol_present=true`,
-  `configured_version_traffic_percentage=100`,
-  `immutable_version_verified=true`, and `agent_definition_matches=true`.
-  The verifier reported `azure_mutation_made=false` and `agent_invoked=false`.
-  This proves the existing endpoint exclusively routes to the configured
-  immutable agent version, preserves Responses protocol support, and matches
-  the expected agent definition without inference or invocation.
-- The routing and read-only verification stages are complete. Mock defaults,
-  fictional-data restrictions, notification suppression, mandatory nurse
-  review, and the non-production boundary remain unchanged. Later agent invocation
-  remains deferred and requires separate authorization.
+- A second independent review classified the complete uncommitted coordinator
+  `UNSAFE — DO NOT RUN LIVE`. This final fail-closed remediation requires exact
+  identity, resource-group scope, parent hierarchy, topology, multiplicity, and
+  count agreement for automatic Foundry and Web App preview continuation.
+- The current deterministic package contains an application-owned source-digest
+  marker. Hosted readiness compares that marker with an internal current-run
+  package proof, so deployment acceptance or a healthy old worker cannot prove
+  the current artifact. Package authorization is opaque, run-scoped, bound to
+  the exact source/member/path/ZIP state, one-use, and non-replayable.
+- Missing direct Consumer RBAC now always stops with
+  `manual_rbac_action_required`; the coordinator has no RBAC preview or live
+  deployment path. A successful stage must carry a conclusive Boolean mutation
+  state, and READY rejects an ambiguous aggregate state.
+- No live coordinator, Azure, HTTP, Foundry, WebJob, identity, RBAC, readiness,
+  inference, or invocation operation occurred during hardening. Live daily
+  readiness remains unproven. A third independent review is required before
+  any live authorization. The coordinator still has no WebJob trigger/status,
+  managed-identity verification, agent invocation, retry, polling, or cleanup
+  path; hosted execution remains offline-tested only, and later agent invocation
+  remains separately deferred. Mock defaults, mandatory nurse review,
+  fictional-data restrictions, and the non-production boundary remain
+  unchanged.
 
 ### Historical Slice Results
 

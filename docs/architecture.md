@@ -294,6 +294,24 @@ connection strings.
 
 ## 9. Infrastructure Architecture
 
+`scripts/rebuild_daily_azure_environment.py` is the preferred authoritative
+daily orchestration layer for the disposable environment. It owns only stable
+configuration validation, stage ordering, typed runtime-value propagation,
+verification-driven reuse, safe continuation from conclusively allowlisted
+sanitized preview evidence, fail-fast behavior, and one sanitized aggregate
+readiness result. Automatic continuation requires every proposed resource to
+match the repository's exact expected identity, resource group, parent
+hierarchy, type, and multiplicity, with counts agreeing with evidence.
+Ambiguous, unidentified, extra, duplicate, missing, unsupported, or drifted
+plans stop.
+The independent deployment, what-if, packaging, read-only verification, RBAC,
+readiness, and name-only WebJob discovery boundaries below remain authoritative
+for their resource-specific parsing and proof. The manual runbook remains the
+recovery and audit path. WebJob trigger and status, hosted managed-identity
+verification, and agent invocation remain separately authorized. The
+coordinator cannot trigger or read a WebJob run, process intake, send
+notifications, or clean up the resource group.
+
 Two resource-group-scoped entry points reuse the
 `infra/modules/foundry.bicep` module. `main.bicep` preserves Cosmos DB, Storage,
 Log Analytics, and Application Insights and adds Foundry only when
@@ -301,27 +319,44 @@ Log Analytics, and Application Insights and adds Foundry only when
 AIServices account, child project, and explicitly parameterized model for
 disposable validation. Agent creation remains separate.
 
-Every Azure-dependent slice must first complete a checked-in, slice-specific
-prerequisite runbook under `docs/runbooks/`. The runbook starts with operator
-authentication and one active-account check, identifies authoritative Bicep
-ownership, and keeps compile, check, sanitized what-if, manual review, live
-deployment, optional bounded completion, and read-only verification separate.
-Before execution, the operator must explicitly approve the resource group,
-Foundry account, child project, model deployment, and Linux Web App parameter
-set for that slice; disposable names are never permanent architecture defaults.
-Missing prerequisites and deterministic failures fail fast without retry. A
-repository-owned deployment may block for Azure, and an accepted asynchronous
+The Foundry module preserves deterministic account naming when its optional
+explicit name is empty. The daily coordinator supplies a reviewed globally
+unique name as a deliberate IaC contract for reusable daily configuration.
+When supplied, Bicep enforces the Azure-compatible length, lowercase
+alphanumeric-or-hyphen pattern, boundary, and whitespace constraints before
+the account resource can deploy.
+Reuse requires the exact configured name, repository-owned purpose tag,
+security posture, project, model definition, SKU, and capacity to pass the
+authoritative read-only verifier; a mismatch stops rather than repairing or
+retargeting the resource.
+
+Every Azure-dependent slice must first satisfy its checked-in prerequisite
+runbook. For the daily disposable environment, one explicitly authorized live
+coordinator invocation reruns the complete offline contract check, verifies the
+active account and current resource state, and may sequence a live deployment
+only when the authoritative preview boundary identifies every proposed change
+as exactly one member of the approved topology. Foundry topology comprises the
+configured AIServices account, its child project, and its model deployment. Web
+App topology comprises every resource owned by `main.bicep`, including nested
+Cosmos resources, Storage, monitoring, the App Service plan, and the Linux Web
+App. Sanitized evidence exposes match booleans and logical categories, never
+resource names, groups, or complete identifiers. Manual commands keep compile,
+check, preview,
+operator review, live deployment, and read-only verification separate for
+recovery and audit. Missing prerequisites, unidentified evidence, drift, and
+deterministic failures fail fast without retry. A repository-owned deployment
+may block for Azure, and an accepted asynchronous
 deployment permits at most one explicitly required, repository-approved bounded
 completion check. General shell polling loops, repeated sleeps, indefinite
 waits, repeated verifier calls, alternate credentials, portal-only resources,
 and ad hoc provisioning are prohibited. The current RBAC prerequisite runbook is
 `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md`.
 
-The Foundry infrastructure preview boundary now reduces Azure's change
-collection to sanitized counts for all seven supported change types and fails
-closed on malformed or unknown shapes. Resource details remain discarded, and
-Delete, Deploy, or Unsupported entries require manual review before any live
-request.
+The Foundry infrastructure preview boundary reduces Azure's change collection
+to sanitized counts and exact topology evidence for all seven supported change
+types and fails closed on malformed IDs, unknown shapes, topology mismatch, or
+count disagreement. Resource details remain discarded, and Delete, Deploy, or
+Unsupported entries require manual review before any live request.
 
 `main.bicep` also references the reusable `infra/modules/web-app.bicep` module
 only when `deployApp=true` (default `false`). The module defines a Linux App
@@ -349,8 +384,11 @@ Explicit `--what-if` or `--live` mode issues exactly one argument-list
 `az deployment group` command against an existing resource group; the CLI never
 creates the group. What-if explicitly requests JSON and reduces the active
 change collection to sanitized create, modify, delete, no-change, ignore,
-deploy, and unsupported counts. Resource details and raw CLI output are never
-exposed. Proposed deletes are surfaced for manual review but are never acted on
+deploy, and unsupported counts plus exact identity, scope, parent, and
+multiplicity match evidence. A repository-computed deterministic naming suffix
+is supplied to Bicep so expected Web App boundary identities are known before
+the preview is parsed. Resource details and raw CLI output are never exposed.
+Proposed deletes are surfaced for manual review but are never acted on
 automatically; preview mode never invokes live mode. Live uses a deterministic
 deployment name and records only Azure acceptance of the request. It does not
 verify configuration, package or upload code, check hosted readiness, assign
@@ -578,7 +616,13 @@ The package service selects only the root dependency manifest and required
 symlinks, then writes a stably ordered, timestamp-normalized source deployment
 ZIP beneath the ignored `.artifacts/` directory. `.env`, Bicep parameter, test,
 documentation, cache, repository metadata, and prior artifact content cannot
-enter through the allowlist.
+enter through the allowlist. It deterministically hashes the approved source
+members and explicitly adds one generated application marker containing that
+digest. Package deployment requires an opaque authorization issued for the
+current coordinator run and bound to the source root, member set, ZIP path, and
+exact bytes. Authorization is one-use; forgery, replay, a prior-run proof,
+rebuild, replacement, mutation, or symlink fails closed. Neither the proof nor
+its token, nonce, digest, hash, or path is serialized.
 Live package creation succeeded with the same deterministic ordering,
 timestamp normalization, required hosted operations, and exclusion contract.
 
@@ -598,9 +642,14 @@ absolute HTTPS origin without constructing an HTTP transport. Only explicit
 `--live --json` creates the standard-library transport and makes one bounded,
 sequential GET request each to `/health`, `/version`, and `/demo/status`, with
 no credentials, body, retry, polling, mutation, Azure discovery, RBAC action,
-or Foundry call. The result exposes only application-owned booleans and
-sanitized categories; it never serializes the origin, hostname, response body,
-or exception details.
+or Foundry call. The packaged `/version` route reads only its fixed marker and
+returns the source artifact digest; a missing or malformed hosted marker fails
+safely, while local development may explicitly report `unpackaged`. The
+coordinator passes the current package digest internally to readiness, which
+requires an exact match before setting `application_artifact_current=true`. A
+healthy old worker cannot produce READY. The result exposes only
+application-owned booleans and sanitized categories; it never serializes the
+digest, origin, hostname, response body, marker contents, or exception details.
 Separate live verification subsequently proved `/health`, `/version`, and
 `/demo/status`, including exact mock providers and suppressed notifications.
 
@@ -616,25 +665,24 @@ managed-identity authentication, Foundry verification, or agent invocation has
 occurred. Deployment-request acceptance, configuration proof, code deployment,
 and hosted startup remain separate proof boundaries.
 
-The intended operator sequence is:
+The coordinator's daily sequence is:
 
 ```text
-Foundry infrastructure verification
--> explicit optional Linux Web App infrastructure deployment with system-assigned identity
--> reviewed App Service Python build-automation prerequisite
--> explicit read-only Web App configuration verification
--> deterministic source deployment package
--> explicit Web App code deployment-request acceptance
--> explicit hosted health/readiness verification
--> offline RBAC check
--> explicit RBAC what-if
--> separately authorized Foundry Agent Consumer RBAC deployment request
--> read-only RBAC assignment verification
--> hosted managed-identity Foundry Agent verification
--> separate fixed-fictional-data hosted Foundry Agent invocation
+account and resource-group verification
+-> exact Foundry preview, deployment, and verification when absent
+-> prompt-agent provisioning, exclusive routing, and immutable-version verification
+-> exact Web App preview, deployment, and configuration verification when absent
+-> current-run deterministic source package and one deployment request
+-> hosted package-digest and mock-safe readiness verification
+-> direct Consumer RBAC verification
+-> stop for the separate manual RBAC workflow when the assignment is missing
+-> optional name-only WebJob discovery
+-> READY
 ```
 
-Each arrow is a separate boundary. Code deployment does not provision
+On rerun after that manual workflow, the coordinator verifies the exact direct
+assignment and continues; it never previews or deploys RBAC itself. Each arrow
+is a separate boundary. Code deployment does not provision
 infrastructure, alter app settings, assign RBAC, verify startup, or call
 Foundry. Configuration verification does not prove code deployment;
 deployment-request acceptance does not prove startup. Hosted defaults remain

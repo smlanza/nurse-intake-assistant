@@ -48,11 +48,20 @@ param deployFoundry bool = false
 @description('Deploy an Azure Linux Web App for the Nurse Intake Assistant.')
 param deployApp bool = false
 
+@description('Optional explicit globally unique Microsoft Foundry account name. A deterministic name is used when empty.')
+@maxLength(64)
+param foundryAccountName string = ''
+
 @description('Optional App Service plan name. A deterministic name is used when empty.')
 param appServicePlanName string = ''
 
 @description('Optional Web App name. A deterministic name is used when empty.')
 param webAppName string = ''
+
+@description('Optional repository-computed deterministic suffix for exact Web App topology verification.')
+@minLength(13)
+@maxLength(13)
+param resourceNameSuffix string?
 
 @description('App Service plan SKU for optional application hosting.')
 param appServicePlanSkuName string = 'B1'
@@ -87,7 +96,7 @@ param modelSkuName string = 'GlobalStandard'
 param modelCapacity int = 1
 param foundryTags object = {}
 
-var suffix = uniqueString(resourceGroup().id, projectName, environmentName)
+var suffix = resourceNameSuffix ?? uniqueString(resourceGroup().id, projectName, environmentName)
 var cosmosAccountName = toLower('${projectName}-${environmentName}-${suffix}')
 var storageAccountName = 'st${suffix}'
 var logAnalyticsWorkspaceName = '${projectName}-${environmentName}-logs-${suffix}'
@@ -213,6 +222,7 @@ module foundry 'modules/foundry.bicep' = if (deployFoundry) {
     location: location
     projectName: projectName
     environmentName: environmentName
+    foundryAccountName: foundryAccountName
     foundryProjectName: foundryProjectName
     foundryProjectDisplayName: foundryProjectDisplayName
     foundryProjectDescription: foundryProjectDescription

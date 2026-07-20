@@ -1,8 +1,16 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path, PurePosixPath
+import secrets
 import tempfile
 import zipfile
+
+from src.app.services.application_artifact import (
+    ARTIFACT_MARKER_FILENAME,
+    build_application_artifact_marker,
+)
 
 
 PACKAGE_FILENAME = "nurse-intake-web-app.zip"
@@ -10,11 +18,13 @@ FIXED_ZIP_TIMESTAMP = (1980, 1, 1, 0, 0, 0)
 HOSTED_VERIFIER_WEBJOB_ENTRYPOINT = (
     "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py"
 )
+ARTIFACT_MARKER_MEMBER = f"src/app/{ARTIFACT_MARKER_FILENAME}"
 REQUIRED_MEMBERS = (
     "requirements.txt",
     "src/__init__.py",
     "src/app/main.py",
     HOSTED_VERIFIER_WEBJOB_ENTRYPOINT,
+    ARTIFACT_MARKER_MEMBER,
 )
 HIGH_RISK_CONTENT_MARKERS = (
     b"-----BEGIN " + b"PRIVATE KEY-----",
@@ -23,6 +33,7 @@ HIGH_RISK_CONTENT_MARKERS = (
     b"Account" + b"Key=",
     b"SharedAccess" + b"Key=",
 )
+_CONSTRUCTION_SENTINEL = object()
 
 
 class PackageSafetyError(Exception):
@@ -39,12 +50,85 @@ class WebAppPackagePlan:
     member_names: tuple[str, ...]
 
 
-@dataclass(frozen=True)
+class PackageAuthorizationSession:
+    __slots__ = ("_nonce", "_issued")
+
+    def __init__(self, sentinel: object) -> None:
+        if sentinel is not _CONSTRUCTION_SENTINEL:
+            raise TypeError("Package authorization sessions are factory-issued.")
+        self._nonce = secrets.token_bytes(32)
+        self._issued: dict[str, str] = {}
+
+    def _issue(self, fingerprint: str) -> str:
+        self._issued.clear()
+        token = secrets.token_hex(32)
+        authorized = hashlib.sha256(
+            self._nonce + token.encode() + fingerprint.encode()
+        ).hexdigest()
+        self._issued[token] = authorized
+        return token
+
+    def _valid(self, token: str, fingerprint: str) -> bool:
+        expected = hashlib.sha256(
+            self._nonce + token.encode() + fingerprint.encode()
+        ).hexdigest()
+        return self._issued.get(token) == expected
+
+    def _consume(self, token: str, fingerprint: str) -> bool:
+        if not self._valid(token, fingerprint):
+            return False
+        del self._issued[token]
+        return True
+
+
 class WebAppPackage:
-    package_path: Path
-    file_count: int
-    size_bytes: int
-    sha256: str
+    __slots__ = (
+        "_package_path",
+        "_file_count",
+        "_size_bytes",
+        "_sha256",
+        "_artifact_digest",
+        "_authorization_session",
+        "_authorization_token",
+    )
+
+    def __init__(
+        self,
+        *,
+        package_path: Path,
+        file_count: int,
+        size_bytes: int,
+        sha256: str,
+        artifact_digest: str,
+        authorization_session: PackageAuthorizationSession,
+        authorization_token: str,
+        _sentinel: object,
+    ) -> None:
+        if _sentinel is not _CONSTRUCTION_SENTINEL:
+            raise TypeError("Web application packages are service-issued.")
+        self._package_path = package_path
+        self._file_count = file_count
+        self._size_bytes = size_bytes
+        self._sha256 = sha256
+        self._artifact_digest = artifact_digest
+        self._authorization_session = authorization_session
+        self._authorization_token = authorization_token
+
+    @property
+    def package_path(self) -> Path:
+        return self._package_path
+
+    @property
+    def file_count(self) -> int:
+        return self._file_count
+
+    @property
+    def size_bytes(self) -> int:
+        return self._size_bytes
+
+    @property
+    def sha256(self) -> str:
+        return self._sha256
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -55,9 +139,12 @@ class WebAppPackage:
             "package_filename": self.package_path.name,
             "package_size_bytes": self.size_bytes,
             "package_file_count": self.file_count,
-            "package_sha256": self.sha256,
             "package_sha256_present": True,
         }
+
+
+def create_package_authorization_session() -> PackageAuthorizationSession:
+    return PackageAuthorizationSession(_CONSTRUCTION_SENTINEL)
 
 
 def _is_allowlisted(relative_path: PurePosixPath) -> bool:
@@ -82,24 +169,20 @@ def _safe_artifact_directory(source_root: Path, requested: Path | None) -> Path:
     artifact_directory = requested or artifact_root / "web-app"
     if artifact_root.is_symlink():
         raise PackageSafetyError("unsafe_output_location")
-
     resolved_artifact_root = artifact_root.resolve(strict=False)
     if not resolved_artifact_root.is_relative_to(source_root):
         raise PackageSafetyError("unsafe_output_location")
-
     try:
         relative_directory = artifact_directory.relative_to(artifact_root)
     except ValueError as error:
         raise PackageSafetyError("unsafe_output_location") from error
     if ".." in relative_directory.parts:
         raise PackageSafetyError("unsafe_output_location")
-
     current = artifact_root
     for part in relative_directory.parts:
         current = current / part
         if current.is_symlink():
             raise PackageSafetyError("unsafe_output_location")
-
     resolved_directory = artifact_directory.resolve(strict=False)
     if not resolved_directory.is_relative_to(resolved_artifact_root) or not (
         resolved_directory.is_relative_to(source_root)
@@ -120,10 +203,8 @@ def plan_web_app_package(
         raise PackageSafetyError("incomplete_package") from error
     if not resolved_root.is_dir():
         raise PackageSafetyError("incomplete_package")
-
     resolved_artifact_directory = _safe_artifact_directory(
-        resolved_root,
-        artifact_directory,
+        resolved_root, artifact_directory
     )
     requirements = resolved_root / "requirements.txt"
     src_root = resolved_root / "src"
@@ -131,7 +212,6 @@ def plan_web_app_package(
         raise PackageSafetyError("unsafe_symlink")
     if not requirements.is_file() or not src_root.is_dir():
         raise PackageSafetyError("incomplete_package")
-
     webjob_entrypoint = resolved_root / HOSTED_VERIFIER_WEBJOB_ENTRYPOINT
     current = resolved_root
     for part in PurePosixPath(HOSTED_VERIFIER_WEBJOB_ENTRYPOINT).parts:
@@ -140,8 +220,11 @@ def plan_web_app_package(
             raise PackageSafetyError("unsafe_symlink")
     if not webjob_entrypoint.is_file():
         raise PackageSafetyError("incomplete_package")
-
-    selected: list[str] = ["requirements.txt", HOSTED_VERIFIER_WEBJOB_ENTRYPOINT]
+    selected = [
+        "requirements.txt",
+        HOSTED_VERIFIER_WEBJOB_ENTRYPOINT,
+        ARTIFACT_MARKER_MEMBER,
+    ]
     for path in src_root.rglob("*"):
         if path.is_symlink():
             raise PackageSafetyError("unsafe_symlink")
@@ -151,9 +234,8 @@ def plan_web_app_package(
             relative = PurePosixPath(path.relative_to(resolved_root).as_posix())
         except ValueError as error:
             raise PackageSafetyError("unsafe_package_member") from error
-        if _is_allowlisted(relative):
+        if relative.as_posix() != ARTIFACT_MARKER_MEMBER and _is_allowlisted(relative):
             selected.append(relative.as_posix())
-
     member_names = tuple(sorted(set(selected)))
     if not set(REQUIRED_MEMBERS).issubset(member_names):
         raise PackageSafetyError("incomplete_package")
@@ -168,20 +250,22 @@ def plan_web_app_package(
             or lowered.startswith(".artifacts/")
         ):
             raise PackageSafetyError("unsafe_package_member")
-
     package_path = resolved_artifact_directory / PACKAGE_FILENAME
     if package_path.is_symlink():
         raise PackageSafetyError("unsafe_output_location")
-
     plan = WebAppPackagePlan(
-        source_root=resolved_root,
-        artifact_directory=resolved_artifact_directory,
-        package_path=package_path,
-        member_names=member_names,
+        resolved_root,
+        resolved_artifact_directory,
+        package_path,
+        member_names,
     )
-    for name in plan.member_names:
+    for name in _source_member_names(plan):
         _read_safe_member(plan, name)
     return plan
+
+
+def _source_member_names(plan: WebAppPackagePlan) -> tuple[str, ...]:
+    return tuple(name for name in plan.member_names if name != ARTIFACT_MARKER_MEMBER)
 
 
 def _read_safe_member(plan: WebAppPackagePlan, name: str) -> bytes:
@@ -204,12 +288,38 @@ def _read_safe_member(plan: WebAppPackagePlan, name: str) -> bytes:
     return content
 
 
+def _source_contents(plan: WebAppPackagePlan) -> tuple[tuple[str, bytes], ...]:
+    return tuple(
+        (name, _read_safe_member(plan, name)) for name in _source_member_names(plan)
+    )
+
+
+def _source_artifact_digest(contents: tuple[tuple[str, bytes], ...]) -> str:
+    digest = hashlib.sha256()
+    for name, content in contents:
+        encoded_name = name.encode()
+        digest.update(len(encoded_name).to_bytes(8, "big"))
+        digest.update(encoded_name)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
 def build_web_app_package(
     source_root: Path,
     artifact_directory: Path | None = None,
+    *,
+    authorization_session: PackageAuthorizationSession | None = None,
 ) -> WebAppPackage:
     plan = plan_web_app_package(source_root, artifact_directory)
-    contents = [(name, _read_safe_member(plan, name)) for name in plan.member_names]
+    contents = _source_contents(plan)
+    artifact_digest = _source_artifact_digest(contents)
+    archive_contents = tuple(
+        sorted(
+            (*contents, (ARTIFACT_MARKER_MEMBER, build_application_artifact_marker(artifact_digest))),
+            key=lambda item: item[0],
+        )
+    )
     temporary_path: Path | None = None
     try:
         plan.artifact_directory.mkdir(parents=True, exist_ok=True)
@@ -219,7 +329,6 @@ def build_web_app_package(
             or plan.package_path.is_symlink()
         ):
             raise PackageSafetyError("unsafe_output_location")
-
         with tempfile.NamedTemporaryFile(
             mode="w+b",
             prefix=f".{PACKAGE_FILENAME}.",
@@ -234,7 +343,7 @@ def build_web_app_package(
                 compression=zipfile.ZIP_DEFLATED,
                 compresslevel=9,
             ) as archive:
-                for name, content in contents:
+                for name, content in archive_contents:
                     info = zipfile.ZipInfo(name, FIXED_ZIP_TIMESTAMP)
                     info.compress_type = zipfile.ZIP_DEFLATED
                     info.create_system = 3
@@ -255,10 +364,122 @@ def build_web_app_package(
                 temporary_path.unlink(missing_ok=True)
             except OSError:
                 pass
-
-    return WebAppPackage(
-        package_path=plan.package_path,
-        file_count=len(plan.member_names),
-        size_bytes=len(package_bytes),
-        sha256=hashlib.sha256(package_bytes).hexdigest(),
+    session = authorization_session or create_package_authorization_session()
+    values = (
+        plan.package_path,
+        len(plan.member_names),
+        len(package_bytes),
+        hashlib.sha256(package_bytes).hexdigest(),
+        artifact_digest,
     )
+    fingerprint = _package_fingerprint(plan, *values[1:])
+    token = session._issue(fingerprint)
+    return WebAppPackage(
+        package_path=values[0],
+        file_count=values[1],
+        size_bytes=values[2],
+        sha256=values[3],
+        artifact_digest=values[4],
+        authorization_session=session,
+        authorization_token=token,
+        _sentinel=_CONSTRUCTION_SENTINEL,
+    )
+
+
+def validate_web_app_package(
+    package: WebAppPackage,
+    source_root: Path,
+    authorization_session: PackageAuthorizationSession | None = None,
+) -> WebAppPackage:
+    if not isinstance(package, WebAppPackage) or authorization_session is None:
+        raise PackageSafetyError("package_proof_invalid")
+    plan = plan_web_app_package(source_root)
+    if package.package_path != plan.package_path or package.package_path.is_symlink():
+        raise PackageSafetyError("package_proof_invalid")
+    contents = _source_contents(plan)
+    artifact_digest = _source_artifact_digest(contents)
+    if artifact_digest != package._artifact_digest:
+        raise PackageSafetyError("package_proof_invalid")
+    fingerprint = _package_fingerprint(
+        plan,
+        package.file_count,
+        package.size_bytes,
+        package.sha256,
+        artifact_digest,
+    )
+    if (
+        package._authorization_session is not authorization_session
+        or not authorization_session._valid(package._authorization_token, fingerprint)
+    ):
+        raise PackageSafetyError("package_proof_invalid")
+    expected = dict(contents)
+    expected[ARTIFACT_MARKER_MEMBER] = build_application_artifact_marker(
+        artifact_digest
+    )
+    try:
+        package_bytes = package.package_path.read_bytes()
+        if (
+            len(package_bytes) != package.size_bytes
+            or hashlib.sha256(package_bytes).hexdigest() != package.sha256
+        ):
+            raise PackageSafetyError("package_proof_invalid")
+        with zipfile.ZipFile(package.package_path) as archive:
+            names = tuple(sorted(archive.namelist()))
+            if names != plan.member_names or package.file_count != len(names):
+                raise PackageSafetyError("package_proof_invalid")
+            for name in names:
+                if archive.read(name) != expected[name]:
+                    raise PackageSafetyError("package_proof_invalid")
+    except PackageSafetyError:
+        raise
+    except Exception as error:
+        raise PackageSafetyError("package_proof_invalid") from error
+    return package
+
+
+def consume_web_app_package_authorization(
+    package: WebAppPackage,
+    source_root: Path,
+    authorization_session: PackageAuthorizationSession,
+) -> None:
+    validate_web_app_package(package, source_root, authorization_session)
+    plan = plan_web_app_package(source_root)
+    fingerprint = _package_fingerprint(
+        plan,
+        package.file_count,
+        package.size_bytes,
+        package.sha256,
+        package._artifact_digest,
+    )
+    if not authorization_session._consume(package._authorization_token, fingerprint):
+        raise PackageSafetyError("package_proof_invalid")
+
+
+def authorized_application_artifact_digest(
+    package: WebAppPackage,
+    source_root: Path,
+    authorization_session: PackageAuthorizationSession,
+) -> str:
+    validate_web_app_package(package, source_root, authorization_session)
+    return package._artifact_digest
+
+
+def _package_fingerprint(
+    plan: WebAppPackagePlan,
+    file_count: int,
+    size_bytes: int,
+    package_sha256: str,
+    artifact_digest: str,
+) -> str:
+    payload = "\0".join(
+        (
+            str(plan.source_root),
+            str(plan.package_path),
+            "\n".join(plan.member_names),
+            str(file_count),
+            str(size_bytes),
+            package_sha256,
+            artifact_digest,
+        )
+    ).encode()
+    return hashlib.sha256(payload).hexdigest()

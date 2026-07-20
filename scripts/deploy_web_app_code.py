@@ -14,8 +14,13 @@ if str(ROOT) not in sys.path:
 from src.app.services.web_app_package import (
     PACKAGE_FILENAME,
     PackageSafetyError,
+    WebAppPackage,
     build_web_app_package,
+    consume_web_app_package_authorization,
+    create_package_authorization_session,
+    PackageAuthorizationSession,
     plan_web_app_package,
+    validate_web_app_package,
 )
 
 
@@ -79,6 +84,8 @@ def execute(
     *,
     runner: CommandRunner | None = None,
     source_root: Path | None = None,
+    prebuilt_package: WebAppPackage | None = None,
+    authorization_session: PackageAuthorizationSession | None = None,
 ) -> dict[str, object]:
     source_root = source_root or ROOT
     if request.mode == "live" and (
@@ -95,14 +102,24 @@ def execute(
             return result
         if request.mode not in {"package", "live"}:
             return _base(request, "unsupported_mode")
-        package = build_web_app_package(source_root)
+        session = authorization_session or create_package_authorization_session()
+        package = (
+            validate_web_app_package(prebuilt_package, source_root, session)
+            if prebuilt_package is not None
+            else build_web_app_package(
+                source_root,
+                authorization_session=session,
+            )
+        )
+        if request.mode == "live":
+            consume_web_app_package_authorization(package, source_root, session)
     except PackageSafetyError as error:
         return _base(request, error.category)
 
     result = _base(request, "success", True)
     result.update(
         {
-            "package_created": True,
+            "package_created": prebuilt_package is None,
             "package_file_count": package.file_count,
             "package_sha256_present": True,
         }

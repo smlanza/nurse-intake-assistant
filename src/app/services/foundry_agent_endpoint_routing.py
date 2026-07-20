@@ -66,7 +66,7 @@ class FoundryAgentEndpointRoutingResult:
     message: str
     ready: bool
     azure_call_made: bool
-    azure_mutation_made: bool
+    azure_mutation_made: bool | None
     agent_invoked: bool
     stable_endpoint_present: bool
     stable_endpoint_matches_configuration: bool
@@ -138,7 +138,7 @@ class FoundryAgentEndpointRoutingResult:
         *,
         mode: Literal["check", "live"],
         azure_call_made: bool = False,
-        azure_mutation_made: bool = False,
+        azure_mutation_made: bool | None = False,
         stable_endpoint_present: bool = False,
         stable_endpoint_matches_configuration: bool = False,
         version_selector_present: bool = False,
@@ -297,6 +297,7 @@ class FoundryAgentEndpointRouting:
         credential: object | None = None
         project_client: object | None = None
         azure_call_made = False
+        mutation_may_have_occurred = False
         try:
             try:
                 credential = self._credential_factory(
@@ -447,6 +448,7 @@ class FoundryAgentEndpointRouting:
                     responses_protocol_present=True,
                 )
             try:
+                mutation_may_have_occurred = True
                 updated_agent = agents.update_details(
                     request.agent_name,
                     agent_endpoint=update,
@@ -456,7 +458,7 @@ class FoundryAgentEndpointRouting:
                     _azure_error_category(error),
                     mode="live",
                     azure_call_made=True,
-                    azure_mutation_made=True,
+                    azure_mutation_made=None,
                     stable_endpoint_present=True,
                     stable_endpoint_matches_configuration=True,
                     version_selector_present=routing.selector_present,
@@ -502,6 +504,7 @@ class FoundryAgentEndpointRouting:
                 "unexpected_error",
                 mode="live",
                 azure_call_made=azure_call_made,
+                azure_mutation_made=(None if mutation_may_have_occurred else False),
             )
         finally:
             _close_safely(project_client)

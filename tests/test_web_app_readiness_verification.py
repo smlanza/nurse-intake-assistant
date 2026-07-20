@@ -5,6 +5,7 @@ import pytest
 
 
 BASE_URL = "https://secret-host.example"
+ARTIFACT_DIGEST = "a" * 64
 
 
 def _health() -> dict[str, object]:
@@ -16,6 +17,7 @@ def _version() -> dict[str, object]:
         "service": "nurse-intake-assistant",
         "version": "0.1.0",
         "environment": "local",
+        "artifactDigest": ARTIFACT_DIGEST,
     }
 
 
@@ -148,7 +150,11 @@ def test_live_verifies_exact_read_only_endpoints_and_safe_hosted_posture() -> No
         created_for.append(normalized_base_url)
         return transport
 
-    result = verify_web_app_readiness(f"{BASE_URL}/", transport_factory=factory)
+    result = verify_web_app_readiness(
+        f"{BASE_URL}/",
+        transport_factory=factory,
+        expected_application_artifact_digest=ARTIFACT_DIGEST,
+    )
 
     assert created_for == [BASE_URL]
     assert transport.calls == [
@@ -164,9 +170,28 @@ def test_live_verifies_exact_read_only_endpoints_and_safe_hosted_posture() -> No
     assert result.version_verified is True
     assert result.demo_status_verified is True
     assert result.safe_hosted_posture_verified is True
+    assert result.application_artifact_matches is True
     serialized = json.dumps(result.to_json_dict())
     assert "secret-host" not in serialized
     assert "https://" not in serialized
+    assert ARTIFACT_DIGEST not in serialized
+
+
+def test_old_hosted_artifact_fails_after_accepted_deployment() -> None:
+    from src.app.services.web_app_readiness_verification import verify_web_app_readiness
+
+    transport = _success_transport()
+    result = verify_web_app_readiness(
+        BASE_URL,
+        transport_factory=lambda _: transport,
+        expected_application_artifact_digest="b" * 64,
+    )
+
+    assert result.ok is False
+    assert result.category == "application_artifact_mismatch"
+    assert result.application_artifact_matches is False
+    assert "a" * 64 not in json.dumps(result.to_json_dict())
+    assert "b" * 64 not in json.dumps(result.to_json_dict())
 
 
 @pytest.mark.parametrize(
@@ -395,6 +420,7 @@ def test_version_contract_accepts_nonempty_values_and_additional_fields() -> Non
             "service": "nurse-intake-assistant",
             "version": "7.4.2-beta.1",
             "environment": "hosted-test",
+            "artifactDigest": "b" * 64,
             "revision": "future",
         }
     )

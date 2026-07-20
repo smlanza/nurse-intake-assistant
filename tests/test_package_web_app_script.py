@@ -41,7 +41,7 @@ def test_package_creates_only_ignored_local_zip(source_tree: Path) -> None:
     assert result["ok"] is True
     assert result["package_created"] is True
     assert result["package_filename"] == "nurse-intake-web-app.zip"
-    assert result["package_file_count"] == 4
+    assert result["package_file_count"] == 5
     assert result["package_sha256_present"] is True
     assert result["azure_command_attempted"] is False
     assert result["recommended_next_step"] == (

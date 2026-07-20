@@ -20,6 +20,7 @@ class FakeTransport:
                 "service": "nurse-intake-assistant",
                 "version": "0.1.0",
                 "environment": "local",
+                "artifactDigest": "unpackaged",
             },
             "/demo/status": {
                 "demoModeReady": True,

@@ -17,6 +17,7 @@ env/
 !.env.example
 !.env.foundry.local.example
 !.env.foundry-agent.local.example
+!.env.daily-azure.example
 !.env.speech.local.example
 
 # VS Code

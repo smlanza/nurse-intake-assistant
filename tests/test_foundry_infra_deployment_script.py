@@ -27,6 +27,8 @@ def files(tmp_path: Path) -> tuple[Path, Path, Path]:
     module.write_text("targetScope = 'resourceGroup'\n")
     parameters.write_text(
         "using './foundry-only.bicep'\n"
+        "param foundryAccountName = 'private-account'\n"
+        "param foundryProjectName = 'private-project'\n"
         "param modelDeploymentName = 'private-deployment'\n"
         "param modelName = 'private-value'\n"
         "param modelVersion = 'private-version'\n"
@@ -115,6 +117,28 @@ def test_what_if_checks_group_then_runs_non_mutating_deployment(
     assert not any(argument.startswith("@") for argument in command)
 
 
+def test_internal_what_if_reuses_verified_group_without_duplicate_exists_read(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    runner = FakeRunner(
+        [script.CommandResult(0, json.dumps({"changes": []}), "")]
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+        verify_resource_group=False,
+    )
+
+    assert result["ok"] is True
+    assert len(runner.calls) == 1
+    assert runner.calls[0][:4] == ["az", "deployment", "group", "what-if"]
+
+
 def test_what_if_returns_sanitized_change_counts_and_review_flags(
     monkeypatch: pytest.MonkeyPatch,
     files: tuple[Path, Path, Path],
@@ -151,6 +175,121 @@ def test_what_if_returns_sanitized_change_counts_and_review_flags(
     rendered = json.dumps(result)
     assert "private-resource-id" not in rendered
     assert "private-detail" not in rendered
+
+
+def _foundry_topology_changes(
+    *, resource_group: str = "existing-rg"
+) -> list[dict[str, str]]:
+    root = f"/subscriptions/private-sub/resourceGroups/{resource_group}/providers"
+    account = f"{root}/Microsoft.CognitiveServices/accounts/private-account"
+    return [
+        {"changeType": "Create", "resourceId": account},
+        {
+            "changeType": "Create",
+            "resourceId": f"{account}/projects/private-project",
+        },
+        {
+            "changeType": "Create",
+            "resourceId": f"{account}/deployments/private-deployment",
+        },
+    ]
+
+
+def test_foundry_adapter_accepts_only_the_exact_expected_topology(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    runner = FakeRunner(
+        [
+            script.CommandResult(
+                0,
+                json.dumps({"changes": _foundry_topology_changes()}),
+                "",
+            )
+        ]
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+        verify_resource_group=False,
+    )
+
+    assert result["exact_topology_match"] is True
+    assert result["manual_review_required"] is False
+    assert all(change["approved_boundary"] for change in result["change_evidence"])
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda changes: changes.__setitem__(
+            0,
+            {
+                **changes[0],
+                "resourceId": changes[0]["resourceId"].replace(
+                    "private-account", "wrong-account"
+                ),
+            },
+        ),
+        lambda changes: changes.__setitem__(
+            0,
+            {
+                **changes[0],
+                "resourceId": changes[0]["resourceId"].replace(
+                    "existing-rg", "wrong-rg"
+                ),
+            },
+        ),
+        lambda changes: changes.__setitem__(
+            1,
+            {
+                **changes[1],
+                "resourceId": changes[1]["resourceId"].replace(
+                    "private-account/projects", "wrong-parent/projects"
+                ),
+            },
+        ),
+        lambda changes: changes.append(dict(changes[0])),
+        lambda changes: changes.append(
+            {
+                "changeType": "Create",
+                "resourceId": changes[0]["resourceId"].replace(
+                    "private-account", "extra-account"
+                ),
+            }
+        ),
+    ],
+    ids=("wrong-name", "wrong-group", "wrong-parent", "duplicate", "extra"),
+)
+def test_foundry_adapter_rejects_inexact_same_type_topologies(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+    mutate,
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    changes = _foundry_topology_changes()
+    mutate(changes)
+    runner = FakeRunner(
+        [script.CommandResult(0, json.dumps({"changes": changes}), "")]
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+        verify_resource_group=False,
+    )
+
+    assert result["exact_topology_match"] is False
+    assert result["manual_review_required"] is True
+    assert not all(
+        change["approved_boundary"] for change in result["change_evidence"]
+    )
 
 
 def test_what_if_missing_group_never_attempts_deployment(
@@ -243,11 +382,35 @@ def test_live_creates_group_then_one_deployment_and_returns_only_safe_fields(
         "ok", "mode", "operation", "template_mode", "category",
         "resource_group_ready", "foundry_resource_created", "foundry_project_created",
         "model_deployment_created", "project_endpoint", "model_deployment_name",
-        "recommended_next_step",
-    }
+            "recommended_next_step",
+            "change_evidence",
+            "exact_topology_match",
+        }
     rendered = json.dumps(result)
     for forbidden in ("stderr", "private-value", "subscription", "tenant", "resourceId", "deploy_foundry_agent.py --live"):
         assert forbidden not in rendered
+
+
+def test_internal_live_reuse_skips_duplicate_resource_group_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    runner = FakeRunner(
+        [script.CommandResult(0, _deployment_output(), "sensitive deployment stderr")]
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live", "foundry-only", parameters, "daily-rg", "eastus2"
+        ),
+        runner,
+        ensure_resource_group=False,
+    )
+
+    assert result["ok"] is True
+    assert len(runner.calls) == 1
+    assert runner.calls[0][:4] == ["az", "deployment", "group", "create"]
 
 
 @pytest.mark.parametrize(

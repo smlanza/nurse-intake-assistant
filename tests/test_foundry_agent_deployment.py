@@ -1,4 +1,5 @@
 import json
+from collections import UserDict
 from types import SimpleNamespace
 
 import pytest
@@ -135,6 +136,33 @@ def test_provision_reuses_identical_latest_version_without_creating_duplicate() 
     assert second.agent_reused is True
     assert first.agent_version_present is True
     assert second.agent_version_present is True
+    assert first.resolved_agent_name == "configured-agent"
+    assert first.resolved_agent_version == "7"
+    assert "resolved_agent_version" not in first.to_json_dict()
+    assert "7" not in json.dumps(first.to_json_dict())
+
+
+def test_provision_reuses_mapping_compatible_sdk_shape() -> None:
+    existing = UserDict(
+        {
+            "name": "configured-agent",
+            "version": "7",
+            "definition": UserDict(
+                {
+                    "model": "gpt-demo",
+                    "instructions": build_nurse_intake_agent_instructions(),
+                }
+            ),
+        }
+    )
+    client = FakeProjectClient([existing])
+
+    result = _deployment(client, []).provision(_request())
+
+    assert result.ok is True
+    assert result.agent_reused is True
+    assert result.resolved_agent_version == "7"
+    assert client.agents.create_calls == []
 
 
 @pytest.mark.parametrize(

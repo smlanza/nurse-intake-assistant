@@ -18,7 +18,7 @@ def test_progress_has_one_current_hosted_verifier_state_and_baseline() -> None:
     assert "missing hosted execution and configuration boundaries" not in normalized_active
     assert progress.count("Latest verified test baseline:") == 1
     assert "offline-tested only" in progress
-    assert "complete the runbook" in progress.casefold()
+    assert "preferred daily path" in progress.casefold()
     assert "later agent invocation" in progress.casefold()
     assert len(progress.splitlines()) <= 500
 
@@ -588,6 +588,7 @@ def test_infrastructure_docs_keep_operator_boundaries_manual_and_explicit() -> N
         "!.env.example",
         "!.env.foundry.local.example",
         "!.env.foundry-agent.local.example",
+        "!.env.daily-azure.example",
         "!.env.speech.local.example",
     } <= gitignore
 
@@ -680,8 +681,66 @@ def test_progress_enforces_the_daily_disposable_azure_environment_gate() -> None
             "must not be recommended or started",
             "do not issue the dependent prompt",
             "repeated blocked slices",
+            "scripts/rebuild_daily_azure_environment.py",
+            "daily_environment_ready=true",
+            "preferred daily path",
         },
     )
+
+
+def test_daily_azure_coordinator_docs_define_the_automated_safe_path() -> None:
+    runbook = _normalized(
+        _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")
+    )
+    architecture = _normalized(_read("docs/architecture.md"))
+    values = _env_values(".env.daily-azure.example")
+
+    _assert_contains_all(
+        runbook,
+        {
+            "Normal Daily Automated Path",
+            "scripts/rebuild_daily_azure_environment.py",
+            "--check",
+            "--live",
+            "daily_environment_ready=true",
+            "troubleshooting, recovery, audit",
+            "does not trigger or read WebJob execution",
+            "category=manual_rbac_action_required",
+            "coordinator contains no live RBAC deployment path",
+            "exact expected identity, scope, parent topology, and multiplicity",
+        },
+    )
+    _assert_contains_all(
+        architecture,
+        {
+            "preferred authoritative daily orchestration layer",
+            "independent deployment",
+            "manual",
+            "cannot trigger or read a WebJob run",
+            "healthy old worker cannot produce READY",
+            "never previews or deploys RBAC itself",
+            "exact expected identity",
+        },
+    )
+    assert set(values) == {
+        "AZURE_SUBSCRIPTION_NAME",
+        "AZURE_LOCATION",
+        "AZURE_RESOURCE_GROUP",
+        "AZURE_ENVIRONMENT_NAME",
+        "AZURE_PROJECT_NAME",
+        "AZURE_FOUNDRY_ACCOUNT_NAME",
+        "AZURE_FOUNDRY_PROJECT_NAME",
+        "AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME",
+        "AZURE_FOUNDRY_MODEL_NAME",
+        "AZURE_FOUNDRY_MODEL_VERSION",
+        "AZURE_FOUNDRY_MODEL_SKU",
+        "AZURE_FOUNDRY_MODEL_CAPACITY",
+        "AZURE_FOUNDRY_AGENT_NAME",
+        "AZURE_WEB_APP_NAME",
+        "AZURE_WEB_APP_SKU",
+        "ENABLE_HOSTED_FOUNDRY_VERIFIER",
+        "DISCOVER_HOSTED_FOUNDRY_WEBJOB",
+    }
 
 
 def test_daily_disposable_azure_runbook_has_ordered_stage_boundaries() -> None:

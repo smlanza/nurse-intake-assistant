@@ -4,6 +4,11 @@ from pathlib import Path
 import pytest
 
 import scripts.deploy_web_app_code as script
+from src.app.services.web_app_package import (
+    WebAppPackage,
+    build_web_app_package,
+    create_package_authorization_session,
+)
 
 
 class FakeRunner:
@@ -138,6 +143,32 @@ def test_package_failure_never_attempts_deployment(source_tree: Path) -> None:
     assert result["category"] == "incomplete_package"
     assert result["package_created"] is False
     assert result["azure_command_attempted"] is False
+    assert runner.calls == []
+
+
+def test_forged_or_stale_prebuilt_package_is_rejected_before_azure(
+    source_tree: Path,
+) -> None:
+    session = create_package_authorization_session()
+    built = build_web_app_package(source_tree, authorization_session=session)
+    runner = FakeRunner()
+    with pytest.raises(TypeError):
+        WebAppPackage(
+            package_path=built.package_path,
+            file_count=built.file_count,
+            size_bytes=built.size_bytes,
+            sha256=built.sha256,
+        )
+
+    (source_tree / "src/app/main.py").write_text("changed = True\n")
+    stale_result = script.execute(
+        script.DeploymentRequest("live", "fictional-rg", "fictional-app"),
+        runner=runner,
+        source_root=source_tree,
+        prebuilt_package=built,
+        authorization_session=session,
+    )
+    assert stale_result["category"] == "package_proof_invalid"
     assert runner.calls == []
 
 

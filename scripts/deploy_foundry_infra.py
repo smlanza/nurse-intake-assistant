@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from src.app.services.azure_what_if_evidence import (
+    ExpectedWhatIfResource,
+    parse_sanitized_what_if,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = {
@@ -56,34 +61,11 @@ class DeploymentRequest:
     location: str
 
 
-def _parse_what_if_counts(stdout: str) -> dict[str, int] | None:
-    try:
-        payload = json.loads(stdout)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    if not isinstance(payload, dict) or not isinstance(payload.get("changes"), list):
-        return None
-
-    counts = {
-        "create": 0,
-        "modify": 0,
-        "nochange": 0,
-        "delete": 0,
-        "ignore": 0,
-        "deploy": 0,
-        "unsupported": 0,
-    }
-    for change in payload["changes"]:
-        if not isinstance(change, dict):
-            return None
-        change_type = change.get("changeType")
-        if not isinstance(change_type, str):
-            return None
-        normalized = change_type.casefold()
-        if normalized not in counts:
-            return None
-        counts[normalized] += 1
-    return counts
+_FOUNDRY_RESOURCE_TYPES = {
+    "Microsoft.CognitiveServices/accounts": "foundry_account",
+    "Microsoft.CognitiveServices/accounts/projects": "foundry_project",
+    "Microsoft.CognitiveServices/accounts/deployments": "model_deployment",
+}
 
 
 def _base(
@@ -102,6 +84,8 @@ def _base(
         "project_endpoint": None,
         "model_deployment_name": None,
         "recommended_next_step": "Review configuration and retry safely.",
+        "change_evidence": [],
+        "exact_topology_match": False,
     }
 
 
@@ -123,8 +107,16 @@ def _validate_files(request: DeploymentRequest) -> tuple[Path | None, str | None
     using_match = re.search(
         r"(?m)^\s*using\s+['\"]([^'\"]+)['\"]\s*$", parameter_text
     )
-    expected_using_target = f"./{template.name}"
-    if using_match is None or using_match.group(1) != expected_using_target:
+    if using_match is None:
+        return None, "parameter_file_invalid"
+    try:
+        using_target = (request.parameters.parent / using_match.group(1)).resolve(
+            strict=True
+        )
+        expected_target = template.resolve(strict=True)
+    except OSError:
+        return None, "parameter_file_invalid"
+    if using_target != expected_target:
         return None, "parameter_file_invalid"
     names = [
         line.split("=", 1)[0].removeprefix("param ").strip().lower()
@@ -143,7 +135,13 @@ def _validate_files(request: DeploymentRequest) -> tuple[Path | None, str | None
     return template, None
 
 
-def execute(request: DeploymentRequest, runner: CommandRunner | None = None) -> dict[str, object]:
+def execute(
+    request: DeploymentRequest,
+    runner: CommandRunner | None = None,
+    *,
+    ensure_resource_group: bool = True,
+    verify_resource_group: bool = True,
+) -> dict[str, object]:
     runner = runner or SubprocessCommandRunner()
     template, error = _validate_files(request)
     if error or template is None:
@@ -175,28 +173,29 @@ def execute(request: DeploymentRequest, runner: CommandRunner | None = None) -> 
         return result
 
     if request.action == "what-if":
-        exists = runner.run(
-            [
-                "az",
-                "group",
-                "exists",
-                "--name",
-                request.resource_group,
-                "--output",
-                "tsv",
-            ]
-        )
-        if exists.return_code != 0:
-            category = (
-                "authentication_or_authorization_failed"
-                if _authorization_failure(exists.stderr)
-                else "what_if_failed"
+        if verify_resource_group:
+            exists = runner.run(
+                [
+                    "az",
+                    "group",
+                    "exists",
+                    "--name",
+                    request.resource_group,
+                    "--output",
+                    "tsv",
+                ]
             )
-            return _base(request, category)
-        if exists.stdout.strip().lower() != "true":
-            result = _base(request, "resource_group_missing")
-            result["recommended_next_step"] = "Create the resource group explicitly or use --live --json."
-            return result
+            if exists.return_code != 0:
+                category = (
+                    "authentication_or_authorization_failed"
+                    if _authorization_failure(exists.stderr)
+                    else "what_if_failed"
+                )
+                return _base(request, category)
+            if exists.stdout.strip().lower() != "true":
+                result = _base(request, "resource_group_missing")
+                result["recommended_next_step"] = "Create the resource group explicitly or use --live --json."
+                return result
         command = [
             "az", "deployment", "group", "what-if", "--resource-group", request.resource_group,
             "--parameters", str(request.parameters),
@@ -206,24 +205,31 @@ def execute(request: DeploymentRequest, runner: CommandRunner | None = None) -> 
         if outcome.return_code != 0:
             category = "authentication_or_authorization_failed" if _authorization_failure(outcome.stderr) else "what_if_failed"
             return _base(request, category)
-        counts = _parse_what_if_counts(outcome.stdout)
-        if counts is None:
+        summary = parse_sanitized_what_if(
+            outcome.stdout,
+            boundary="foundry",
+            expected_resources=_expected_foundry_resources(request),
+        )
+        if summary is None:
             return _base(request, "what_if_parse_failed")
         result = _base(request, "success", True)
         result["resource_group_ready"] = True
         result.update(
             {
-                "create_count": counts["create"],
-                "modify_count": counts["modify"],
-                "no_change_count": counts["nochange"],
-                "delete_count": counts["delete"],
-                "ignore_count": counts["ignore"],
-                "deploy_count": counts["deploy"],
-                "unsupported_count": counts["unsupported"],
-                "delete_review_required": counts["delete"] > 0,
+                "create_count": summary.count("Create"),
+                "modify_count": summary.count("Modify"),
+                "no_change_count": summary.count("NoChange"),
+                "delete_count": summary.count("Delete"),
+                "ignore_count": summary.count("Ignore"),
+                "deploy_count": summary.count("Deploy"),
+                "unsupported_count": summary.count("Unsupported"),
+                "change_evidence": summary.to_json_list(),
+                "exact_topology_match": summary.exact_topology_match,
+                "delete_review_required": summary.count("Delete") > 0,
                 "manual_review_required": any(
-                    counts[name] > 0 for name in ("delete", "deploy", "unsupported")
-                ),
+                    summary.count(action) > 0
+                    for action in ("Delete", "Deploy", "Unsupported")
+                ) or not summary.all_changes_allowlisted,
             }
         )
         result["recommended_next_step"] = (
@@ -233,22 +239,23 @@ def execute(request: DeploymentRequest, runner: CommandRunner | None = None) -> 
         )
         return result
 
-    group = runner.run(
-        [
-            "az",
-            "group",
-            "create",
-            "--name",
-            request.resource_group,
-            "--location",
-            request.location,
-            "--output",
-            "json",
-        ]
-    )
-    if group.return_code != 0:
-        category = "authentication_or_authorization_failed" if _authorization_failure(group.stderr) else "resource_group_creation_failed"
-        return _base(request, category)
+    if ensure_resource_group:
+        group = runner.run(
+            [
+                "az",
+                "group",
+                "create",
+                "--name",
+                request.resource_group,
+                "--location",
+                request.location,
+                "--output",
+                "json",
+            ]
+        )
+        if group.return_code != 0:
+            category = "authentication_or_authorization_failed" if _authorization_failure(group.stderr) else "resource_group_creation_failed"
+            return _base(request, category)
     deployment = runner.run([
         "az", "deployment", "group", "create", "--resource-group", request.resource_group,
         "--parameters", str(request.parameters),
@@ -281,6 +288,59 @@ def execute(request: DeploymentRequest, runner: CommandRunner | None = None) -> 
         "recommended_next_step": "Update .env.foundry-agent.local and run deploy_foundry_agent.py --check.",
     })
     return result
+
+
+def _expected_foundry_resources(
+    request: DeploymentRequest,
+) -> tuple[ExpectedWhatIfResource, ...]:
+    values = {
+        name: _parameter_string(request.parameters, name)
+        for name in (
+            "foundryAccountName",
+            "foundryProjectName",
+            "modelDeploymentName",
+        )
+    }
+    account = values["foundryAccountName"]
+    project = values["foundryProjectName"]
+    deployment = values["modelDeploymentName"]
+    if not account or not project or not deployment:
+        return ()
+    return (
+        ExpectedWhatIfResource(
+            "Microsoft.CognitiveServices/accounts",
+            "foundry_account",
+            request.resource_group,
+            (account,),
+        ),
+        ExpectedWhatIfResource(
+            "Microsoft.CognitiveServices/accounts/projects",
+            "foundry_project",
+            request.resource_group,
+            (account, project),
+        ),
+        ExpectedWhatIfResource(
+            "Microsoft.CognitiveServices/accounts/deployments",
+            "model_deployment",
+            request.resource_group,
+            (account, deployment),
+        ),
+    )
+
+
+def _parameter_string(path: Path, name: str) -> str | None:
+    try:
+        text = path.read_text()
+    except OSError:
+        return None
+    match = re.search(
+        rf"(?m)^\s*param\s+{re.escape(name)}\s*=\s*'([^'\r\n]+)'\s*$",
+        text,
+    )
+    if match is None:
+        return None
+    value = match.group(1)
+    return value if value == value.strip() else None
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

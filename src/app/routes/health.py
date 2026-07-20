@@ -1,4 +1,6 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
+
+from src.app.services.application_artifact import read_application_artifact_digest
 
 router = APIRouter()
 
@@ -10,8 +12,15 @@ def health_check():
 
 @router.get("/version")
 def version_check():
+    artifact_digest = read_application_artifact_digest()
+    if artifact_digest is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Application artifact marker unavailable.",
+        )
     return {
         "service": "nurse-intake-assistant",
         "version": "0.1.0",
         "environment": "local",
+        "artifactDigest": artifact_digest,
     }
