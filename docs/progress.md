@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,521 passed
+- 1,522 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -376,36 +376,19 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Status
 
-- The five non-secret hosted-verifier settings now use a disabled-by-default
-  tagged Bicep configuration: ordinary Web App deployment omits them, while
-  explicit opt-in requires all five complete nonblank values and enables exact
-  read-only comparison. Direct `main.bicep` and reusable `web-app.bicep`
-  deployments reject empty, whitespace-only, and surrounding-whitespace values
-  through trim-aware nested-module `minLength` contracts. The fixed WebJob
-  resolves only validated App Service `$HOME/site/wwwroot`, forces that root to
-  import precedence, rejects unexpected preloaded packages, and proves the
-  imported operation is the exact HOME-owned file before calling it. Local package
-  presence and remote name-only discovery remain distinct. Before any trigger
-  runner is constructed, an atomic fixed reservation excludes concurrent
-  trigger processes sharing one checkout's artifact filesystem; it is not a
-  distributed cross-machine lock. Accepted receipts are immutable. After runner
-  entry, any nonzero result, exception, timeout, or unvalidated response leaves
-  durable blocked state and cannot permit a duplicate trigger; only a specifically
-  modeled local process-not-started failure is conclusively pre-submission.
-  An accepted but uncorrelatable request also leaves durable blocked state, and terminal status
-  is recorded separately without changing the receipt. Descriptor-relative
-  no-follow reads reject symlinked state parents and targets. Status proof still
-  requires exactly one run after the receipt's UTC lower bound; stale 2020
-  history is rejected and invocation remains later and separate. No Azure operation,
-  deployment, discovery, WebJob trigger or status read, token, metadata read,
-  inference, invocation, or RBAC change ran.
-  Mock providers, notification suppression, fictional-data restrictions,
-  mandatory nurse review, and the non-production boundary remain unchanged.
-  These repository boundaries are offline-implemented and have not run live.
-  The next stage is completing the checked-in prerequisite runbook with fresh
-  operator evidence; discovery, trigger, correlated status, hosted metadata
-  verification, and later agent invocation remain separately authorized stages.
-  Correction-focused GREEN is 239 passed.
+- Hosted verification, WebJob execution, Web App configuration, hosted
+  readiness, and Consumer RBAC check modes pass offline. Focused verification,
+  lifecycle, configuration, packaging, RBAC, and documentation guardrails are
+  295 passed; the full suite is 1,522 passed with the one existing warning. No
+  repository-owned defect requires a RED-to-GREEN correction.
+- The checked-in prerequisite inventory and completion checklist remain
+  incomplete, so no Azure authentication, remote WebJob discovery, trigger
+  acceptance, receipt-correlated status, managed-identity metadata proof, or
+  invocation occurs. The next boundary is fresh operator-owned prerequisite
+  evidence followed by the separately authorized discovery stage. Later agent invocation
+  remains deferred. Mock providers and notification suppression remain unchanged;
+  only fictional data is permitted, nurse review remains mandatory, and the
+  project remains non-production.
 
 ### Historical Slice Results
 
