@@ -732,6 +732,7 @@ def test_daily_disposable_azure_runbook_separates_procedure_and_live_evidence() 
             "scripts/deploy_foundry_infra.py",
             "scripts/verify_foundry_infra.py",
             "scripts/deploy_foundry_agent.py",
+            "scripts/configure_foundry_agent_endpoint_routing.py",
             "scripts/verify_foundry_agent.py",
             "scripts/deploy_web_app_infra.py",
             "scripts/verify_web_app_configuration.py",
@@ -744,6 +745,16 @@ def test_daily_disposable_azure_runbook_separates_procedure_and_live_evidence() 
             "Discovery does not authorize a trigger, status read, managed-identity access, metadata verification, or agent invocation",
         },
     )
+
+    agent_stage = runbook.split(
+        "Prompt-agent provisioning and immutable-version proof", 1
+    )[1].split("Web App infrastructure", 1)[0]
+    stage_positions = [
+        agent_stage.index("scripts/deploy_foundry_agent.py"),
+        agent_stage.index("scripts/configure_foundry_agent_endpoint_routing.py"),
+        agent_stage.index("scripts/verify_foundry_agent.py"),
+    ]
+    assert stage_positions == sorted(stage_positions)
 
 
 def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> None:

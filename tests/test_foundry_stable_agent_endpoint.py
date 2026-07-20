@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections import UserDict
 from types import SimpleNamespace
 
 import pytest
@@ -236,6 +237,25 @@ def test_exclusive_routing_helper_accepts_one_configured_version_at_100() -> Non
         ([_rule("7", 100, rule_type="Unsupported")], None),
         ([object()], None),
         ([_rule("7", 50), _rule("7", 50)], 50),
+        (
+            [
+                UserDict(
+                    {
+                        "type": "FixedRatio",
+                        "agent_version": "7",
+                        "traffic_percentage": 0,
+                    }
+                ),
+                UserDict(
+                    {
+                        "type": "FixedRatio",
+                        "agent_version": "8",
+                        "traffic_percentage": 100,
+                    }
+                ),
+            ],
+            0,
+        ),
     ],
 )
 def test_exclusive_routing_helper_fails_closed(

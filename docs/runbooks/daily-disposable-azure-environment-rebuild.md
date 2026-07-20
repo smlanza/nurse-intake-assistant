@@ -194,6 +194,16 @@ AZURE_AI_FOUNDRY_AGENT_VERSION=<immutable-agent-version>
 Prove that exact configured version without invoking it:
 
 ```bash
+.venv/bin/python scripts/configure_foundry_agent_endpoint_routing.py \
+  --env-file .env.foundry-agent.local \
+  --check \
+  --json
+
+.venv/bin/python scripts/configure_foundry_agent_endpoint_routing.py \
+  --env-file .env.foundry-agent.local \
+  --live \
+  --json
+
 .venv/bin/python scripts/verify_foundry_agent.py \
   --env-file .env.foundry-agent.local \
   --check \
@@ -205,9 +215,19 @@ Prove that exact configured version without invoking it:
   --json
 ```
 
-Require `ok=true`, the expected definition/version checks, `agent_invoked=false`,
-and `azure_mutation_made=false`. Agent provisioning, metadata verification, and
-invocation remain different authorization boundaries.
+The routing check is offline and proves only local readiness. Explicit live mode
+reads the current endpoint, reuses an already-exclusive route without mutation,
+or submits at most one fixed 100% `FixedRatio` update for the configured
+immutable version. It preserves Responses, other supported protocol settings,
+and endpoint authorization settings; it never provisions or invokes an agent.
+The separate read-only verifier remains the proof boundary after any routing
+result.
+
+Require verifier `ok=true`, the expected definition/version checks,
+`responses_protocol_present=true`, `immutable_version_verified=true`,
+`configured_version_traffic_percentage=100`, `agent_invoked=false`, and
+`azure_mutation_made=false`. Agent provisioning, endpoint routing configuration,
+metadata verification, and invocation remain different authorization boundaries.
 
 ## 8. Web App infrastructure
 

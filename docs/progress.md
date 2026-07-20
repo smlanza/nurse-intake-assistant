@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,524 passed
+- 1,566 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -354,24 +354,28 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Status
 
-- The permanent daily disposable-environment gate and authoritative 19-stage
-  rebuild runbook are now checked in. Documentation RED was 3 failed; focused
-  GREEN is 26 passed and full GREEN is 1,524 passed with the one existing
-  warning. This documentation-only slice made no Azure or network call and
-  performed no deployment, identity, RBAC, WebJob, metadata, or invocation
-  operation.
-- The checked-in exact inventory and operator completion checklist remain
-  unchecked, so the prerequisite gate stops before Azure runner construction.
-  WebJob execution, package, configuration, readiness, Consumer RBAC, and
-  hosted-verifier checks pass offline; focused discovery and prerequisite
-  guardrails are 211 passed. No repository-owned defect requires correction.
-- Exactly zero Azure discovery reads occur, and `verify-hosted-foundry-agent`
-  is not remotely proven. No trigger, status read, managed-identity
-  authentication, Foundry access, or invocation occurs. The next boundary is
-  fresh checked operator evidence followed by one separately authorized
-  discovery read. Later agent invocation remains deferred. Mock providers and
-  notification suppression remain unchanged; only fictional data is permitted,
-  nurse review remains mandatory, and the project remains non-production.
+- The corrected `azure-ai-projects` 2.3.0 verifier now proves Responses metadata
+  but the current stable endpoint does not conclusively select the configured
+  immutable version. RED was one collection error because no repository-owned
+  routing boundary existed. A new explicit service and CLI use the SDK's
+  `agents.update_details` merge patch with one fixed 100% `FixedRatio` rule,
+  preserve supported protocol and authorization configuration, and never
+  provision or invoke an agent. Focused GREEN is 35 passed, related Foundry
+  GREEN is 831 passed, and full GREEN is 1,566 passed with the one existing
+  warning.
+- After the separately authorized single routing attempt, a separately
+  authorized live read-only verifier succeeded with `ok=true`,
+  `category=success`, `responses_protocol_present=true`,
+  `configured_version_traffic_percentage=100`,
+  `immutable_version_verified=true`, and `agent_definition_matches=true`.
+  The verifier reported `azure_mutation_made=false` and `agent_invoked=false`.
+  This proves the existing endpoint exclusively routes to the configured
+  immutable agent version, preserves Responses protocol support, and matches
+  the expected agent definition without inference or invocation.
+- The routing and read-only verification stages are complete. Mock defaults,
+  fictional-data restrictions, notification suppression, mandatory nurse
+  review, and the non-production boundary remain unchanged. Later agent invocation
+  remains deferred and requires separate authorization.
 
 ### Historical Slice Results
 

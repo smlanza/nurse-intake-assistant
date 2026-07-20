@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.util import find_spec
 from typing import Any, Callable, Literal
@@ -42,6 +43,7 @@ LEGACY_AGENT_NEXT_STEP = (
     "The agent must be recreated through the existing prompt-agent provisioning "
     "workflow, then configured with its stable endpoint and immutable version."
 )
+_MISSING = object()
 
 
 @dataclass(frozen=True)
@@ -458,13 +460,38 @@ def _new_agent_metadata_presence(
 
 
 def _responses_protocol_is_present(endpoint: Any) -> bool:
-    protocols = _raw_object_value(endpoint, "protocols")
-    if not isinstance(protocols, (list, tuple)):
+    representations: list[bool] = []
+    protocols = _field_value(endpoint, "protocols")
+    if protocols is not _MISSING and protocols is not None:
+        representations.append(_protocol_sequence_has_responses(protocols))
+
+    protocol_configuration = _field_value(endpoint, "protocol_configuration")
+    if protocol_configuration is not _MISSING and protocol_configuration is not None:
+        representations.append(
+            _protocol_configuration_has_responses(protocol_configuration)
+        )
+
+    return bool(representations) and all(representations)
+
+
+def _protocol_sequence_has_responses(protocols: Any) -> bool:
+    if not isinstance(protocols, (list, tuple)) or not protocols:
         return False
     return any(
         isinstance(protocol, str)
         and protocol.strip().lower() == "responses"
         for protocol in protocols
+    )
+
+
+def _protocol_configuration_has_responses(configuration: Any) -> bool:
+    if not isinstance(configuration, Mapping):
+        return False
+    responses = _field_value(configuration, "responses")
+    return (
+        responses is not _MISSING
+        and responses is not None
+        and isinstance(responses, Mapping)
     )
 
 
@@ -526,9 +553,14 @@ def _definition_matches(
 
 
 def _raw_object_value(value: Any, name: str) -> Any:
-    if isinstance(value, dict):
-        return value.get(name)
-    return getattr(value, name, None)
+    field_value = _field_value(value, name)
+    return None if field_value is _MISSING else field_value
+
+
+def _field_value(value: Any, name: str) -> Any:
+    if isinstance(value, Mapping):
+        return value[name] if name in value else _MISSING
+    return getattr(value, name, _MISSING)
 
 
 def _object_value(value: Any, name: str) -> str:

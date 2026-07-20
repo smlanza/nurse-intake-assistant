@@ -1,4 +1,5 @@
 import json
+from collections import UserDict
 from types import SimpleNamespace
 
 import pytest
@@ -265,6 +266,103 @@ def test_stable_verification_reads_responses_from_endpoint_protocols() -> None:
     assert result.ok is True
     assert result.responses_protocol_present is True
     assert result.immutable_version_verified is True
+
+
+def test_verify_supports_installed_sdk_mapping_metadata_shape() -> None:
+    mapping_version = UserDict(
+        {
+            "name": "configured-agent",
+            "version": "7",
+            "definition": UserDict(
+                {
+                    "model": "gpt-demo",
+                    "instructions": build_nurse_intake_agent_instructions(),
+                }
+            ),
+        }
+    )
+    mapping_rule = UserDict(
+        {
+            "type": "FixedRatio",
+            "agent_version": "7",
+            "traffic_percentage": 100,
+        }
+    )
+    agent_details = UserDict(
+        {
+            "id": "secret-agent-object-id",
+            "instance_identity": UserDict(
+                {"client_id": "secret-identity-id"}
+            ),
+            "agent_endpoint": UserDict(
+                {
+                    "protocol_configuration": UserDict(
+                        {"responses": UserDict()}
+                    ),
+                    "version_selector": UserDict(
+                        {"version_selection_rules": [mapping_rule]}
+                    ),
+                }
+            ),
+        }
+    )
+    agents = FakeAgents(mapping_version, agent_details=agent_details)
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.ok is True
+    assert result.category == "success"
+    assert result.responses_protocol_present is True
+    assert result.version_selector_present is True
+    assert result.configured_version_traffic_percentage == 100
+    assert result.agent_definition_matches is True
+    assert result.immutable_version_verified is True
+    assert result.azure_mutation_made is False
+    assert result.agent_invoked is False
+
+
+@pytest.mark.parametrize(
+    "protocol_configuration",
+    [
+        UserDict(),
+        UserDict({"responses": None}),
+        UserDict({"responses": object()}),
+        SimpleNamespace(responses=UserDict()),
+    ],
+)
+def test_malformed_protocol_configuration_fails_closed(
+    protocol_configuration: object,
+) -> None:
+    agents = FakeAgents(
+        _version(),
+        agent_details=_agent_details(
+            protocols=None,
+            protocol_configuration=protocol_configuration,
+        ),
+    )
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.ok is False
+    assert result.category == "response_contract_invalid"
+    assert result.responses_protocol_present is False
+    assert result.immutable_version_verified is False
+
+
+def test_contradictory_protocol_representations_fail_closed() -> None:
+    agents = FakeAgents(
+        _version(),
+        agent_details=_agent_details(
+            protocols=["invocations"],
+            protocol_configuration=UserDict({"responses": UserDict()}),
+        ),
+    )
+
+    result = _verification(agents, []).verify(_stable_request())
+
+    assert result.ok is False
+    assert result.category == "response_contract_invalid"
+    assert result.responses_protocol_present is False
 
 
 @pytest.mark.parametrize(
