@@ -664,61 +664,84 @@ def test_progress_enforces_the_architecture_document_change_gate() -> None:
     )
 
 
-def test_azure_dependent_slices_require_a_checked_in_prerequisite_runbook() -> None:
+def test_progress_enforces_the_daily_disposable_azure_environment_gate() -> None:
     progress = _normalized(_read("docs/progress.md"))
-    runbook = _normalized(
-        _read("docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md")
-    )
 
     _assert_contains_all(
         progress,
         {
-            "Pre-Codex Azure Readiness Checklist",
-            "Azure-Dependent Slice Runbook Gate",
-            "docs/runbooks/",
-            "az login",
-            "az account show",
-            '--query "{subscription:name,state:state,isDefault:isDefault}"',
-            "The operator, not Codex",
-            "before the implementation thread begins",
-            "currently verified, correctly named, and usable",
-            "Historical deployment evidence, portal screenshots, assumed names, previous conversation history, and inferred resource groups are not sufficient",
-            "Azure RBAC Slice Lessons Learned",
-            "Foundry infrastructure was not deployed before dependent work began",
-            "obsolete resource group",
-            "portal truncated the Foundry account name",
-            "Foundry existed while the required Linux Web App did not",
-            "Web App infrastructure existence did not prove application code deployment or hosted readiness",
-            "Healthy resources did not prove the Consumer RBAC assignment existed",
-            "wrong Foundry project ARM lookup",
-            "same deployment name, causing `DeploymentActive`",
-            "Oversized Codex runs mixed infrastructure deployment, application deployment, readiness monitoring, defect correction, RBAC, and documentation",
-            "Future Azure-dependent slices must complete prerequisite preparation before the narrow Codex implementation prompt begins",
-            "Operator completes runbook and checklist -> operator supplies exact verified resource inventory -> Codex performs narrow offline RED-to-GREEN work -> Codex performs only the explicitly approved live operation -> separate read-only verification -> documentation and commit",
-            "authoritative Bicep",
-            "fail-fast",
-            "General-purpose shell polling loops",
-            "one repository-approved bounded completion check",
+            "Daily Disposable Azure Environment Gate",
+            "docs/runbooks/daily-disposable-azure-environment-rebuild.md",
+            "offline-only",
+            "Azure-dependent",
+            "assume the resource group and all dependent resources are absent",
+            "Deleting the resource group expires all prior evidence",
+            "current session",
+            "must not be recommended or started",
+            "do not issue the dependent prompt",
+            "repeated blocked slices",
         },
     )
+
+
+def test_daily_disposable_azure_runbook_has_ordered_stage_boundaries() -> None:
+    runbook = _normalized(
+        _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")
+    )
+    ordered_stages = [
+        "Purpose and lifecycle",
+        "Required operator inputs",
+        "Local preflight",
+        "Authentication and subscription",
+        "Resource group creation",
+        "Foundry infrastructure",
+        "Prompt-agent provisioning and immutable-version proof",
+        "Web App infrastructure",
+        "Web App configuration verification",
+        "Package creation",
+        "Web App code deployment",
+        "Hosted readiness verification",
+        "Consumer RBAC deployment",
+        "Consumer RBAC verification",
+        "Optional WebJob discovery",
+        "Daily environment-ready declaration",
+        "End-of-session cleanup and evidence expiry",
+        "Fail-fast rules",
+        "Cost control",
+    ]
+    positions = [runbook.index(stage) for stage in ordered_stages]
+    assert positions == sorted(positions)
+
+
+def test_daily_disposable_azure_runbook_separates_procedure_and_live_evidence() -> None:
+    runbook = _normalized(
+        _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")
+    )
+
     _assert_contains_all(
         runbook,
         {
-            "az login",
-            "az account show --output json",
-            "infra/foundry-only.bicep",
+            "durable checked-in procedure",
+            "fresh current-session evidence",
+            "READY",
+            "NOT READY",
+            "Deletion immediately returns the environment to NOT READY",
+            "Never commit subscription IDs, tenant IDs, principal IDs",
+            "complete ARM resource IDs",
+            "access tokens, bearer tokens",
             "scripts/deploy_foundry_infra.py",
             "scripts/verify_foundry_infra.py",
+            "scripts/deploy_foundry_agent.py",
+            "scripts/verify_foundry_agent.py",
             "scripts/deploy_web_app_infra.py",
             "scripts/verify_web_app_configuration.py",
+            "scripts/package_web_app.py",
+            "scripts/deploy_web_app_code.py",
             "scripts/verify_web_app_readiness.py",
-            "optional explicitly required bounded completion check",
-            "Read-only verification remains a distinct stage",
-            "fail-fast",
-            "Do not retry it without an operator correction",
-            "General-purpose shell polling loops",
-            "portal-only",
-            "ad hoc Azure provisioning",
+            "scripts/deploy_foundry_agent_consumer_rbac.py",
+            "scripts/verify_foundry_agent_consumer_rbac.py",
+            "scripts/run_hosted_foundry_agent_verification.py",
+            "Discovery does not authorize a trigger, status read, managed-identity access, metadata verification, or agent invocation",
         },
     )
 

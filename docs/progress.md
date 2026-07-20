@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,522 passed
+- 1,524 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -77,64 +77,42 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `src/app/services/web_app_readiness_verification.py`: sanitized hosted readiness contract; `scripts/verify_web_app_readiness.py`: offline check and explicit read-only live CLI.
 - `src/app/services/web_app_configuration_verification.py`: Bicep-owned hosting contract verifier; `scripts/verify_web_app_configuration.py`: offline check and explicit read-only Azure CLI boundary.
 
-## Pre-Codex Azure Readiness Checklist
+## Daily Disposable Azure Environment Gate
 
-This checklist is mandatory before starting any Codex prompt whose acceptance criteria include live Azure operations or depend on Azure infrastructure, Foundry resources, hosted application code, managed identity, RBAC, an agent, or another live prerequisite. The operator, not Codex, must complete it before the implementation thread begins. Every applicable item must prove that required resources are deployed, currently verified, correctly named, and usable.
+Because the operator deletes the resource group to control cost, every new
+Azure session starts **NOT READY**: assume the resource group and all dependent
+resources are absent until the operator supplies fresh proof from the current
+session. The permanent rebuild procedure is
+`docs/runbooks/daily-disposable-azure-environment-rebuild.md`.
 
-### 1. Azure authentication and subscription
+Deleting the resource group expires all prior evidence for the resource group,
+Foundry AIServices account, child project and model deployment, prompt agent and
+immutable version, Linux Web App and system-assigned identity, hosted-verifier
+settings, application package and deployed code, readiness endpoints, direct
+Consumer RBAC assignment, remote WebJob, managed-identity Foundry access,
+metadata verification, and invocation. Previous progress entries, runbook
+completion, terminal output, portal screenshots, conversations, resource names,
+deployments, and smoke tests cannot satisfy a new session's gate.
 
-- [ ] Run the operator login and current-account check:
+Classify each proposed prompt before work begins:
 
-```bash
-az login
+- `offline-only`: local code, tests, or documentation may proceed, but must make
+  no current live-Azure or hosted-readiness claim.
+- `Azure-dependent`: any prompt whose implementation or acceptance depends on
+  live infrastructure, identity, configuration, access, hosted code, or a live
+  read. It must not be recommended or started until the daily runbook is
+  complete and every prerequisite for that exact narrow slice has fresh,
+  sanitized current-session evidence.
 
-az account show \
-  --query "{subscription:name,state:state,isDefault:isDefault}" \
-  --output table
-```
-
-- [ ] Confirm the intended subscription by name, an `Enabled` state, and the intended default selection. Stop before Codex begins if authentication or subscription selection is wrong; never copy subscription or tenant IDs into prompts or documentation.
-
-### 2. Exact approved resource inventory
-
-- [ ] Record the operator-approved names for every applicable resource group, Foundry account, child project, model deployment, Linux Web App, prompt agent and immutable version, managed identity, RBAC role and exact scope, hosted endpoint, and other slice prerequisite.
-- [ ] Match every name to fresh repository-owned verifier output. Historical deployment evidence, portal screenshots, assumed names, previous conversation history, and inferred resource groups are not sufficient.
-
-### 3. Authoritative deployment and current usability proof
-
-- [ ] Deploy every missing prerequisite before the Codex prompt through the repository's authoritative Bicep entry points and approved scripts; never substitute portal-only creation, duplicate definitions, or ad hoc Azure CLI provisioning.
-- [ ] Run current read-only verification proving provisioning state and usability: Foundry account/project/model and required agent version; hosted code, safe configuration, system identity, and readiness endpoints; and any exact direct RBAC assignment required before managed-identity access.
-- [ ] Deploy only the current slice's prerequisites. Keep infrastructure deployment separate from prompt-agent creation; keep hosted code, Foundry provisioning, agent lifecycle, RBAC deployment, RBAC verification, managed-identity verification, and invocation explicit and separately verifiable.
-
-### 4. Azure-Dependent Slice Execution Gate and Azure-Dependent Slice Runbook Gate
-
-- [ ] Complete a checked-in slice-specific runbook under `docs/runbooks/` and name it in the acceptance criteria. It must identify authoritative Bicep ownership, exact approved parameters, repository-approved compile/check/what-if/manual-review/deploy/verify stages, success contracts, and fail-fast stop conditions.
-- [ ] Hand Codex only sanitized current evidence and the completed checklist. No Codex implementation prompt or live acceptance criterion may begin until every applicable item is checked; offline RED-to-GREEN work may begin only when it does not claim live readiness.
-
-Missing or unusable prerequisites stop the thread without retry or inferred replacements. General-purpose shell polling loops, repeated sleeps, indefinite waits, and improvised repeated verifier calls are prohibited; use at most one repository-approved bounded completion check only when the runbook requires it. Keep cleanup manual and explicit, use fictional disposable resources, and never commit or disclose secrets, credentials, IDs, real patient data, or real contact information.
-
-### Azure RBAC Slice Lessons Learned
-
-- Foundry infrastructure was not deployed before dependent work began.
-- An obsolete resource group was inferred from prior history, and the Azure portal truncated the Foundry account name.
-- Foundry existed while the required Linux Web App did not.
-- Web App infrastructure existence did not prove application code deployment or hosted readiness.
-- Healthy resources did not prove the Consumer RBAC assignment existed.
-- The verifier initially used the wrong Foundry project ARM lookup.
-- The outer ARM deployment and nested Bicep module used the same deployment name, causing `DeploymentActive`.
-- Oversized Codex runs mixed infrastructure deployment, application deployment, readiness monitoring, defect correction, RBAC, and documentation, making state reconciliation difficult.
-- Future Azure-dependent slices must complete prerequisite preparation before the narrow Codex implementation prompt begins.
-
-Preferred workflow:
-
-```text
-Operator completes runbook and checklist
--> operator supplies exact verified resource inventory
--> Codex performs narrow offline RED-to-GREEN work
--> Codex performs only the explicitly approved live operation
--> separate read-only verification
--> documentation and commit
-```
+If the environment is NOT READY, direct the operator to the daily runbook and
+do not issue the dependent prompt. Record the gate once; avoid repeated blocked
+slices and progress rewrites that merely rediscover the same absent resources.
+Keep infrastructure deployment separate from prompt-agent creation. Keep
+deployment, verification, WebJob discovery, trigger/status, managed-identity
+proof, metadata verification, and invocation separately authorized. Keep
+cleanup manual and explicit.
+Never commit session identifiers, endpoints, credentials, tokens, secrets,
+real contact information, or patient data.
 
 ## Prerequisites Before The Next TDD Slice
 
@@ -376,19 +354,24 @@ frontend deferred unless explicitly scoped.
 
 ## Current Slice Status
 
-- Hosted verification, WebJob execution, Web App configuration, hosted
-  readiness, and Consumer RBAC check modes pass offline. Focused verification,
-  lifecycle, configuration, packaging, RBAC, and documentation guardrails are
-  295 passed; the full suite is 1,522 passed with the one existing warning. No
-  repository-owned defect requires a RED-to-GREEN correction.
-- The checked-in prerequisite inventory and completion checklist remain
-  incomplete, so no Azure authentication, remote WebJob discovery, trigger
-  acceptance, receipt-correlated status, managed-identity metadata proof, or
-  invocation occurs. The next boundary is fresh operator-owned prerequisite
-  evidence followed by the separately authorized discovery stage. Later agent invocation
-  remains deferred. Mock providers and notification suppression remain unchanged;
-  only fictional data is permitted, nurse review remains mandatory, and the
-  project remains non-production.
+- The permanent daily disposable-environment gate and authoritative 19-stage
+  rebuild runbook are now checked in. Documentation RED was 3 failed; focused
+  GREEN is 26 passed and full GREEN is 1,524 passed with the one existing
+  warning. This documentation-only slice made no Azure or network call and
+  performed no deployment, identity, RBAC, WebJob, metadata, or invocation
+  operation.
+- The checked-in exact inventory and operator completion checklist remain
+  unchecked, so the prerequisite gate stops before Azure runner construction.
+  WebJob execution, package, configuration, readiness, Consumer RBAC, and
+  hosted-verifier checks pass offline; focused discovery and prerequisite
+  guardrails are 211 passed. No repository-owned defect requires correction.
+- Exactly zero Azure discovery reads occur, and `verify-hosted-foundry-agent`
+  is not remotely proven. No trigger, status read, managed-identity
+  authentication, Foundry access, or invocation occurs. The next boundary is
+  fresh checked operator evidence followed by one separately authorized
+  discovery read. Later agent invocation remains deferred. Mock providers and
+  notification suppression remain unchanged; only fictional data is permitted,
+  nurse review remains mandatory, and the project remains non-production.
 
 ### Historical Slice Results
 
@@ -411,6 +394,7 @@ frontend deferred unless explicitly scoped.
 
 ## Reference Docs
 - `docs/archive/progress-2026-06.md`
+- `docs/runbooks/daily-disposable-azure-environment-rebuild.md`
 - `docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md`
 - `docs/manual-local-mock-demo.md`
 - `docs/demo-smoke-test.md`
