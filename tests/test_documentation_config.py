@@ -644,6 +644,26 @@ def test_progress_documents_future_tdd_and_test_maintenance_guardrails() -> None
     )
 
 
+def test_progress_enforces_the_architecture_document_change_gate() -> None:
+    raw_progress = _read("docs/progress.md")
+    progress = _normalized(raw_progress)
+
+    assert raw_progress.count("## Architecture Document Change Gate\n") == 1
+    _assert_contains_all(
+        progress,
+        {
+            "authoritative, present-tense description of the current system design",
+            "durable system-level architectural contract",
+            "If no durable architectural contract changed",
+            "Update the existing authoritative section",
+            "Architecture impact: none.",
+            "Architecture impact: updated <existing section> because <durable architectural contract changed>.",
+            "Do not modify `docs/architecture.md` unless the Architecture Document Change Gate is satisfied.",
+            "periodic focused documentation reviews",
+        },
+    )
+
+
 def test_azure_dependent_slices_require_a_checked_in_prerequisite_runbook() -> None:
     progress = _normalized(_read("docs/progress.md"))
     runbook = _normalized(

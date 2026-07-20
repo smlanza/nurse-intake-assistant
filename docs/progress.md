@@ -443,6 +443,30 @@ Live ACS Email smoke testing is complete and documented in
 `docs/manual-acs-email-smoke-test.md`. Live ACS SMS handset delivery remains
 deferred until external toll-free verification is complete.
 
+## Architecture Document Change Gate
+
+`docs/architecture.md` is the authoritative, present-tense description of the current system design. It is not a chronological record of TDD slices, progress log, test-results ledger, deployment transcript, or the default destination for every implementation detail.
+
+A future TDD slice may modify it only when a durable system-level architectural contract changes: a component boundary or responsibility; request, data, trust, control, or failure flow; provider or execution mode; persistence or external-service integration boundary; security, identity, RBAC, authorization, or secret-handling rule; deployment topology; authoritative deployment, verification, or operational boundary; or durable system-wide invariant that future contributors must understand.
+
+A bug fix within the existing design; more unit or regression tests; a validation branch that does not alter a system boundary; exact error categories, result fields, status values, or command output; test counts or RED, GREEN, or full-suite results; temporary blockers; deployment incidents; one-time troubleshooting observations; implementation chronology; slice completion status; resume points or next-step instructions; and narrow code details already authoritative in tests or implementation do not justify an architecture update by themselves. Put those details, as appropriate, in `docs/progress.md`, focused tests, an existing runbook, source-code documentation, or commit history.
+
+Before editing `docs/architecture.md`, a slice must:
+1. Identify the exact durable architectural contract that changed.
+2. Identify the existing authoritative architecture section that owns it.
+3. Confirm the change cannot be represented solely through code, tests, progress documentation, or a runbook.
+4. Update the existing authoritative section rather than append a slice-specific or historical section.
+5. Remove or replace superseded wording.
+6. Confirm the same rule is not duplicated elsewhere in the document. If no durable architectural contract changed, leave `docs/architecture.md` untouched.
+
+When justified, describe the current system in present tense; keep the change proportional; preserve one authoritative statement per rule; consolidate nearby duplication; and omit dates, slice names, test counts, command transcripts, and completion narration. Reference runbooks instead of copying operational procedures, omit implementation trivia unless needed to explain a durable boundary, replace stale text instead of appending corrections, and preserve navigability and existing line-count guardrails.
+
+Every substantive TDD slice completion report must contain exactly one concise declaration: `Architecture impact: none.` or `Architecture impact: updated <existing section> because <durable architectural contract changed>.` Do not accept an architecture modification whose report cannot name the changed durable contract.
+
+Future Codex prompts must keep `docs/architecture.md` outside the default writable scope and state: Do not modify `docs/architecture.md` unless the Architecture Document Change Gate is satisfied. Put it in explicit update scope only when the planned slice is already known to alter architecture.
+
+Perform architecture cleanup through periodic focused documentation reviews, not routine accumulation in every TDD slice. Check for duplicated rules, superseded statements, removable code-level detail, operational procedures that belong in or should reference runbooks, disagreement with the current implementation, and headings or sections that describe historical work instead of the present system.
+
 ## Workflow
 
 1. Before each Codex task, ChatGPT should recommend the Codex model and
