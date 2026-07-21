@@ -546,7 +546,6 @@ def test_what_if_json_is_reduced_to_sanitized_change_counts(
     for forbidden in (
         "raw-subscription",
         "raw-rg",
-        "resourceId",
         "raw stderr secret",
         "changes",
     ):
@@ -620,6 +619,10 @@ def test_web_app_adapter_accepts_only_the_exact_expected_topology(
 
     assert result.exact_topology_match is True
     assert all(change.approved_boundary for change in result.change_evidence)
+    assert all(
+        "diagnostic" not in change
+        for change in result.to_json_dict()["change_evidence"]
+    )
 
 
 def test_web_app_adapter_accepts_exact_topology_with_bounded_module_ignores(
@@ -656,6 +659,135 @@ def test_web_app_adapter_accepts_exact_topology_with_bounded_module_ignores(
         expected_boundary="web_app",
         require_create=True,
     ) is True
+
+
+def test_ignore_evidence_serializes_only_safe_shape_diagnostics(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    changes = [
+        *_web_app_topology_changes(deployment_request),
+        {"changeType": "Ignore"},
+        {
+            "changeType": "Ignore",
+            "resourceId": None,
+            "after": {"id": "private-after-resource-name"},
+            "secretOperatorField": "private-tenant-value",
+        },
+    ]
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"), runner=runner
+    )
+    rendered = result.to_json_dict()["change_evidence"]
+    first = rendered[8]["diagnostic"]
+    second = rendered[9]["diagnostic"]
+
+    assert result.exact_topology_match is True
+    assert first == {
+        "diagnostic_kind": "unidentified_ignore_shape",
+        "top_level_fields_present": ["changeType"],
+        "unknown_top_level_field_count": 0,
+        "resource_id_present": False,
+        "resource_type_present": False,
+        "before_present": False,
+        "after_present": False,
+        "delta_present": False,
+        "children_present": False,
+        "nested_resource_change_count": 0,
+        "nested_resource_change_count_truncated": False,
+        "parser_shape": "resource_change",
+        "bounded_ignore_candidate": True,
+        "bounded_ignore_rejection_reason": "none",
+    }
+    assert second["top_level_fields_present"] == [
+        "changeType",
+        "resourceId",
+        "after",
+    ]
+    assert second["unknown_top_level_field_count"] == 1
+    assert second["resource_id_present"] is True
+    assert second["after_present"] is True
+    serialized = json.dumps(rendered)
+    for forbidden in (
+        "secretOperatorField",
+        "private-after-resource-name",
+        "private-tenant-value",
+    ):
+        assert forbidden not in serialized
+
+
+def test_nested_and_identified_ignores_have_closed_rejection_diagnostics(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    root = (
+        "/subscriptions/private-subscription/resourceGroups/private-group/providers/"
+    )
+    changes = [
+        *_web_app_topology_changes(deployment_request),
+        {
+            "changeType": "Ignore",
+            "children": [
+                {
+                    "resourceId": (
+                        f"{root}Microsoft.Web/sites/private-child-{index}"
+                    )
+                }
+                for index in range(25)
+            ],
+        },
+        {
+            "changeType": "Ignore",
+            "resourceId": f"{root}Microsoft.KeyVault/vaults/private-vault",
+            "before": {"id": "private-parent"},
+        },
+    ]
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"), runner=runner
+    )
+    rendered = result.to_json_dict()["change_evidence"]
+    nested = rendered[8]["diagnostic"]
+    identified = rendered[9]["diagnostic"]
+
+    assert result.exact_topology_match is False
+    assert nested["parser_shape"] == "resource_change_with_children"
+    assert nested["nested_resource_change_count"] == 20
+    assert nested["nested_resource_change_count_truncated"] is True
+    assert nested["bounded_ignore_rejection_reason"] == (
+        "unidentified_ignore_count_not_allowed"
+    )
+    assert identified["bounded_ignore_candidate"] is False
+    assert identified["bounded_ignore_rejection_reason"] == (
+        "resource_identity_present"
+    )
+    assert {
+        item["diagnostic"]["bounded_ignore_rejection_reason"]
+        for item in rendered[8:]
+    } <= {
+        "none",
+        "unidentified_ignore_count_not_allowed",
+        "resource_identity_present",
+    }
+    serialized = json.dumps(rendered)
+    for forbidden in (
+        "private-subscription",
+        "private-group",
+        "private-child",
+        "private-vault",
+        "private-parent",
+    ):
+        assert forbidden not in serialized
+    assert safe_guided_plan(
+        _plan_from_object(result),
+        expected_boundary="web_app",
+        require_create=True,
+    ) is False
 
 
 @pytest.mark.parametrize(

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
-from typing import Mapping
+from typing import Literal, Mapping
 
 
 _ACTIONS = {
@@ -15,6 +15,67 @@ _ACTIONS = {
     "deploy": "Deploy",
     "unsupported": "Unsupported",
 }
+
+_SAFE_IGNORE_SHAPE_FIELDS = (
+    "changeType",
+    "resourceId",
+    "resourceType",
+    "before",
+    "after",
+    "delta",
+    "children",
+)
+_MAX_NESTED_RESOURCE_CHANGE_COUNT = 20
+
+IgnoreParserShape = Literal[
+    "resource_change",
+    "resource_change_with_children",
+    "resource_change_with_invalid_children",
+]
+IgnoreRejectionReason = Literal[
+    "none",
+    "unidentified_ignore_count_not_allowed",
+    "resource_identity_present",
+]
+
+
+@dataclass(frozen=True)
+class SanitizedIgnoreDiagnostic:
+    top_level_fields_present: tuple[str, ...]
+    unknown_top_level_field_count: int
+    resource_id_present: bool
+    resource_type_present: bool
+    before_present: bool
+    after_present: bool
+    delta_present: bool
+    children_present: bool
+    nested_resource_change_count: int
+    nested_resource_change_count_truncated: bool
+    parser_shape: IgnoreParserShape
+    bounded_ignore_candidate: bool
+    bounded_ignore_rejection_reason: IgnoreRejectionReason
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "diagnostic_kind": "unidentified_ignore_shape",
+            "top_level_fields_present": list(self.top_level_fields_present),
+            "unknown_top_level_field_count": self.unknown_top_level_field_count,
+            "resource_id_present": self.resource_id_present,
+            "resource_type_present": self.resource_type_present,
+            "before_present": self.before_present,
+            "after_present": self.after_present,
+            "delta_present": self.delta_present,
+            "children_present": self.children_present,
+            "nested_resource_change_count": self.nested_resource_change_count,
+            "nested_resource_change_count_truncated": (
+                self.nested_resource_change_count_truncated
+            ),
+            "parser_shape": self.parser_shape,
+            "bounded_ignore_candidate": self.bounded_ignore_candidate,
+            "bounded_ignore_rejection_reason": (
+                self.bounded_ignore_rejection_reason
+            ),
+        }
 
 
 @dataclass(frozen=True)
@@ -43,9 +104,10 @@ class SanitizedWhatIfChange:
     expected_parent_match: bool = False
     expected_scope_match: bool = False
     expected_multiplicity_match: bool = False
+    diagnostic: SanitizedIgnoreDiagnostic | None = None
 
     def to_json_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "action": self.action,
             "resource_type": self.resource_type,
             "logical_category": self.logical_category,
@@ -56,6 +118,9 @@ class SanitizedWhatIfChange:
             "expected_scope_match": self.expected_scope_match,
             "expected_multiplicity_match": self.expected_multiplicity_match,
         }
+        if self.diagnostic is not None:
+            result["diagnostic"] = self.diagnostic.to_json_dict()
+        return result
 
 
 @dataclass(frozen=True)
@@ -92,12 +157,13 @@ def parse_sanitized_what_if(
     parsed = _parse_payload(stdout)
     if parsed is None:
         return None
-    actions, identities = parsed
+    actions, identities, ignore_diagnostics = parsed
 
     if expected_resources is not None:
         return _exact_summary(
             actions,
             identities,
+            ignore_diagnostics,
             boundary=boundary,
             expected_resources=expected_resources,
             automatically_approved_actions=automatically_approved_actions,
@@ -110,7 +176,9 @@ def parse_sanitized_what_if(
         return None
 
     evidence: list[SanitizedWhatIfChange] = []
-    for action, identity in zip(actions, identities, strict=True):
+    for action, identity, diagnostic in zip(
+        actions, identities, ignore_diagnostics, strict=True
+    ):
         logical_category = allowlisted_resource_types.get(identity.resource_type)
         approved = bool(
             logical_category is not None
@@ -127,6 +195,11 @@ def parse_sanitized_what_if(
                 expected_parent_match=approved,
                 expected_scope_match=approved,
                 expected_multiplicity_match=approved,
+                diagnostic=(
+                    None
+                    if diagnostic is None or approved
+                    else _decide_ignore_diagnostic(diagnostic, count_matches=False)
+                ),
             )
         )
     return SanitizedWhatIfSummary(tuple(evidence), exact_topology_match=True)
@@ -142,6 +215,7 @@ def parse_what_if_resource_identities(
 def _exact_summary(
     actions: tuple[str, ...],
     identities: tuple[WhatIfResourceIdentity, ...],
+    ignore_diagnostics: tuple[SanitizedIgnoreDiagnostic | None, ...],
     *,
     boundary: str,
     expected_resources: tuple[ExpectedWhatIfResource, ...],
@@ -199,7 +273,9 @@ def _exact_summary(
     exact_topology_match = bool(expected_resources and multiplicity_match)
     evidence: list[SanitizedWhatIfChange] = []
 
-    for action, identity in zip(actions, identities, strict=True):
+    for action, identity, diagnostic in zip(
+        actions, identities, ignore_diagnostics, strict=True
+    ):
         if action == "Ignore" and identity.resource_type == "unidentified":
             approved = bool(exact_topology_match and unidentified_ignores_match)
             evidence.append(
@@ -213,6 +289,10 @@ def _exact_summary(
                     expected_parent_match=False,
                     expected_scope_match=False,
                     expected_multiplicity_match=approved,
+                    diagnostic=_decide_ignore_diagnostic(
+                        diagnostic,
+                        count_matches=unidentified_ignores_match,
+                    ),
                 )
             )
             continue
@@ -282,6 +362,14 @@ def _exact_summary(
                 expected_parent_match=parent_match,
                 expected_scope_match=scope_match,
                 expected_multiplicity_match=multiplicity_match,
+                diagnostic=(
+                    None
+                    if diagnostic is None or approved
+                    else _decide_ignore_diagnostic(
+                        diagnostic,
+                        count_matches=unidentified_ignores_match,
+                    )
+                ),
             )
         )
     return SanitizedWhatIfSummary(tuple(evidence), exact_topology_match)
@@ -289,7 +377,11 @@ def _exact_summary(
 
 def _parse_payload(
     stdout: str,
-) -> tuple[tuple[str, ...], tuple[WhatIfResourceIdentity, ...]] | None:
+) -> tuple[
+    tuple[str, ...],
+    tuple[WhatIfResourceIdentity, ...],
+    tuple[SanitizedIgnoreDiagnostic | None, ...],
+] | None:
     try:
         payload = json.loads(stdout)
     except (json.JSONDecodeError, TypeError):
@@ -299,6 +391,7 @@ def _parse_payload(
 
     actions: list[str] = []
     identities: list[WhatIfResourceIdentity] = []
+    ignore_diagnostics: list[SanitizedIgnoreDiagnostic | None] = []
     for raw_change in payload["changes"]:
         if not isinstance(raw_change, dict):
             return None
@@ -308,9 +401,69 @@ def _parse_payload(
         identity = _resource_identity(raw_change.get("resourceId"))
         if identity is None:
             identity = WhatIfResourceIdentity("unidentified", "", ())
-        actions.append(_ACTIONS[raw_action.casefold()])
+        action = _ACTIONS[raw_action.casefold()]
+        actions.append(action)
         identities.append(identity)
-    return tuple(actions), tuple(identities)
+        ignore_diagnostics.append(
+            _ignore_shape_diagnostic(raw_change, identity)
+            if action == "Ignore"
+            else None
+        )
+    return tuple(actions), tuple(identities), tuple(ignore_diagnostics)
+
+
+def _ignore_shape_diagnostic(
+    raw_change: dict[str, object],
+    identity: WhatIfResourceIdentity,
+) -> SanitizedIgnoreDiagnostic:
+    children = raw_change.get("children")
+    if "children" not in raw_change:
+        parser_shape = "resource_change"
+        nested_count = 0
+        nested_count_truncated = False
+    elif isinstance(children, list):
+        parser_shape = "resource_change_with_children"
+        nested_count = min(len(children), _MAX_NESTED_RESOURCE_CHANGE_COUNT)
+        nested_count_truncated = len(children) > _MAX_NESTED_RESOURCE_CHANGE_COUNT
+    else:
+        parser_shape = "resource_change_with_invalid_children"
+        nested_count = 0
+        nested_count_truncated = False
+    candidate = identity.resource_type == "unidentified"
+    return SanitizedIgnoreDiagnostic(
+        top_level_fields_present=tuple(
+            name for name in _SAFE_IGNORE_SHAPE_FIELDS if name in raw_change
+        ),
+        unknown_top_level_field_count=sum(
+            name not in _SAFE_IGNORE_SHAPE_FIELDS for name in raw_change
+        ),
+        resource_id_present="resourceId" in raw_change,
+        resource_type_present="resourceType" in raw_change,
+        before_present="before" in raw_change,
+        after_present="after" in raw_change,
+        delta_present="delta" in raw_change,
+        children_present="children" in raw_change,
+        nested_resource_change_count=nested_count,
+        nested_resource_change_count_truncated=nested_count_truncated,
+        parser_shape=parser_shape,
+        bounded_ignore_candidate=candidate,
+        bounded_ignore_rejection_reason=(
+            "none" if candidate else "resource_identity_present"
+        ),
+    )
+
+
+def _decide_ignore_diagnostic(
+    diagnostic: SanitizedIgnoreDiagnostic | None,
+    *,
+    count_matches: bool,
+) -> SanitizedIgnoreDiagnostic | None:
+    if diagnostic is None or not diagnostic.bounded_ignore_candidate or count_matches:
+        return diagnostic
+    return replace(
+        diagnostic,
+        bounded_ignore_rejection_reason="unidentified_ignore_count_not_allowed",
+    )
 
 
 def _resource_identity(value: object) -> WhatIfResourceIdentity | None:

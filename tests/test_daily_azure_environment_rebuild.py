@@ -488,6 +488,35 @@ def test_foundry_delete_stops_without_prompt_or_deployment(tmp_path: Path) -> No
     assert "deploy_foundry" not in runner.calls
 
 
+def test_inexact_web_app_topology_still_stops_before_deployment(tmp_path: Path) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.plan_overrides["plan_web_app"] = PlanResult(
+        create_count=8,
+        ignore_count=2,
+        exact_topology_match=False,
+        change_evidence=(
+            *(
+                _exact_change("Create", f"expected-{index}", "web_app")
+                for index in range(8)
+            ),
+            ChangeEvidence("Ignore", "unexpected_resource", "web_app", False),
+            ChangeEvidence("Ignore", "unexpected_resource", "web_app", False),
+        ),
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "unsafe_web_app_plan"
+    assert "deploy_web_app" not in runner.calls
+    assert result.daily_environment_ready is False
+
+
 def test_guided_plan_accepts_sanitized_nested_deployment_for_operator_review() -> None:
     plan = PlanResult(
         create_count=1,

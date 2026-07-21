@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,716 passed
+- 1,719 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -103,6 +103,16 @@ preview may additionally contain either zero or exactly two missing-identity
 expected-resource multiplicity. Any other unidentified count or action, extra
 resource, mutation, missing resource, identity, parent, or scope mismatch still
 fails closed before Web App deployment approval.
+
+The first local bounded-`Ignore` compatibility correction passed all tests but
+did not match the subsequent real Azure shape, so the coordinator continues to
+block Web App deployment. Rejected or unidentified `Ignore` evidence now
+includes a compact structural diagnostic containing only allowlisted field
+presence, bounded counts, and closed-enum parser decisions; no raw Azure values
+are exposed. No Azure operation was run while adding it. After review and
+commit, the next operator action is one explicit standalone Web App what-if.
+Do not deploy the Web App unless that evidence supports a focused predicate
+correction and exact topology then evaluates true.
 
 Deleting the resource group expires all prior evidence for the resource group,
 Foundry AIServices account, child project and model deployment, prompt agent and
