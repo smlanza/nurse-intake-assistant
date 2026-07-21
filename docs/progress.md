@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,735 passed
+- 1,743 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -99,18 +99,20 @@ the resource group.
 Web App preview validation requires exactly one matching resource in each of
 the eight approved application categories. The Foundry-disabled `main.bicep`
 preview may additionally contain either zero or exactly two identified
-`Microsoft.Resources/deployments` Ignore records. The sanitized diagnostic
-proved Azure supplies resource IDs, so the former missing-identity predicate
-was incorrect. The validator now derives the two exact deployment identities
-from the authoritative Bicep module names and verifies their action, identity,
-resource-group scope, subscription relationship, distinctness, and
-multiplicity without serializing identifiers. Arbitrary deployment records and
-all other incomplete or mutating plans remain rejected, and the coordinator
-stays fail-closed until exact topology is proven. No Web App or package
-deployment, RBAC, WebJob, managed-identity verification, invocation, or other
-Azure operation occurred during this correction. After review and commit, run
-exactly one standalone Web App what-if with the current hosted-verifier
-parameters; do not rerun the supervised coordinator unless that preview returns
+`Microsoft.Resources/deployments` Ignore records. Exact nested-deployment
+validation still rejected the two real Azure Ignore records at the
+provider-classification stage; the repository remained fail-closed and no Web
+App deployment occurred. A diagnostic-only correction now adds sanitized
+ARM-path structure to rejected Ignore evidence: closed classifications, counts
+bounded at 20 with explicit truncation flags, and booleans. It exposes no IDs,
+path segments, names, raw scope values, provider strings, or other raw Azure
+values. ARM-ID parsing and topology approval remain unchanged; arbitrary or
+incomplete plans remain rejected, and the coordinator continues to return an
+unsafe Web App plan until exact topology is proven. No Azure operation occurred
+during implementation. After review and commit, run exactly one standalone Web
+App what-if with the current hosted-verifier parameters so its diagnostic can
+drive the final ARM-parser correction slice. Do not run the supervised
+coordinator or a standalone live deployment until that preview returns
 `exact_topology_match=true`.
 
 Deleting the resource group expires all prior evidence for the resource group,

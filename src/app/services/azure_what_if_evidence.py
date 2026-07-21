@@ -26,6 +26,7 @@ _SAFE_IGNORE_SHAPE_FIELDS = (
     "children",
 )
 _MAX_NESTED_RESOURCE_CHANGE_COUNT = 20
+_MAX_ARM_PATH_COUNT = 20
 
 IgnoreParserShape = Literal[
     "resource_change",
@@ -43,6 +44,103 @@ IgnoreRejectionReason = Literal[
     "unexpected_deployment_scope",
     "unexpected_deployment_multiplicity",
 ]
+ArmIdParseStatus = Literal[
+    "parsed",
+    "malformed",
+    "unsupported_scope",
+    "incomplete_provider_chain",
+]
+ArmScopeKind = Literal[
+    "resource_group",
+    "subscription",
+    "tenant",
+    "management_group",
+    "resource",
+    "unknown",
+]
+ProviderMarkerSelection = Literal["first", "last", "only", "none", "ambiguous"]
+ProviderNamespaceClass = Literal[
+    "microsoft_resources",
+    "approved_application_provider",
+    "other",
+    "missing",
+    "malformed",
+]
+ResourceTypeClass = Literal[
+    "deployments",
+    "approved_application_resource",
+    "other",
+    "missing",
+    "malformed",
+]
+
+
+@dataclass(frozen=True)
+class SanitizedArmPathDiagnostic:
+    arm_id_parse_status: ArmIdParseStatus
+    scope_kind: ArmScopeKind
+    path_segment_count: int
+    path_segment_count_truncated: bool
+    provider_marker_count: int
+    provider_marker_count_truncated: bool
+    selected_provider_marker: ProviderMarkerSelection
+    nested_provider_chain_present: bool
+    provider_chain_depth: int
+    provider_chain_depth_truncated: bool
+    selected_provider_namespace_class: ProviderNamespaceClass
+    selected_resource_type_class: ResourceTypeClass
+    segments_after_selected_provider_count: int
+    segments_after_selected_provider_count_truncated: bool
+    resource_type_segment_count: int
+    resource_type_segment_count_truncated: bool
+    resource_name_segment_count: int
+    resource_name_segment_count_truncated: bool
+    type_name_pairing_valid: bool
+    multiple_provider_namespaces_present: bool
+    extension_resource_shape: bool
+    trailing_unmatched_segment_present: bool
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "arm_id_parse_status": self.arm_id_parse_status,
+            "scope_kind": self.scope_kind,
+            "path_segment_count": self.path_segment_count,
+            "path_segment_count_truncated": self.path_segment_count_truncated,
+            "provider_marker_count": self.provider_marker_count,
+            "provider_marker_count_truncated": (
+                self.provider_marker_count_truncated
+            ),
+            "selected_provider_marker": self.selected_provider_marker,
+            "nested_provider_chain_present": self.nested_provider_chain_present,
+            "provider_chain_depth": self.provider_chain_depth,
+            "provider_chain_depth_truncated": self.provider_chain_depth_truncated,
+            "selected_provider_namespace_class": (
+                self.selected_provider_namespace_class
+            ),
+            "selected_resource_type_class": self.selected_resource_type_class,
+            "segments_after_selected_provider_count": (
+                self.segments_after_selected_provider_count
+            ),
+            "segments_after_selected_provider_count_truncated": (
+                self.segments_after_selected_provider_count_truncated
+            ),
+            "resource_type_segment_count": self.resource_type_segment_count,
+            "resource_type_segment_count_truncated": (
+                self.resource_type_segment_count_truncated
+            ),
+            "resource_name_segment_count": self.resource_name_segment_count,
+            "resource_name_segment_count_truncated": (
+                self.resource_name_segment_count_truncated
+            ),
+            "type_name_pairing_valid": self.type_name_pairing_valid,
+            "multiple_provider_namespaces_present": (
+                self.multiple_provider_namespaces_present
+            ),
+            "extension_resource_shape": self.extension_resource_shape,
+            "trailing_unmatched_segment_present": (
+                self.trailing_unmatched_segment_present
+            ),
+        }
 
 
 @dataclass(frozen=True)
@@ -60,9 +158,10 @@ class SanitizedIgnoreDiagnostic:
     parser_shape: IgnoreParserShape
     bounded_ignore_candidate: bool
     bounded_ignore_rejection_reason: IgnoreRejectionReason
+    arm_path: SanitizedArmPathDiagnostic
 
     def to_json_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "diagnostic_kind": "unidentified_ignore_shape",
             "top_level_fields_present": list(self.top_level_fields_present),
             "unknown_top_level_field_count": self.unknown_top_level_field_count,
@@ -82,6 +181,8 @@ class SanitizedIgnoreDiagnostic:
                 self.bounded_ignore_rejection_reason
             ),
         }
+        result["arm_path"] = self.arm_path.to_json_dict()
+        return result
 
 
 @dataclass(frozen=True)
@@ -163,7 +264,15 @@ def parse_sanitized_what_if(
         {"Create", "NoChange", "Ignore"}
     ),
 ) -> SanitizedWhatIfSummary | None:
-    parsed = _parse_payload(stdout)
+    approved_diagnostic_types = frozenset(
+        item.resource_type.casefold() for item in (expected_resources or ())
+    ) | frozenset(
+        item.casefold() for item in (allowlisted_resource_types or {})
+    )
+    parsed = _parse_payload(
+        stdout,
+        approved_resource_types=approved_diagnostic_types,
+    )
     if parsed is None:
         return None
     actions, identities, ignore_diagnostics = parsed
@@ -527,6 +636,8 @@ def _exact_summary(
 
 def _parse_payload(
     stdout: str,
+    *,
+    approved_resource_types: frozenset[str] = frozenset(),
 ) -> tuple[
     tuple[str, ...],
     tuple[WhatIfResourceIdentity, ...],
@@ -555,7 +666,11 @@ def _parse_payload(
         actions.append(action)
         identities.append(identity)
         ignore_diagnostics.append(
-            _ignore_shape_diagnostic(raw_change, identity)
+            _ignore_shape_diagnostic(
+                raw_change,
+                identity,
+                approved_resource_types=approved_resource_types,
+            )
             if action == "Ignore"
             else None
         )
@@ -565,6 +680,8 @@ def _parse_payload(
 def _ignore_shape_diagnostic(
     raw_change: dict[str, object],
     identity: WhatIfResourceIdentity,
+    *,
+    approved_resource_types: frozenset[str],
 ) -> SanitizedIgnoreDiagnostic:
     children = raw_change.get("children")
     if "children" not in raw_change:
@@ -600,6 +717,138 @@ def _ignore_shape_diagnostic(
         bounded_ignore_rejection_reason=(
             "none" if candidate else "resource_identity_present"
         ),
+        arm_path=_arm_path_diagnostic(
+            raw_change.get("resourceId"),
+            identity,
+            approved_resource_types=approved_resource_types,
+        ),
+    )
+
+
+def _bounded_count(value: int) -> tuple[int, bool]:
+    return min(value, _MAX_ARM_PATH_COUNT), value > _MAX_ARM_PATH_COUNT
+
+
+def _arm_path_diagnostic(
+    value: object,
+    identity: WhatIfResourceIdentity,
+    *,
+    approved_resource_types: frozenset[str],
+) -> SanitizedArmPathDiagnostic:
+    is_path = isinstance(value, str) and value.startswith("/")
+    parts = tuple(part for part in value.split("/") if part) if is_path else ()
+    provider_indexes = tuple(
+        index for index, part in enumerate(parts) if part.casefold() == "providers"
+    )
+    selected_index = provider_indexes[-1] if provider_indexes else None
+    after_provider = parts[selected_index + 1 :] if selected_index is not None else ()
+    namespace = after_provider[0] if after_provider else None
+    type_name_segments = after_provider[1:] if after_provider else ()
+    type_segments = type_name_segments[::2]
+    name_segments = type_name_segments[1::2]
+    pairing_valid = bool(
+        namespace
+        and len(type_name_segments) >= 2
+        and len(type_name_segments) % 2 == 0
+    )
+    trailing_unmatched = bool(type_name_segments) and len(type_name_segments) % 2 == 1
+
+    if (
+        len(parts) >= 5
+        and parts[0].casefold() == "subscriptions"
+        and parts[2].casefold() == "resourcegroups"
+    ):
+        scope_kind: ArmScopeKind = "resource_group"
+    elif len(parts) >= 2 and parts[0].casefold() == "subscriptions":
+        scope_kind = "subscription"
+    elif (
+        len(parts) >= 4
+        and parts[0].casefold() == "providers"
+        and parts[1].casefold() == "microsoft.management"
+        and parts[2].casefold() == "managementgroups"
+    ):
+        scope_kind = "management_group"
+    elif parts and parts[0].casefold() in {"tenants", "tenant"}:
+        scope_kind = "tenant"
+    elif is_path and provider_indexes:
+        scope_kind = "resource"
+    else:
+        scope_kind = "unknown"
+
+    if identity.resource_type != "unidentified":
+        parse_status: ArmIdParseStatus = "parsed"
+    elif not is_path:
+        parse_status = "malformed"
+    elif scope_kind != "resource_group":
+        parse_status = "unsupported_scope"
+    elif provider_indexes and not pairing_valid:
+        parse_status = "incomplete_provider_chain"
+    else:
+        parse_status = "malformed"
+
+    if not provider_indexes:
+        selected_marker: ProviderMarkerSelection = "none"
+    elif len(provider_indexes) == 1:
+        selected_marker = "only"
+    else:
+        selected_marker = "last"
+
+    if namespace is None:
+        provider_class: ProviderNamespaceClass = "missing"
+    elif not namespace:
+        provider_class = "malformed"
+    elif namespace.casefold() == "microsoft.resources":
+        provider_class = "microsoft_resources"
+    elif any(
+        resource_type.startswith(namespace.casefold() + "/")
+        for resource_type in approved_resource_types
+    ):
+        provider_class = "approved_application_provider"
+    else:
+        provider_class = "other"
+
+    selected_resource_type = (
+        "/".join((namespace, *type_segments)).casefold()
+        if namespace is not None and pairing_valid
+        else None
+    )
+    if not pairing_valid or not type_segments or not name_segments:
+        resource_type_class: ResourceTypeClass = "missing"
+    elif selected_resource_type == "microsoft.resources/deployments":
+        resource_type_class = "deployments"
+    elif selected_resource_type in approved_resource_types:
+        resource_type_class = "approved_application_resource"
+    else:
+        resource_type_class = "other"
+
+    path_count, path_truncated = _bounded_count(len(parts))
+    marker_count, marker_truncated = _bounded_count(len(provider_indexes))
+    after_count, after_truncated = _bounded_count(len(after_provider))
+    type_count, type_truncated = _bounded_count(len(type_segments))
+    name_count, name_truncated = _bounded_count(len(name_segments))
+    return SanitizedArmPathDiagnostic(
+        arm_id_parse_status=parse_status,
+        scope_kind=scope_kind,
+        path_segment_count=path_count,
+        path_segment_count_truncated=path_truncated,
+        provider_marker_count=marker_count,
+        provider_marker_count_truncated=marker_truncated,
+        selected_provider_marker=selected_marker,
+        nested_provider_chain_present=len(provider_indexes) > 1,
+        provider_chain_depth=marker_count,
+        provider_chain_depth_truncated=marker_truncated,
+        selected_provider_namespace_class=provider_class,
+        selected_resource_type_class=resource_type_class,
+        segments_after_selected_provider_count=after_count,
+        segments_after_selected_provider_count_truncated=after_truncated,
+        resource_type_segment_count=type_count,
+        resource_type_segment_count_truncated=type_truncated,
+        resource_name_segment_count=name_count,
+        resource_name_segment_count_truncated=name_truncated,
+        type_name_pairing_valid=pairing_valid,
+        multiple_provider_namespaces_present=len(provider_indexes) > 1,
+        extension_resource_shape=len(provider_indexes) > 1,
+        trailing_unmatched_segment_present=trailing_unmatched,
     )
 
 

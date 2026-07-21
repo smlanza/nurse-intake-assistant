@@ -878,6 +878,30 @@ def test_ignore_evidence_serializes_only_safe_shape_diagnostics(
         "parser_shape": "resource_change",
         "bounded_ignore_candidate": False,
         "bounded_ignore_rejection_reason": "malformed_resource_id",
+        "arm_path": {
+            "arm_id_parse_status": "malformed",
+            "scope_kind": "unknown",
+            "path_segment_count": 0,
+            "path_segment_count_truncated": False,
+            "provider_marker_count": 0,
+            "provider_marker_count_truncated": False,
+            "selected_provider_marker": "none",
+            "nested_provider_chain_present": False,
+            "provider_chain_depth": 0,
+            "provider_chain_depth_truncated": False,
+            "selected_provider_namespace_class": "missing",
+            "selected_resource_type_class": "missing",
+            "segments_after_selected_provider_count": 0,
+            "segments_after_selected_provider_count_truncated": False,
+            "resource_type_segment_count": 0,
+            "resource_type_segment_count_truncated": False,
+            "resource_name_segment_count": 0,
+            "resource_name_segment_count_truncated": False,
+            "type_name_pairing_valid": False,
+            "multiple_provider_namespaces_present": False,
+            "extension_resource_shape": False,
+            "trailing_unmatched_segment_present": False,
+        },
     }
     assert second["top_level_fields_present"] == [
         "changeType",
@@ -969,6 +993,269 @@ def test_nested_and_identified_ignores_have_closed_rejection_diagnostics(
         expected_boundary="web_app",
         require_create=True,
     ) is False
+
+
+@pytest.mark.parametrize(
+    ("case", "expected"),
+    [
+        (
+            "resource-group-deployment",
+            {
+                "arm_id_parse_status": "parsed",
+                "scope_kind": "resource_group",
+                "provider_marker_count": 1,
+                "selected_provider_marker": "only",
+                "selected_provider_namespace_class": "microsoft_resources",
+                "selected_resource_type_class": "deployments",
+                "resource_type_segment_count": 1,
+                "resource_name_segment_count": 1,
+                "type_name_pairing_valid": True,
+                "extension_resource_shape": False,
+            },
+        ),
+        (
+            "multiple-providers",
+            {
+                "arm_id_parse_status": "parsed",
+                "scope_kind": "resource_group",
+                "provider_marker_count": 2,
+                "selected_provider_marker": "last",
+                "nested_provider_chain_present": True,
+                "provider_chain_depth": 2,
+                "selected_provider_namespace_class": "microsoft_resources",
+                "selected_resource_type_class": "deployments",
+                "extension_resource_shape": True,
+            },
+        ),
+        (
+            "extension-provider",
+            {
+                "arm_id_parse_status": "parsed",
+                "provider_marker_count": 2,
+                "selected_provider_marker": "last",
+                "selected_provider_namespace_class": "other",
+                "selected_resource_type_class": "other",
+                "extension_resource_shape": True,
+            },
+        ),
+        (
+            "nested-type-name",
+            {
+                "arm_id_parse_status": "parsed",
+                "selected_provider_namespace_class": (
+                    "approved_application_provider"
+                ),
+                "selected_resource_type_class": "approved_application_resource",
+                "segments_after_selected_provider_count": 5,
+                "resource_type_segment_count": 2,
+                "resource_name_segment_count": 2,
+                "type_name_pairing_valid": True,
+            },
+        ),
+        (
+            "incomplete-provider-chain",
+            {
+                "arm_id_parse_status": "incomplete_provider_chain",
+                "selected_provider_namespace_class": "microsoft_resources",
+                "selected_resource_type_class": "missing",
+                "resource_type_segment_count": 1,
+                "resource_name_segment_count": 0,
+                "type_name_pairing_valid": False,
+                "trailing_unmatched_segment_present": True,
+            },
+        ),
+        (
+            "malformed",
+            {
+                "arm_id_parse_status": "malformed",
+                "scope_kind": "unknown",
+                "provider_marker_count": 0,
+                "selected_provider_marker": "none",
+                "selected_provider_namespace_class": "missing",
+                "selected_resource_type_class": "missing",
+            },
+        ),
+        (
+            "other-provider",
+            {
+                "arm_id_parse_status": "parsed",
+                "selected_provider_namespace_class": "other",
+                "selected_resource_type_class": "other",
+            },
+        ),
+    ],
+)
+def test_rejected_ignore_diagnostic_describes_arm_path_without_values(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    case: str,
+    expected: dict[str, object],
+) -> None:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{deployment_request.resource_group}"
+    )
+    resource_ids = {
+        "resource-group-deployment": (
+            f"{root}/providers/Microsoft.Resources/deployments/private-unexpected"
+        ),
+        "multiple-providers": (
+            f"{root}/providers/Microsoft.Web/sites/private-site/providers/"
+            "Microsoft.Resources/deployments/private-unexpected"
+        ),
+        "extension-provider": (
+            f"{root}/providers/Microsoft.Resources/deployments/private-parent/"
+            "providers/Microsoft.Authorization/roleAssignments/private-role"
+        ),
+        "nested-type-name": (
+            f"{root}/providers/Microsoft.DocumentDB/databaseAccounts/private-account/"
+            "sqlDatabases/private-database"
+        ),
+        "incomplete-provider-chain": (
+            f"{root}/providers/Microsoft.Resources/deployments"
+        ),
+        "malformed": "private-malicious-id",
+        "other-provider": (
+            f"{root}/providers/Microsoft.KeyVault/vaults/private-vault"
+        ),
+    }
+    changes = [
+        *_web_app_topology_changes(deployment_request),
+        {
+            "changeType": "Ignore",
+            "resourceId": resource_ids[case],
+            "before": {"id": "private-before"},
+            "after": {"id": "private-after"},
+            "delta": {"changes": []},
+        },
+    ]
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    rendered = result.to_json_dict()["change_evidence"]
+    arm_path = rendered[8]["diagnostic"]["arm_path"]
+    assert result.exact_topology_match is False
+    assert not any(change.approved_boundary for change in result.change_evidence)
+    assert expected.items() <= arm_path.items()
+    assert arm_path["arm_id_parse_status"] in {
+        "parsed",
+        "malformed",
+        "unsupported_scope",
+        "incomplete_provider_chain",
+    }
+    assert arm_path["scope_kind"] in {
+        "resource_group",
+        "subscription",
+        "tenant",
+        "management_group",
+        "resource",
+        "unknown",
+    }
+    assert arm_path["selected_provider_marker"] in {
+        "first",
+        "last",
+        "only",
+        "none",
+        "ambiguous",
+    }
+    assert arm_path["selected_provider_namespace_class"] in {
+        "microsoft_resources",
+        "approved_application_provider",
+        "other",
+        "missing",
+        "malformed",
+    }
+    assert arm_path["selected_resource_type_class"] in {
+        "deployments",
+        "approved_application_resource",
+        "other",
+        "missing",
+        "malformed",
+    }
+    serialized_arm_path = json.dumps(arm_path)
+    for forbidden in (
+        "private-sub",
+        deployment_request.resource_group,
+        "Microsoft.Resources",
+        "Microsoft.Web",
+        "Microsoft.Authorization",
+        "Microsoft.DocumentDB",
+        "Microsoft.KeyVault",
+        "private-unexpected",
+        "private-site",
+        "private-role",
+        "private-account",
+        "private-database",
+        "private-malicious-id",
+        "private-before",
+        "private-after",
+    ):
+        assert forbidden not in serialized_arm_path
+    serialized_evidence = json.dumps(rendered)
+    for forbidden in (
+        "private-sub",
+        deployment_request.resource_group,
+        "private-unexpected",
+        "private-site",
+        "private-role",
+        "private-account",
+        "private-database",
+        "private-malicious-id",
+        "private-before",
+        "private-after",
+    ):
+        assert forbidden not in serialized_evidence
+    assert safe_guided_plan(
+        _plan_from_object(result),
+        expected_boundary="web_app",
+        require_create=True,
+    ) is False
+
+
+def test_rejected_ignore_arm_path_counts_are_bounded_and_report_truncation(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    tail = "/".join(
+        item
+        for index in range(30)
+        for item in (f"private-type-{index}", f"private-name-{index}")
+    )
+    resource_id = (
+        f"/subscriptions/private-sub/resourceGroups/{deployment_request.resource_group}/"
+        f"providers/Microsoft.Private/private-root/{tail}"
+    )
+    changes = [
+        *_web_app_topology_changes(deployment_request),
+        {"changeType": "Ignore", "resourceId": resource_id},
+    ]
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    arm_path = result.to_json_dict()["change_evidence"][8]["diagnostic"][
+        "arm_path"
+    ]
+    for field in (
+        "path_segment_count",
+        "provider_marker_count",
+        "provider_chain_depth",
+        "segments_after_selected_provider_count",
+        "resource_type_segment_count",
+        "resource_name_segment_count",
+    ):
+        assert 0 <= arm_path[field] <= 20
+    assert arm_path["path_segment_count_truncated"] is True
+    assert arm_path["segments_after_selected_provider_count_truncated"] is True
+    assert arm_path["resource_type_segment_count_truncated"] is True
+    assert arm_path["resource_name_segment_count_truncated"] is True
+    serialized = json.dumps(result.to_json_dict()["change_evidence"])
+    assert "private-type" not in serialized
+    assert "private-name" not in serialized
 
 
 @pytest.mark.parametrize(
