@@ -695,6 +695,16 @@ def safe_guided_plan(
             continue
         nested = change.resource_type.casefold() == NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
         if nested:
+            if change.approved_boundary:
+                if (
+                    change.action != "Ignore"
+                    or not change.expected_identity_match
+                    or not change.expected_parent_match
+                    or not change.expected_scope_match
+                    or not change.expected_multiplicity_match
+                ):
+                    return False
+                continue
             if (
                 change.logical_category != "nested_deployment"
                 or change.action

@@ -36,6 +36,12 @@ IgnoreRejectionReason = Literal[
     "none",
     "unidentified_ignore_count_not_allowed",
     "resource_identity_present",
+    "malformed_resource_id",
+    "unexpected_resource_provider",
+    "unexpected_resource_type",
+    "unexpected_deployment_identity",
+    "unexpected_deployment_scope",
+    "unexpected_deployment_multiplicity",
 ]
 
 
@@ -89,6 +95,7 @@ class ExpectedWhatIfResource:
 @dataclass(frozen=True)
 class WhatIfResourceIdentity:
     resource_type: str
+    subscription: str
     resource_group: str
     name_segments: tuple[str, ...]
 
@@ -149,6 +156,8 @@ def parse_sanitized_what_if(
     expected_resources: tuple[ExpectedWhatIfResource, ...] | None = None,
     allowlisted_resource_types: Mapping[str, str] | None = None,
     sanitized_additional_resource_types: Mapping[str, str] | None = None,
+    expected_ignored_resources: tuple[ExpectedWhatIfResource, ...] = (),
+    allow_expected_ignored_resources_absent: bool = False,
     allowed_unidentified_ignore_counts: frozenset[int] = frozenset({0}),
     automatically_approved_actions: frozenset[str] = frozenset(
         {"Create", "NoChange", "Ignore"}
@@ -169,6 +178,10 @@ def parse_sanitized_what_if(
             automatically_approved_actions=automatically_approved_actions,
             sanitized_additional_resource_types=(
                 sanitized_additional_resource_types or {}
+            ),
+            expected_ignored_resources=expected_ignored_resources,
+            allow_expected_ignored_resources_absent=(
+                allow_expected_ignored_resources_absent
             ),
             allowed_unidentified_ignore_counts=allowed_unidentified_ignore_counts,
         )
@@ -221,6 +234,8 @@ def _exact_summary(
     expected_resources: tuple[ExpectedWhatIfResource, ...],
     automatically_approved_actions: frozenset[str],
     sanitized_additional_resource_types: Mapping[str, str],
+    expected_ignored_resources: tuple[ExpectedWhatIfResource, ...],
+    allow_expected_ignored_resources_absent: bool,
     allowed_unidentified_ignore_counts: frozenset[int],
 ) -> SanitizedWhatIfSummary:
     expected_keys = Counter(_expected_key(item) for item in expected_resources)
@@ -230,6 +245,14 @@ def _exact_summary(
     }
     expected_type_keys = {
         item.resource_type.casefold() for item in expected_resources
+    }
+    expected_ignored_keys = Counter(
+        _expected_key(item) for item in expected_ignored_resources
+    )
+    expected_subscriptions = {
+        identity.subscription.casefold()
+        for identity in identities
+        if _identity_key(identity) in expected_keys
     }
     unidentified_ignore_count = sum(
         action == "Ignore" and identity.resource_type == "unidentified"
@@ -249,6 +272,34 @@ def _exact_summary(
         )
     )
     actual_keys = Counter(_identity_key(item) for item in ordinary_identities)
+    identified_additional = tuple(
+        (action, identity)
+        for action, identity in zip(actions, identities, strict=True)
+        if identity.resource_type.casefold() in additional_types
+    )
+    expected_ignored_resources_match = bool(
+        expected_ignored_resources
+        and (
+            (
+                not identified_additional
+                and allow_expected_ignored_resources_absent
+            )
+            or (
+                len(identified_additional) == len(expected_ignored_resources)
+                and all(action == "Ignore" for action, _ in identified_additional)
+                and Counter(
+                    _identity_key(identity)
+                    for _, identity in identified_additional
+                )
+                == expected_ignored_keys
+                and len(expected_subscriptions) == 1
+                and all(
+                    identity.subscription.casefold() in expected_subscriptions
+                    for _, identity in identified_additional
+                )
+            )
+        )
+    )
     allowed_additional = all(
         identity.resource_type.casefold() in expected_type_keys
         or identity.resource_type.casefold() in additional_types
@@ -267,8 +318,21 @@ def _exact_summary(
         for identity in identities
         if identity.resource_type.casefold() in additional_types
     )
+    expected_actions_match = all(
+        action in automatically_approved_actions
+        for action, identity in zip(actions, identities, strict=True)
+        if identity.resource_type.casefold() in expected_type_keys
+    )
+    additional_topology_match = (
+        expected_ignored_resources_match
+        if expected_ignored_resources
+        else additional_scopes_match
+    )
     multiplicity_match = bool(
-        actual_keys == expected_keys and allowed_additional and additional_scopes_match
+        actual_keys == expected_keys
+        and allowed_additional
+        and additional_topology_match
+        and expected_actions_match
     )
     exact_topology_match = bool(expected_resources and multiplicity_match)
     evidence: list[SanitizedWhatIfChange] = []
@@ -282,16 +346,30 @@ def _exact_summary(
                 SanitizedWhatIfChange(
                     action=action,
                     resource_type="unidentified",
-                    logical_category="template_module_ignore",
+                    logical_category=(
+                        "unexpected_resource"
+                        if expected_ignored_resources
+                        else "template_module_ignore"
+                    ),
                     boundary=boundary,
                     approved_boundary=approved,
                     expected_identity_match=False,
                     expected_parent_match=False,
                     expected_scope_match=False,
                     expected_multiplicity_match=approved,
-                    diagnostic=_decide_ignore_diagnostic(
-                        diagnostic,
-                        count_matches=unidentified_ignores_match,
+                    diagnostic=(
+                        _expected_ignore_diagnostic(
+                            diagnostic,
+                            identity,
+                            expected_ignored_resources,
+                            expected_subscriptions,
+                            expected_ignored_resources_match,
+                        )
+                        if expected_ignored_resources
+                        else _decide_ignore_diagnostic(
+                            diagnostic,
+                            count_matches=unidentified_ignores_match,
+                        )
                     ),
                 )
             )
@@ -299,11 +377,73 @@ def _exact_summary(
         type_expectations = [
             item
             for item in expected_resources
-            if item.resource_type == identity.resource_type
+            if item.resource_type.casefold() == identity.resource_type.casefold()
         ]
         additional_category = additional_types.get(identity.resource_type.casefold())
         if additional_category is not None:
+            ignored_expectations = [
+                item
+                for item in expected_ignored_resources
+                if item.resource_type.casefold()
+                == identity.resource_type.casefold()
+            ]
             scope_match = identity.resource_group.casefold() in expected_groups
+            if ignored_expectations:
+                scope_match = any(
+                    item.resource_group.casefold()
+                    == identity.resource_group.casefold()
+                    for item in ignored_expectations
+                )
+                parent_match = any(
+                    _casefolded(item.name_segments[:-1])
+                    == _casefolded(identity.name_segments[:-1])
+                    for item in ignored_expectations
+                )
+                identity_match = any(
+                    _expected_key(item) == _identity_key(identity)
+                    for item in ignored_expectations
+                )
+                category = next(
+                    (
+                        item.logical_category
+                        for item in ignored_expectations
+                        if _expected_key(item) == _identity_key(identity)
+                    ),
+                    "unexpected_nested_deployment",
+                )
+                approved = bool(
+                    exact_topology_match
+                    and action == "Ignore"
+                    and identity_match
+                    and parent_match
+                    and scope_match
+                    and multiplicity_match
+                )
+                evidence.append(
+                    SanitizedWhatIfChange(
+                        action=action,
+                        resource_type=identity.resource_type,
+                        logical_category=category,
+                        boundary=boundary,
+                        approved_boundary=approved,
+                        expected_identity_match=identity_match,
+                        expected_parent_match=parent_match,
+                        expected_scope_match=scope_match,
+                        expected_multiplicity_match=multiplicity_match,
+                        diagnostic=(
+                            None
+                            if diagnostic is None or approved
+                            else _expected_ignore_diagnostic(
+                                diagnostic,
+                                identity,
+                                expected_ignored_resources,
+                                expected_subscriptions,
+                                expected_ignored_resources_match,
+                            )
+                        ),
+                    )
+                )
+                continue
             evidence.append(
                 SanitizedWhatIfChange(
                     action=action,
@@ -365,9 +505,19 @@ def _exact_summary(
                 diagnostic=(
                     None
                     if diagnostic is None or approved
-                    else _decide_ignore_diagnostic(
-                        diagnostic,
-                        count_matches=unidentified_ignores_match,
+                    else (
+                        _expected_ignore_diagnostic(
+                            diagnostic,
+                            identity,
+                            expected_ignored_resources,
+                            expected_subscriptions,
+                            expected_ignored_resources_match,
+                        )
+                        if expected_ignored_resources
+                        else _decide_ignore_diagnostic(
+                            diagnostic,
+                            count_matches=unidentified_ignores_match,
+                        )
                     )
                 ),
             )
@@ -400,7 +550,7 @@ def _parse_payload(
             return None
         identity = _resource_identity(raw_change.get("resourceId"))
         if identity is None:
-            identity = WhatIfResourceIdentity("unidentified", "", ())
+            identity = WhatIfResourceIdentity("unidentified", "", "", ())
         action = _ACTIONS[raw_action.casefold()]
         actions.append(action)
         identities.append(identity)
@@ -466,6 +616,49 @@ def _decide_ignore_diagnostic(
     )
 
 
+def _expected_ignore_diagnostic(
+    diagnostic: SanitizedIgnoreDiagnostic | None,
+    identity: WhatIfResourceIdentity,
+    expected: tuple[ExpectedWhatIfResource, ...],
+    expected_subscriptions: set[str],
+    multiplicity_match: bool,
+) -> SanitizedIgnoreDiagnostic | None:
+    if diagnostic is None:
+        return None
+    expected_groups = {item.resource_group.casefold() for item in expected}
+    expected_keys = {_expected_key(item) for item in expected}
+    resource_type_parts = identity.resource_type.split("/", 1)
+    if identity.resource_type == "unidentified":
+        candidate = False
+        reason: IgnoreRejectionReason = "malformed_resource_id"
+    elif resource_type_parts[0].casefold() != "microsoft.resources":
+        candidate = False
+        reason = "unexpected_resource_provider"
+    elif identity.resource_type.casefold() != "microsoft.resources/deployments":
+        candidate = False
+        reason = "unexpected_resource_type"
+    elif identity.resource_group.casefold() not in expected_groups:
+        candidate = False
+        reason = "unexpected_deployment_scope"
+    elif identity.subscription.casefold() not in expected_subscriptions:
+        candidate = False
+        reason = "unexpected_deployment_scope"
+    elif _identity_key(identity) not in expected_keys:
+        candidate = False
+        reason = "unexpected_deployment_identity"
+    elif not multiplicity_match:
+        candidate = True
+        reason = "unexpected_deployment_multiplicity"
+    else:
+        candidate = True
+        reason = "none"
+    return replace(
+        diagnostic,
+        bounded_ignore_candidate=candidate,
+        bounded_ignore_rejection_reason=reason,
+    )
+
+
 def _resource_identity(value: object) -> WhatIfResourceIdentity | None:
     if not isinstance(value, str) or not value.startswith("/"):
         return None
@@ -496,6 +689,7 @@ def _resource_identity(value: object) -> WhatIfResourceIdentity | None:
         return None
     return WhatIfResourceIdentity(
         resource_type="/".join((namespace, *type_segments)),
+        subscription=parts[1],
         resource_group=parts[3],
         name_segments=tuple(name_segments),
     )
@@ -503,7 +697,7 @@ def _resource_identity(value: object) -> WhatIfResourceIdentity | None:
 
 def _expected_key(item: ExpectedWhatIfResource) -> tuple[str, str, tuple[str, ...]]:
     return (
-        item.resource_type,
+        item.resource_type.casefold(),
         item.resource_group.casefold(),
         _casefolded(item.name_segments),
     )
@@ -511,7 +705,7 @@ def _expected_key(item: ExpectedWhatIfResource) -> tuple[str, str, tuple[str, ..
 
 def _identity_key(item: WhatIfResourceIdentity) -> tuple[str, str, tuple[str, ...]]:
     return (
-        item.resource_type,
+        item.resource_type.casefold(),
         item.resource_group.casefold(),
         _casefolded(item.name_segments),
     )

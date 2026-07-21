@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,719 passed
+- 1,735 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -98,21 +98,20 @@ the resource group.
 
 Web App preview validation requires exactly one matching resource in each of
 the eight approved application categories. The Foundry-disabled `main.bicep`
-preview may additionally contain either zero or exactly two missing-identity
-`Ignore` records for template modules; those non-mutating records do not alter
-expected-resource multiplicity. Any other unidentified count or action, extra
-resource, mutation, missing resource, identity, parent, or scope mismatch still
-fails closed before Web App deployment approval.
-
-The first local bounded-`Ignore` compatibility correction passed all tests but
-did not match the subsequent real Azure shape, so the coordinator continues to
-block Web App deployment. Rejected or unidentified `Ignore` evidence now
-includes a compact structural diagnostic containing only allowlisted field
-presence, bounded counts, and closed-enum parser decisions; no raw Azure values
-are exposed. No Azure operation was run while adding it. After review and
-commit, the next operator action is one explicit standalone Web App what-if.
-Do not deploy the Web App unless that evidence supports a focused predicate
-correction and exact topology then evaluates true.
+preview may additionally contain either zero or exactly two identified
+`Microsoft.Resources/deployments` Ignore records. The sanitized diagnostic
+proved Azure supplies resource IDs, so the former missing-identity predicate
+was incorrect. The validator now derives the two exact deployment identities
+from the authoritative Bicep module names and verifies their action, identity,
+resource-group scope, subscription relationship, distinctness, and
+multiplicity without serializing identifiers. Arbitrary deployment records and
+all other incomplete or mutating plans remain rejected, and the coordinator
+stays fail-closed until exact topology is proven. No Web App or package
+deployment, RBAC, WebJob, managed-identity verification, invocation, or other
+Azure operation occurred during this correction. After review and commit, run
+exactly one standalone Web App what-if with the current hosted-verifier
+parameters; do not rerun the supervised coordinator unless that preview returns
+`exact_topology_match=true`.
 
 Deleting the resource group expires all prior evidence for the resource group,
 Foundry AIServices account, child project and model deployment, prompt agent and

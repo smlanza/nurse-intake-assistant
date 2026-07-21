@@ -605,6 +605,25 @@ def _web_app_topology_changes(
     ]
 
 
+def _web_app_nested_deployment_ignores(
+    request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> list[dict[str, object]]:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers/"
+        "Microsoft.Resources/deployments"
+    )
+    return [
+        {
+            "changeType": "Ignore",
+            "resourceId": f"{root}/{name}",
+            "before": {"id": "private-before"},
+            "after": {"id": "private-after"},
+            "delta": {"changes": []},
+        }
+        for name in ("web-app", "hosted-foundry-verifier-validation")
+    ]
+
+
 def test_web_app_adapter_accepts_only_the_exact_expected_topology(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> None:
@@ -630,8 +649,7 @@ def test_web_app_adapter_accepts_exact_topology_with_bounded_module_ignores(
 ) -> None:
     changes = [
         *_web_app_topology_changes(deployment_request),
-        {"changeType": "Ignore"},
-        {"changeType": "Ignore"},
+        *_web_app_nested_deployment_ignores(deployment_request),
     ]
     runner = FakeRunner(
         deployment.CommandResult(0, json.dumps({"changes": changes}), "")
@@ -647,18 +665,177 @@ def test_web_app_adapter_accepts_exact_topology_with_bounded_module_ignores(
     assert all(change.expected_multiplicity_match for change in expected)
     assert all(change.approved_boundary for change in expected)
     assert [change.logical_category for change in ignores] == [
-        "template_module_ignore",
-        "template_module_ignore",
+        "web_app_module_deployment",
+        "hosted_verifier_validation_deployment",
     ]
     assert all(change.approved_boundary for change in ignores)
-    assert not any(change.expected_identity_match for change in ignores)
-    assert not any(change.expected_parent_match for change in ignores)
-    assert not any(change.expected_scope_match for change in ignores)
+    assert all(change.expected_identity_match for change in ignores)
+    assert all(change.expected_parent_match for change in ignores)
+    assert all(change.expected_scope_match for change in ignores)
+    serialized = json.dumps(result.to_json_dict()["change_evidence"])
+    for forbidden in (
+        "private-sub",
+        deployment_request.resource_group,
+        "web-app",
+        "hosted-foundry-verifier-validation",
+        "private-before",
+        "private-after",
+    ):
+        assert forbidden not in serialized
     assert safe_guided_plan(
         _plan_from_object(result),
         expected_boundary="web_app",
         require_create=True,
     ) is True
+
+
+def test_expected_ignore_identities_are_derived_from_bicep_module_names(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+) -> None:
+    request = _request_with_module(
+        deployment_request,
+        tmp_path,
+        _current_module(deployment_request).replace(
+            "name: 'hosted-foundry-verifier-validation'",
+            "name: 'fictional-validation-v2'",
+            1,
+        ),
+    )
+    request.template_file.write_text(
+        request.template_file.read_text().replace(
+            "name: 'web-app'", "name: 'fictional-web-app-v2'", 1
+        )
+    )
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers/"
+        "Microsoft.Resources/deployments"
+    )
+    changes = [
+        *_web_app_topology_changes(request),
+        {
+            "changeType": "Ignore",
+            "resourceId": f"{root}/fictional-web-app-v2",
+        },
+        {
+            "changeType": "Ignore",
+            "resourceId": f"{root}/fictional-validation-v2",
+        },
+    ]
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.exact_topology_match is True
+    assert all(change.approved_boundary for change in result.change_evidence)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "one",
+        "three",
+        "duplicate",
+        "unrelated-deployment",
+        "malformed-id",
+        "missing-subscription",
+        "missing-resource-group",
+        "wrong-resource-group",
+        "wrong-subscription",
+        "wrong-provider",
+        "wrong-resource-type",
+        "subscription-scope",
+        "wrong-name",
+        "wrong-action",
+        "application-ignore",
+    ],
+)
+def test_web_app_adapter_rejects_inexact_identified_deployment_ignores(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    case: str,
+) -> None:
+    expected = _web_app_nested_deployment_ignores(deployment_request)
+    changes: list[dict[str, object]] = [
+        *_web_app_topology_changes(deployment_request),
+        *expected,
+    ]
+    first = changes[8]
+    second = changes[9]
+    if case == "one":
+        changes.pop()
+    elif case == "three":
+        changes.append(dict(first))
+    elif case == "duplicate":
+        changes[9] = dict(first)
+    elif case in {"unrelated-deployment", "wrong-name"}:
+        second["resourceId"] = str(second["resourceId"]).replace(
+            "hosted-foundry-verifier-validation", "unrelated-deployment"
+        )
+    elif case == "malformed-id":
+        second["resourceId"] = "not-an-arm-resource-id"
+    elif case == "missing-subscription":
+        second["resourceId"] = (
+            f"/resourceGroups/{deployment_request.resource_group}/providers/"
+            "Microsoft.Resources/deployments/hosted-foundry-verifier-validation"
+        )
+    elif case == "missing-resource-group":
+        second["resourceId"] = (
+            "/subscriptions/private-sub/providers/Microsoft.Resources/deployments/"
+            "hosted-foundry-verifier-validation"
+        )
+    elif case == "wrong-resource-group":
+        second["resourceId"] = str(second["resourceId"]).replace(
+            deployment_request.resource_group, "wrong-resource-group"
+        )
+    elif case == "wrong-subscription":
+        second["resourceId"] = str(second["resourceId"]).replace(
+            "private-sub", "other-private-sub"
+        )
+    elif case == "wrong-provider":
+        second["resourceId"] = str(second["resourceId"]).replace(
+            "Microsoft.Resources", "Microsoft.KeyVault"
+        )
+    elif case == "wrong-resource-type":
+        second["resourceId"] = str(second["resourceId"]).replace(
+            "/deployments/", "/deploymentScripts/"
+        )
+    elif case == "subscription-scope":
+        second["resourceId"] = (
+            "/subscriptions/private-sub/providers/Microsoft.Resources/deployments/"
+            "hosted-foundry-verifier-validation"
+        )
+    elif case == "wrong-action":
+        second["changeType"] = "Create"
+    elif case == "application-ignore":
+        changes[9] = {**changes[0], "changeType": "Ignore"}
+
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"), runner=runner
+    )
+
+    assert result.exact_topology_match is False
+    assert not all(change.approved_boundary for change in result.change_evidence)
+    assert safe_guided_plan(
+        _plan_from_object(result),
+        expected_boundary="web_app",
+        require_create=True,
+    ) is False
+    serialized = json.dumps(result.to_json_dict()["change_evidence"])
+    for forbidden in (
+        "private-sub",
+        deployment_request.resource_group,
+        "hosted-foundry-verifier-validation",
+        "unrelated-deployment",
+        "wrong-resource-group",
+    ):
+        assert forbidden not in serialized
 
 
 def test_ignore_evidence_serializes_only_safe_shape_diagnostics(
@@ -685,7 +862,7 @@ def test_ignore_evidence_serializes_only_safe_shape_diagnostics(
     first = rendered[8]["diagnostic"]
     second = rendered[9]["diagnostic"]
 
-    assert result.exact_topology_match is True
+    assert result.exact_topology_match is False
     assert first == {
         "diagnostic_kind": "unidentified_ignore_shape",
         "top_level_fields_present": ["changeType"],
@@ -699,8 +876,8 @@ def test_ignore_evidence_serializes_only_safe_shape_diagnostics(
         "nested_resource_change_count": 0,
         "nested_resource_change_count_truncated": False,
         "parser_shape": "resource_change",
-        "bounded_ignore_candidate": True,
-        "bounded_ignore_rejection_reason": "none",
+        "bounded_ignore_candidate": False,
+        "bounded_ignore_rejection_reason": "malformed_resource_id",
     }
     assert second["top_level_fields_present"] == [
         "changeType",
@@ -759,12 +936,10 @@ def test_nested_and_identified_ignores_have_closed_rejection_diagnostics(
     assert nested["parser_shape"] == "resource_change_with_children"
     assert nested["nested_resource_change_count"] == 20
     assert nested["nested_resource_change_count_truncated"] is True
-    assert nested["bounded_ignore_rejection_reason"] == (
-        "unidentified_ignore_count_not_allowed"
-    )
+    assert nested["bounded_ignore_rejection_reason"] == "malformed_resource_id"
     assert identified["bounded_ignore_candidate"] is False
     assert identified["bounded_ignore_rejection_reason"] == (
-        "resource_identity_present"
+        "unexpected_resource_provider"
     )
     assert {
         item["diagnostic"]["bounded_ignore_rejection_reason"]
@@ -773,6 +948,12 @@ def test_nested_and_identified_ignores_have_closed_rejection_diagnostics(
         "none",
         "unidentified_ignore_count_not_allowed",
         "resource_identity_present",
+        "malformed_resource_id",
+        "unexpected_resource_provider",
+        "unexpected_resource_type",
+        "unexpected_deployment_identity",
+        "unexpected_deployment_scope",
+        "unexpected_deployment_multiplicity",
     }
     serialized = json.dumps(rendered)
     for forbidden in (

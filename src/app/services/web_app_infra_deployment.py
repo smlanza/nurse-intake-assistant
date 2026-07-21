@@ -717,6 +717,9 @@ def _parse_what_if_summary(
     request: WebAppInfrastructureDeploymentRequest,
 ) -> WhatIfSummary | None:
     expected = _expected_web_app_resources(stdout, request)
+    expected_ignored = _expected_web_app_ignored_deployments(request)
+    if expected_ignored is None:
+        return None
     parsed = parse_sanitized_what_if(
         stdout,
         boundary="web_app",
@@ -724,7 +727,9 @@ def _parse_what_if_summary(
         sanitized_additional_resource_types={
             "Microsoft.Resources/deployments": "nested_deployment"
         },
-        allowed_unidentified_ignore_counts=frozenset({0, 2}),
+        expected_ignored_resources=expected_ignored,
+        allow_expected_ignored_resources_absent=True,
+        automatically_approved_actions=frozenset({"Create", "NoChange"}),
     )
     if parsed is None:
         return None
@@ -739,6 +744,62 @@ def _parse_what_if_summary(
         change_evidence=parsed.changes,
         exact_topology_match=parsed.exact_topology_match,
     )
+
+
+def _expected_web_app_ignored_deployments(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> tuple[ExpectedWhatIfResource, ...] | None:
+    try:
+        template = request.template_file.read_text()
+        web_app_module = (
+            request.template_file.parent / "modules/web-app.bicep"
+        ).read_text()
+    except OSError:
+        return None
+    expected = (
+        (
+            _literal_module_deployment_name(template, "webApp"),
+            "web_app_module_deployment",
+        ),
+        (
+            _literal_module_deployment_name(
+                web_app_module,
+                "hostedFoundryVerifierConfigValidation",
+            ),
+            "hosted_verifier_validation_deployment",
+        ),
+    )
+    if any(name is None for name, _ in expected):
+        return None
+    names = tuple(str(name) for name, _ in expected)
+    if len(names) != len(set(names)):
+        return None
+    return tuple(
+        ExpectedWhatIfResource(
+            "Microsoft.Resources/deployments",
+            category,
+            request.resource_group,
+            (name,),
+        )
+        for name, (_, category) in zip(names, expected, strict=True)
+    )
+
+
+def _literal_module_deployment_name(text: str, symbol: str) -> str | None:
+    active = _strip_bicep_comments(text)
+    body = _body_after_pattern(
+        active,
+        rf"module\s+{re.escape(symbol)}\s+'[^']+'\s*=\s*"
+        rf"(?:if\s*\([^)]*\)\s*)?\{{",
+        "{",
+        "}",
+    )
+    if body is None:
+        return None
+    names = re.findall(r"\bname\s*:\s*'([^']+)'", body)
+    if len(names) != 1 or not _safe_bicep_name(names[0], minimum=1, maximum=64):
+        return None
+    return names[0]
 
 
 def _expected_web_app_resources(
