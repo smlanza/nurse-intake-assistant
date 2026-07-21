@@ -150,17 +150,19 @@ class StageResult:
         attempted: bool = False,
         accepted: bool = False,
         artifact_current: bool = False,
+        approval_binding: str | None = None,
     ) -> "StageResult":
         return cls(
-            True,
-            "verified",
-            "success",
-            reused,
-            mutation_made,
-            updates,
-            attempted,
-            accepted,
-            artifact_current,
+            ok=True,
+            state="verified",
+            category="success",
+            reused=reused,
+            mutation_made=mutation_made,
+            updates=updates,
+            attempted=attempted,
+            accepted=accepted,
+            artifact_current=artifact_current,
+            approval_binding=approval_binding,
         )
 
     @classmethod
@@ -211,10 +213,67 @@ class PlanResult:
     malformed: bool = False
     change_evidence: tuple[ChangeEvidence, ...] = ()
     exact_topology_match: bool = False
+    source_failure_category: str | None = None
 
     @classmethod
     def create_only(cls) -> "PlanResult":
         return cls(create_count=1)
+
+
+@dataclass(frozen=True)
+class GuidedPlanDiagnostic:
+    plan_result: PlanResult
+    expected_boundary: str
+    require_create: bool
+
+    def to_json_dict(self) -> dict[str, object]:
+        failed = _guided_plan_failed_predicates(
+            self.plan_result,
+            expected_boundary=self.expected_boundary,
+            require_create=self.require_create,
+        )
+        return {
+            "safe_guided_plan": not failed,
+            "expected_boundary": self.expected_boundary,
+            "require_create": self.require_create,
+            "failed_predicates": list(failed),
+            "plan_result": {
+                "create_count": self.plan_result.create_count,
+                "modify_count": self.plan_result.modify_count,
+                "no_change_count": self.plan_result.no_change_count,
+                "delete_count": self.plan_result.delete_count,
+                "ignore_count": self.plan_result.ignore_count,
+                "deploy_count": self.plan_result.deploy_count,
+                "unsupported_count": self.plan_result.unsupported_count,
+                "unknown_count": self.plan_result.unknown_count,
+                "unrelated_resource_count": (
+                    self.plan_result.unrelated_resource_count
+                ),
+                "malformed": self.plan_result.malformed,
+                "exact_topology_match": self.plan_result.exact_topology_match,
+                "source_failure_category": (
+                    self.plan_result.source_failure_category
+                ),
+                "change_evidence": [
+                    {
+                        "action": change.action,
+                        "logical_category": change.logical_category,
+                        "boundary": change.boundary,
+                        "approved_boundary": change.approved_boundary,
+                        "expected_identity_match": (
+                            change.expected_identity_match
+                        ),
+                        "expected_parent_match": change.expected_parent_match,
+                        "expected_scope_match": change.expected_scope_match,
+                        "expected_multiplicity_match": (
+                            change.expected_multiplicity_match
+                        ),
+                        "resource_type": change.resource_type,
+                    }
+                    for change in self.plan_result.change_evidence
+                ],
+            },
+        }
 
 
 ApprovalStage = Literal[
@@ -338,6 +397,7 @@ class DailyAzureEnvironmentRebuildResult:
     webjob_status_read: bool = False
     managed_identity_verification_performed: bool = False
     recommended_next_step: str = FAILURE_NEXT_STEP
+    foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None
     _ready_authority: InitVar[object | None] = None
 
     def __post_init__(self, _ready_authority: object | None) -> None:
@@ -399,7 +459,7 @@ class DailyAzureEnvironmentRebuildResult:
         )
 
     def to_json_dict(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "ok": self.ok,
             "category": self.category,
             "operation": REBUILD_OPERATION,
@@ -430,6 +490,11 @@ class DailyAzureEnvironmentRebuildResult:
             ),
             "recommended_next_step": self.recommended_next_step,
         }
+        if self.foundry_plan_diagnostic is not None:
+            result["foundry_plan_diagnostic"] = (
+                self.foundry_plan_diagnostic.to_json_dict()
+            )
+        return result
 
 
 def load_daily_azure_config(
@@ -659,71 +724,90 @@ def safe_guided_plan(
     expected_boundary: str,
     require_create: bool,
 ) -> bool:
-    if (
-        plan.malformed
-        or not plan.exact_topology_match
-        or plan.modify_count
-        or plan.delete_count
-        or plan.unknown_count
-        or plan.unrelated_resource_count
-        or (
-            require_create
-            and not any(
-                change.action == "Create"
-                and change.resource_type.casefold()
-                != NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
-                for change in plan.change_evidence
-            )
-        )
-        or not _plan_counts_match_evidence(plan)
+    return not _guided_plan_failed_predicates(
+        plan,
+        expected_boundary=expected_boundary,
+        require_create=require_create,
+    )
+
+
+def _guided_plan_failed_predicates(
+    plan: PlanResult,
+    *,
+    expected_boundary: str,
+    require_create: bool,
+) -> tuple[str, ...]:
+    failed: list[str] = []
+    if plan.malformed:
+        failed.append("plan_well_formed")
+    if not plan.exact_topology_match:
+        failed.append("exact_topology_match")
+    if plan.modify_count:
+        failed.append("modify_absent")
+    if plan.delete_count:
+        failed.append("delete_absent")
+    if plan.unknown_count:
+        failed.append("unknown_actions_absent")
+    if plan.unrelated_resource_count:
+        failed.append("unrelated_resources_absent")
+    if require_create and not any(
+        change.action == "Create"
+        and change.resource_type.casefold()
+        != NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
+        for change in plan.change_evidence
     ):
-        return False
-    for change in plan.change_evidence:
+        failed.append("required_create_present")
+    if not _plan_counts_match_evidence(plan):
+        failed.append("counts_match_evidence")
+    for index, change in enumerate(plan.change_evidence):
         if change.boundary != expected_boundary:
-            return False
-        if change.logical_category == "template_module_ignore":
-            if (
-                change.action != "Ignore"
-                or change.resource_type != "unidentified"
-                or not change.approved_boundary
-                or change.expected_identity_match
-                or change.expected_parent_match
-                or change.expected_scope_match
-                or not change.expected_multiplicity_match
-            ):
-                return False
-            continue
-        nested = change.resource_type.casefold() == NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
-        if nested:
-            if change.approved_boundary:
-                if (
-                    change.action != "Ignore"
-                    or not change.expected_identity_match
-                    or not change.expected_parent_match
-                    or not change.expected_scope_match
-                    or not change.expected_multiplicity_match
-                ):
-                    return False
-                continue
-            if (
-                change.logical_category != "nested_deployment"
-                or change.action
-                not in {"Create", "NoChange", "Ignore", "Deploy", "Unsupported"}
-                or not change.expected_scope_match
-                or not change.expected_multiplicity_match
-            ):
-                return False
-            continue
-        if (
-            change.action not in {"Create", "NoChange", "Ignore"}
-            or not change.approved_boundary
-            or not change.expected_identity_match
-            or not change.expected_parent_match
-            or not change.expected_scope_match
-            or not change.expected_multiplicity_match
-        ):
-            return False
-    return bool(plan.change_evidence)
+            failed.append(f"change[{index}].expected_boundary")
+        if not _guided_change_evidence_allowed(change):
+            failed.append(f"change[{index}].allowed_evidence_shape")
+    if not plan.change_evidence:
+        failed.append("evidence_present")
+    return tuple(failed)
+
+
+def _guided_change_evidence_allowed(change: ChangeEvidence) -> bool:
+    if change.logical_category == "template_module_ignore":
+        return bool(
+            change.action == "Ignore"
+            and change.resource_type == "unidentified"
+            and change.approved_boundary
+            and not change.expected_identity_match
+            and not change.expected_parent_match
+            and not change.expected_scope_match
+            and change.expected_multiplicity_match
+        )
+    nested = (
+        change.resource_type.casefold()
+        == NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
+    )
+    if nested and change.approved_boundary:
+        return bool(
+            change.action == "Ignore"
+            and change.expected_identity_match
+            and change.expected_parent_match
+            and change.expected_scope_match
+            and change.expected_multiplicity_match
+        )
+    if nested:
+        return bool(
+            change.logical_category == "nested_deployment"
+            and change.action
+            in {"Create", "NoChange", "Ignore", "Deploy", "Unsupported"}
+            and change.expected_scope_match
+            and change.expected_multiplicity_match
+        )
+    return bool(
+        change.action in {"Create", "NoChange", "Ignore"}
+        and change.approved_boundary
+        and change.expected_identity_match
+        and change.expected_parent_match
+        and change.expected_scope_match
+        and change.expected_multiplicity_match
+    )
 
 
 def _plan_counts_match_evidence(plan: PlanResult) -> bool:
@@ -1167,12 +1251,32 @@ class DailyAzureEnvironmentRebuild:
         foundry = runner.verify_foundry(context)
         if foundry.state == "absent":
             plan = runner.plan_foundry(context)
+            if plan.source_failure_category is not None:
+                return self._failure(
+                    plan.source_failure_category,
+                    progress,
+                    mutation[0],
+                    foundry_plan_diagnostic=GuidedPlanDiagnostic(
+                        plan,
+                        expected_boundary="foundry",
+                        require_create=True,
+                    ),
+                )
             if not safe_guided_plan(
                 plan,
                 expected_boundary="foundry",
                 require_create=True,
             ):
-                return self._failure("unsafe_foundry_plan", progress, mutation[0])
+                return self._failure(
+                    "unsafe_foundry_plan",
+                    progress,
+                    mutation[0],
+                    foundry_plan_diagnostic=GuidedPlanDiagnostic(
+                        plan,
+                        expected_boundary="foundry",
+                        require_create=True,
+                    ),
+                )
             if not approvals.request(
                 _plan_approval_summary(
                     "foundry_deployment", "FOUNDRY DEPLOYMENT", plan
@@ -1338,6 +1442,8 @@ class DailyAzureEnvironmentRebuild:
         category: str,
         progress: dict[str, bool] | None = None,
         mutation_made: bool | None = False,
+        *,
+        foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None,
     ) -> DailyAzureEnvironmentRebuildResult:
         allowed = {field.name for field in fields(DailyAzureEnvironmentRebuildResult)}
         safe_progress = {
@@ -1352,6 +1458,10 @@ class DailyAzureEnvironmentRebuild:
             ),
             "foundry_deployment_approval_required": (
                 "Rerun guided live mode and review the fresh Foundry preview."
+            ),
+            "foundry_account_name_unavailable": (
+                "Choose a different globally unique Foundry account name in the "
+                "ignored local configuration, then rerun the fresh preview."
             ),
             "web_app_deployment_approval_required": (
                 "Rerun guided live mode and review the fresh Web App preview."
@@ -1369,6 +1479,7 @@ class DailyAzureEnvironmentRebuild:
             mode="live",
             azure_mutation_made=mutation_made,
             recommended_next_step=next_steps.get(category, FAILURE_NEXT_STEP),
+            foundry_plan_diagnostic=foundry_plan_diagnostic,
             **safe_progress,
         )
 
@@ -1987,7 +2098,27 @@ def _plan_from_mapping(value: dict[str, object]) -> PlanResult:
         "deploy_count",
         "unsupported_count",
     )
-    if not value.get("ok") or not all(_valid_count(value.get(name)) for name in names):
+    if value.get("ok") is not True:
+        category = value.get("category")
+        allowed_failure_categories = {
+            "authentication_or_authorization_failed",
+            "foundry_account_name_unavailable",
+            "missing_configuration",
+            "parameter_file_invalid",
+            "resource_group_missing",
+            "what_if_failed",
+            "what_if_parse_failed",
+        }
+        return PlanResult(
+            malformed=True,
+            source_failure_category=(
+                category
+                if isinstance(category, str)
+                and category in allowed_failure_categories
+                else "foundry_plan_failed"
+            ),
+        )
+    if not all(_valid_count(value.get(name)) for name in names):
         return PlanResult(malformed=True)
     evidence = _change_evidence(value.get("change_evidence"))
     exact_topology_match = value.get("exact_topology_match")

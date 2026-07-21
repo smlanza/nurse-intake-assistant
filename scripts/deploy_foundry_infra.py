@@ -94,6 +94,30 @@ def _authorization_failure(stderr: str) -> bool:
     return "authorization" in value or "authentication" in value or "login" in value
 
 
+def _what_if_failure(stderr: str) -> tuple[str, dict[str, object] | None]:
+    if _authorization_failure(stderr):
+        return "authentication_or_authorization_failed", None
+    value = stderr.casefold()
+    deleted_account_markers = (
+        "invalidtemplatedeployment",
+        "cognitiveservices",
+        "deleted",
+        "not available",
+        "purge",
+        "different name",
+    )
+    if all(marker in value for marker in deleted_account_markers):
+        return (
+            "foundry_account_name_unavailable",
+            {
+                "azure_error_class": "invalid_template_deployment",
+                "failure_kind": "deleted_foundry_account_name_unavailable",
+                "same_configuration_retry_safe": False,
+            },
+        )
+    return "what_if_failed", None
+
+
 def _validate_files(request: DeploymentRequest) -> tuple[Path | None, str | None]:
     template = TEMPLATES.get(request.template_mode)
     if template is None or not template.is_file() or not FOUNDRY_MODULE.is_file():
@@ -203,8 +227,15 @@ def execute(
         ]
         outcome = runner.run(command)
         if outcome.return_code != 0:
-            category = "authentication_or_authorization_failed" if _authorization_failure(outcome.stderr) else "what_if_failed"
-            return _base(request, category)
+            category, diagnostic = _what_if_failure(outcome.stderr)
+            result = _base(request, category)
+            if diagnostic is not None:
+                result["what_if_failure_diagnostic"] = diagnostic
+                result["recommended_next_step"] = (
+                    "Choose a different globally unique Foundry account name in the "
+                    "ignored local configuration, then rerun the fresh preview."
+                )
+            return result
         summary = parse_sanitized_what_if(
             outcome.stdout,
             boundary="foundry",

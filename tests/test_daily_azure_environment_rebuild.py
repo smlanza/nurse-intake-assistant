@@ -6,16 +6,19 @@ from pathlib import Path
 import pytest
 
 from src.app.services.daily_azure_environment_rebuild import (
+    ApprovalSummary,
     ChangeEvidence,
     REBUILD_OPERATION,
     ConfigValidationError,
     DailyAzureEnvironmentRebuild,
     DailyAzureEnvironmentRebuildResult,
     DailyAzureRuntimeContext,
+    GuidedPlanDiagnostic,
     PlanResult,
     RepositoryDailyAzureStageRunner,
     RuntimeUpdates,
     StageResult,
+    _plan_from_mapping,
     load_daily_azure_config,
     safe_automatic_plan,
     safe_guided_plan,
@@ -58,6 +61,27 @@ def _config(tmp_path: Path):
         repository_root=tmp_path,
         repository_state_checker=lambda _root, _path: True,
     )
+
+
+def _package_source_tree(tmp_path: Path) -> Path:
+    files = {
+        "requirements.txt": "fastapi\nuvicorn[standard]\n",
+        "src/__init__.py": "",
+        "src/app/main.py": "app_name = 'fixture-app'\n",
+        "src/app/config/settings.py": "APP_MODE = 'mock'\n",
+        "src/app/config/red_flags.yaml": "rules: []\n",
+        "src/app/static/demo.html": "<main>fixture demo</main>\n",
+        "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py": (
+            "from src.app.operations import verify_hosted_foundry_agent\n"
+            "def run():\n"
+            "    return verify_hosted_foundry_agent.main(['--live', '--json'])\n"
+        ),
+    }
+    for relative_path, content in files.items():
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    return tmp_path
 
 
 def test_daily_azure_environment_rebuild_boundary_exists() -> None:
@@ -448,6 +472,89 @@ def test_existing_environment_reuses_without_infrastructure_or_rbac_mutation(
     assert "deploy_rbac" not in runner.calls
 
 
+def test_missing_package_binding_stops_before_application_deployment(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.rbac_absent = False
+
+    def unbound_package(context):
+        return runner._stage("build_package", context)
+
+    runner.build_package = unbound_package
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: pytest.fail("unexpected approval"))
+
+    assert result.category == "package_proof_invalid"
+    assert result.web_app_configuration_verified is True
+    assert result.application_package_created is True
+    assert result.application_deployment_attempted is False
+    assert "deploy_code" not in runner.calls
+
+
+def test_valid_package_binding_reaches_application_deployment_approval(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.rbac_absent = False
+    approvals: list[ApprovalSummary] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary) is not None,
+    )
+
+    assert result.category == "application_code_deployment_approval_required"
+    assert result.web_app_configuration_verified is True
+    assert result.application_package_created is True
+    assert result.application_deployment_attempted is False
+    assert [summary.stage for summary in approvals] == [
+        "application_code_deployment"
+    ]
+    assert approvals[0].heading == "APPLICATION CODE DEPLOYMENT"
+    assert approvals[0].evidence_binding == "package-a"
+    assert "package-a" not in json.dumps(result.to_json_dict())
+    assert "deploy_code" not in runner.calls
+
+
+def test_accepting_package_approval_invokes_application_deployment_once(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.rbac_absent = False
+    approvals: list[str] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary.stage) is None,
+    )
+
+    assert result.ok is True
+    assert approvals == ["application_code_deployment"]
+    assert runner.calls.count("build_package") == 1
+    assert runner.calls.count("deploy_code") == 1
+
+
 def test_absent_resource_group_without_approval_never_mutates(tmp_path: Path) -> None:
     runner = FakeRunner()
 
@@ -462,16 +569,118 @@ def test_absent_resource_group_without_approval_never_mutates(tmp_path: Path) ->
     assert result.azure_mutation_made is False
 
 
-def test_foundry_delete_stops_without_prompt_or_deployment(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "case",
+    (
+        "delete",
+        "modify",
+        "unknown-action",
+        "unrelated",
+        "wrong-boundary",
+        "wrong-scope",
+        "wrong-parent",
+        "wrong-identity",
+        "wrong-multiplicity",
+        "count-mismatch",
+        "nested-only",
+        "malformed",
+    ),
+)
+def test_unsafe_foundry_plan_stops_without_prompt_or_deployment(
+    tmp_path: Path,
+    case: str,
+) -> None:
     runner = FakeRunner()
     runner.resource_group_absent = False
-    runner.plan_overrides["plan_foundry"] = PlanResult(
-        delete_count=1,
+    evidence = _exact_change("Create", "foundry_account", "foundry")
+    plan = PlanResult(
+        create_count=1,
         exact_topology_match=True,
-        change_evidence=(
-            _exact_change("Delete", "foundry_account", "foundry"),
-        ),
+        change_evidence=(evidence,),
     )
+    if case == "delete":
+        plan = replace(
+            plan,
+            create_count=0,
+            delete_count=1,
+            change_evidence=(replace(evidence, action="Delete"),),
+        )
+    elif case == "modify":
+        plan = replace(
+            plan,
+            create_count=0,
+            modify_count=1,
+            change_evidence=(replace(evidence, action="Modify"),),
+        )
+    elif case == "unknown-action":
+        plan = replace(
+            plan,
+            create_count=0,
+            change_evidence=(replace(evidence, action="Replacement"),),
+        )
+    elif case == "unrelated":
+        plan = replace(
+            plan,
+            unrelated_resource_count=1,
+            change_evidence=(
+                replace(
+                    evidence,
+                    logical_category="unexpected_resource",
+                    approved_boundary=False,
+                ),
+            ),
+        )
+    elif case == "wrong-boundary":
+        plan = replace(
+            plan,
+            change_evidence=(replace(evidence, boundary="web_app"),),
+        )
+    elif case == "wrong-scope":
+        plan = replace(
+            plan,
+            change_evidence=(replace(evidence, expected_scope_match=False),),
+        )
+    elif case == "wrong-parent":
+        plan = replace(
+            plan,
+            change_evidence=(replace(evidence, expected_parent_match=False),),
+        )
+    elif case == "wrong-identity":
+        plan = replace(
+            plan,
+            change_evidence=(replace(evidence, expected_identity_match=False),),
+        )
+    elif case == "wrong-multiplicity":
+        plan = replace(
+            plan,
+            change_evidence=(
+                replace(evidence, expected_multiplicity_match=False),
+            ),
+        )
+    elif case == "count-mismatch":
+        plan = replace(plan, create_count=2)
+    elif case == "nested-only":
+        plan = replace(
+            plan,
+            create_count=0,
+            deploy_count=1,
+            change_evidence=(
+                ChangeEvidence(
+                    "Deploy",
+                    "nested_deployment",
+                    "foundry",
+                    False,
+                    False,
+                    False,
+                    True,
+                    True,
+                    "Microsoft.Resources/deployments",
+                ),
+            ),
+        )
+    else:
+        plan = replace(plan, malformed=True)
+    runner.plan_overrides["plan_foundry"] = plan
     prompts: list[str] = []
 
     result = DailyAzureEnvironmentRebuild(
@@ -486,6 +695,219 @@ def test_foundry_delete_stops_without_prompt_or_deployment(tmp_path: Path) -> No
     assert result.category == "unsafe_foundry_plan"
     assert prompts == []
     assert "deploy_foundry" not in runner.calls
+
+
+def test_created_resource_group_state_is_preserved_when_foundry_plan_is_unsafe(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.plan_overrides["plan_foundry"] = PlanResult(malformed=True)
+    prompts: list[str] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: prompts.append(summary.stage) is None,
+    )
+
+    assert result.category == "unsafe_foundry_plan"
+    assert result.azure_mutation_made is True
+    assert result.resource_group_ready is True
+    assert result.daily_environment_ready is False
+    assert prompts == ["resource_group"]
+    assert "deploy_foundry" not in runner.calls
+    diagnostic = result.to_json_dict()["foundry_plan_diagnostic"]
+    assert diagnostic == {
+        "safe_guided_plan": False,
+        "expected_boundary": "foundry",
+        "require_create": True,
+        "failed_predicates": [
+            "plan_well_formed",
+            "exact_topology_match",
+            "required_create_present",
+            "evidence_present",
+        ],
+        "plan_result": {
+            "create_count": 0,
+            "modify_count": 0,
+            "no_change_count": 0,
+            "delete_count": 0,
+            "ignore_count": 0,
+            "deploy_count": 0,
+            "unsupported_count": 0,
+            "unknown_count": 0,
+            "unrelated_resource_count": 0,
+            "malformed": True,
+            "exact_topology_match": False,
+            "source_failure_category": None,
+            "change_evidence": [],
+        },
+    }
+
+
+def test_unsafe_foundry_plan_diagnostic_contains_only_sanitized_evidence(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.plan_overrides["plan_foundry"] = PlanResult(
+        ignore_count=1,
+        unrelated_resource_count=1,
+        exact_topology_match=False,
+        change_evidence=(
+            ChangeEvidence(
+                "Ignore",
+                "unexpected_resource",
+                "foundry",
+                False,
+                False,
+                False,
+                False,
+                False,
+                "unidentified",
+            ),
+        ),
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: pytest.fail("unexpected approval"))
+
+    diagnostic = result.to_json_dict()["foundry_plan_diagnostic"]
+    assert diagnostic["failed_predicates"] == [
+        "exact_topology_match",
+        "unrelated_resources_absent",
+        "required_create_present",
+        "change[0].allowed_evidence_shape",
+    ]
+    assert diagnostic["plan_result"]["change_evidence"] == [
+        {
+            "action": "Ignore",
+            "logical_category": "unexpected_resource",
+            "boundary": "foundry",
+            "approved_boundary": False,
+            "expected_identity_match": False,
+            "expected_parent_match": False,
+            "expected_scope_match": False,
+            "expected_multiplicity_match": False,
+            "resource_type": "unidentified",
+        }
+    ]
+    serialized = json.dumps(diagnostic)
+    assert "/subscriptions/" not in serialized
+    assert "fictional-daily-rg" not in serialized
+    assert "fictional-intake-foundry" not in serialized
+
+
+def test_actual_clean_start_failed_plan_fixture_preserves_adapter_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fixture = json.loads(
+        (
+            Path(__file__).parent
+            / "fixtures/foundry_clean_start_live_plan.json"
+        ).read_text()
+    )
+    config = _config(tmp_path)
+    repository_root = Path(__file__).resolve().parents[1]
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=CommandRunner([]),
+    )
+    repository_runner._foundry_parameters = _foundry_parameters(
+        tmp_path,
+        repository_root,
+    )
+    monkeypatch.setattr(
+        "scripts.deploy_foundry_infra.execute",
+        lambda *args, **kwargs: fixture["adapter_result"],
+    )
+    context = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    )._initial_context()
+
+    plan = repository_runner.plan_foundry(context)
+
+    assert plan.source_failure_category == "foundry_account_name_unavailable"
+    diagnostic = GuidedPlanDiagnostic(
+        plan,
+        expected_boundary="foundry",
+        require_create=True,
+    ).to_json_dict()
+    assert diagnostic["plan_result"] == fixture["normalized_plan"]
+    assert diagnostic["failed_predicates"] == fixture["failed_predicates"]
+    assert safe_guided_plan(
+        plan,
+        expected_boundary="foundry",
+        require_create=True,
+    ) is False
+
+
+def test_plan_mapping_does_not_expose_unrecognized_adapter_failure_category() -> None:
+    plan = _plan_from_mapping(
+        {
+            "ok": False,
+            "category": "private-/subscriptions/private-sub/resourceGroups/private-rg",
+        }
+    )
+
+    assert plan.malformed is True
+    assert plan.source_failure_category == "foundry_plan_failed"
+    serialized = json.dumps(
+        GuidedPlanDiagnostic(
+            plan,
+            expected_boundary="foundry",
+            require_create=True,
+        ).to_json_dict()
+    )
+    assert "private-sub" not in serialized
+    assert "private-rg" not in serialized
+
+
+def test_foundry_adapter_failure_is_not_mislabeled_as_unsafe_plan(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.plan_overrides["plan_foundry"] = PlanResult(
+        malformed=True,
+        source_failure_category="foundry_account_name_unavailable",
+    )
+    prompts: list[str] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: prompts.append(summary.stage) is None,
+    )
+
+    assert result.category == "foundry_account_name_unavailable"
+    assert result.resource_group_ready is True
+    assert result.daily_environment_ready is False
+    assert result.azure_mutation_made is True
+    assert prompts == ["resource_group"]
+    assert runner.calls[:5] == [
+        "verify_account",
+        "inspect_resource_group",
+        "create_resource_group",
+        "verify_foundry",
+        "plan_foundry",
+    ]
+    assert "deploy_foundry" not in runner.calls
+    assert result.to_json_dict()["foundry_plan_diagnostic"][
+        "safe_guided_plan"
+    ] is False
 
 
 def test_inexact_web_app_topology_still_stops_before_deployment(tmp_path: Path) -> None:
@@ -673,6 +1095,45 @@ def test_exact_evidence_still_rejects_count_disagreement() -> None:
     )
 
     assert safe_automatic_plan(plan, expected_boundary="foundry") is False
+
+
+@pytest.mark.parametrize("resource_type", (None, 7, ["unexpected"]))
+def test_plan_mapping_rejects_missing_or_invalid_resource_type(
+    resource_type: object,
+) -> None:
+    evidence = {
+        "action": "Create",
+        "logical_category": "foundry_account",
+        "boundary": "foundry",
+        "approved_boundary": True,
+        "expected_identity_match": True,
+        "expected_parent_match": True,
+        "expected_scope_match": True,
+        "expected_multiplicity_match": True,
+    }
+    if resource_type is not None:
+        evidence["resource_type"] = resource_type
+    result = _plan_from_mapping(
+        {
+            "ok": True,
+            "create_count": 1,
+            "modify_count": 0,
+            "no_change_count": 0,
+            "delete_count": 0,
+            "ignore_count": 0,
+            "deploy_count": 0,
+            "unsupported_count": 0,
+            "change_evidence": [evidence],
+            "exact_topology_match": True,
+        }
+    )
+
+    assert result.malformed is True
+    assert safe_guided_plan(
+        result,
+        expected_boundary="foundry",
+        require_create=True,
+    ) is False
 
 
 def test_unrelated_create_only_evidence_stops_automatic_continuation() -> None:
@@ -879,6 +1340,60 @@ def test_successful_stage_and_ready_result_reject_ambiguous_mutation() -> None:
             daily_environment_ready=True,
             azure_mutation_made=None,
         )
+
+
+def test_stage_result_success_preserves_approval_binding() -> None:
+    result = StageResult.success(approval_binding="digest-a")
+
+    assert result.ok is True
+    assert result.approval_binding == "digest-a"
+
+
+def test_stage_result_success_defaults_and_existing_fields_are_preserved() -> None:
+    default = StageResult.success()
+    updates = RuntimeUpdates(immutable_agent_version="7")
+    populated = StageResult.success(
+        reused=True,
+        mutation_made=True,
+        updates=updates,
+        attempted=True,
+        accepted=True,
+        artifact_current=True,
+    )
+
+    assert default == StageResult(
+        ok=True,
+        state="verified",
+        category="success",
+        mutation_made=False,
+        approval_binding=None,
+    )
+    assert populated.ok is True
+    assert populated.state == "verified"
+    assert populated.category == "success"
+    assert populated.reused is True
+    assert populated.mutation_made is True
+    assert populated.updates is updates
+    assert populated.attempted is True
+    assert populated.accepted is True
+    assert populated.artifact_current is True
+    assert populated.approval_binding is None
+    assert StageResult.absent("resource_absent") == StageResult(
+        ok=False,
+        state="absent",
+        category="resource_absent",
+    )
+    assert StageResult.failure(
+        "stage_failed",
+        mutation_made=True,
+        attempted=True,
+    ) == StageResult(
+        ok=False,
+        state="failed",
+        category="stage_failed",
+        mutation_made=True,
+        attempted=True,
+    )
 
 
 def test_routing_mutation_survives_later_verification_failure(tmp_path: Path) -> None:
@@ -1314,6 +1829,60 @@ def test_repository_adapter_marks_deployment_parse_failure_mutation_ambiguous(
     assert result.ok is False
     assert result.attempted is True
     assert result.mutation_made is None
+
+
+def test_repository_package_adapter_returns_validated_package_binding(
+    tmp_path: Path,
+) -> None:
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    command_runner = CommandRunner([])
+    runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=command_runner,
+    )
+    context = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    )._initial_context()
+
+    result = runner.build_package(context)
+
+    assert result.ok is True
+    assert result.category == "success"
+    assert result.approval_binding is not None
+    assert len(result.approval_binding) == 64
+    assert runner._package is not None
+    assert result.approval_binding == runner._package.sha256
+    assert runner._expected_application_artifact_digest is not None
+    assert len(runner._expected_application_artifact_digest) == 64
+    assert command_runner.calls == []
+
+
+def test_repository_package_adapter_preserves_package_safety_category(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    command_runner = CommandRunner([])
+    runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=tmp_path,
+        command_runner=command_runner,
+    )
+    context = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    )._initial_context()
+
+    result = runner.build_package(context)
+
+    assert result.ok is False
+    assert result.category == "incomplete_package"
+    assert result.approval_binding is None
+    assert command_runner.calls == []
 
 
 def _foundry_parameters(tmp_path: Path, repository_root: Path) -> Path:

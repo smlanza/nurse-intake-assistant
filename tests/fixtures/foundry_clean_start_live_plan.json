@@ -1,0 +1,29 @@
+{
+  "adapter_result": {
+    "ok": false,
+    "category": "foundry_account_name_unavailable",
+    "change_evidence": [],
+    "exact_topology_match": false
+  },
+  "normalized_plan": {
+    "create_count": 0,
+    "modify_count": 0,
+    "no_change_count": 0,
+    "delete_count": 0,
+    "ignore_count": 0,
+    "deploy_count": 0,
+    "unsupported_count": 0,
+    "unknown_count": 0,
+    "unrelated_resource_count": 0,
+    "malformed": true,
+    "exact_topology_match": false,
+    "source_failure_category": "foundry_account_name_unavailable",
+    "change_evidence": []
+  },
+  "failed_predicates": [
+    "plan_well_formed",
+    "exact_topology_match",
+    "required_create_present",
+    "evidence_present"
+  ]
+}

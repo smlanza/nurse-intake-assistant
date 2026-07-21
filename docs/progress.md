@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,761 passed
+- 1,789 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -360,8 +360,9 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The exact recommended next boundary is one operator-supervised live guided
-rebuild after its offline check succeeds:
+The exact recommended next boundary is to rerun the operator-supervised guided
+coordinator against the existing deployed environment so it reuses verified
+infrastructure and reaches the application-code deployment approval:
 ```text
 run rebuild_daily_azure_environment.py --check --json
 -> run rebuild_daily_azure_environment.py --live --json
@@ -390,16 +391,16 @@ frontend deferred unless explicitly scoped.
   existing group is reusable only with the exact location, usable state, and
   repository daily-purpose tag; otherwise the run stops for explicit manual
   adoption and a rerun.
-- Foundry and Web App deployment each require approval bound to the current
-  sanitized preview. Current package deployment has a separate approval bound
-  to its current-run proof and uses a unique restrictive immutable handoff.
+- Foundry and Web App deployment each require approval bound to the current sanitized preview; package deployment separately binds its proof and uses a restrictive immutable handoff.
+- A failed Foundry what-if remains unsafe and now retains its sanitized upstream category and failed guided-plan predicates instead of being mislabeled as an ordinary topology rejection.
 - Missing direct Consumer RBAC always stops with
   `manual_rbac_action_required`; the coordinator never previews or deploys
   RBAC. READY is created only through a private proof-complete constructor.
-- No live guided rebuild has run. The next boundary is one supervised live run
-  after offline GREEN. WebJob trigger/status, hosted identity verification,
-  later agent invocation, retries, polling, and Azure cleanup remain outside the
-  coordinator; hosted execution remains offline-tested only.
+- A supervised rebuild verified the resource group, Foundry, prompt agent,
+  routing, and Web App configuration, then a package-result factory mismatch
+  stopped before code approval. The offline correction preserves the current
+  package binding; no code deployment has run. Hosted execution remains
+  offline-tested only; later agent invocation and cleanup remain outside scope.
 
 ### Historical Slice Results
 

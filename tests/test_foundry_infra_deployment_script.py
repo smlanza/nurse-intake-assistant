@@ -334,6 +334,65 @@ def test_what_if_group_exists_failure_never_attempts_deployment(
     assert runner.calls[0][:3] == ["az", "group", "exists"]
 
 
+def test_internal_what_if_classifies_deleted_foundry_account_without_raw_output(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    stderr = (
+        "ERROR: (InvalidTemplateDeployment) Microsoft.CognitiveServices/accounts "
+        "account was deleted and is not available. Purge it or use a different "
+        "name. private-account-name private-subscription-id"
+    )
+    runner = FakeRunner([script.CommandResult(1, "private-stdout", stderr)])
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+        verify_resource_group=False,
+    )
+
+    assert result["category"] == "foundry_account_name_unavailable"
+    assert result["what_if_failure_diagnostic"] == {
+        "azure_error_class": "invalid_template_deployment",
+        "failure_kind": "deleted_foundry_account_name_unavailable",
+        "same_configuration_retry_safe": False,
+    }
+    serialized = json.dumps(result)
+    assert "private-account-name" not in serialized
+    assert "private-subscription-id" not in serialized
+    assert "private-stdout" not in serialized
+
+
+def test_internal_what_if_does_not_overclassify_other_template_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    runner = FakeRunner(
+        [
+            script.CommandResult(
+                1,
+                "",
+                "ERROR: (InvalidTemplateDeployment) model is not available",
+            )
+        ]
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+        verify_resource_group=False,
+    )
+
+    assert result["category"] == "what_if_failed"
+    assert "what_if_failure_diagnostic" not in result
+
+
 def _deployment_output() -> str:
     return json.dumps(
         {
