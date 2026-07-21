@@ -40,9 +40,10 @@ IgnoreRejectionReason = Literal[
     "malformed_resource_id",
     "unexpected_resource_provider",
     "unexpected_resource_type",
-    "unexpected_deployment_identity",
-    "unexpected_deployment_scope",
-    "unexpected_deployment_multiplicity",
+    "invalid_reference_path",
+    "unexpected_reference_identity",
+    "unexpected_reference_scope",
+    "unexpected_reference_multiplicity",
 ]
 ArmIdParseStatus = Literal[
     "parsed",
@@ -267,7 +268,11 @@ def parse_sanitized_what_if(
     approved_diagnostic_types = frozenset(
         item.resource_type.casefold() for item in (expected_resources or ())
     ) | frozenset(
+        item.resource_type.casefold() for item in expected_ignored_resources
+    ) | frozenset(
         item.casefold() for item in (allowlisted_resource_types or {})
+    ) | frozenset(
+        item.casefold() for item in (sanitized_additional_resource_types or {})
     )
     parsed = _parse_payload(
         stdout,
@@ -349,7 +354,7 @@ def _exact_summary(
 ) -> SanitizedWhatIfSummary:
     expected_keys = Counter(_expected_key(item) for item in expected_resources)
     additional_types = {
-        resource_type.casefold(): category
+        resource_type.casefold(): (resource_type, category)
         for resource_type, category in sanitized_additional_resource_types.items()
     }
     expected_type_keys = {
@@ -382,8 +387,13 @@ def _exact_summary(
     )
     actual_keys = Counter(_identity_key(item) for item in ordinary_identities)
     identified_additional = tuple(
-        (action, identity)
-        for action, identity in zip(actions, identities, strict=True)
+        (action, identity, diagnostic)
+        for action, identity, diagnostic in zip(
+            actions,
+            identities,
+            ignore_diagnostics,
+            strict=True,
+        )
         if identity.resource_type.casefold() in additional_types
     )
     expected_ignored_resources_match = bool(
@@ -395,16 +405,21 @@ def _exact_summary(
             )
             or (
                 len(identified_additional) == len(expected_ignored_resources)
-                and all(action == "Ignore" for action, _ in identified_additional)
+                and all(
+                    action == "Ignore"
+                    and diagnostic is not None
+                    and _direct_resource_group_reference_path(diagnostic)
+                    for action, _, diagnostic in identified_additional
+                )
                 and Counter(
                     _identity_key(identity)
-                    for _, identity in identified_additional
+                    for _, identity, _ in identified_additional
                 )
                 == expected_ignored_keys
                 and len(expected_subscriptions) == 1
                 and all(
                     identity.subscription.casefold() in expected_subscriptions
-                    for _, identity in identified_additional
+                    for _, identity, _ in identified_additional
                 )
             )
         )
@@ -488,8 +503,9 @@ def _exact_summary(
             for item in expected_resources
             if item.resource_type.casefold() == identity.resource_type.casefold()
         ]
-        additional_category = additional_types.get(identity.resource_type.casefold())
-        if additional_category is not None:
+        additional = additional_types.get(identity.resource_type.casefold())
+        if additional is not None:
+            canonical_resource_type, additional_category = additional
             ignored_expectations = [
                 item
                 for item in expected_ignored_resources
@@ -518,7 +534,7 @@ def _exact_summary(
                         for item in ignored_expectations
                         if _expected_key(item) == _identity_key(identity)
                     ),
-                    "unexpected_nested_deployment",
+                    "unexpected_resource",
                 )
                 approved = bool(
                     exact_topology_match
@@ -531,7 +547,7 @@ def _exact_summary(
                 evidence.append(
                     SanitizedWhatIfChange(
                         action=action,
-                        resource_type=identity.resource_type,
+                        resource_type=canonical_resource_type,
                         logical_category=category,
                         boundary=boundary,
                         approved_boundary=approved,
@@ -556,7 +572,7 @@ def _exact_summary(
             evidence.append(
                 SanitizedWhatIfChange(
                     action=action,
-                    resource_type=identity.resource_type,
+                    resource_type=canonical_resource_type,
                     logical_category=additional_category,
                     boundary=boundary,
                     approved_boundary=False,
@@ -632,6 +648,27 @@ def _exact_summary(
             )
         )
     return SanitizedWhatIfSummary(tuple(evidence), exact_topology_match)
+
+
+def _direct_resource_group_reference_path(
+    diagnostic: SanitizedIgnoreDiagnostic,
+) -> bool:
+    arm_path = diagnostic.arm_path
+    return bool(
+        arm_path.arm_id_parse_status == "parsed"
+        and arm_path.scope_kind == "resource_group"
+        and not arm_path.path_segment_count_truncated
+        and arm_path.provider_marker_count == 1
+        and not arm_path.provider_marker_count_truncated
+        and arm_path.selected_provider_marker == "only"
+        and arm_path.provider_chain_depth == 1
+        and not arm_path.provider_chain_depth_truncated
+        and arm_path.type_name_pairing_valid
+        and not arm_path.nested_provider_chain_present
+        and not arm_path.multiple_provider_namespaces_present
+        and not arm_path.extension_resource_shape
+        and not arm_path.trailing_unmatched_segment_present
+    )
 
 
 def _parse_payload(
@@ -876,28 +913,35 @@ def _expected_ignore_diagnostic(
         return None
     expected_groups = {item.resource_group.casefold() for item in expected}
     expected_keys = {_expected_key(item) for item in expected}
+    expected_types = {item.resource_type.casefold() for item in expected}
+    expected_providers = {
+        item.resource_type.split("/", 1)[0].casefold() for item in expected
+    }
     resource_type_parts = identity.resource_type.split("/", 1)
     if identity.resource_type == "unidentified":
         candidate = False
         reason: IgnoreRejectionReason = "malformed_resource_id"
-    elif resource_type_parts[0].casefold() != "microsoft.resources":
+    elif resource_type_parts[0].casefold() not in expected_providers:
         candidate = False
         reason = "unexpected_resource_provider"
-    elif identity.resource_type.casefold() != "microsoft.resources/deployments":
+    elif identity.resource_type.casefold() not in expected_types:
         candidate = False
         reason = "unexpected_resource_type"
+    elif not _direct_resource_group_reference_path(diagnostic):
+        candidate = False
+        reason = "invalid_reference_path"
     elif identity.resource_group.casefold() not in expected_groups:
         candidate = False
-        reason = "unexpected_deployment_scope"
+        reason = "unexpected_reference_scope"
     elif identity.subscription.casefold() not in expected_subscriptions:
         candidate = False
-        reason = "unexpected_deployment_scope"
+        reason = "unexpected_reference_scope"
     elif _identity_key(identity) not in expected_keys:
         candidate = False
-        reason = "unexpected_deployment_identity"
+        reason = "unexpected_reference_identity"
     elif not multiplicity_match:
         candidate = True
-        reason = "unexpected_deployment_multiplicity"
+        reason = "unexpected_reference_multiplicity"
     else:
         candidate = True
         reason = "none"

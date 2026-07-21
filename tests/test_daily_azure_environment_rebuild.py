@@ -517,6 +517,50 @@ def test_inexact_web_app_topology_still_stops_before_deployment(tmp_path: Path) 
     assert result.daily_environment_ready is False
 
 
+def test_exact_web_app_topology_reaches_only_the_existing_approval_prompt(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.plan_overrides["plan_web_app"] = PlanResult(
+        create_count=8,
+        ignore_count=2,
+        exact_topology_match=True,
+        change_evidence=(
+            *(
+                _exact_change("Create", f"expected-{index}", "web_app")
+                for index in range(8)
+            ),
+            replace(
+                _exact_change("Ignore", "foundry_account_reference", "web_app"),
+                resource_type="Microsoft.CognitiveServices/accounts",
+            ),
+            replace(
+                _exact_change("Ignore", "foundry_project_reference", "web_app"),
+                resource_type="Microsoft.CognitiveServices/accounts/projects",
+            ),
+        ),
+    )
+    prompts: list[str] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: (
+            prompts.append(summary.stage) is None
+            and summary.stage != "web_app_deployment"
+        ),
+    )
+
+    assert result.category == "web_app_deployment_approval_required"
+    assert prompts == ["web_app_deployment"]
+    assert "deploy_web_app" not in runner.calls
+
+
 def test_guided_plan_accepts_sanitized_nested_deployment_for_operator_review() -> None:
     plan = PlanResult(
         create_count=1,

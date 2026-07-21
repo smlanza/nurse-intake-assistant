@@ -175,6 +175,85 @@ def test_missing_or_unsafe_arguments_fail_before_runner_call(
     assert runner.calls == []
 
 
+@pytest.mark.parametrize(
+    "case",
+    (
+        "different-account",
+        "different-project",
+        "malformed-project-endpoint",
+        "malformed-stable-endpoint",
+    ),
+)
+def test_inconsistent_hosted_verifier_endpoint_identity_fails_before_runner(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    case: str,
+) -> None:
+    project_endpoint = deployment_request.hosted_verifier_project_endpoint
+    stable_endpoint = deployment_request.hosted_verifier_stable_agent_endpoint
+    assert isinstance(project_endpoint, str)
+    assert isinstance(stable_endpoint, str)
+    if case == "different-account":
+        stable_endpoint = stable_endpoint.replace(
+            "fictional.services.ai.azure.com",
+            "other.services.ai.azure.com",
+        )
+    elif case == "different-project":
+        stable_endpoint = stable_endpoint.replace(
+            "/api/projects/demo/",
+            "/api/projects/other/",
+        )
+    elif case == "malformed-project-endpoint":
+        project_endpoint = "not-a-project-endpoint"
+    else:
+        stable_endpoint = "not-a-stable-endpoint"
+    runner = FakeRunner()
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(
+            deployment_request,
+            mode="what-if",
+            hosted_verifier_project_endpoint=project_endpoint,
+            hosted_verifier_stable_agent_endpoint=stable_endpoint,
+        ),
+        runner=runner,
+    )
+
+    assert result.category == "invalid_arguments"
+    assert result.azure_operation_attempted is False
+    assert runner.calls == []
+
+
+def test_valid_custom_endpoint_contract_fails_closed_when_arm_identity_is_unprovable(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    project_endpoint = "https://private.example/api/projects/demo"
+    stable_endpoint = (
+        f"{project_endpoint}/agents/fictional-agent/endpoint/protocols/openai"
+    )
+    request = replace(
+        deployment_request,
+        mode="what-if",
+        hosted_verifier_project_endpoint=project_endpoint,
+        hosted_verifier_stable_agent_endpoint=stable_endpoint,
+    )
+    changes = [
+        *_web_app_topology_changes(request),
+        *_web_app_foundry_reference_ignores(request),
+    ]
+
+    result = deployment.deploy_web_app_infrastructure(
+        request,
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.category == "success"
+    assert result.local_validation_passed is True
+    assert result.exact_topology_match is False
+    assert not any(change.approved_boundary for change in result.change_evidence)
+
+
 def test_missing_template_and_invalid_local_contract_fail_offline(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
     tmp_path: Path,
@@ -605,23 +684,121 @@ def _web_app_topology_changes(
     ]
 
 
-def _web_app_nested_deployment_ignores(
+def _web_app_foundry_reference_ignores(
     request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> list[dict[str, object]]:
     root = (
         f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers/"
-        "Microsoft.Resources/deployments"
+        "Microsoft.CognitiveServices/accounts/fictional"
     )
     return [
         {
             "changeType": "Ignore",
-            "resourceId": f"{root}/{name}",
+            "resourceId": root,
             "before": {"id": "private-before"},
             "after": {"id": "private-after"},
             "delta": {"changes": []},
-        }
-        for name in ("web-app", "hosted-foundry-verifier-validation")
+        },
+        {
+            "changeType": "Ignore",
+            "resourceId": f"{root}/projects/demo",
+            "before": {"id": "private-before"},
+            "after": {"id": "private-after"},
+            "delta": {"changes": []},
+        },
     ]
+
+
+def test_web_app_adapter_accepts_exact_existing_foundry_reference_pair(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    changes = [
+        *_web_app_topology_changes(deployment_request),
+        *_web_app_foundry_reference_ignores(deployment_request),
+    ]
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    application = result.change_evidence[:8]
+    references = result.change_evidence[8:]
+    assert [change.logical_category for change in references] == [
+        "foundry_account_reference",
+        "foundry_project_reference",
+    ]
+    assert [change.resource_type for change in references] == [
+        "Microsoft.CognitiveServices/accounts",
+        "Microsoft.CognitiveServices/accounts/projects",
+    ]
+    assert all(change.expected_identity_match for change in references)
+    assert all(change.expected_parent_match for change in references)
+    assert all(change.expected_scope_match for change in references)
+    assert all(change.expected_multiplicity_match for change in references)
+    assert all(change.approved_boundary for change in references)
+    assert all(change.diagnostic is None for change in references)
+    assert all(change.expected_identity_match for change in application)
+    assert all(change.expected_parent_match for change in application)
+    assert all(change.expected_scope_match for change in application)
+    assert all(change.expected_multiplicity_match for change in application)
+    assert all(change.approved_boundary for change in application)
+    assert result.create_count == 8
+    assert result.ignore_count == 2
+    assert result.modify_count == 0
+    assert result.delete_count == 0
+    assert result.deploy_count == 0
+    assert result.unsupported_count == 0
+    assert result.exact_topology_match is True
+    assert safe_guided_plan(
+        _plan_from_object(result),
+        expected_boundary="web_app",
+        require_create=True,
+    ) is True
+    serialized = json.dumps(result.to_json_dict()["change_evidence"])
+    for forbidden in (
+        "private-sub",
+        deployment_request.resource_group,
+        "fictional.services.ai.azure.com",
+        "/api/projects/demo",
+        "private-before",
+        "private-after",
+    ):
+        assert forbidden not in serialized
+
+
+def test_foundry_reference_arm_identity_comparisons_are_case_insensitive(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    references = _web_app_foundry_reference_ignores(deployment_request)
+    for reference in references:
+        reference["resourceId"] = (
+            str(reference["resourceId"])
+            .replace("subscriptions", "SUBSCRIPTIONS")
+            .replace("private-sub", "PRIVATE-SUB")
+            .replace("resourceGroups", "RESOURCEGROUPS")
+            .replace(deployment_request.resource_group, deployment_request.resource_group.upper())
+            .replace("providers", "PROVIDERS")
+            .replace("Microsoft.CognitiveServices", "microsoft.cognitiveservices")
+            .replace("accounts/fictional", "ACCOUNTS/FICTIONAL")
+            .replace("projects/demo", "PROJECTS/DEMO")
+        )
+    changes = [*_web_app_topology_changes(deployment_request), *references]
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.exact_topology_match is True
+    assert [change.resource_type for change in result.change_evidence[8:]] == [
+        "Microsoft.CognitiveServices/accounts",
+        "Microsoft.CognitiveServices/accounts/projects",
+    ]
+    assert all(change.approved_boundary for change in result.change_evidence)
 
 
 def test_web_app_adapter_accepts_only_the_exact_expected_topology(
@@ -644,148 +821,80 @@ def test_web_app_adapter_accepts_only_the_exact_expected_topology(
     )
 
 
-def test_web_app_adapter_accepts_exact_topology_with_bounded_module_ignores(
-    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
-) -> None:
-    changes = [
-        *_web_app_topology_changes(deployment_request),
-        *_web_app_nested_deployment_ignores(deployment_request),
-    ]
-    runner = FakeRunner(
-        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
-    )
-
-    result = deployment.deploy_web_app_infrastructure(
-        replace(deployment_request, mode="what-if"), runner=runner
-    )
-
-    expected = result.change_evidence[:8]
-    ignores = result.change_evidence[8:]
-    assert result.exact_topology_match is True
-    assert all(change.expected_multiplicity_match for change in expected)
-    assert all(change.approved_boundary for change in expected)
-    assert [change.logical_category for change in ignores] == [
-        "web_app_module_deployment",
-        "hosted_verifier_validation_deployment",
-    ]
-    assert all(change.approved_boundary for change in ignores)
-    assert all(change.expected_identity_match for change in ignores)
-    assert all(change.expected_parent_match for change in ignores)
-    assert all(change.expected_scope_match for change in ignores)
-    serialized = json.dumps(result.to_json_dict()["change_evidence"])
-    for forbidden in (
-        "private-sub",
-        deployment_request.resource_group,
-        "web-app",
-        "hosted-foundry-verifier-validation",
-        "private-before",
-        "private-after",
-    ):
-        assert forbidden not in serialized
-    assert safe_guided_plan(
-        _plan_from_object(result),
-        expected_boundary="web_app",
-        require_create=True,
-    ) is True
-
-
-def test_expected_ignore_identities_are_derived_from_bicep_module_names(
-    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
-    tmp_path: Path,
-) -> None:
-    request = _request_with_module(
-        deployment_request,
-        tmp_path,
-        _current_module(deployment_request).replace(
-            "name: 'hosted-foundry-verifier-validation'",
-            "name: 'fictional-validation-v2'",
-            1,
-        ),
-    )
-    request.template_file.write_text(
-        request.template_file.read_text().replace(
-            "name: 'web-app'", "name: 'fictional-web-app-v2'", 1
-        )
-    )
-    root = (
-        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers/"
-        "Microsoft.Resources/deployments"
-    )
-    changes = [
-        *_web_app_topology_changes(request),
-        {
-            "changeType": "Ignore",
-            "resourceId": f"{root}/fictional-web-app-v2",
-        },
-        {
-            "changeType": "Ignore",
-            "resourceId": f"{root}/fictional-validation-v2",
-        },
-    ]
-
-    result = deployment.deploy_web_app_infrastructure(
-        replace(request, mode="what-if"),
-        runner=FakeRunner(
-            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
-        ),
-    )
-
-    assert result.exact_topology_match is True
-    assert all(change.approved_boundary for change in result.change_evidence)
-
-
 @pytest.mark.parametrize(
     "case",
     [
-        "one",
+        "account-only",
+        "project-only",
+        "duplicate-account",
+        "duplicate-project",
         "three",
-        "duplicate",
-        "unrelated-deployment",
+        "unrelated-project",
+        "different-parent-account",
+        "different-account",
         "malformed-id",
         "missing-subscription",
         "missing-resource-group",
         "wrong-resource-group",
         "wrong-subscription",
         "wrong-provider",
-        "wrong-resource-type",
+        "multiple-provider-markers",
+        "arbitrary-cognitive-resource",
+        "other-account-child",
+        "model-deployment-child",
+        "extra-child-pair",
         "subscription-scope",
-        "wrong-name",
-        "wrong-action",
+        "create-action",
+        "modify-action",
+        "delete-action",
+        "nochange-action",
         "application-ignore",
     ],
 )
-def test_web_app_adapter_rejects_inexact_identified_deployment_ignores(
+def test_web_app_adapter_rejects_inexact_foundry_reference_ignores(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
     case: str,
 ) -> None:
-    expected = _web_app_nested_deployment_ignores(deployment_request)
+    expected = _web_app_foundry_reference_ignores(deployment_request)
     changes: list[dict[str, object]] = [
         *_web_app_topology_changes(deployment_request),
         *expected,
     ]
     first = changes[8]
     second = changes[9]
-    if case == "one":
+    if case == "account-only":
         changes.pop()
+    elif case == "project-only":
+        changes.pop(8)
+    elif case == "duplicate-account":
+        changes[9] = dict(first)
+    elif case == "duplicate-project":
+        changes[8] = dict(second)
     elif case == "three":
         changes.append(dict(first))
-    elif case == "duplicate":
-        changes[9] = dict(first)
-    elif case in {"unrelated-deployment", "wrong-name"}:
+    elif case == "unrelated-project":
         second["resourceId"] = str(second["resourceId"]).replace(
-            "hosted-foundry-verifier-validation", "unrelated-deployment"
+            "/projects/demo", "/projects/unrelated-project"
+        )
+    elif case == "different-parent-account":
+        second["resourceId"] = str(second["resourceId"]).replace(
+            "/accounts/fictional/", "/accounts/other-account/"
+        )
+    elif case == "different-account":
+        first["resourceId"] = str(first["resourceId"]).replace(
+            "/accounts/fictional", "/accounts/other-account"
         )
     elif case == "malformed-id":
         second["resourceId"] = "not-an-arm-resource-id"
     elif case == "missing-subscription":
         second["resourceId"] = (
             f"/resourceGroups/{deployment_request.resource_group}/providers/"
-            "Microsoft.Resources/deployments/hosted-foundry-verifier-validation"
+            "Microsoft.CognitiveServices/accounts/fictional/projects/demo"
         )
     elif case == "missing-resource-group":
         second["resourceId"] = (
-            "/subscriptions/private-sub/providers/Microsoft.Resources/deployments/"
-            "hosted-foundry-verifier-validation"
+            "/subscriptions/private-sub/providers/Microsoft.CognitiveServices/"
+            "accounts/fictional/projects/demo"
         )
     elif case == "wrong-resource-group":
         second["resourceId"] = str(second["resourceId"]).replace(
@@ -797,19 +906,46 @@ def test_web_app_adapter_rejects_inexact_identified_deployment_ignores(
         )
     elif case == "wrong-provider":
         second["resourceId"] = str(second["resourceId"]).replace(
-            "Microsoft.Resources", "Microsoft.KeyVault"
+            "Microsoft.CognitiveServices", "Microsoft.KeyVault"
         )
-    elif case == "wrong-resource-type":
+    elif case == "multiple-provider-markers":
+        second["resourceId"] = (
+            f"/subscriptions/private-sub/resourceGroups/"
+            f"{deployment_request.resource_group}/providers/Microsoft.Web/sites/"
+            "private-site/providers/Microsoft.CognitiveServices/accounts/"
+            "fictional/projects/demo"
+        )
+    elif case == "arbitrary-cognitive-resource":
+        second["resourceId"] = (
+            f"/subscriptions/private-sub/resourceGroups/"
+            f"{deployment_request.resource_group}/providers/"
+            "Microsoft.CognitiveServices/locations/eastus2"
+        )
+    elif case == "other-account-child":
         second["resourceId"] = str(second["resourceId"]).replace(
-            "/deployments/", "/deploymentScripts/"
+            "/projects/", "/connections/"
+        )
+    elif case == "model-deployment-child":
+        second["resourceId"] = str(second["resourceId"]).replace(
+            "/projects/", "/deployments/"
+        )
+    elif case == "extra-child-pair":
+        second["resourceId"] = (
+            f"{second['resourceId']}/deployments/private-deployment"
         )
     elif case == "subscription-scope":
         second["resourceId"] = (
-            "/subscriptions/private-sub/providers/Microsoft.Resources/deployments/"
-            "hosted-foundry-verifier-validation"
+            "/subscriptions/private-sub/providers/Microsoft.CognitiveServices/"
+            "accounts/fictional/projects/demo"
         )
-    elif case == "wrong-action":
+    elif case == "create-action":
         second["changeType"] = "Create"
+    elif case == "modify-action":
+        second["changeType"] = "Modify"
+    elif case == "delete-action":
+        second["changeType"] = "Delete"
+    elif case == "nochange-action":
+        second["changeType"] = "NoChange"
     elif case == "application-ignore":
         changes[9] = {**changes[0], "changeType": "Ignore"}
 
@@ -822,6 +958,10 @@ def test_web_app_adapter_rejects_inexact_identified_deployment_ignores(
 
     assert result.exact_topology_match is False
     assert not all(change.approved_boundary for change in result.change_evidence)
+    assert not any(
+        change.expected_multiplicity_match
+        for change in result.change_evidence[:8]
+    )
     assert safe_guided_plan(
         _plan_from_object(result),
         expected_boundary="web_app",
@@ -831,8 +971,10 @@ def test_web_app_adapter_rejects_inexact_identified_deployment_ignores(
     for forbidden in (
         "private-sub",
         deployment_request.resource_group,
-        "hosted-foundry-verifier-validation",
-        "unrelated-deployment",
+        "unrelated-project",
+        "other-account",
+        "private-deployment",
+        "private-site",
         "wrong-resource-group",
     ):
         assert forbidden not in serialized
@@ -975,9 +1117,10 @@ def test_nested_and_identified_ignores_have_closed_rejection_diagnostics(
         "malformed_resource_id",
         "unexpected_resource_provider",
         "unexpected_resource_type",
-        "unexpected_deployment_identity",
-        "unexpected_deployment_scope",
-        "unexpected_deployment_multiplicity",
+        "invalid_reference_path",
+        "unexpected_reference_identity",
+        "unexpected_reference_scope",
+        "unexpected_reference_multiplicity",
     }
     serialized = json.dumps(rendered)
     for forbidden in (

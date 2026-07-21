@@ -10,6 +10,7 @@ from src.app.services.web_app_hosting_contract import (
     REMOTE_BUILD_SETTING,
     REMOTE_BUILD_VALUE,
     SAFE_HOSTED_SETTINGS,
+    hosted_verifier_foundry_identity,
     hosted_verifier_settings_valid,
 )
 from src.app.services.azure_what_if_evidence import (
@@ -717,17 +718,23 @@ def _parse_what_if_summary(
     request: WebAppInfrastructureDeploymentRequest,
 ) -> WhatIfSummary | None:
     expected = _expected_web_app_resources(stdout, request)
-    expected_ignored = _expected_web_app_ignored_deployments(request)
-    if expected_ignored is None:
-        return None
+    expected_ignored = _expected_web_app_foundry_references(request)
+    additional_types = (
+        {
+            "Microsoft.CognitiveServices/accounts": "foundry_account_reference",
+            "Microsoft.CognitiveServices/accounts/projects": (
+                "foundry_project_reference"
+            ),
+        }
+        if expected_ignored
+        else {}
+    )
     parsed = parse_sanitized_what_if(
         stdout,
         boundary="web_app",
         expected_resources=expected,
-        sanitized_additional_resource_types={
-            "Microsoft.Resources/deployments": "nested_deployment"
-        },
-        expected_ignored_resources=expected_ignored,
+        sanitized_additional_resource_types=additional_types,
+        expected_ignored_resources=expected_ignored or (),
         allow_expected_ignored_resources_absent=True,
         automatically_approved_actions=frozenset({"Create", "NoChange"}),
     )
@@ -746,60 +753,29 @@ def _parse_what_if_summary(
     )
 
 
-def _expected_web_app_ignored_deployments(
+def _expected_web_app_foundry_references(
     request: WebAppInfrastructureDeploymentRequest,
 ) -> tuple[ExpectedWhatIfResource, ...] | None:
-    try:
-        template = request.template_file.read_text()
-        web_app_module = (
-            request.template_file.parent / "modules/web-app.bicep"
-        ).read_text()
-    except OSError:
+    if not request.enable_hosted_foundry_verifier:
+        return ()
+    identity = hosted_verifier_foundry_identity(_hosted_verifier_settings(request))
+    if identity is None:
         return None
-    expected = (
-        (
-            _literal_module_deployment_name(template, "webApp"),
-            "web_app_module_deployment",
-        ),
-        (
-            _literal_module_deployment_name(
-                web_app_module,
-                "hostedFoundryVerifierConfigValidation",
-            ),
-            "hosted_verifier_validation_deployment",
-        ),
-    )
-    if any(name is None for name, _ in expected):
-        return None
-    names = tuple(str(name) for name, _ in expected)
-    if len(names) != len(set(names)):
-        return None
-    return tuple(
+    account_name, project_name = identity
+    return (
         ExpectedWhatIfResource(
-            "Microsoft.Resources/deployments",
-            category,
+            "Microsoft.CognitiveServices/accounts",
+            "foundry_account_reference",
             request.resource_group,
-            (name,),
-        )
-        for name, (_, category) in zip(names, expected, strict=True)
+            (account_name,),
+        ),
+        ExpectedWhatIfResource(
+            "Microsoft.CognitiveServices/accounts/projects",
+            "foundry_project_reference",
+            request.resource_group,
+            (account_name, project_name),
+        ),
     )
-
-
-def _literal_module_deployment_name(text: str, symbol: str) -> str | None:
-    active = _strip_bicep_comments(text)
-    body = _body_after_pattern(
-        active,
-        rf"module\s+{re.escape(symbol)}\s+'[^']+'\s*=\s*"
-        rf"(?:if\s*\([^)]*\)\s*)?\{{",
-        "{",
-        "}",
-    )
-    if body is None:
-        return None
-    names = re.findall(r"\bname\s*:\s*'([^']+)'", body)
-    if len(names) != 1 or not _safe_bicep_name(names[0], minimum=1, maximum=64):
-        return None
-    return names[0]
 
 
 def _expected_web_app_resources(

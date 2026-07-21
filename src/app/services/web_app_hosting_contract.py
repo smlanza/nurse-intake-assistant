@@ -1,5 +1,7 @@
+import re
 from types import MappingProxyType
 from typing import Final, Mapping
+from urllib.parse import urlparse
 
 from src.app.services.foundry_agent_client import (
     is_valid_stable_agent_endpoint,
@@ -69,3 +71,54 @@ def hosted_verifier_settings_valid(values: Mapping[str, object]) -> bool:
             agent_name=agent_name,
         )
     )
+
+
+def parse_foundry_project_endpoint(endpoint: str) -> tuple[str, str]:
+    """Return the ARM account/project identity from an official project endpoint."""
+
+    if not isinstance(endpoint, str):
+        raise ValueError("invalid project endpoint")
+    try:
+        parsed = urlparse(endpoint)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("invalid project endpoint") from exc
+    suffix = ".services.ai.azure.com"
+    host = parsed.hostname or ""
+    if (
+        parsed.scheme != "https"
+        or parsed.username is not None
+        or parsed.password is not None
+        or port is not None
+        or parsed.query
+        or parsed.fragment
+        or not host.endswith(suffix)
+    ):
+        raise ValueError("invalid project endpoint")
+    account_name = host[: -len(suffix)]
+    path_match = re.fullmatch(
+        r"/api/projects/([A-Za-z0-9][A-Za-z0-9_.-]*)",
+        parsed.path,
+    )
+    if (
+        re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", account_name) is None
+        or path_match is None
+    ):
+        raise ValueError("invalid project endpoint")
+    return account_name, path_match.group(1)
+
+
+def hosted_verifier_foundry_identity(
+    values: Mapping[str, object],
+) -> tuple[str, str] | None:
+    """Derive identity only after the project and stable endpoints are bound."""
+
+    if not hosted_verifier_settings_valid(values):
+        return None
+    project_endpoint = values["AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"]
+    if not isinstance(project_endpoint, str):
+        return None
+    try:
+        return parse_foundry_project_endpoint(project_endpoint)
+    except ValueError:
+        return None

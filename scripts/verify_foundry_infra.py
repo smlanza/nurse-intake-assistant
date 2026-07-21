@@ -1,10 +1,19 @@
 import argparse
 import json
-import re
+from pathlib import Path
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Protocol
-from urllib.parse import urlparse
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from src.app.services.web_app_hosting_contract import (
+    parse_foundry_project_endpoint as parse_project_endpoint,
+)
 
 
 ACCOUNT_QUERY = (
@@ -52,31 +61,6 @@ class VerificationRequest:
     model_deployment_name: str
     expected_model_capacity: int | None = None
     expected_purpose_tag: str | None = None
-
-
-def parse_project_endpoint(endpoint: str) -> tuple[str, str]:
-    try:
-        parsed = urlparse(endpoint)
-        port = parsed.port
-    except ValueError as exc:
-        raise ValueError("invalid project endpoint") from exc
-    suffix = ".services.ai.azure.com"
-    host = parsed.hostname or ""
-    if (
-        parsed.scheme != "https"
-        or parsed.username is not None
-        or parsed.password is not None
-        or port is not None
-        or parsed.query
-        or parsed.fragment
-        or not host.endswith(suffix)
-    ):
-        raise ValueError("invalid project endpoint")
-    account_name = host[: -len(suffix)]
-    path_match = re.fullmatch(r"/api/projects/([A-Za-z0-9][A-Za-z0-9_.-]*)", parsed.path)
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*", account_name) or path_match is None:
-        raise ValueError("invalid project endpoint")
-    return account_name, path_match.group(1)
 
 
 def _result(category: str, *, endpoint_valid: bool = False) -> dict[str, object]:
