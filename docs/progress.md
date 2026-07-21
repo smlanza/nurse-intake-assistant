@@ -464,6 +464,10 @@ Perform architecture cleanup through periodic focused documentation reviews, not
 
 ## Testing Guidance
 
+- Human-reviewed repository CLI examples that emit JSON pipe through
+  `python -m json.tool`, with `set -o pipefail` preserving the repository
+  command's failure status. Machine-consumed or captured output, fixtures, and
+  historical transcripts remain unmodified.
 - Continue using TDD for backend behavior, business rules, provider selection,
   notification semantics, safety boundaries, idempotency, and error handling.
 - For docs-only slices, avoid adding many brittle string-matching tests.

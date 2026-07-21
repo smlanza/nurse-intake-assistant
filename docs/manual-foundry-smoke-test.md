@@ -202,8 +202,12 @@ verifying that exact assignment read-only, run the packaged operation from the
 deployed Web App environment:
 
 ```bash
-python -m src.app.operations.verify_hosted_foundry_agent --check --json
-python -m src.app.operations.verify_hosted_foundry_agent --live --json
+set -o pipefail
+
+python -m src.app.operations.verify_hosted_foundry_agent --check --json |
+  python -m json.tool
+python -m src.app.operations.verify_hosted_foundry_agent --live --json |
+  python -m json.tool
 ```
 
 The existing settings must contain the agent project endpoint, stable endpoint,
@@ -295,7 +299,10 @@ checks SDK visibility, but creates no credential/client/version and calls no
 Azure service:
 
 ```bash
-python scripts/deploy_foundry_agent.py --check --json
+set -o pipefail
+
+python scripts/deploy_foundry_agent.py --check --json |
+  python -m json.tool
 ```
 
 The model setting is `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`. Provisioning
@@ -309,7 +316,10 @@ calls.
 Live provisioning is explicitly opt-in and never invokes the agent:
 
 ```bash
-python scripts/deploy_foundry_agent.py --live --json
+set -o pipefail
+
+python scripts/deploy_foundry_agent.py --live --json |
+  python -m json.tool
 ```
 
 The command prints exactly one sanitized JSON result with safe lifecycle and
@@ -323,13 +333,22 @@ Use this exact manual sequence with the ignored local files and fictional
 intake data only:
 
 ```bash
-python scripts/verify_foundry_infra.py --json
-python scripts/deploy_foundry_agent.py --check --json
-python scripts/deploy_foundry_agent.py --live --json
-python scripts/verify_foundry_agent.py --check --json
-python scripts/verify_foundry_agent.py --live --json
-python scripts/smoke_foundry_agent_intake.py --check --json --verify-agent-version
-python scripts/smoke_foundry_agent_intake.py --env-file .env.foundry-agent.local --live --json --verify-agent-version
+set -o pipefail
+
+python scripts/verify_foundry_infra.py --json |
+  python -m json.tool
+python scripts/deploy_foundry_agent.py --check --json |
+  python -m json.tool
+python scripts/deploy_foundry_agent.py --live --json |
+  python -m json.tool
+python scripts/verify_foundry_agent.py --check --json |
+  python -m json.tool
+python scripts/verify_foundry_agent.py --live --json |
+  python -m json.tool
+python scripts/smoke_foundry_agent_intake.py --check --json --verify-agent-version |
+  python -m json.tool
+python scripts/smoke_foundry_agent_intake.py --env-file .env.foundry-agent.local --live --json --verify-agent-version |
+  python -m json.tool
 ```
 
 These are separate operator-controlled boundaries: read-only
@@ -360,16 +379,23 @@ information, or patient data.
    disposable infrastructure through the approved commands:
 
    ```bash
+   set -o pipefail
+
    python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --check
-   python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <existing-resource-group> --location <location> --what-if --json
-   python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --live --json
+   python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <existing-resource-group> --location <location> --what-if --json |
+     python -m json.tool
+   python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --live --json |
+     python -m json.tool
    ```
 
 2. Run read-only infrastructure verification with the sanitized deployment
    outputs:
 
    ```bash
-   python scripts/verify_foundry_infra.py --resource-group <resource-group> --project-endpoint <verified-project-endpoint> --model-deployment-name <verified-model-deployment-name> --json
+   set -o pipefail
+
+   python scripts/verify_foundry_infra.py --resource-group <resource-group> --project-endpoint <verified-project-endpoint> --model-deployment-name <verified-model-deployment-name> --json |
+     python -m json.tool
    ```
 
 3. Manually populate ignored `.env.foundry-agent.local` with
@@ -386,13 +412,19 @@ information, or patient data.
 4. Run the offline provisioning check:
 
    ```bash
-   python scripts/deploy_foundry_agent.py --check --json
+   set -o pipefail
+
+   python scripts/deploy_foundry_agent.py --check --json |
+     python -m json.tool
    ```
 
 5. Run explicit live provisioning:
 
    ```bash
-   python scripts/deploy_foundry_agent.py --live --json
+   set -o pipefail
+
+   python scripts/deploy_foundry_agent.py --live --json |
+     python -m json.tool
    ```
 
 6. Review only the single sanitized JSON result. Provisioning may create a
@@ -409,13 +441,19 @@ information, or patient data.
 8. Run the offline configured-version verification readiness check:
 
    ```bash
-   python scripts/verify_foundry_agent.py --check --json
+   set -o pipefail
+
+   python scripts/verify_foundry_agent.py --check --json |
+     python -m json.tool
    ```
 
 9. Run the explicit read-only configured-version verification:
 
    ```bash
-   python scripts/verify_foundry_agent.py --live --json
+   set -o pipefail
+
+   python scripts/verify_foundry_agent.py --live --json |
+     python -m json.tool
    ```
 
    Confirm `ok=true`, `category=success`, `agent_identity_present=true`,
@@ -435,7 +473,10 @@ information, or patient data.
     project-endpoint compatibility diagnosis:
 
    ```bash
-   python scripts/smoke_foundry_agent.py --live --json
+   set -o pipefail
+
+   python scripts/smoke_foundry_agent.py --live --json |
+     python -m json.tool
    ```
 
     Set `AZURE_AI_FOUNDRY_AGENT_USE_PROJECT_ENDPOINT_COMPATIBILITY=true` and
@@ -449,8 +490,12 @@ information, or patient data.
     permits the fixed fictional intake to enter the application pipeline:
 
     ```bash
-    python scripts/smoke_foundry_agent_intake.py --check --json --verify-agent-version
-    python scripts/smoke_foundry_agent_intake.py --env-file .env.foundry-agent.local --live --json --verify-agent-version
+    set -o pipefail
+
+    python scripts/smoke_foundry_agent_intake.py --check --json --verify-agent-version |
+      python -m json.tool
+    python scripts/smoke_foundry_agent_intake.py --env-file .env.foundry-agent.local --live --json --verify-agent-version |
+      python -m json.tool
     ```
 
 13. Inspect only the sanitized JSON. Confirm the verification section reports
@@ -541,7 +586,10 @@ posture is reported as `SKIP`; an explicitly configured safe posture reports
 For the standalone sanitized JSON readiness result, run:
 
 ```bash
-python scripts/preflight.py --foundry-agent-intake --json
+set -o pipefail
+
+python scripts/preflight.py --foundry-agent-intake --json |
+  python -m json.tool
 ```
 
 The consolidated preflight command uses the same pure readiness calculation as
@@ -553,7 +601,10 @@ and makes no Azure call.
 The equivalent dedicated readiness command is:
 
 ```bash
-python scripts/smoke_foundry_agent_intake.py --check --json
+set -o pipefail
+
+python scripts/smoke_foundry_agent_intake.py --check --json |
+  python -m json.tool
 ```
 
 Check mode validates only setting presence and safe application posture. It
@@ -576,10 +627,13 @@ version. Update it manually; the script never edits environment files.
 To validate readiness for the guarded sequence, include the explicit gate:
 
 ```bash
+set -o pipefail
+
 python scripts/smoke_foundry_agent_intake.py \
   --check \
   --json \
-  --verify-agent-version
+  --verify-agent-version |
+  python -m json.tool
 ```
 
 This gated check also requires
@@ -592,10 +646,13 @@ not change application state, edit an environment file, or provision an agent.
 Next, run the standalone read-only immutable-version verification:
 
 ```bash
+set -o pipefail
+
 python scripts/verify_foundry_agent.py \
   --live \
   --json \
-  --env-file .env.foundry-agent.local
+  --env-file .env.foundry-agent.local |
+  python -m json.tool
 ```
 
 Live mode requires `--json` and accepts no arbitrary intake-text argument. It
@@ -607,11 +664,14 @@ notifications. It does not deploy infrastructure or create an agent version.
 For the guarded live path, run:
 
 ```bash
+set -o pipefail
+
 python scripts/smoke_foundry_agent_intake.py \
   --live \
   --json \
   --verify-agent-version \
-  --env-file .env.foundry-agent.local
+  --env-file .env.foundry-agent.local |
+  python -m json.tool
 ```
 
 The option calls the existing `FoundryAgentVerification` boundary first. That
@@ -695,7 +755,10 @@ order without printing their intake text.
 Run its offline readiness check first:
 
 ```bash
-python scripts/evaluate_foundry_agent_intake.py --check --json
+set -o pipefail
+
+python scripts/evaluate_foundry_agent_intake.py --check --json |
+  python -m json.tool
 ```
 
 Check mode validates the committed corpus, safe scenario IDs, required setting
@@ -709,11 +772,14 @@ After the standalone read-only immutable-version verification succeeds, an
 operator may explicitly run:
 
 ```bash
+set -o pipefail
+
 python scripts/evaluate_foundry_agent_intake.py \
   --live \
   --json \
   --verify-agent-version \
-  --env-file .env.foundry-agent.local
+  --env-file .env.foundry-agent.local |
+  python -m json.tool
 ```
 
 Live evaluation requires `--verify-agent-version`. It verifies the configured
@@ -747,12 +813,15 @@ Install the optional packages in `requirements-foundry-agent.txt`, including
 operator opt-in on the guarded live fixed-corpus evaluation:
 
 ```bash
+set -o pipefail
+
 python scripts/evaluate_foundry_agent_intake.py \
   --live \
   --json \
   --verify-agent-version \
   --publish-foundry-evaluation \
-  --env-file .env.foundry-agent.local
+  --env-file .env.foundry-agent.local |
+  python -m json.tool
 ```
 
 Do not run that command until disposable infrastructure and the intended
@@ -886,7 +955,10 @@ python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live
 Example sanitized JSON live command:
 
 ```bash
-python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live --json
+set -o pipefail
+
+python scripts/smoke_foundry_agent.py --env-file .env.foundry-agent.local --live --json |
+  python -m json.tool
 ```
 
 Optional sanitized diagnostic command after live JSON fails:

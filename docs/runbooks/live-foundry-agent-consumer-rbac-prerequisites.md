@@ -65,6 +65,8 @@ uncommitted. Compile and check locally, then preview against the existing
 disposable group:
 
 ```bash
+set -o pipefail
+
 az bicep build \
   --file infra/foundry-only.bicep \
   --stdout > /dev/null
@@ -86,7 +88,8 @@ python scripts/deploy_foundry_infra.py \
   --resource-group "$rg" \
   --location "$loc" \
   --what-if \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Manually review the sanitized counts. Stop for deletes, unsupported or unknown
@@ -94,19 +97,23 @@ changes, destructive replacement, or unrelated changes. Only after a safe
 preview may the operator request deployment:
 
 ```bash
+set -o pipefail
+
 python scripts/deploy_foundry_infra.py \
   --mode foundry-only \
   --parameters infra/foundry-only.bicepparam \
   --resource-group "$rg" \
   --location "$loc" \
   --live \
-  --json
+  --json |
+  python -m json.tool
 
 python scripts/verify_foundry_infra.py \
   --resource-group "$rg" \
   --project-endpoint "$foundry_project_endpoint" \
   --model-deployment-name "$model_deployment_name" \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Current read-only proof must verify the AIServices account, child Foundry
@@ -147,6 +154,8 @@ Bicep compile
 Compile and run the offline check:
 
 ```bash
+set -o pipefail
+
 az bicep build --file infra/main.bicep --stdout > /dev/null
 
 python scripts/deploy_web_app_infra.py \
@@ -156,7 +165,8 @@ python scripts/deploy_web_app_infra.py \
   --environment-name demo \
   --project-name nurse-intake \
   --web-app-name "$web_app_name" \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Use the same arguments for separate `--what-if` and `--live` commands. Review
@@ -164,24 +174,30 @@ the sanitized preview before live deployment. Then verify configuration,
 package deterministically, deploy code explicitly, and verify readiness:
 
 ```bash
+set -o pipefail
+
 python scripts/verify_web_app_configuration.py \
   --live \
   --json \
   --resource-group "$rg" \
-  --web-app-name "$web_app_name"
+  --web-app-name "$web_app_name" |
+  python -m json.tool
 
-python scripts/package_web_app.py --package --json
+python scripts/package_web_app.py --package --json |
+  python -m json.tool
 
 python scripts/deploy_web_app_code.py \
   --live \
   --json \
   --resource-group "$rg" \
-  --web-app "$web_app_name"
+  --web-app "$web_app_name" |
+  python -m json.tool
 
 python scripts/verify_web_app_readiness.py \
   --base-url "$base_url" \
   --live \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Current proof must cover an existing running Linux Web App, system-assigned

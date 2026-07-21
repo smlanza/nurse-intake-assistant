@@ -63,6 +63,8 @@ module. Local check mode verifies required safe arguments, template presence,
 does not construct an Azure CLI runner or make an Azure call:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_web_app_infra.py \
   --check \
   --resource-group fictional-webapp-rg \
@@ -70,7 +72,8 @@ does not construct an Azure CLI runner or make an Azure call:
   --environment-name demo \
   --project-name nurse-intake \
   --web-app-name fictional-nurse-intake-web-app \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Local validation reads only the active Web App resource's
@@ -153,13 +156,16 @@ module's project-scoped Consumer role contract. It builds the inert command
 plan without constructing a runner or executing `az`:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --check \
   --resource-group fictional-resource-group \
   --web-app-name fictional-nurse-intake-web-app \
   --foundry-account-name fictional-foundry-account \
   --foundry-project-name fictional-foundry-project \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 After reviewing that result, `--what-if` is the only preview mode. It issues one
@@ -192,37 +198,46 @@ this slice. Use only fictional, reviewed resource names and data.
 Preview the independent assignment:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --what-if \
   --resource-group fictional-resource-group \
   --web-app-name fictional-nurse-intake-web-app \
   --foundry-account-name fictional-foundry-account \
   --foundry-project-name fictional-foundry-project \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Deploy it explicitly after review:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --live \
   --resource-group fictional-resource-group \
   --web-app-name fictional-nurse-intake-web-app \
   --foundry-account-name fictional-foundry-account \
   --foundry-project-name fictional-foundry-project \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Verify the assignment read-only:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
   --check \
   --resource-group <existing-resource-group> \
   --web-app-name <existing-web-app> \
   --foundry-account-name <existing-foundry-account> \
   --foundry-project-name <existing-foundry-project> \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
   --live \
@@ -230,7 +245,8 @@ Verify the assignment read-only:
   --web-app-name <existing-web-app> \
   --foundry-account-name <existing-foundry-account> \
   --foundry-project-name <existing-foundry-project> \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Run the verifier only after reviewing and explicitly authorizing the deployment.
@@ -277,11 +293,14 @@ credentials, or making an Azure call:
 Only explicit live JSON mode performs Azure reads:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/verify_web_app_configuration.py \
   --live \
   --json \
   --resource-group <existing-resource-group> \
-  --web-app-name <existing-web-app>
+  --web-app-name <existing-web-app> |
+  python -m json.tool
 ```
 
 Live mode uses three sequential read-only Azure CLI commands with explicit JSON
@@ -322,9 +341,14 @@ artifacts are never selected. Packages are written only beneath the ignored
 Check or build locally without Azure access:
 
 ```bash
-.venv/bin/python scripts/package_web_app.py --check --json
-.venv/bin/python scripts/package_web_app.py --package --json
-.venv/bin/python scripts/deploy_web_app_code.py --check --json
+set -o pipefail
+
+.venv/bin/python scripts/package_web_app.py --check --json |
+  python -m json.tool
+.venv/bin/python scripts/package_web_app.py --package --json |
+  python -m json.tool
+.venv/bin/python scripts/deploy_web_app_code.py --check --json |
+  python -m json.tool
 ```
 
 `scripts/deploy_web_app_code.py` uses one injected command-runner seam. Only
@@ -336,11 +360,14 @@ dependencies from the packaged `requirements.txt`. Code deployment remains the
 following separate, explicit command for an existing Web App:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_web_app_code.py \
   --live \
   --json \
   --resource-group <existing-resource-group> \
-  --web-app <existing-web-app>
+  --web-app <existing-web-app> |
+  python -m json.tool
 ```
 
 No live code deployment was run in this slice. An accepted CLI request is not
@@ -360,10 +387,13 @@ an explicit HTTPS origin without constructing an HTTP transport or making a
 request:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/verify_web_app_readiness.py \
   --base-url "https://example.azurewebsites.net" \
   --check \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Only explicit live mode creates the standard-library transport. It performs
@@ -372,10 +402,13 @@ short timeout and no credentials, body, retries, polling, Azure CLI call, or
 mutation:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/verify_web_app_readiness.py \
   --base-url "https://example.azurewebsites.net" \
   --live \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 The verifier and CLI are offline-tested with fake transports. No live hosted
@@ -392,9 +425,13 @@ version, publisher format, SKU, capacity, region, and quota combination valid
 for the subscription. No model or SKU is selected automatically.
 
 ```bash
+set -o pipefail
+
 python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --check
-python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <existing-resource-group> --location <location> --what-if --json
-python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --live --json
+python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <existing-resource-group> --location <location> --what-if --json |
+  python -m json.tool
+python scripts/deploy_foundry_infra.py --mode foundry-only --parameters infra/foundry-only.bicepparam --resource-group <resource-group> --location <location> --live --json |
+  python -m json.tool
 ```
 
 `--check` runs local CLI/version/Bicep build checks only. `--what-if` makes no

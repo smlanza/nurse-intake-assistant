@@ -11,19 +11,25 @@ rebuild. Follow this sequence without skipping a step:
 2. Run the coordinator's offline check:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/rebuild_daily_azure_environment.py \
   --config .env.daily-azure.local \
   --check \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 3. Start the guided live coordinator in an interactive terminal:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/rebuild_daily_azure_environment.py \
   --config .env.daily-azure.local \
   --live \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 4. Review each sanitized prompt and answer `y` only for the current stage. The
@@ -236,6 +242,8 @@ Run the offline check, review one what-if, deploy once, then perform separate
 read-only verification:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_foundry_infra.py \
   --mode foundry-only \
   --parameters infra/foundry-only.bicepparam \
@@ -249,7 +257,8 @@ read-only verification:
   --resource-group <resource-group> \
   --location <location> \
   --what-if \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/deploy_foundry_infra.py \
   --mode foundry-only \
@@ -257,13 +266,15 @@ read-only verification:
   --resource-group <resource-group> \
   --location <location> \
   --live \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/verify_foundry_infra.py \
   --resource-group <resource-group> \
   --project-endpoint <project-endpoint> \
   --model-deployment-name <model-deployment-name> \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Stop unless what-if matches the intended template and both live results are
@@ -279,15 +290,19 @@ Provisioning reads the ignored env file, may create/reuse/update one immutable
 version, and never invokes the agent. Verification is a later read-only stage:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_foundry_agent.py \
   --env-file .env.foundry-agent.local \
   --check \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/deploy_foundry_agent.py \
   --env-file .env.foundry-agent.local \
   --live \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Require sanitized provisioning success and `agent_invoked=false`. The operator
@@ -302,25 +317,31 @@ AZURE_AI_FOUNDRY_AGENT_VERSION=<immutable-agent-version>
 Prove that exact configured version without invoking it:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/configure_foundry_agent_endpoint_routing.py \
   --env-file .env.foundry-agent.local \
   --check \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/configure_foundry_agent_endpoint_routing.py \
   --env-file .env.foundry-agent.local \
   --live \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/verify_foundry_agent.py \
   --env-file .env.foundry-agent.local \
   --check \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/verify_foundry_agent.py \
   --env-file .env.foundry-agent.local \
   --live \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 The routing check is offline and proves only local readiness. Explicit live mode
@@ -348,6 +369,8 @@ Python runtime, remote build, mock providers, notification suppression, and
 non-production-clinical-use posture.
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_web_app_infra.py \
   --check \
   --resource-group <resource-group> \
@@ -361,7 +384,8 @@ non-production-clinical-use posture.
   --hosted-verifier-agent-name <agent-name> \
   --hosted-verifier-agent-version <immutable-agent-version> \
   --hosted-verifier-model-deployment-name <model-deployment-name> \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/deploy_web_app_infra.py \
   --what-if \
@@ -376,7 +400,8 @@ non-production-clinical-use posture.
   --hosted-verifier-agent-name <agent-name> \
   --hosted-verifier-agent-version <immutable-agent-version> \
   --hosted-verifier-model-deployment-name <model-deployment-name> \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/deploy_web_app_infra.py \
   --live \
@@ -391,7 +416,8 @@ non-production-clinical-use posture.
   --hosted-verifier-agent-name <agent-name> \
   --hosted-verifier-agent-version <immutable-agent-version> \
   --hosted-verifier-model-deployment-name <model-deployment-name> \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Review the what-if before running live. Do not combine modes. Stop unless each
@@ -402,7 +428,10 @@ result succeeds and the deployment is limited to the intended Web App stack.
 Read and compare the Bicep-owned settings without printing their values:
 
 ```bash
-.venv/bin/python scripts/verify_web_app_configuration.py --check --json
+set -o pipefail
+
+.venv/bin/python scripts/verify_web_app_configuration.py --check --json |
+  python -m json.tool
 
 .venv/bin/python scripts/verify_web_app_configuration.py \
   --live \
@@ -414,7 +443,8 @@ Read and compare the Bicep-owned settings without printing their values:
   --hosted-verifier-stable-agent-endpoint <stable-agent-endpoint> \
   --hosted-verifier-agent-name <agent-name> \
   --hosted-verifier-agent-version <immutable-agent-version> \
-  --hosted-verifier-model-deployment-name <model-deployment-name>
+  --hosted-verifier-model-deployment-name <model-deployment-name> |
+  python -m json.tool
 ```
 
 Stop unless the sanitized result proves the full baseline and all five hosted
@@ -429,8 +459,12 @@ suppression. Configuration verification does not prove deployed code.
 Create the deterministic source package locally as its own stage:
 
 ```bash
-.venv/bin/python scripts/package_web_app.py --check --json
-.venv/bin/python scripts/package_web_app.py --package --json
+set -o pipefail
+
+.venv/bin/python scripts/package_web_app.py --check --json |
+  python -m json.tool
+.venv/bin/python scripts/package_web_app.py --package --json |
+  python -m json.tool
 ```
 
 Require a successful, sanitized package result. Packaging proves neither code
@@ -444,12 +478,16 @@ must remain excluded.
 Check the deployment boundary, then explicitly upload to the existing Web App:
 
 ```bash
-.venv/bin/python scripts/deploy_web_app_code.py --check --json
+set -o pipefail
+
+.venv/bin/python scripts/deploy_web_app_code.py --check --json |
+  python -m json.tool
 .venv/bin/python scripts/deploy_web_app_code.py \
   --live \
   --resource-group <resource-group> \
   --web-app <web-app-name> \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Deployment acceptance is not readiness. Continue only after a successful
@@ -460,15 +498,19 @@ sanitized result; do not introduce polling or another deployment request.
 Validate the URL locally, then make one explicit read-only readiness request:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/verify_web_app_readiness.py \
   --check \
   --base-url https://<web-app-hostname> \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/verify_web_app_readiness.py \
   --live \
   --base-url https://<web-app-hostname> \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Require the repository contract for `/health`, `/version`, and `/demo/status`
@@ -481,13 +523,16 @@ Use the separate `infra/foundry-agent-consumer-rbac.bicep` boundary. Run check,
 review what-if, then deploy the project-scoped assignment once:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --check \
   --resource-group <resource-group> \
   --web-app-name <web-app-name> \
   --foundry-account-name <foundry-account-name> \
   --foundry-project-name <foundry-project-name> \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --what-if \
@@ -495,7 +540,8 @@ review what-if, then deploy the project-scoped assignment once:
   --web-app-name <web-app-name> \
   --foundry-account-name <foundry-account-name> \
   --foundry-project-name <foundry-project-name> \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --live \
@@ -503,7 +549,8 @@ review what-if, then deploy the project-scoped assignment once:
   --web-app-name <web-app-name> \
   --foundry-account-name <foundry-account-name> \
   --foundry-project-name <foundry-project-name> \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Manually review the what-if and exact project scope before running live. Do not
@@ -515,13 +562,16 @@ its cause.
 Prove the exact direct assignment separately from deployment:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
   --check \
   --resource-group <resource-group> \
   --web-app-name <web-app-name> \
   --foundry-account-name <foundry-account-name> \
   --foundry-project-name <foundry-project-name> \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
   --live \
@@ -529,7 +579,8 @@ Prove the exact direct assignment separately from deployment:
   --web-app-name <web-app-name> \
   --foundry-account-name <foundry-account-name> \
   --foundry-project-name <foundry-project-name> \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Require exactly one matching direct Foundry Agent Consumer assignment at the
@@ -542,17 +593,21 @@ Run this only when the next narrow slice requires the fixed hosted verifier.
 The check is offline; discovery performs exactly one read:
 
 ```bash
+set -o pipefail
+
 .venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
   --check \
   --resource-group <resource-group> \
   --web-app-name <web-app-name> \
-  --json
+  --json |
+  python -m json.tool
 
 .venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
   --live-discover \
   --resource-group <resource-group> \
   --web-app-name <web-app-name> \
-  --json
+  --json |
+  python -m json.tool
 ```
 
 Discovery does not authorize a trigger, status read, managed-identity access,
