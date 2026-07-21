@@ -5,6 +5,10 @@ from pathlib import Path
 import pytest
 
 from src.app.services import web_app_infra_deployment as deployment
+from src.app.services.daily_azure_environment_rebuild import (
+    _plan_from_object,
+    safe_guided_plan,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -618,6 +622,95 @@ def test_web_app_adapter_accepts_only_the_exact_expected_topology(
     assert all(change.approved_boundary for change in result.change_evidence)
 
 
+def test_web_app_adapter_accepts_exact_topology_with_bounded_module_ignores(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    changes = [
+        *_web_app_topology_changes(deployment_request),
+        {"changeType": "Ignore"},
+        {"changeType": "Ignore"},
+    ]
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"), runner=runner
+    )
+
+    expected = result.change_evidence[:8]
+    ignores = result.change_evidence[8:]
+    assert result.exact_topology_match is True
+    assert all(change.expected_multiplicity_match for change in expected)
+    assert all(change.approved_boundary for change in expected)
+    assert [change.logical_category for change in ignores] == [
+        "template_module_ignore",
+        "template_module_ignore",
+    ]
+    assert all(change.approved_boundary for change in ignores)
+    assert not any(change.expected_identity_match for change in ignores)
+    assert not any(change.expected_parent_match for change in ignores)
+    assert not any(change.expected_scope_match for change in ignores)
+    assert safe_guided_plan(
+        _plan_from_object(result),
+        expected_boundary="web_app",
+        require_create=True,
+    ) is True
+
+
+@pytest.mark.parametrize(
+    "extra_evidence",
+    [
+        [{"changeType": "Ignore"}],
+        [
+            {"changeType": "Ignore"},
+            {"changeType": "Ignore"},
+            {"changeType": "Ignore"},
+        ],
+        [
+            {"changeType": "Ignore"},
+            {"changeType": "Ignore"},
+            {"changeType": "NoChange"},
+        ],
+        [
+            {"changeType": "Ignore"},
+            {"changeType": "Ignore"},
+            {
+                "changeType": "Ignore",
+                "resourceId": (
+                    "/subscriptions/private-sub/resourceGroups/fictional-webapp-rg/"
+                    "providers/Microsoft.KeyVault/vaults/unexpected"
+                ),
+            },
+        ],
+    ],
+    ids=("one", "three", "unknown-action", "identified-unexpected"),
+)
+def test_web_app_adapter_rejects_ignore_evidence_outside_bounded_policy(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    extra_evidence: list[dict[str, str]],
+) -> None:
+    changes = [*_web_app_topology_changes(deployment_request), *extra_evidence]
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"), runner=runner
+    )
+
+    assert result.exact_topology_match is False
+    assert not any(
+        change.expected_multiplicity_match
+        for change in result.change_evidence[:8]
+    )
+    assert safe_guided_plan(
+        _plan_from_object(result),
+        expected_boundary="web_app",
+        require_create=True,
+    ) is False
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -657,10 +750,28 @@ def test_web_app_adapter_accepts_only_the_exact_expected_topology(
                 ),
             }
         ),
+        lambda changes: changes.append(
+            {
+                "changeType": "Modify",
+                "resourceId": (
+                    "/subscriptions/private-sub/resourceGroups/fictional-webapp-rg/"
+                    "providers/Microsoft.KeyVault/vaults/unexpected"
+                ),
+            }
+        ),
+        lambda changes: changes.pop(),
     ],
-    ids=("wrong-name", "wrong-group", "wrong-parent", "duplicate", "extra"),
+    ids=(
+        "wrong-name",
+        "wrong-group",
+        "wrong-parent",
+        "duplicate",
+        "extra",
+        "unexpected-modify",
+        "missing",
+    ),
 )
-def test_web_app_adapter_rejects_inexact_same_type_topologies(
+def test_web_app_adapter_rejects_inexact_topologies(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
     mutate,
 ) -> None:
@@ -678,12 +789,36 @@ def test_web_app_adapter_rejects_inexact_same_type_topologies(
     assert not all(change.approved_boundary for change in result.change_evidence)
 
 
+@pytest.mark.parametrize("action", ["Modify", "Delete", "Deploy", "Unsupported"])
+def test_web_app_adapter_rejects_unapproved_actions_for_expected_resources(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    action: str,
+) -> None:
+    changes = _web_app_topology_changes(deployment_request)
+    changes[7]["changeType"] = action
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"), runner=runner
+    )
+
+    assert not all(change.approved_boundary for change in result.change_evidence)
+    assert safe_guided_plan(
+        _plan_from_object(result),
+        expected_boundary="web_app",
+        require_create=True,
+    ) is False
+
+
 @pytest.mark.parametrize(
     "stdout",
     [
         "not-json",
         '{}',
         '{"changes":{}}',
+        '{"changes":[{"changeType":"Unknown"}]}',
     ],
 )
 def test_invalid_what_if_json_structure_fails_safely(

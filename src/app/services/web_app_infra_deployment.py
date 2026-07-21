@@ -724,6 +724,7 @@ def _parse_what_if_summary(
         sanitized_additional_resource_types={
             "Microsoft.Resources/deployments": "nested_deployment"
         },
+        allowed_unidentified_ignore_counts=frozenset({0, 2}),
     )
     if parsed is None:
         return None

@@ -84,6 +84,7 @@ def parse_sanitized_what_if(
     expected_resources: tuple[ExpectedWhatIfResource, ...] | None = None,
     allowlisted_resource_types: Mapping[str, str] | None = None,
     sanitized_additional_resource_types: Mapping[str, str] | None = None,
+    allowed_unidentified_ignore_counts: frozenset[int] = frozenset({0}),
     automatically_approved_actions: frozenset[str] = frozenset(
         {"Create", "NoChange", "Ignore"}
     ),
@@ -103,6 +104,7 @@ def parse_sanitized_what_if(
             sanitized_additional_resource_types=(
                 sanitized_additional_resource_types or {}
             ),
+            allowed_unidentified_ignore_counts=allowed_unidentified_ignore_counts,
         )
     if allowlisted_resource_types is None:
         return None
@@ -145,6 +147,7 @@ def _exact_summary(
     expected_resources: tuple[ExpectedWhatIfResource, ...],
     automatically_approved_actions: frozenset[str],
     sanitized_additional_resource_types: Mapping[str, str],
+    allowed_unidentified_ignore_counts: frozenset[int],
 ) -> SanitizedWhatIfSummary:
     expected_keys = Counter(_expected_key(item) for item in expected_resources)
     additional_types = {
@@ -154,16 +157,33 @@ def _exact_summary(
     expected_type_keys = {
         item.resource_type.casefold() for item in expected_resources
     }
+    unidentified_ignore_count = sum(
+        action == "Ignore" and identity.resource_type == "unidentified"
+        for action, identity in zip(actions, identities, strict=True)
+    )
+    unidentified_ignores_match = (
+        unidentified_ignore_count in allowed_unidentified_ignore_counts
+    )
     ordinary_identities = tuple(
         identity
-        for identity in identities
+        for action, identity in zip(actions, identities, strict=True)
         if identity.resource_type.casefold() not in additional_types
+        and not (
+            unidentified_ignores_match
+            and action == "Ignore"
+            and identity.resource_type == "unidentified"
+        )
     )
     actual_keys = Counter(_identity_key(item) for item in ordinary_identities)
     allowed_additional = all(
         identity.resource_type.casefold() in expected_type_keys
         or identity.resource_type.casefold() in additional_types
-        for identity in identities
+        or (
+            unidentified_ignores_match
+            and action == "Ignore"
+            and identity.resource_type == "unidentified"
+        )
+        for action, identity in zip(actions, identities, strict=True)
     )
     expected_groups = {
         item.resource_group.casefold() for item in expected_resources
@@ -180,6 +200,22 @@ def _exact_summary(
     evidence: list[SanitizedWhatIfChange] = []
 
     for action, identity in zip(actions, identities, strict=True):
+        if action == "Ignore" and identity.resource_type == "unidentified":
+            approved = bool(exact_topology_match and unidentified_ignores_match)
+            evidence.append(
+                SanitizedWhatIfChange(
+                    action=action,
+                    resource_type="unidentified",
+                    logical_category="template_module_ignore",
+                    boundary=boundary,
+                    approved_boundary=approved,
+                    expected_identity_match=False,
+                    expected_parent_match=False,
+                    expected_scope_match=False,
+                    expected_multiplicity_match=approved,
+                )
+            )
+            continue
         type_expectations = [
             item
             for item in expected_resources

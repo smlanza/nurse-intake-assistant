@@ -4,7 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 Latest verified test baseline:
-- 1,651 passed
+- 1,716 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 **Active implementation direction:** The project is deliberately moving from
@@ -95,6 +95,14 @@ fresh current-session `daily_environment_ready=true` result. The coordinator
 does not trigger or read WebJob execution, perform hosted managed-identity
 verification, invoke an agent, process intake, send notifications, or delete
 the resource group.
+
+Web App preview validation requires exactly one matching resource in each of
+the eight approved application categories. The Foundry-disabled `main.bicep`
+preview may additionally contain either zero or exactly two missing-identity
+`Ignore` records for template modules; those non-mutating records do not alter
+expected-resource multiplicity. Any other unidentified count or action, extra
+resource, mutation, missing resource, identity, parent, or scope mismatch still
+fails closed before Web App deployment approval.
 
 Deleting the resource group expires all prior evidence for the resource group,
 Foundry AIServices account, child project and model deployment, prompt agent and

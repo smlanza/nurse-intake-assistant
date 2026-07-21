@@ -681,6 +681,18 @@ def safe_guided_plan(
     for change in plan.change_evidence:
         if change.boundary != expected_boundary:
             return False
+        if change.logical_category == "template_module_ignore":
+            if (
+                change.action != "Ignore"
+                or change.resource_type != "unidentified"
+                or not change.approved_boundary
+                or change.expected_identity_match
+                or change.expected_parent_match
+                or change.expected_scope_match
+                or not change.expected_multiplicity_match
+            ):
+                return False
+            continue
         nested = change.resource_type.casefold() == NESTED_DEPLOYMENT_RESOURCE_TYPE.casefold()
         if nested:
             if (
