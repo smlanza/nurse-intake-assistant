@@ -127,32 +127,19 @@ def test_configuration_rejects_unsafe_values(
     assert error.value.category == category
 
 
-def test_configuration_cannot_disable_mandatory_hosted_proofs(tmp_path: Path) -> None:
+def test_configuration_can_disable_optional_webjob_discovery(tmp_path: Path) -> None:
     values = {**CONFIG, "DISCOVER_HOSTED_FOUNDRY_WEBJOB": "false"}
 
-    with pytest.raises(ConfigValidationError) as error:
-        load_daily_azure_config(
-            _config_file(tmp_path, values),
-            repository_root=tmp_path,
-            repository_state_checker=lambda _root, _path: True,
-        )
+    config = load_daily_azure_config(
+        _config_file(tmp_path, values),
+        repository_root=tmp_path,
+        repository_state_checker=lambda _root, _path: True,
+    )
 
-    assert error.value.category == "incompatible_options"
+    assert config.discover_hosted_foundry_webjob is False
 
 
-@pytest.mark.parametrize(
-    "missing_proof",
-    [
-        "webjob_discovered",
-        "webjob_triggered",
-        "webjob_status_read",
-        "managed_identity_verification_performed",
-        "agent_invoked",
-    ],
-)
-def test_verified_ready_always_requires_every_hosted_proof(
-    missing_proof: str,
-) -> None:
+def test_verified_ready_does_not_require_optional_hosted_workflows() -> None:
     proofs = {
         "local_orchestration_ready": True,
         "account_verified": True,
@@ -166,20 +153,20 @@ def test_verified_ready_always_requires_every_hosted_proof(
         "application_deployment_attempted": True,
         "application_deployment_accepted": True,
         "hosted_readiness_verified": True,
-        "consumer_rbac_verified": True,
-        "webjob_discovered": True,
-        "webjob_triggered": True,
-        "webjob_status_read": True,
-        "managed_identity_verification_performed": True,
-        "agent_invoked": True,
     }
-    proofs[missing_proof] = False
 
-    with pytest.raises(ValueError, match="every mandatory proof"):
-        DailyAzureEnvironmentRebuildResult._verified_ready(
-            proofs,
-            azure_mutation_made=False,
-        )
+    result = DailyAzureEnvironmentRebuildResult._verified_ready(
+        proofs,
+        azure_mutation_made=False,
+    )
+
+    assert result.daily_environment_ready is True
+    assert result.consumer_rbac_verified is False
+    assert result.webjob_discovered is False
+    assert result.webjob_triggered is False
+    assert result.webjob_status_read is False
+    assert result.managed_identity_verification_performed is False
+    assert result.agent_invoked is False
 
 
 def test_configuration_rejects_missing_file_and_setting(tmp_path: Path) -> None:
@@ -664,166 +651,6 @@ def test_repository_rbac_discovery_accepts_valid_assignment_missing(
     assert result.consumer_rbac_plan.mutation_required is True
 
 
-def test_valid_assignment_missing_reaches_guarded_what_if_then_declines_safely(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    runner = FakeRunner()
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    context = _rbac_preview_context(tmp_path)
-    repository_stage = _repository_rbac_stage
-    verifier_result = _consumer_rbac_verifier_result(context)
-
-    def verify_rbac(current_context):
-        runner.calls.append("verify_rbac")
-        runner.contexts["verify_rbac"] = current_context
-        return repository_stage(
-            tmp_path,
-            monkeypatch,
-            verifier_result,
-        )
-
-    runner.verify_rbac = verify_rbac
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: summary.stage != "consumer_rbac_deployment",
-    )
-
-    assert result.category == "consumer_rbac_operator_declined"
-    assert result.consumer_rbac_assignment_required is True
-    assert result.consumer_rbac_assignment_approved is False
-    assert result.consumer_rbac_assignment_attempted is False
-    assert result.consumer_rbac_verified is False
-    assert result.daily_environment_ready is False
-    assert runner.calls.count("preview_rbac") == 1
-    assert runner.calls.count("deploy_rbac") == 0
-
-
-def test_known_unsupported_rbac_preview_reaches_default_no_approval_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    runner = FakeRunner()
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    context = _rbac_preview_context(tmp_path)
-    plan = _rbac_preview_plan(tmp_path)
-    changes = [
-        {"changeType": "Ignore"}
-        for _ in range(10)
-    ]
-    changes.append(
-        {
-            "changeType": "Unsupported",
-            "after": {
-                "properties": {
-                    "principalId": plan.principal_id,
-                    "roleDefinitionId": plan.role_definition_id,
-                }
-            },
-        }
-    )
-    repository_runner = RepositoryDailyAzureStageRunner(
-        _config(tmp_path),
-        repository_root=Path(__file__).resolve().parents[1],
-        command_runner=CommandRunner(
-            [(0, json.dumps({"changes": changes}), "")]
-        ),
-    )
-    verifier_result = _consumer_rbac_verifier_result(context)
-
-    def verify_rbac(current_context):
-        runner.calls.append("verify_rbac")
-        runner.contexts["verify_rbac"] = current_context
-        return _repository_rbac_stage(
-            tmp_path,
-            monkeypatch,
-            verifier_result,
-        )
-
-    def preview_rbac(current_context, current_plan):
-        runner.calls.append("preview_rbac")
-        runner.contexts["preview_rbac"] = current_context
-        return repository_runner.preview_rbac(current_context, current_plan)
-
-    runner.verify_rbac = verify_rbac
-    runner.preview_rbac = preview_rbac
-    approvals: list[ApprovalSummary] = []
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: (
-            approvals.append(summary) is None
-            and summary.stage != "consumer_rbac_deployment"
-        ),
-    )
-
-    assert result.category == "consumer_rbac_operator_declined"
-    rbac_approvals = [
-        summary
-        for summary in approvals
-        if summary.stage == "consumer_rbac_deployment"
-    ]
-    assert len(rbac_approvals) == 1
-    facts = dict(rbac_approvals[0].facts)
-    assert facts["Preview classification"] == "Unsupported role-assignment preview"
-    assert facts["Azure assignment contents proved"] == "no"
-    assert facts["Ignore records"] == "10"
-    assert facts["Unsupported records"] == "1"
-    assert facts["Manual review required"] == "yes"
-    assert facts["Create records"] == "0"
-    assert facts["Modify records"] == "0"
-    assert facts["Delete records"] == "0"
-    assert facts["Deploy records"] == "0"
-    assert facts["Unknown records"] == "0"
-    assert facts["Destructive or modifying changes"] == "no"
-    assert "assignment creation" not in json.dumps(
-        rbac_approvals[0].facts
-    ).casefold()
-    assert "automatic approval" not in json.dumps(
-        rbac_approvals[0].facts
-    ).casefold()
-    serialized_facts = json.dumps(rbac_approvals[0].facts)
-    assert all(
-        value not in serialized_facts
-        for value in (
-            plan.subscription_id,
-            plan.resource_group,
-            plan.web_app_name,
-            plan.principal_id,
-            plan.foundry_account_name,
-            plan.foundry_project_name,
-            plan.foundry_project_resource_id,
-            plan.role_definition_id,
-            plan.role_assignment_name,
-        )
-    )
-    assert runner.calls.count("preview_rbac") == 1
-    assert runner.calls.count("inspect_resource_group") == 1
-    assert runner.calls.count("verify_foundry") == 1
-    assert runner.calls.count("verify_agent") == 1
-    assert runner.calls.count("verify_web_app_configuration") == 1
-    assert runner.calls.count("build_package") == 1
-    assert runner.calls.count("verify_readiness") == 1
-    assert runner.calls.count("verify_rbac") == 1
-    assert runner.calls.count("deploy_rbac") == 0
-    assert runner.calls.count("discover_webjob") == 0
-    assert runner.calls.count("trigger_webjob") == 0
-    assert runner.calls.count("verify_hosted_agent") == 0
-    assert result.webjob_status_read is False
-    assert result.managed_identity_verification_performed is False
-    assert result.agent_invoked is False
-    assert result.consumer_rbac_assignment_approved is False
-    assert result.consumer_rbac_assignment_attempted is False
-    assert result.daily_environment_ready is False
-
-
 @pytest.mark.parametrize(
     "overrides",
     [
@@ -868,108 +695,6 @@ def test_malformed_consumer_rbac_discovery_object_fails_closed(
     assert result.state == "failed"
     assert result.category == "consumer_rbac_discovery_failed"
     assert result.consumer_rbac_plan is None
-
-
-@pytest.mark.parametrize(
-    ("case", "overrides"),
-    [
-        ("assignment present", {"consumer_assignment_present": True}),
-        ("assignment scope matches", {"consumer_assignment_scope_matches": True}),
-        ("consumer role matches", {"consumer_role_matches": True}),
-        ("missing identity evidence", {"web_app_identity_present": False}),
-        ("unresolved project scope", {"foundry_project_scope_resolved": False}),
-        ("invalid local contract", {"local_contract_validated": False}),
-        ("truthy non-boolean field", {"local_contract_validated": 1}),
-        ("unknown category", {"category": "unknown_category"}),
-    ],
-)
-def test_full_coordinator_blocks_contradictory_consumer_rbac_discovery(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    case: str,
-    overrides: dict[str, object],
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    approvals: list[str] = []
-    context = _rbac_preview_context(tmp_path)
-    verifier_result = _consumer_rbac_verifier_result(context, **overrides)
-
-    def verify_rbac(current_context):
-        runner.calls.append("verify_rbac")
-        return _repository_rbac_stage(tmp_path, monkeypatch, verifier_result)
-
-    runner.verify_rbac = verify_rbac
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary.stage) is None,
-    )
-
-    assert case
-    assert result.ok is False
-    assert runner.calls.count("verify_rbac") == 1
-    assert "preview_rbac" not in runner.calls
-    assert "consumer_rbac_deployment" not in approvals
-    assert "deploy_rbac" not in runner.calls
-    assert "discover_webjob" not in runner.calls
-    assert "trigger_webjob" not in runner.calls
-    assert "verify_hosted_agent" not in runner.calls
-    failure_output = f"{result!r}\n{json.dumps(result.to_json_dict())}"
-    assert "/subscriptions/" not in failure_output
-    assert verifier_result.principal_id not in failure_output
-
-
-@pytest.mark.parametrize(
-    "case",
-    ["missing required field", "malformed result object"],
-)
-def test_full_coordinator_blocks_malformed_consumer_rbac_discovery(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    case: str,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    approvals: list[str] = []
-    context = _rbac_preview_context(tmp_path)
-    valid = _consumer_rbac_verifier_result(context)
-    if case == "missing required field":
-        values = vars(valid).copy()
-        values.pop("principal_id")
-        verifier_result: object = SimpleNamespace(**values)
-    else:
-        verifier_result = object()
-
-    def verify_rbac(current_context):
-        runner.calls.append("verify_rbac")
-        return _repository_rbac_stage(tmp_path, monkeypatch, verifier_result)
-
-    runner.verify_rbac = verify_rbac
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary.stage) is None,
-    )
-
-    assert result.ok is False
-    assert runner.calls.count("verify_rbac") == 1
-    assert "preview_rbac" not in runner.calls
-    assert "consumer_rbac_deployment" not in approvals
-    assert "deploy_rbac" not in runner.calls
-    assert "discover_webjob" not in runner.calls
-    assert "trigger_webjob" not in runner.calls
-    assert "verify_hosted_agent" not in runner.calls
 
 
 def test_existing_direct_consumer_assignment_reuses_verification_path(
@@ -1028,10 +753,6 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
         "build_package",
         "deploy_code",
         "verify_readiness",
-        "verify_rbac",
-        "discover_webjob",
-        "trigger_webjob",
-        "verify_hosted_agent",
     ]
     payload = result.to_json_dict()
     assert payload["ok"] is True
@@ -1041,10 +762,12 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
     assert payload["application_deployment_accepted"] is True
     assert payload["application_deployment_reused"] is False
     assert payload["readiness_declaration"] == "DAILY AZURE ENVIRONMENT READY"
-    assert payload["agent_invoked"] is True
-    assert payload["webjob_triggered"] is True
-    assert payload["webjob_status_read"] is True
-    assert payload["managed_identity_verification_performed"] is True
+    assert payload["consumer_rbac_verified"] is False
+    assert payload["agent_invoked"] is False
+    assert payload["webjob_discovered"] is False
+    assert payload["webjob_triggered"] is False
+    assert payload["webjob_status_read"] is False
+    assert payload["managed_identity_verification_performed"] is False
     assert approval_stages == [
         "resource_group",
         "foundry_deployment",
@@ -1062,7 +785,7 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
     assert "consumer_rbac_assignment_scope" not in payload
 
 
-def test_existing_environment_reuses_without_infrastructure_or_rbac_mutation(
+def test_existing_environment_reuses_without_optional_hosted_workflows(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner()
@@ -1082,10 +805,12 @@ def test_existing_environment_reuses_without_infrastructure_or_rbac_mutation(
     assert "deploy_foundry" not in runner.calls
     assert "plan_web_app" not in runner.calls
     assert "deploy_web_app" not in runner.calls
-    assert "plan_rbac" not in runner.calls
+    assert "verify_rbac" not in runner.calls
+    assert "preview_rbac" not in runner.calls
     assert "deploy_rbac" not in runner.calls
-    assert "trigger_webjob" in runner.calls
-    assert "verify_hosted_agent" in runner.calls
+    assert "discover_webjob" not in runner.calls
+    assert "trigger_webjob" not in runner.calls
+    assert "verify_hosted_agent" not in runner.calls
 
 
 def test_missing_package_binding_stops_before_application_deployment(
@@ -1599,105 +1324,9 @@ def test_exact_web_app_topology_reaches_only_the_existing_approval_prompt(
     assert "deploy_web_app" not in runner.calls
 
 
-def test_webjob_hosting_mismatch_routes_existing_web_app_through_preview(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    verification_count = 0
-
-    def verify_web_app_configuration(context):
-        nonlocal verification_count
-        verification_count += 1
-        runner.calls.append("verify_web_app_configuration")
-        runner.contexts["verify_web_app_configuration"] = context
-        if verification_count == 1:
-            return StageResult.absent("web_app_configuration_not_current")
-        return StageResult.success(reused=True)
-
-    runner.verify_web_app_configuration = verify_web_app_configuration
-    runner.plan_overrides[
-        "plan_web_app_reconciliation"
-    ] = _web_app_reconciliation_modify_plan()
-    approvals: list[ApprovalSummary] = []
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: (
-            approvals.append(summary) is None
-            and summary.stage != "web_app_deployment"
-        ),
-    )
-
-    assert result.category == "web_app_deployment_approval_required"
-    assert [summary.stage for summary in approvals] == ["web_app_deployment"]
-    facts = dict(approvals[0].facts)
-    assert "resource-level" in facts["Plan classification"].casefold()
-    assert "repository-owned existing web app" in facts[
-        "Plan classification"
-    ].casefold()
-    assert "individual property deltas not asserted" in facts[
-        "Azure preview evidence"
-    ]
-    assert facts["Repository Bicep resource contract"] == "complete shape pinned"
-    assert dict(approvals[0].facts)["Mutation required"] == "yes"
-    assert runner.calls.count("plan_web_app_reconciliation") == 1
-    assert "deploy_web_app_reconciliation" not in runner.calls
-    assert "build_package" not in runner.calls
-    assert "discover_webjob" not in runner.calls
 
 
-def test_existing_web_app_drift_rejects_confirmed_broad_main_template_topology(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    runner.verify_web_app_configuration = lambda _context: StageResult.absent(
-        "web_app_configuration_not_current"
-    )
-    runner.plan_overrides["plan_web_app_reconciliation"] = PlanResult(
-        deploy_count=8,
-        ignore_count=4,
-        exact_topology_match=False,
-        change_evidence=(
-            *(
-                _exact_change("Deploy", f"full-template-resource-{index}", "web_app")
-                for index in range(8)
-            ),
-            *(
-                ChangeEvidence("Ignore", "unidentified_resource", "web_app", False)
-                for _index in range(4)
-            ),
-        ),
-    )
-    approvals: list[ApprovalSummary] = []
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary) is None,
-    )
-
-    assert result.category == "unsafe_web_app_plan"
-    assert approvals == []
-    assert runner.calls.count("plan_web_app_reconciliation") == 1
-    assert "plan_web_app" not in runner.calls
-    assert "deploy_web_app" not in runner.calls
-    assert "deploy_web_app_reconciliation" not in runner.calls
-
-
-def test_existing_web_app_drift_uses_exact_reconciliation_flow(
+def test_existing_web_app_drift_remains_fail_closed_without_reconciliation(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner()
@@ -1705,16 +1334,10 @@ def test_existing_web_app_drift_uses_exact_reconciliation_flow(
     runner.foundry_absent = False
     runner.web_app_absent = False
     runner.rbac_absent = False
-    verification_count = 0
-
     def verify_web_app_configuration(context):
-        nonlocal verification_count
-        verification_count += 1
         runner.calls.append("verify_web_app_configuration")
         runner.contexts["verify_web_app_configuration"] = context
-        if verification_count == 1:
-            return StageResult.absent("web_app_configuration_not_current")
-        return StageResult.success(reused=True)
+        return StageResult.absent("web_app_configuration_not_current")
 
     runner.verify_web_app_configuration = verify_web_app_configuration
     approvals: list[ApprovalSummary] = []
@@ -1728,39 +1351,19 @@ def test_existing_web_app_drift_uses_exact_reconciliation_flow(
         approver=lambda summary: approvals.append(summary) is None,
     )
 
-    assert result.ok is True
-    assert runner.calls.count("plan_web_app_reconciliation") == 2
-    assert runner.calls.count("deploy_web_app_reconciliation") == 1
-    assert runner.calls.count("verify_web_app_configuration") == 2
+    assert result.ok is False
+    assert result.category == "web_app_configuration_not_current"
+    assert runner.calls.count("verify_web_app_configuration") == 1
+    assert "plan_web_app_reconciliation" not in runner.calls
+    assert "deploy_web_app_reconciliation" not in runner.calls
     assert "plan_web_app" not in runner.calls
     assert "deploy_web_app" not in runner.calls
-    first_preview = runner.calls.index("plan_web_app_reconciliation")
-    fresh_preview = runner.calls.index(
-        "plan_web_app_reconciliation",
-        first_preview + 1,
-    )
-    deployment = runner.calls.index("deploy_web_app_reconciliation")
-    verification = runner.calls.index(
-        "verify_web_app_configuration",
-        runner.calls.index("verify_web_app_configuration") + 1,
-    )
-    package = runner.calls.index("build_package")
-    discovery = runner.calls.index("discover_webjob")
-    assert first_preview < fresh_preview < deployment < verification
-    assert verification < package < discovery
-    approval = next(
-        summary
-        for summary in approvals
-        if summary.stage == "web_app_deployment"
-    )
-    facts = dict(approval.facts)
-    assert (
-        facts["Plan classification"]
-        == "Resource-level modification of exact repository-owned existing Web App through dedicated reconciliation template"
-    )
-    assert (
-        facts["Excluded deployments"]
-        == "App Service plan, Cosmos, Storage, monitoring, Foundry, and RBAC"
+    assert "build_package" not in runner.calls
+    assert "verify_readiness" not in runner.calls
+    assert approvals == []
+    assert result.recommended_next_step == (
+        "Recreate the disposable resource group through the normal fresh-build "
+        "path or use the separate supervised Web App deployment workflow."
     )
 
 
@@ -2096,163 +1699,8 @@ def test_web_app_modify_policy_rejects_unrelated_or_ambiguous_evidence(
     assert safe_web_app_plan(plan) is False
 
 
-def test_approved_web_app_modify_deploys_once_and_reverifies_before_discovery(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    runner.rbac_absent = False
-    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
-    verification_count = 0
-
-    def verify_web_app_configuration(context):
-        nonlocal verification_count
-        verification_count += 1
-        runner.calls.append("verify_web_app_configuration")
-        runner.contexts["verify_web_app_configuration"] = context
-        if verification_count == 1:
-            return StageResult.absent("web_app_configuration_not_current")
-        return StageResult.success(reused=True)
-
-    runner.verify_web_app_configuration = verify_web_app_configuration
-    approvals: list[ApprovalSummary] = []
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary) is None,
-    )
-
-    assert result.ok is True
-    assert runner.calls.count("plan_web_app_reconciliation") == 2
-    assert runner.calls.count("deploy_web_app_reconciliation") == 1
-    assert runner.calls.count("verify_web_app_configuration") == 2
-    first_preview = runner.calls.index("plan_web_app_reconciliation")
-    fresh_preview = runner.calls.index(
-        "plan_web_app_reconciliation",
-        first_preview + 1,
-    )
-    deployment = runner.calls.index("deploy_web_app_reconciliation")
-    verification = runner.calls.index(
-        "verify_web_app_configuration",
-        runner.calls.index("verify_web_app_configuration") + 1,
-    )
-    discovery = runner.calls.index("discover_webjob")
-    assert first_preview < fresh_preview < deployment < verification < discovery
-    web_app_approval = next(
-        summary
-        for summary in approvals
-        if summary.stage == "web_app_deployment"
-    )
-    assert "resource-level" in dict(web_app_approval.facts)[
-        "Plan classification"
-    ].casefold()
 
 
-@pytest.mark.parametrize("fresh_case", ("changed", "malformed"))
-def test_web_app_modify_approval_rejects_stale_or_changed_fresh_preview(
-    tmp_path: Path,
-    fresh_case: str,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    initial = _web_app_reconciliation_modify_plan()
-    no_change = replace(
-        initial,
-        exact_topology_match=False,
-        change_evidence=tuple(
-            replace(change, expected_identity_match=False)
-            if change.action == "Modify"
-            else change
-            for change in initial.change_evidence
-        ),
-    )
-    plans = [initial, no_change if fresh_case == "changed" else PlanResult(malformed=True)]
-
-    def plan_web_app_reconciliation(context):
-        runner.calls.append("plan_web_app_reconciliation")
-        runner.contexts["plan_web_app_reconciliation"] = context
-        return plans.pop(0)
-
-    runner.plan_web_app_reconciliation = plan_web_app_reconciliation
-    runner.verify_web_app_configuration = lambda _context: StageResult.absent(
-        "web_app_configuration_not_current"
-    )
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert result.category == "approval_evidence_stale"
-    assert runner.calls.count("plan_web_app_reconciliation") == 2
-    assert "deploy_web_app_reconciliation" not in runner.calls
-    assert "discover_webjob" not in runner.calls
-
-
-def test_web_app_modify_deployment_failure_stops_before_reverification(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    runner.plan_overrides[
-        "plan_web_app_reconciliation"
-    ] = _web_app_reconciliation_modify_plan()
-    runner.fail_at = "deploy_web_app_reconciliation"
-    runner.verify_web_app_configuration = lambda _context: StageResult.absent(
-        "web_app_configuration_not_current"
-    )
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert result.category == "stage_failed"
-    assert runner.calls.count("deploy_web_app_reconciliation") == 1
-    assert "discover_webjob" not in runner.calls
-
-
-def test_web_app_modify_deployment_acceptance_is_not_configuration_proof(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    runner.plan_overrides[
-        "plan_web_app_reconciliation"
-    ] = _web_app_reconciliation_modify_plan()
-
-    def verify_web_app_configuration(context):
-        runner.calls.append("verify_web_app_configuration")
-        runner.contexts["verify_web_app_configuration"] = context
-        return StageResult.absent("web_app_configuration_not_current")
-
-    runner.verify_web_app_configuration = verify_web_app_configuration
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert result.category == "web_app_configuration_not_current"
-    assert runner.calls.count("deploy_web_app_reconciliation") == 1
-    assert runner.calls.count("verify_web_app_configuration") == 2
-    assert "build_package" not in runner.calls
-    assert "discover_webjob" not in runner.calls
 
 
 def test_repository_webjob_hosting_mismatch_is_not_reused(
@@ -2482,416 +1930,6 @@ def test_unrelated_create_only_evidence_stops_automatic_continuation() -> None:
     assert safe_automatic_plan(no_change, require_create=True) is False
 
 
-def test_missing_rbac_decline_shows_exact_plan_and_makes_no_rbac_mutation(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    approvals: list[ApprovalSummary] = []
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: (
-            approvals.append(summary) is None
-            and summary.stage != "consumer_rbac_deployment"
-        ),
-    )
-
-    assert result.category == "consumer_rbac_operator_declined"
-    assert "deploy_rbac" not in runner.calls
-    assert result.consumer_rbac_assignment_required is True
-    assert result.consumer_rbac_assignment_approved is False
-    assert result.consumer_rbac_assignment_attempted is False
-    assert approvals[-1].stage == "consumer_rbac_deployment"
-    assert approvals[-1].heading == "FOUNDRY AGENT CONSUMER RBAC"
-    assert approvals[-1].facts == (
-        ("Principal type", "Web App system-assigned managed identity"),
-        ("Principal resource", "fictional-nurse-intake-web"),
-        ("Current system principal verified", "yes"),
-        ("Role name", "Foundry Agent Consumer"),
-        ("Fixed built-in role verified", "yes"),
-        ("Scope type", "Foundry project"),
-        ("Scope resource", "fictional-intake-foundry/fictional-intake-project"),
-        ("Exact project scope verified", "yes"),
-        ("Existing matching assignments", "0"),
-        ("Mutation required", "yes"),
-        ("Preview classification", "Exact Create"),
-        ("Azure assignment contents proved", "yes"),
-        ("Expected Consumer assignment count", "1"),
-        ("Manual review required", "no"),
-        ("Destructive change", "no"),
-        ("Current generation bound", "yes"),
-    )
-    facts = json.dumps(approvals[-1].facts)
-    assert "/subscriptions/" not in facts
-    assert "/providers/" not in facts
-    assert "00000000-0000-0000-0000-000000000002" not in facts
-
-
-def test_missing_rbac_approval_deploys_once_reverifies_and_continues(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert result.ok is True
-    assert runner.calls.count("deploy_rbac") == 1
-    first_verify = runner.calls.index("verify_rbac")
-    fresh_verify = runner.calls.index("verify_rbac", first_verify + 1)
-    deploy = runner.calls.index("deploy_rbac")
-    post_verify = runner.calls.index("verify_rbac", fresh_verify + 1)
-    discovery = runner.calls.index("discover_webjob")
-    trigger = runner.calls.index("trigger_webjob")
-    hosted = runner.calls.index("verify_hosted_agent")
-    assert first_verify < fresh_verify < deploy < post_verify < discovery < trigger < hosted
-    assert runner.calls.count("verify_rbac") == 3
-    assert result.consumer_rbac_verified is True
-    assert result.consumer_rbac_assignment_required is True
-    assert result.consumer_rbac_assignment_approved is True
-    assert result.consumer_rbac_assignment_attempted is True
-    assert result.consumer_rbac_assignment_reused is False
-
-
-def test_missing_rbac_requires_approved_and_fresh_current_previews(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    approvals: list[ApprovalSummary] = []
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary) is None,
-    )
-
-    assert result.ok is True
-    assert runner.calls.count("preview_rbac") == 2
-    initial_preview = runner.calls.index("preview_rbac")
-    fresh_preview = runner.calls.index("preview_rbac", initial_preview + 1)
-    assert runner.calls.index("verify_rbac") < initial_preview
-    assert initial_preview < fresh_preview < runner.calls.index("deploy_rbac")
-    rbac_approval = next(
-        summary for summary in approvals if summary.stage == "consumer_rbac_deployment"
-    )
-    assert "preview-a" not in rbac_approval.evidence_binding
-    assert len(rbac_approval.evidence_binding) == 64
-
-
-def test_complete_current_generation_reread_occurs_after_approval_before_deploy(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-
-    def approve(summary: ApprovalSummary) -> bool:
-        if summary.stage == "consumer_rbac_deployment":
-            runner.calls.append("operator_approved_rbac")
-        return True
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=approve)
-
-    assert result.ok is True
-    approval = runner.calls.index("operator_approved_rbac")
-    deploy = runner.calls.index("deploy_rbac")
-    assert runner.calls[approval + 1 : deploy] == [
-        "inspect_resource_group",
-        "verify_foundry",
-        "verify_agent",
-        "verify_web_app_configuration",
-        "build_package",
-        "verify_readiness",
-        "verify_rbac",
-        "preview_rbac",
-    ]
-
-
-@pytest.mark.parametrize(
-    ("generation_input", "stage"),
-    [
-        ("resource-group generation", "inspect_resource_group"),
-        ("Foundry account/project or model deployment", "verify_foundry"),
-        ("prompt-agent identity, immutable version, routing, or model", "verify_agent"),
-        ("Web App configuration", "verify_web_app_configuration"),
-        ("deployed application generation or readiness", "verify_readiness"),
-    ],
-)
-def test_failed_post_approval_generation_reread_stops_before_rbac_deployment(
-    tmp_path: Path,
-    generation_input: str,
-    stage: str,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    runner.fail_on_occurrence[stage] = 2
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert generation_input
-    assert result.ok is False
-    assert runner.calls.count(stage) == 2
-    assert "deploy_rbac" not in runner.calls
-
-
-def test_changed_post_approval_package_generation_stops_before_rbac_deployment(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    runner.fresh_package_binding = "b" * 64
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert result.category == "approval_evidence_stale"
-    assert runner.calls.count("build_package") == 2
-    assert "deploy_rbac" not in runner.calls
-
-
-def test_unproven_post_approval_deployed_generation_stops_before_rbac_deployment(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    original_readiness = runner.verify_readiness
-    reads = 0
-
-    def unproven_on_reread(context):
-        nonlocal reads
-        result = original_readiness(context)
-        reads += 1
-        return replace(result, artifact_current=False) if reads == 2 else result
-
-    runner.verify_readiness = unproven_on_reread
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert result.category == "application_artifact_mismatch"
-    assert runner.calls.count("verify_readiness") == 2
-    assert "deploy_rbac" not in runner.calls
-
-
-def test_fresh_rbac_preview_mismatch_stops_without_automatic_reapproval(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    runner.fresh_rbac_preview_binding = "preview-b"
-    approvals: list[str] = []
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary.stage) is None,
-    )
-
-    assert result.category == "approval_evidence_stale"
-    assert runner.calls.count("preview_rbac") == 2
-    assert approvals.count("consumer_rbac_deployment") == 1
-    assert "deploy_rbac" not in runner.calls
-
-
-def test_bounded_unsupported_fresh_action_change_stops_without_reapproval(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    bounded = {
-        "changes": [
-            *({"changeType": "Ignore"} for _ in range(10)),
-            {"changeType": "Unsupported"},
-        ]
-    }
-    command_runner = CommandRunner(
-        [
-            (0, json.dumps(bounded), ""),
-            (
-                0,
-                _rbac_preview_payload(
-                    "Create",
-                    "Microsoft.Authorization/roleAssignments",
-                ),
-                "",
-            ),
-        ]
-    )
-    repository_runner = RepositoryDailyAzureStageRunner(
-        _config(tmp_path),
-        repository_root=Path(__file__).resolve().parents[1],
-        command_runner=command_runner,
-    )
-
-    def production_preview(context, plan):
-        runner.calls.append("preview_rbac")
-        runner.contexts["preview_rbac"] = context
-        return repository_runner.preview_rbac(context, plan)
-
-    runner.preview_rbac = production_preview
-    approvals: list[str] = []
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary.stage) is None,
-    )
-
-    assert result.category == "approval_evidence_stale"
-    assert len(command_runner.calls) == 2
-    assert runner.calls.count("preview_rbac") == 2
-    assert approvals.count("consumer_rbac_deployment") == 1
-    assert "deploy_rbac" not in runner.calls
-    assert "verify_rbac_deployment" not in runner.calls
-    assert "discover_webjob" not in runner.calls
-    assert "trigger_webjob" not in runner.calls
-    assert "verify_hosted_agent" not in runner.calls
-
-
-def test_exact_matching_fresh_generation_and_preview_permit_rbac_deployment(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert result.ok is True
-    assert runner.calls.count("preview_rbac") == 2
-    assert runner.calls.count("deploy_rbac") == 1
-
-
-def test_coordinator_uses_shared_canonical_environment_fingerprint(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.resource_group_absent = False
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    approvals: list[ApprovalSummary] = []
-
-    DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: (
-            approvals.append(summary) is None
-            and summary.stage != "consumer_rbac_deployment"
-        ),
-    )
-
-    expected = hosted_foundry_agent_webjob_execution.environment_generation_fingerprint(
-        hosted_foundry_agent_webjob_execution.EnvironmentGenerationEvidence(
-            resource_group_resource_id=(
-                "/subscriptions/00000000-0000-0000-0000-000000000001/"
-                "resourceGroups/fictional-daily-rg"
-            ),
-            web_app_resource_id=runner.rbac_plan.web_app_resource_id,
-            principal_id=runner.rbac_plan.principal_id,
-            package_digest=PACKAGE_DIGEST,
-            foundry_project_resource_id=(
-                "/subscriptions/00000000-0000-0000-0000-000000000001/"
-                "resourceGroups/fictional-daily-rg/providers/"
-                "Microsoft.CognitiveServices/accounts/fictional-intake-foundry/"
-                "projects/fictional-intake-project"
-            ),
-            agent_name="nurse-intake-agent",
-            agent_version="7",
-            webjob_name=hosted_foundry_agent_webjob_execution.WEBJOB_NAME,
-        )
-    )
-    assert runner.contexts["preview_rbac"].environment_fingerprint == expected
-    assert (
-        "_current_environment_fingerprint"
-        not in Path(daily_rebuild_service.__file__).read_text()
-    )
-    assert (
-        '"schema_version": 1'
-        not in Path(daily_rebuild_service.__file__).read_text()
-    )
-
-
-def test_consumer_rbac_approval_digest_is_stable_and_nonreversible(
-    tmp_path: Path,
-) -> None:
-    summaries: list[ApprovalSummary] = []
-    for _ in range(2):
-        runner = FakeRunner()
-        runner.resource_group_absent = False
-        runner.foundry_absent = False
-        runner.web_app_absent = False
-        DailyAzureEnvironmentRebuild(
-            _config(tmp_path),
-            repository_root=tmp_path,
-            local_contract_checker=lambda _root: (),
-        ).live(
-            runner,
-            approver=lambda summary: (
-                summaries.append(summary) is None
-                and summary.stage != "consumer_rbac_deployment"
-            ),
-        )
-
-    rbac = [
-        summary
-        for summary in summaries
-        if summary.stage == "consumer_rbac_deployment"
-    ]
-    assert len(rbac) == 2
-    assert rbac[0].evidence_binding == rbac[1].evidence_binding
-    assert "/subscriptions/" not in rbac[0].evidence_binding
-    assert runner.rbac_plan.principal_id not in rbac[0].evidence_binding
 
 
 def test_public_coordinator_result_has_no_canonical_rbac_identifiers(
@@ -2919,202 +1957,6 @@ def test_public_coordinator_result_has_no_canonical_rbac_identifiers(
     )
 
 
-def test_failed_rbac_preview_stops_before_approval_deployment_and_hosted_work(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.fail_at = "preview_rbac"
-    approvals: list[str] = []
-
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary.stage) is None,
-    )
-
-    assert result.category == "stage_failed"
-    assert "consumer_rbac_deployment" not in approvals
-    assert "deploy_rbac" not in runner.calls
-    assert "discover_webjob" not in runner.calls
-
-
-def test_rbac_parse_diagnostic_propagates_and_stops_every_later_boundary(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    command_runner = CommandRunner(
-        [(0, json.dumps({"changes": [None]}), "")]
-    )
-    repository_runner = RepositoryDailyAzureStageRunner(
-        _config(tmp_path),
-        repository_root=Path(__file__).resolve().parents[1],
-        command_runner=command_runner,
-    )
-
-    def production_preview(context, plan):
-        runner.calls.append("preview_rbac")
-        runner.contexts["preview_rbac"] = context
-        return repository_runner.preview_rbac(context, plan)
-
-    runner.preview_rbac = production_preview
-    approvals: list[str] = []
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary.stage) is None,
-    )
-
-    assert result.category == "what_if_parse_failed"
-    diagnostic = result.what_if_diagnostic
-    assert diagnostic is not None
-    assert diagnostic.failure_reasons == (
-        "change_record_not_object",
-        "no_supported_topology_matched",
-    )
-    assert (
-        result.to_json_dict()["what_if_diagnostic"]
-        == diagnostic.to_json_dict()
-    )
-    assert result.consumer_rbac_assignment_required is True
-    assert result.consumer_rbac_assignment_approved is False
-    assert result.consumer_rbac_assignment_attempted is False
-    assert approvals.count("consumer_rbac_deployment") == 0
-    assert len(command_runner.calls) == 1
-    assert runner.calls.count("preview_rbac") == 1
-    assert runner.calls.count("inspect_resource_group") == 1
-    assert runner.calls.count("verify_foundry") == 1
-    assert runner.calls.count("verify_agent") == 1
-    assert runner.calls.count("verify_web_app_configuration") == 1
-    assert runner.calls.count("build_package") == 1
-    assert runner.calls.count("verify_readiness") == 1
-    assert runner.calls.count("verify_rbac") == 1
-    assert "deploy_rbac" not in runner.calls
-    assert "verify_rbac_deployment" not in runner.calls
-    assert "discover_webjob" not in runner.calls
-    assert "trigger_webjob" not in runner.calls
-    assert "verify_hosted_agent" not in runner.calls
-    assert result.webjob_status_read is False
-    assert result.managed_identity_verification_performed is False
-    assert result.agent_invoked is False
-    public = f"{result!r}\n{json.dumps(result.to_json_dict())}"
-    assert runner.rbac_plan.subscription_id not in public
-    assert runner.rbac_plan.principal_id not in public
-    assert runner.rbac_plan.role_definition_id not in public
-    assert runner.rbac_plan.role_assignment_name not in public
-
-
-def test_rbac_deployment_acceptance_without_post_verification_blocks_hosted_work(
-    tmp_path: Path,
-) -> None:
-    runner = FakeRunner()
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    original_verify_rbac = runner.verify_rbac
-
-    def never_visible(context):
-        result = original_verify_rbac(context)
-        if not result.ok and result.state != "absent":
-            return result
-        assert result.consumer_rbac_plan is not None
-        return replace(
-            StageResult.absent("consumer_rbac_assignment_required"),
-            consumer_rbac_plan=replace(
-                result.consumer_rbac_plan,
-                existing_matching_assignments=0,
-            ),
-        )
-
-    runner.verify_rbac = never_visible
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
-
-    assert result.category == "consumer_rbac_verification_failed"
-    assert runner.calls.count("deploy_rbac") == 1
-    assert runner.calls.count("verify_rbac") == 3
-    assert "discover_webjob" not in runner.calls
-    assert result.daily_environment_ready is False
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("principal_id", "00000000-0000-0000-0000-000000000099"),
-        (
-            "foundry_project_resource_id",
-            "/subscriptions/00000000-0000-0000-0000-000000000001/"
-            "resourceGroups/fictional-daily-rg/providers/"
-            "Microsoft.CognitiveServices/accounts/fictional-intake-foundry/"
-            "projects/replaced-project",
-        ),
-        ("subscription_id", "00000000-0000-0000-0000-000000000099"),
-        ("foundry_project_name", "replaced-project"),
-        (
-            "role_definition_id",
-            "/subscriptions/00000000-0000-0000-0000-000000000001/"
-            "providers/Microsoft.Authorization/roleDefinitions/"
-            "00000000-0000-0000-0000-000000000099",
-        ),
-        (
-            "web_app_resource_id",
-            "/subscriptions/00000000-0000-0000-0000-000000000001/"
-            "resourceGroups/fictional-daily-rg/providers/"
-            "Microsoft.Web/sites/replaced-web-app",
-        ),
-        ("role_assignment_name", "00000000-0000-0000-0000-000000000099"),
-    ],
-)
-def test_changed_fresh_rbac_evidence_after_approval_stops_without_mutation(
-    tmp_path: Path, field: str, value: str
-) -> None:
-    runner = FakeRunner()
-    runner.foundry_absent = False
-    runner.web_app_absent = False
-    original_verify = runner.verify_rbac
-    reads = 0
-    approvals: list[str] = []
-
-    def changed_on_fresh_read(context):
-        nonlocal reads
-        result = original_verify(context)
-        reads += 1
-        if reads != 2 or result.consumer_rbac_plan is None:
-            return result
-        return replace(
-            result,
-            consumer_rbac_plan=replace(
-                result.consumer_rbac_plan,
-                **{field: value},
-            ),
-        )
-
-    runner.verify_rbac = changed_on_fresh_read
-    result = DailyAzureEnvironmentRebuild(
-        _config(tmp_path),
-        repository_root=tmp_path,
-        local_contract_checker=lambda _root: (),
-    ).live(
-        runner,
-        approver=lambda summary: approvals.append(summary.stage) is None,
-    )
-
-    assert result.category == "approval_evidence_stale"
-    assert runner.calls.count("verify_rbac") == 2
-    assert runner.calls.count("preview_rbac") == 1
-    assert runner.calls.count("deploy_rbac") == 0
-    assert approvals.count("consumer_rbac_deployment") == 1
-    assert result.consumer_rbac_assignment_attempted is False
-    assert result.daily_environment_ready is False
 
 
 def _exact_change(action: str, category: str, boundary: str) -> ChangeEvidence:
@@ -3146,10 +1988,6 @@ def _exact_change(action: str, category: str, boundary: str) -> ChangeEvidence:
         "build_package",
         "deploy_code",
         "verify_readiness",
-        "verify_rbac",
-        "discover_webjob",
-        "trigger_webjob",
-        "verify_hosted_agent",
     ],
 )
 def test_major_stage_failures_stop_all_later_work(
@@ -3168,7 +2006,7 @@ def test_major_stage_failures_stop_all_later_work(
     assert result.ok is False
     assert runner.calls[-1] == failure_stage
     assert result.agent_invoked is False
-    assert result.webjob_triggered is (failure_stage == "verify_hosted_agent")
+    assert result.webjob_triggered is False
 
 
 def test_dynamic_context_flows_without_aggregate_leakage(tmp_path: Path) -> None:
@@ -3187,8 +2025,7 @@ def test_dynamic_context_flows_without_aggregate_leakage(tmp_path: Path) -> None
     assert readiness_context.hosted_origin == (
         "https://fictional-nurse-intake-web.azurewebsites.net"
     )
-    rbac_context = runner.contexts["verify_rbac"]
-    assert rbac_context.foundry_account_name == "fictional-account"
+    assert "verify_rbac" not in runner.contexts
     assert not hasattr(result, "consumer_rbac_assignment_scope")
 
 
@@ -3422,7 +2259,7 @@ def test_successful_stage_without_deployment_or_artifact_proof_cannot_be_ready(
     assert "verify_readiness" not in runner.calls
 
 
-def test_reused_package_claim_cannot_skip_current_deployment(
+def test_current_package_can_be_safely_reused_before_hosted_readiness_proof(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner()
@@ -3440,11 +2277,13 @@ def test_reused_package_claim_cannot_skip_current_deployment(
         local_contract_checker=lambda _root: (),
     ).live(runner, approver=lambda _summary: True)
 
-    assert result.category == "application_provenance_invalid"
+    assert result.category == "success"
     assert result.application_deployment_reused is True
-    assert result.application_artifact_current is False
-    assert result.daily_environment_ready is False
-    assert "verify_readiness" not in runner.calls
+    assert result.application_deployment_attempted is False
+    assert result.application_deployment_accepted is False
+    assert result.application_artifact_current is True
+    assert result.daily_environment_ready is True
+    assert runner.calls[-1] == "verify_readiness"
 
 
 def test_accepted_deployment_with_old_hosted_worker_cannot_be_ready(

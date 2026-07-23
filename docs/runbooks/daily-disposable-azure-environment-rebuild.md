@@ -5,6 +5,19 @@
 The repository-owned coordinator is the preferred path for a normal daily
 rebuild. Follow this sequence without skipping a step:
 
+The supported primary path is the next-day fresh build after the previous
+workday's disposable resource group was deleted:
+
+```text
+missing disposable environment
+-> infra/main.bicep initial creation
+-> Foundry and prompt-agent verification
+-> Web App deployment and configuration verification
+-> application deployment
+-> hosted readiness
+-> DAILY AZURE ENVIRONMENT READY
+```
+
 1. Copy `.env.daily-azure.example` to the ignored `.env.daily-azure.local`,
    replace every placeholder with reviewed stable non-secret values, and keep
    that configuration untracked.
@@ -36,15 +49,7 @@ set -o pipefail
    default, EOF, malformed input, or noninteractive input stops without that
    mutation. The possible approvals are resource-group creation, Foundry
    infrastructure deployment, Web App infrastructure deployment, and current
-   package deployment. When Consumer RBAC is missing, one acceptable assignment-
-   only what-if must complete before the prompt shows the exact current Web App
-   principal, fixed Consumer role and definition ID, Foundry project scope, and
-matching-assignment count. Approval is bound to that preview and the current
-environment generation. Immediately after approval, fresh read-only evidence
-must match the approved subscription, principal, exact project resource ID and
-scope, fixed role, deterministic assignment identity, and generation fingerprint
-before the constrained Bicep deployment can run. Already verified infrastructure and RBAC stages are
-   not prompted.
+   package deployment. Already verified required stages are not prompted.
 5. Require `daily_environment_ready=true` from the current run before recording
    the READY declaration below.
 
@@ -59,45 +64,43 @@ The operator-approved coordinator verifies current state and reuses only an
 owned resource group and conclusively valid resources. It prepares sanitized
 Foundry and Web App previews, including whether nested deployment records are
 present, and requires current-run approval before either deployment. It stops
-on Delete, Modify, malformed, unknown, unrelated, incomplete, count-disagreeing,
+on destructive, malformed, unknown, unrelated, incomplete, count-disagreeing,
 or otherwise ambiguous evidence. Package deployment has its own current-run
-approval and immutable transient handoff. Live mode reruns the
-complete offline contract; the prior standalone check is not reused as proof.
-The coordinator derives the current subscription, Web App system identity,
-Foundry account/project IDs, exact project scope, fixed Consumer role-definition
-ID, and deterministic deployment name from current configuration and read-only
-Azure results. It reuses exactly one correct direct assignment without a prompt.
-When the assignment is missing, the coordinator accepts only one Create for the
-intended project-scoped assignment and rejects Delete, Modify, Deploy,
-Unsupported, unrelated, or malformed preview evidence. It defaults to no and deploys only through
-`scripts/deploy_foundry_agent_consumer_rbac.py`'s service boundary after explicit
-approval, and requires a fresh read-only verification before continuing. Wrong
-principal, role, scope, inherited-only, duplicate, or malformed assignment state
-stops without deletion or replacement.
+approval and immutable transient handoff. Live mode reruns the complete offline
+contract; the prior standalone check is not reused as proof. The coordinator
+then verifies the exact hosted application artifact through `/health`,
+`/version`, and `/demo/status` and returns success immediately.
 
-After RBAC verification, the coordinator discovers and triggers the fixed hosted
-verifier WebJob and performs one receipt-correlated status read. A nonterminal
-run safely returns NOT READY; a repeated coordinator run reuses the unresolved
-receipt only when its private generation fingerprint matches current Azure
-resource, identity, package, project, agent-version, and WebJob evidence. Legacy,
-mismatched, or conflicting immutable state returns NOT READY for manual
-investigation and is never overwritten to permit a retrigger. Use
-`docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md` for the
-separate offline, evidence-preserving retirement procedure. Terminal success proves hosted
-managed-identity metadata verification followed by one fixed-fictional-data
-agent invocation. Intake processing, notifications, and resource-group cleanup
-remain separate. There is no hosted-proof skip path to READY.
+An existing Web App with configuration drift is not reconciled by the daily
+coordinator. On a same-day rerun, unsafe or ambiguous drift evidence remains
+fail-closed and is never classified as successful. The operator may continue
+using the already verified environment, delete and recreate the disposable
+resource group through the normal fresh-build path, or use the separate
+supervised Web App deployment workflow.
+
+### Out of scope for daily readiness
+
+- Consumer RBAC
+- WebJob execution
+- managed-identity verification
+- hosted agent invocation
+- existing-Web-App reconciliation when the preview is unsafe
+
+These standalone workflows remain available for an explicitly authorized later
+slice. Do not continue into them automatically after daily success.
 
 The detailed manual stages below remain the troubleshooting, recovery, audit,
-and individual-boundary reference. They are not the normal daily command path.
+and individual-boundary reference. Sections 13 through 15 are optional
+standalone workflows, not part of the normal daily command path or READY gate.
 
 ## 1. Purpose and lifecycle
 
 This is the authoritative operator runbook for rebuilding the disposable Nurse
 Intake Assistant Azure environment at the start of a live-validation session.
 The default state is **NOT READY**. A session becomes **READY** only after the
-guided path, or every required manual recovery stage below, succeeds in
-order and its sanitized result is reviewed during the current session.
+guided application-hosting path, or its required manual recovery stages through
+hosted readiness, succeed in order and their sanitized results are reviewed
+during the current session.
 
 This file is the durable checked-in procedure. Command output is fresh
 current-session evidence. Evidence expires when the resource group is deleted
@@ -108,11 +111,15 @@ resource group absent
 -> rebuild
 -> verify
 -> perform approved Azure-dependent work
--> optionally delete resource group
+-> delete the entire disposable resource group at the end of the workday
 -> all live evidence expires
 ```
 
 A prior day's success never proves today's readiness.
+
+Nightly whole-resource-group deletion remains the expected cost-control step.
+The reduced daily-readiness scope does not make the Azure resources permanent
+and does not remove this cleanup requirement.
 
 This workflow is fictional-data-only, requires human nurse review, and does not
 establish production or clinical readiness.
@@ -171,8 +178,10 @@ Confirm the local files remain ignored:
 git check-ignore infra/foundry-only.bicepparam .env.foundry-agent.local
 ```
 
-The `--check` commands in sections 6 through 15 are the relevant repository
-script preflights. Each must pass before its matching live mode is considered.
+The `--check` commands in sections 6 through 12 are the daily-readiness
+preflights. Sections 13 through 15 apply only to their separately authorized
+optional workflows. Each check must pass before its matching live mode is
+considered.
 
 Create an ignored `.env.foundry-agent.local` manually. Before prompt-agent
 provisioning it must contain the current values for:
@@ -535,10 +544,12 @@ Require the repository contract for `/health`, `/version`, and `/demo/status`
 to pass, including mock providers and notification suppression. The result
 proves hosted readiness, not Foundry access or invocation.
 
-## 13. Consumer RBAC deployment
+## 13. Optional standalone Consumer RBAC deployment
 
-Use the separate `infra/foundry-agent-consumer-rbac.bicep` boundary. Run check,
-review what-if, then deploy the project-scoped assignment once:
+This section is not required for daily READY. When a later slice explicitly
+requires it, use the separate `infra/foundry-agent-consumer-rbac.bicep`
+boundary. Run check, review what-if, then deploy the project-scoped assignment
+once:
 
 ```bash
 set -o pipefail
@@ -587,9 +598,10 @@ Do not
 use a manual role assignment or retry a failed deployment without correcting
 its cause.
 
-## 14. Consumer RBAC verification
+## 14. Optional standalone Consumer RBAC verification
 
-Prove the exact direct assignment separately from deployment:
+When separately authorized, prove the exact direct assignment separately from
+deployment:
 
 ```bash
 set -o pipefail
@@ -617,13 +629,12 @@ Require exactly one matching direct Foundry Agent Consumer assignment at the
 approved project scope. Historical, inherited, broader, duplicate, or inferred
 assignments do not pass. This does not prove managed-identity token acquisition.
 
-## 15. Consumer RBAC and WebJob troubleshooting
+## 15. Optional standalone Consumer RBAC and WebJob troubleshooting
 
-The normal daily path performs RBAC discovery, preview, approval, deployment,
-post-deployment verification, WebJob discovery, trigger, and status sequencing.
-Use the individual commands below only for troubleshooting or recovery. The
-check is offline. Live discovery, trigger, and status are coordinator-owned so
-they receive repository-derived current-generation evidence:
+The normal daily path does not perform RBAC discovery or deployment, WebJob
+discovery, trigger or status reads, managed-identity verification, or agent
+invocation. Use the individual commands below only after separate explicit
+authorization for troubleshooting or recovery. The check is offline:
 
 ```bash
 set -o pipefail
@@ -637,21 +648,22 @@ set -o pipefail
 ```
 
 Standalone discovery does not itself authorize a trigger, status read,
-managed-identity access, metadata verification, or agent invocation. The daily
-coordinator owns the normal sequence, including its fixed fictional invocation.
-If immutable evidence is stale, incompatible, or generation-mismatched, do not
-delete or ignore it and do not use a coordinator skip. Follow the separate
-stale-state recovery runbook, verify its archive, then restart the normal daily
-coordinator from the beginning.
+managed-identity access, metadata verification, or agent invocation. Preserve
+the separation between those operations. If immutable evidence is stale,
+incompatible, or generation-mismatched, do not delete or ignore it. Follow the
+separate stale-state recovery runbook only when explicitly authorized.
+That procedure is
+`docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md`.
 
 ## 16. Daily environment-ready declaration
 
 Declare **READY** only after the operator has reviewed current-session success
 for every required stage: authentication, resource group, Foundry deployment
 and verification, exact prompt-agent version, Web App deployment/configuration,
-package/code, readiness, RBAC deployment and verification, WebJob discovery,
-receipt-correlated terminal success, managed-identity metadata verification, and
-one valid fixed-fictional invocation.
+package/code deployment or safe reuse, and hosted application readiness.
+Consumer RBAC, WebJob execution, managed-identity verification, and hosted
+agent invocation are not required for this declaration and must not be inferred
+from it.
 
 The declaration must name the next narrow Azure-dependent slice and list which
 fresh sanitized prerequisites satisfy it. READY authorizes only that slice; it
@@ -672,8 +684,9 @@ DAILY AZURE ENVIRONMENT NOT READY
 
 ## 17. End-of-session cleanup and evidence expiry
 
-After the session, the operator explicitly deletes only the exact disposable
-resource group and reviews completion:
+At the end of each workday, the operator explicitly deletes only the exact
+disposable resource group and reviews completion. This nightly cleanup remains
+required even when the reduced daily-readiness boundary succeeded:
 
 ```bash
 az group delete \
@@ -713,8 +726,8 @@ DAILY AZURE ENVIRONMENT NOT READY
 Use one short-lived, fictional, resource-group-scoped environment. Select the
 smallest approved development capacity, create no resources beyond the checked-in
 templates, avoid duplicate deployments, and delete the exact resource group at
-the end of the session. Cleanup is an operator action and must never be inferred
-from elapsed time or delegated to an unbounded automation loop.
+the end of every workday. Nightly cleanup is an operator action and must never
+be inferred from elapsed time or delegated to an unbounded automation loop.
 
 Daily resource-group deletion is an intentional operator cost-control choice,
 not a repository defect. Its consequence is a required rebuild and fresh

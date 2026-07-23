@@ -17,13 +17,13 @@ def test_progress_has_one_current_hosted_verifier_state_and_baseline() -> None:
 
     assert "missing hosted execution and configuration boundaries" not in normalized_active
     assert progress.count("Latest verified test baseline:") == 1
-    assert "offline-tested only" in progress
+    assert "standalone optional workflows" in _normalized(progress)
     assert "preferred daily path" in progress.casefold()
     assert "fixed fictional invocation" in progress.casefold()
     assert len(progress.splitlines()) <= 500
 
 
-def test_current_coordinator_documentation_has_no_superseded_manual_or_skip_claims() -> None:
+def test_current_coordinator_documentation_has_new_readiness_boundary() -> None:
     architecture = _normalized(_read("docs/architecture.md")).casefold()
     progress = _normalized(_read("docs/progress.md")).casefold()
     runbook = _normalized(
@@ -33,16 +33,18 @@ def test_current_coordinator_documentation_has_no_superseded_manual_or_skip_clai
     for stale in (
         "stop for the separate manual rbac workflow",
         "never previews or deploys rbac itself",
-        "does not trigger or read webjob execution",
         "--skip-webjob-discovery",
+        "all hosted proofs are mandatory for readiness",
+        "ready still requires webjob",
     ):
         assert stale not in architecture + progress + runbook
-    assert "current-generation" in architecture
-    assert "what-if" in architecture
+    assert "ends at verified application-hosting readiness" in architecture
+    assert "returns success immediately" in architecture
+    assert "out of scope for daily readiness" in runbook
     assert "no live" in progress
 
 
-def test_web_app_reconciliation_architecture_and_resume_point_are_explicit() -> None:
+def test_web_app_reconciliation_is_standalone_and_not_the_resume_point() -> None:
     architecture = _normalized(_read("docs/architecture.md")).casefold()
     progress = _normalized(_read("docs/progress.md")).casefold()
 
@@ -56,6 +58,8 @@ def test_web_app_reconciliation_architecture_and_resume_point_are_explicit() -> 
             "exact preview",
             "identical fresh preview",
             "separate read-only configuration verification",
+            "daily coordinator fails closed",
+            "not part of daily coordinator readiness",
         },
     )
     _assert_contains_all(
@@ -65,11 +69,15 @@ def test_web_app_reconciliation_architecture_and_resume_point_are_explicit() -> 
             "nine unidentified ignore",
             "wrapper is removed",
             "--reconcile-existing-web-app",
-            "read-only reconciliation what-if",
             "no live direct-module preview has yet succeeded",
             "no live reconciliation preview or deployment",
+            "resume nurse intake assistant application and ai-103 feature development",
         },
     )
+    active_resume = progress.split("## recommended next slice", 1)[1].split(
+        "## current slice status", 1
+    )[0]
+    assert "read-only reconciliation what-if" not in active_resume
 
 
 def _normalized(text: str) -> str:
@@ -760,12 +768,12 @@ def test_daily_azure_coordinator_docs_define_the_guided_safe_path() -> None:
             "--live",
             "daily_environment_ready=true",
             "troubleshooting, recovery, audit",
-            "exact current Web App principal",
-            "scripts/deploy_foundry_agent_consumer_rbac.py",
-            "receipt-correlated status read",
             "current-run approval",
             "resource_group_ownership_approval_required",
             "immutable transient handoff",
+            "Out of scope for daily readiness",
+            "returns success immediately",
+            "Do not continue into them automatically after daily success",
         },
     )
     _assert_contains_all(
@@ -775,10 +783,11 @@ def test_daily_azure_coordinator_docs_define_the_guided_safe_path() -> None:
             "independent deployment",
             "stage-specific operator approval",
             "explicit manual adoption",
-            "triggers the fixed WebJob",
             "healthy old worker cannot produce READY",
-            "fixed Bicep deployment boundary",
             "exact identity, scope, parent",
+            "ends at verified application-hosting readiness",
+            "separate, explicitly invoked optional workflows",
+            "daily coordinator fails closed",
         },
     )
     assert set(values) == {
@@ -819,9 +828,9 @@ def test_daily_disposable_azure_runbook_has_ordered_stage_boundaries() -> None:
         "## 10. Package creation",
         "## 11. Web App code deployment",
         "## 12. Hosted readiness verification",
-        "## 13. Consumer RBAC deployment",
-        "## 14. Consumer RBAC verification",
-        "## 15. Consumer RBAC and WebJob troubleshooting",
+        "## 13. Optional standalone Consumer RBAC deployment",
+        "## 14. Optional standalone Consumer RBAC verification",
+        "## 15. Optional standalone Consumer RBAC and WebJob troubleshooting",
         "## 16. Daily environment-ready declaration",
         "## 17. End-of-session cleanup and evidence expiry",
         "## 18. Fail-fast rules",
@@ -939,7 +948,6 @@ def test_current_hosted_docs_reject_superseded_metadata_only_meanings() -> None:
         "calls only the metadata verifier",
         "calls only the existing metadata",
         "no invocation path",
-        "invocation remains outside the coordinator",
         "separate from every agent invocation",
         "coordinator never deploys rbac",
         "stale evidence may be deleted",
@@ -950,10 +958,10 @@ def test_current_hosted_docs_reject_superseded_metadata_only_meanings() -> None:
     for current in (
         "metadata verification followed by one fixed-fictional invocation",
         "one combined sanitized json result",
-        "immediately after approval",
         "evidence-preserving recovery",
     ):
         assert current in combined
+    assert "separate, explicitly invoked optional workflows" in combined
 
 
 def test_stale_webjob_recovery_docs_define_separate_manual_boundary() -> None:

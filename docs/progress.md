@@ -5,29 +5,26 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,127 passed full suite; 422 passed focused and 471 passed broader
-  Web App contract and Modify-policy groups
+- 2,116 passed full suite; 228 passed focused daily coordinator and
+  documentation groups
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The coordinator-owned command-result adapter is live-proven to reach Azure response classification while preserving the hosted boundary's exact `CommandResult` contract. Discovery then stopped safely as `azure_request_failed`; a separate read-only diagnostic found `alwaysOn=false` and `WEBSITE_SKIP_RUNNING_KUDUAGENT` absent.
-Azure `ResourceIdOnly` what-if proves the exact Web App resource identity, not individual changed properties. Before accepting the seven-`NoChange`/one-`Modify` topology, the repository enforces the complete allowed active Web App Bicep resource shape, including exact nested keys, expressions, app settings, tags, and dependency. The authoritative `siteConfig.appSettings` member must be exactly the baseline array concatenated with `hostedFoundryVerifierAppSettings`, and that identifier must resolve to exactly one active top-level declaration parsed structurally outside comments and strings. Matching decoys cannot satisfy either contract. Active relative resources directly parented to `webApp`, including conditional configuration children and slots, are rejected after any balanced `if (...)` condition is parsed before the actual resource body. Approval explicitly describes a resource-level modification and remains default-no, fresh-preview-bound, and separately verified before discovery. Zero, account-only, project-only, or both exact sanitized Foundry-reference `Ignore` records are accepted; duplicates and unrelated evidence remain rejected.
+The daily coordinator's scope is intentionally reduced after repeated live
+what-if evidence could not establish a safe existing-Web-App reconciliation
+topology. Those unsafe previews caused zero Azure mutation. The coordinator now
+considers the disposable environment ready after verified Foundry
+infrastructure and prompt-agent routing, Web App infrastructure/configuration,
+application deployment or safe reuse, and hosted application readiness. It
+returns success immediately at that boundary.
 
-The live Consumer RBAC diagnostic consistently proves exactly 10 Ignore and one
-Unsupported record, with zero Create, Modify, Delete, Deploy, Replacement,
-NoChange, or unknown actions. Azure what-if does not provide stable canonical
-identity evidence for every record, so this exact distribution is a bounded
-manual-review preview rather than Azure proof of assignment contents. Repository
-safety still requires the validated local Bicep contract, exact approved Web App
-principal and Foundry project scope, fixed Consumer role, deterministic assignment
-name, and default-no approval. A complete current-generation reread, canonical
-fingerprint comparison, second exactly matching preview, constrained deployment,
-and separate direct-assignment verification remain mandatory. Exact single-Create
-acceptance remains strictly bound to complete identity, parent, scope, principal,
-role, assignment-name, and after-properties proof. No Azure, HTTP, or RBAC
-operation occurred during this offline implementation; no WebJob,
-managed-identity, Foundry, invocation, cleanup, commit, or push operation
-occurred. No discovery, trigger, status, metadata, or invocation success is
-claimed. The environment remains not ready.
+Consumer RBAC, WebJob execution and recovery, managed-identity verification,
+metadata access, and hosted agent invocation remain standalone optional
+workflows. Their false result fields do not make the daily environment fail.
+Existing-Web-App drift remains fail-closed: the operator may recreate the
+disposable resource group through the normal fresh-build path or use a separate
+supervised Web App deployment workflow. No Azure, HTTP, RBAC, WebJob, identity,
+Foundry, invocation, cleanup, commit, or push operation occurred during this
+offline implementation.
 
 **Active implementation direction:** The project is deliberately moving from
 the local mock capstone into an Azure-first Microsoft Foundry Agent
@@ -45,11 +42,12 @@ Disposable Foundry infrastructure
 -> deterministic source deployment packaging
 -> explicit Web App code-deployment request
 -> offline-tested hosted Web App readiness verification
--> offline-tested project-scoped Foundry Agent Consumer RBAC deployment boundary
--> current read-only direct-assignment verification reports assignment missing
--> offline-tested Web App-hosted managed-identity prompt-agent verification
--> offline-tested fixed-fictional-data Web App-hosted prompt-agent invocation boundary
+-> daily disposable environment ready
 ```
+
+Optional standalone boundaries remain available for project-scoped Consumer
+RBAC, WebJob execution/recovery, managed-identity verification, and
+fixed-fictional-data hosted invocation.
 
 Mock mode remains the safe default, hosted notifications remain suppressed,
 and all AI output continues to require human nurse review.
@@ -65,6 +63,10 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 ## Current Resume Point
+
+The daily coordinator boundary correction is complete offline. Resume
+application and AI-103 feature development; do not resume the prior
+existing-Web-App reconciliation or hosted-proof automation loop.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point
@@ -105,10 +107,12 @@ Authoritative Foundry infrastructure for future TDD slices:
 
 ## Daily Disposable Azure Environment Gate
 
-Because the operator deletes the resource group to control cost, every new
-Azure session starts **NOT READY**: assume the resource group and all dependent
-resources are absent until the operator supplies fresh proof from the current
-session. The permanent rebuild procedure is
+Because the operator deletes the resource group to control cost, every new Azure
+session starts **NOT READY**: assume the resource group and all dependent
+resources are absent until fresh current session proof exists. Create or rebuild it at the start of the workday, use
+it for development, testing, and demonstrations, and delete it at day's end.
+Nightly deletion remains expected; reduced readiness scope does not make the
+resources permanent or remove cleanup. The permanent procedure is
 `docs/runbooks/daily-disposable-azure-environment-rebuild.md`.
 
 `scripts/rebuild_daily_azure_environment.py` is the preferred daily path. Its
@@ -118,24 +122,18 @@ verification boundaries, reuses conclusively valid resources, and returns one
 sanitized aggregate result. The detailed manual runbook remains the fallback,
 recovery, and audit reference. Azure-dependent Codex prompts still require a
 fresh current-session `daily_environment_ready=true` result. READY now requires
-current-generation WebJob discovery, receipt-bound terminal success,
-managed-identity metadata verification, and one fixed-fictional invocation.
-The coordinator still does not process intake, send notifications, or delete
-the resource group.
-
-The current remediation requires exact subscription, resource-group, Foundry
-account/project parent, project scope, principal, fixed role, deterministic
-assignment, multiplicity, and boundary proof for the Consumer RBAC preview.
-After preview-bound default-no approval, the coordinator freshly verifies the
-resource group, Foundry/model and prompt-agent generation, Web App
-configuration, deterministic package and deployed readiness generation,
-current Web App identity/principal, and RBAC discovery. It recomputes the
-shared canonical generation fingerprint, regenerates the sanitized RBAC
-what-if, and deploys only when both fresh bindings exactly match the approved
-evidence. Stale or unavailable proof stops without deployment or automatic
-reapproval. The packaged WebJob accepts only exact application-owned result
-types and exact booleans for metadata verification followed by one
-fixed-fictional invocation.
+current resource-group, Foundry infrastructure, prompt-agent and immutable
+routing, Web App infrastructure/configuration, application artifact deployment
+or safe reuse, and hosted readiness proof. The coordinator returns immediately
+at that boundary. It does not perform Consumer RBAC, WebJob discovery or
+execution, managed-identity verification, metadata access, or hosted agent
+invocation. It also does not process intake, send notifications, or delete the
+resource group. Its primary path is `missing disposable environment` ->
+`infra/main.bicep` -> Foundry/agent verification -> Web App/configuration ->
+application deployment -> hosted readiness -> `DAILY AZURE ENVIRONMENT READY`.
+Next-day reconciliation is unnecessary after nightly deletion. Same-day unsafe
+or ambiguous Web App drift remains fail-closed; continue using the verified
+environment, recreate the group, or use the supervised deployment workflow.
 
 Deleting the resource group expires all prior evidence for the resource group,
 Foundry AIServices account, child project and model deployment, prompt agent and
@@ -160,9 +158,11 @@ If the environment is NOT READY, direct the operator to the daily runbook and
 do not issue the dependent prompt. Record the gate once; avoid repeated blocked
 slices and progress rewrites that merely rediscover the same absent resources.
 The coordinator preserves the independent contracts: Keep infrastructure
-deployment separate from prompt-agent creation. WebJob trigger/status,
-managed-identity proof, metadata verification, and invocation remain separate
-and explicitly authorized. Keep cleanup manual and explicit.
+deployment separate from prompt-agent creation. Consumer RBAC, WebJob
+trigger/status, managed-identity proof, metadata verification, and invocation
+remain optional, standalone, separate, and explicitly authorized. Keep cleanup
+manual and explicit, and complete the expected whole-resource-group deletion at
+the end of the workday.
 Never commit session identifiers, endpoints, credentials, tokens, secrets,
 real contact information, or patient data.
 
@@ -383,11 +383,12 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The next step is selective staging and commit, then one authorized direct,
-read-only reconciliation what-if with `--reconcile-existing-web-app`. Confirm one
-exact Web App Modify plus only any exact required plan reference before a later
-coordinator rerun. Claim no live reconciliation or subsequent hosted-stage
-success without fresh current-session evidence; keep those stages separate.
+Resume Nurse Intake Assistant application and AI-103 feature development. Do
+not continue disposable-environment reconciliation or hosted-proof automation
+as the active project thread. If a later feature specifically requires Consumer
+RBAC, WebJob execution, managed-identity verification, or hosted invocation,
+authorize and run only that standalone workflow with fresh current-session
+evidence.
 
 ## Current Slice Status
 
@@ -397,13 +398,13 @@ success without fresh current-session evidence; keep those stages separate.
   adoption and a rerun.
 - Foundry and Web App deployment each require approval bound to the current sanitized preview; package deployment separately binds its proof and uses a restrictive immutable handoff.
 - A failed Foundry what-if remains unsafe and now retains its sanitized upstream category and failed guided-plan predicates instead of being mislabeled as an ordinary topology rejection.
-- Consumer RBAC diagnostics share the topology normalizer, remain sanitized and
-  fail closed, and propagate through the production repository adapter. Missing
-  assignment still requires default-no approval, fresh rereads, matching preview
-  and fingerprint evidence, guarded deployment, and separate verification.
-- Immutable WebJob state remains generation-bound; READY still requires WebJob,
-  metadata, and valid fixed-fictional invocation proofs; hosted execution remains
-  offline-tested only.
+- The daily coordinator now stops successfully after hosted application
+  readiness proves the current application artifact. Consumer RBAC, WebJob,
+  managed-identity, metadata, and invocation fields remain false because those
+  workflows are not entered.
+- Existing-Web-App configuration drift stops before any reconciliation preview,
+  approval, or deployment. The normal fresh-build path or a separate supervised
+  Web App workflow is required.
 - Linux WebJob hosting is current only with `alwaysOn=true` and the exact baseline Kudu-agent flag. Resource-level Modify approval combines exact identity evidence with the complete locally enforced Bicep Web App shape, an identical fresh preview, one deployment, and separate verification; deployment acceptance alone is not proof. The authoritative app-settings expression must append exactly `hostedFoundryVerifierAppSettings`; its one active top-level declaration is parsed outside comments and strings, and conditional resource bodies are selected only after balanced conditions. Decoy declarations and active relative Web App children or slots are rejected. Exact subsets of the two optional Foundry-reference Ignores are allowed, while duplicate, unrelated, or ambiguous evidence remains rejected. These final parser corrections were offline only: no corrected live policy execution, Azure or HTTP operation, WebJob discovery, trigger, status, managed-identity verification, or invocation occurred or is claimed.
 - A live nested-wrapper reconciliation preview produced one Web App Deploy and
   nine unidentified Ignore records with no Modify; the coordinator rejected it

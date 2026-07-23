@@ -87,7 +87,7 @@ def test_public_ready_construction_is_rejected() -> None:
         )
 
 
-def test_ready_factory_requires_every_enabled_proof() -> None:
+def test_ready_factory_requires_application_hosting_proofs_only() -> None:
     proofs = {
         "local_orchestration_ready": True,
         "account_verified": True,
@@ -101,19 +101,13 @@ def test_ready_factory_requires_every_enabled_proof() -> None:
         "application_deployment_attempted": True,
         "application_deployment_accepted": True,
         "hosted_readiness_verified": True,
-        "consumer_rbac_verified": True,
-        "webjob_discovered": True,
-        "webjob_triggered": True,
-        "webjob_status_read": True,
-        "managed_identity_verification_performed": True,
-        "agent_invoked": True,
     }
     ready = DailyAzureEnvironmentRebuildResult._verified_ready(
         proofs, azure_mutation_made=False
     )
     assert ready.daily_environment_ready is True
 
-    proofs["consumer_rbac_verified"] = False
+    proofs["hosted_readiness_verified"] = False
     with pytest.raises(ValueError):
         DailyAzureEnvironmentRebuildResult._verified_ready(
             proofs, azure_mutation_made=False

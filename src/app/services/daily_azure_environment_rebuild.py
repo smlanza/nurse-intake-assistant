@@ -30,7 +30,9 @@ REBUILD_OPERATION = "rebuild_daily_azure_environment"
 READY_MESSAGE = "DAILY AZURE ENVIRONMENT READY"
 NOT_READY_MESSAGE = "DAILY AZURE ENVIRONMENT NOT READY"
 RECOMMENDED_NEXT_STEP = (
-    "The daily Azure environment is ready for the approved Azure-dependent slice."
+    "The disposable Azure application environment is ready for development and "
+    "demo use. Run hosted RBAC, WebJob, managed-identity, or invocation verification "
+    "separately only when required by a later slice."
 )
 FAILURE_NEXT_STEP = (
     "Review the sanitized failed stage and rerun only through an explicit new command."
@@ -534,19 +536,22 @@ class DailyAzureEnvironmentRebuildResult:
             "web_app_configuration_verified",
             "application_package_created",
             "application_artifact_current",
-            "application_deployment_attempted",
-            "application_deployment_accepted",
             "hosted_readiness_verified",
-            "consumer_rbac_verified",
-            "webjob_discovered",
-            "webjob_triggered",
-            "webjob_status_read",
-            "managed_identity_verification_performed",
-            "agent_invoked",
+        )
+        deployment_completed = bool(
+            proofs.get("application_deployment_attempted") is True
+            and proofs.get("application_deployment_accepted") is True
+            and proofs.get("application_deployment_reused") is not True
+        )
+        deployment_reused = bool(
+            proofs.get("application_deployment_reused") is True
+            and proofs.get("application_deployment_attempted") is not True
+            and proofs.get("application_deployment_accepted") is not True
         )
         if (
             not isinstance(azure_mutation_made, bool)
             or any(proofs.get(name) is not True for name in required)
+            or not (deployment_completed or deployment_reused)
         ):
             raise ValueError("READY requires every mandatory proof.")
         allowed = {field.name for field in fields(cls)}
@@ -710,7 +715,7 @@ def load_daily_azure_config(
     discovery = _parse_bool(values["DISCOVER_HOSTED_FOUNDRY_WEBJOB"])
     if hosted is None or discovery is None:
         raise ConfigValidationError("invalid_configuration")
-    if not hosted or not discovery:
+    if not hosted:
         raise ConfigValidationError("incompatible_options")
 
     return DailyAzureConfig(
@@ -1939,32 +1944,7 @@ class DailyAzureEnvironmentRebuild:
             web_config.state == "absent"
             and web_config.category == "web_app_configuration_not_current"
         ):
-            plan = runner.plan_web_app_reconciliation(context)
-            if not safe_web_app_reconciliation_plan(plan):
-                return self._failure("unsafe_web_app_plan", progress, mutation[0])
-            if not approvals.request(
-                _plan_approval_summary(
-                    "web_app_deployment",
-                    "WEB APP RECONCILIATION DEPLOYMENT",
-                    plan,
-                    web_app_reconciliation=True,
-                )
-            ):
-                return self._failure(
-                    "web_app_deployment_approval_required", progress, mutation[0]
-                )
-            fresh_plan = runner.plan_web_app_reconciliation(context)
-            if (
-                not safe_web_app_reconciliation_plan(fresh_plan)
-                or fresh_plan != plan
-            ):
-                return self._failure(
-                    "approval_evidence_stale", progress, mutation[0]
-                )
-            deployed = runner.deploy_web_app_reconciliation(context)
-            if not apply(deployed):
-                return self._failure(deployed.category, progress, mutation[0])
-            web_config = runner.verify_web_app_configuration(context)
+            return self._failure(web_config.category, progress, mutation[0])
         elif web_config.state == "absent" and web_config.category == "web_app_absent":
             plan = runner.plan_web_app(context)
             if not safe_web_app_plan(plan):
@@ -2022,10 +2002,13 @@ class DailyAzureEnvironmentRebuild:
         if not apply(code):
             return self._failure(code.category, progress, mutation[0])
         progress["application_deployment_accepted"] = code.accepted
-        deployment_proven = bool(
+        deployment_completed = bool(
             code.attempted and code.accepted and not code.reused
         )
-        if not deployment_proven:
+        deployment_reused = bool(
+            code.reused and not code.attempted and not code.accepted
+        )
+        if not (deployment_completed or deployment_reused):
             return self._failure("application_provenance_invalid", progress, mutation[0])
         readiness = runner.verify_readiness(context)
         if not apply(readiness):
@@ -2038,165 +2021,6 @@ class DailyAzureEnvironmentRebuild:
             )
         progress["hosted_readiness_verified"] = True
         progress["application_artifact_current"] = True
-
-        rbac = runner.verify_rbac(context)
-        plan = rbac.consumer_rbac_plan
-        if not _consumer_rbac_plan_valid(plan, context):
-            category = (
-                rbac.category
-                if rbac.state == "failed"
-                else "consumer_rbac_discovery_failed"
-            )
-            return self._failure(category, progress, mutation[0])
-        assert plan is not None
-        environment_fingerprint = _shared_environment_fingerprint(
-            context, plan, package.approval_binding
-        )
-        if environment_fingerprint is None:
-            return self._failure(
-                "environment_generation_evidence_invalid", progress, mutation[0]
-            )
-        context = replace(
-            context, environment_fingerprint=environment_fingerprint
-        )
-        progress.update(
-            consumer_rbac_assignment_required=plan.mutation_required,
-            consumer_rbac_assignment_approved=False,
-            consumer_rbac_assignment_attempted=False,
-            consumer_rbac_assignment_reused=not plan.mutation_required,
-        )
-        if rbac.state == "absent":
-            if not plan.mutation_required:
-                return self._failure(
-                    "consumer_rbac_assignment_ambiguous", progress, mutation[0]
-                )
-            preview = runner.preview_rbac(context, plan)
-            if not apply(preview):
-                return self._failure(
-                    preview.category,
-                    progress,
-                    mutation[0],
-                    what_if_diagnostic=preview.what_if_diagnostic,
-                )
-            if (
-                not _read_only_generation_stage_valid(preview)
-                or not preview.approval_binding
-                or not _consumer_rbac_preview_proof_valid(
-                    preview.consumer_rbac_preview
-                )
-            ):
-                return self._failure(
-                    "consumer_rbac_preview_unsafe", progress, mutation[0]
-                )
-            if not approvals.request(
-                _consumer_rbac_approval_summary(
-                    plan,
-                    preview=preview.consumer_rbac_preview,
-                    preview_binding=preview.approval_binding,
-                    environment_fingerprint=environment_fingerprint,
-                )
-            ):
-                return self._failure(
-                    "consumer_rbac_operator_declined", progress, mutation[0]
-                )
-            progress["consumer_rbac_assignment_approved"] = True
-            snapshot, snapshot_category = _reread_current_environment_generation(
-                runner,
-                context,
-                plan,
-                package.approval_binding,
-            )
-            if snapshot is None:
-                return self._failure(snapshot_category, progress, mutation[0])
-            fresh_context = replace(
-                context,
-                environment_fingerprint=snapshot.environment_fingerprint,
-            )
-            fresh_preview = runner.preview_rbac(
-                fresh_context,
-                snapshot.consumer_rbac_plan,
-            )
-            if not apply(fresh_preview):
-                return self._failure(
-                    fresh_preview.category,
-                    progress,
-                    mutation[0],
-                    what_if_diagnostic=fresh_preview.what_if_diagnostic,
-                )
-            if (
-                not _read_only_generation_stage_valid(fresh_preview)
-                or not fresh_preview.approval_binding
-                or not _consumer_rbac_preview_proof_valid(
-                    fresh_preview.consumer_rbac_preview
-                )
-            ):
-                return self._failure(
-                    "consumer_rbac_preview_unsafe", progress, mutation[0]
-                )
-            if (
-                snapshot.environment_fingerprint != environment_fingerprint
-                or fresh_preview.approval_binding != preview.approval_binding
-            ):
-                return self._failure(
-                    "approval_evidence_stale", progress, mutation[0]
-                )
-            deployed_rbac = runner.deploy_rbac(
-                fresh_context,
-                fresh_preview.approval_binding,
-                snapshot.consumer_rbac_plan,
-            )
-            progress["consumer_rbac_assignment_attempted"] = (
-                deployed_rbac.attempted
-            )
-            if not apply(deployed_rbac):
-                return self._failure(
-                    "consumer_rbac_deployment_failed", progress, mutation[0]
-                )
-            context = fresh_context
-            rbac = runner.verify_rbac(context)
-            verified_plan = rbac.consumer_rbac_plan
-            if (
-                not rbac.ok
-                or not _consumer_rbac_plan_valid(verified_plan, context)
-                or verified_plan is None
-                or verified_plan.existing_matching_assignments != 1
-            ):
-                return self._failure(
-                    "consumer_rbac_verification_failed", progress, mutation[0]
-                )
-            verified_fingerprint = _shared_environment_fingerprint(
-                context, verified_plan, snapshot.package_digest
-            )
-            if verified_fingerprint != environment_fingerprint:
-                return self._failure(
-                    "environment_generation_evidence_changed", progress, mutation[0]
-                )
-            plan = verified_plan
-        if not apply(rbac):
-            return self._failure(rbac.category, progress, mutation[0])
-        progress["consumer_rbac_verified"] = True
-
-        discovery = runner.discover_webjob(context)
-        if not apply(discovery):
-            return self._failure(discovery.category, progress, mutation[0])
-        progress["webjob_discovered"] = True
-        trigger = runner.trigger_webjob(context)
-        if not apply(trigger) or not trigger.webjob_triggered:
-            return self._failure(trigger.category, progress, mutation[0])
-        progress["webjob_triggered"] = True
-        hosted = runner.verify_hosted_agent(context)
-        progress["webjob_status_read"] = hosted.webjob_status_read
-        progress["managed_identity_verification_performed"] = (
-            hosted.managed_identity_verification_performed
-        )
-        progress["agent_invoked"] = hosted.agent_invoked
-        if (
-            not apply(hosted)
-            or not hosted.webjob_status_read
-            or not hosted.managed_identity_verification_performed
-            or not hosted.agent_invoked
-        ):
-            return self._failure(hosted.category, progress, mutation[0])
 
         return DailyAzureEnvironmentRebuildResult._verified_ready(
             progress,
@@ -2265,6 +2089,10 @@ class DailyAzureEnvironmentRebuild:
             ),
             "web_app_deployment_approval_required": (
                 "Rerun guided live mode and review the fresh Web App preview."
+            ),
+            "web_app_configuration_not_current": (
+                "Recreate the disposable resource group through the normal fresh-build "
+                "path or use the separate supervised Web App deployment workflow."
             ),
             "application_code_deployment_approval_required": (
                 "Rerun guided live mode and review the newly built current package."

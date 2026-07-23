@@ -23,7 +23,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Offline-check or guide an operator-approved rebuild of the disposable "
-            "Nurse Intake Assistant Azure environment through fixed fictional hosted validation."
+            "Nurse Intake Assistant Azure environment through verified application-hosting readiness."
         )
     )
     modes = parser.add_mutually_exclusive_group(required=True)

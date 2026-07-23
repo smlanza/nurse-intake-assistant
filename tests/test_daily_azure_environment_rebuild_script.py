@@ -98,12 +98,6 @@ def test_live_json_output_is_sanitized_and_exit_code_is_deterministic(
                     "application_deployment_attempted": True,
                     "application_deployment_accepted": True,
                     "hosted_readiness_verified": True,
-                    "consumer_rbac_verified": True,
-                    "webjob_discovered": True,
-                    "webjob_triggered": True,
-                    "webjob_status_read": True,
-                    "managed_identity_verification_performed": True,
-                    "agent_invoked": True,
                 },
                 azure_mutation_made=False,
             )
@@ -112,10 +106,12 @@ def test_live_json_output_is_sanitized_and_exit_code_is_deterministic(
     assert script.main(["--live", "--config", ".env.daily-azure.local", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["daily_environment_ready"] is True
-    assert payload["agent_invoked"] is True
-    assert payload["webjob_triggered"] is True
-    assert payload["webjob_status_read"] is True
-    assert payload["managed_identity_verification_performed"] is True
+    assert payload["consumer_rbac_verified"] is False
+    assert payload["agent_invoked"] is False
+    assert payload["webjob_discovered"] is False
+    assert payload["webjob_triggered"] is False
+    assert payload["webjob_status_read"] is False
+    assert payload["managed_identity_verification_performed"] is False
     assert not any(
         key in payload
         for key in (

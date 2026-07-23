@@ -302,27 +302,21 @@ operator approval, fail-fast behavior, and one sanitized aggregate readiness
 result. It never supplies unattended approval. Resource-group creation,
 Foundry infrastructure deployment, Web App infrastructure deployment, and
 current package deployment each require approval for the current run and exact
-current evidence. A missing Consumer assignment first receives one exact,
-sanitized what-if; its approval is bound to that preview, the current principal,
-fixed role, exact project scope, deterministic deployment name, and
-current-generation evidence. An approval is stage-specific and one-use; changed
-evidence cannot reuse it. Immediately after approval, the coordinator performs
-a fresh read-only subscription, Web App identity, Foundry project scope, role,
-deterministic assignment, and environment-generation comparison. Any difference
-returns `approval_evidence_stale` without deployment or automatic reapproval.
-The independent deployment, packaging, read-only verification, RBAC, readiness,
-and WebJob lifecycle boundaries below remain authoritative for their
-resource-specific parsing and proof. The coordinator discovers RBAC inputs,
-reuses one exact direct assignment, or invokes the fixed Bicep deployment
-boundary once after approval and then reverifies. It subsequently discovers and
-triggers the fixed WebJob and reads one receipt-correlated status result. Private
-immutable lifecycle artifacts contain only a digest of canonical current
-resource, identity, package, project, and agent-version evidence; mismatched or
-legacy evidence stops for manual recovery. A same-generation rerun reuses its
-receipt, while terminal success proves metadata verification followed by one
-fixed-fictional invocation. All hosted proofs are mandatory for readiness.
-Intake processing, notifications, and resource-group cleanup remain separately
-authorized. These capabilities do not claim that a corrected live run occurred.
+current evidence. An approval is stage-specific and one-use; changed evidence
+cannot reuse it.
+
+The daily disposable coordinator ends at verified application-hosting
+readiness. It verifies Foundry infrastructure, prompt-agent identity and
+immutable routing, Web App infrastructure and configuration, the current
+application artifact, and hosted readiness. It returns success immediately
+after those proofs. Consumer RBAC, WebJob discovery/execution and recovery,
+managed-identity access, metadata verification, and hosted agent invocation
+remain separate, explicitly invoked optional workflows and are not daily
+readiness requirements. The independent deployment, packaging, read-only
+verification, RBAC, readiness, and WebJob lifecycle boundaries below remain
+authoritative for their resource-specific parsing and proof. Intake processing,
+notifications, and resource-group cleanup remain separately authorized. These
+capabilities do not claim that a corrected live run occurred.
 
 Two resource-group-scoped entry points reuse the
 `infra/modules/foundry.bicep` module. `main.bicep` preserves Cosmos DB, Storage,
@@ -420,9 +414,11 @@ verify configuration, package or upload code, check hosted readiness, assign
 RBAC, invoke Foundry, or clean up.
 
 The daily coordinator selects full initial creation only when read-only
-verification proves the Web App absent. When the Web App exists and the same
-verifier reports hosting-contract drift, it selects reconciliation instead.
-The reconciliation policy requires exactly one resource-level
+verification proves the Web App absent. When an existing Web App has
+hosting-contract drift, the daily coordinator fails closed and does not enter
+the reconciliation boundary. Operators may recreate the disposable resource
+group through the normal fresh-build path or invoke the separate supervised Web
+App deployment workflow. That standalone reconciliation policy requires exactly one resource-level
 `Microsoft.Web/sites` `Modify`, zero Create, Deploy, Delete, Unsupported, or
 unknown actions, and currently zero Ignore or NoChange records. An exact App
 Service plan reference may be permitted only after a direct live preview proves
@@ -430,8 +426,7 @@ its identity, scope, parent, type, and multiplicity. Unidentified references
 and the full-application topology remain rejected. The exact preview receives
 resource-level default-no approval, followed by an identical fresh preview,
 one reconciliation deployment, and separate read-only configuration
-verification. Package deployment and WebJob discovery remain blocked until
-that verification succeeds.
+verification. It is not part of daily coordinator readiness.
 
 The separate resource-group-scoped
 `infra/foundry-agent-consumer-rbac.bicep` accepts the exact approved principal,
@@ -691,19 +686,20 @@ The Web App module declares the required
 `SCM_DO_BUILD_DURING_DEPLOYMENT=true` and
 `WEBSITE_SKIP_RUNNING_KUDUAGENT=false` application settings plus the direct
 `alwaysOn=true` site configuration. The compiled Bicep/ARM contract,
-configuration proof, code-deployment acceptance, WebJob discovery, explicit
-trigger, receipt-correlated status, metadata verification, and invocation
-remain separate proof boundaries.
+configuration proof, code-deployment acceptance, hosted readiness, WebJob
+discovery, explicit trigger, receipt-correlated status, metadata verification,
+and invocation remain separate proof boundaries.
 
 The coordinator keeps infrastructure deployment, code deployment, hosted
-readiness, Consumer RBAC preview/deployment, post-deployment RBAC verification,
-generation-bound WebJob execution, managed-identity metadata verification, and
-fixed fictional invocation as distinct proofs. Deployment acceptance never
-substitutes for the following verification boundary, and no omitted hosted proof
-can produce READY. Hosted defaults remain mock-only with notifications
-suppressed. Code deployment does not provision infrastructure, and human nurse
-review remains mandatory for every fictional result. The project
-remains a capstone/demo rather than production clinical software.
+readiness, and their preceding verification boundaries as distinct required
+proofs. Deployment acceptance never substitutes for hosted readiness. Consumer
+RBAC, generation-bound WebJob execution, managed-identity metadata verification,
+and fixed fictional invocation remain separate optional workflows whose false
+result fields mean they were not part of the coordinator run. Hosted defaults
+remain mock-only with notifications suppressed. Code deployment does not
+provision infrastructure, and human nurse review remains mandatory for every
+fictional result. The project remains a capstone/demo rather than production
+clinical software.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:
