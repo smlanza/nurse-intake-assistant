@@ -905,39 +905,24 @@ def safe_web_app_reconciliation_plan(plan: PlanResult) -> bool:
         or plan.unsupported_count
         or plan.unknown_count
         or plan.unrelated_resource_count
-        or plan.no_change_count + plan.ignore_count > 1
+        or plan.no_change_count
+        or plan.ignore_count
         or not _plan_counts_match_evidence(plan)
+        or len(plan.change_evidence) != 1
     ):
         return False
-    web_app_modifications = 0
-    plan_references = 0
-    for change in plan.change_evidence:
-        if change.boundary != "web_app_reconciliation":
-            return False
-        exact = (
-            change.approved_boundary
-            and change.expected_identity_match
-            and change.expected_parent_match
-            and change.expected_scope_match
-            and change.expected_multiplicity_match
-        )
-        if (
-            change.action == "Modify"
-            and change.resource_type == "Microsoft.Web/sites"
-            and change.logical_category == "web_app"
-            and exact
-        ):
-            web_app_modifications += 1
-        elif (
-            change.action in {"Ignore", "NoChange"}
-            and change.resource_type == "Microsoft.Web/serverfarms"
-            and change.logical_category == "app_service_plan_reference"
-            and exact
-        ):
-            plan_references += 1
-        else:
-            return False
-    return web_app_modifications == 1 and plan_references <= 1
+    change = plan.change_evidence[0]
+    return bool(
+        change.boundary == "web_app_reconciliation"
+        and change.action == "Modify"
+        and change.resource_type == "Microsoft.Web/sites"
+        and change.logical_category == "web_app"
+        and change.approved_boundary
+        and change.expected_identity_match
+        and change.expected_parent_match
+        and change.expected_scope_match
+        and change.expected_multiplicity_match
+    )
 
 
 def _guided_plan_failed_predicates(
@@ -1523,7 +1508,7 @@ def validate_local_orchestration_contract(repository_root: Path) -> tuple[str, .
     required = (
         "infra/foundry-only.bicep",
         "infra/main.bicep",
-        "infra/web-app-reconciliation.bicep",
+        "infra/modules/web-app.bicep",
         "infra/foundry-agent-consumer-rbac.bicep",
         "scripts/deploy_foundry_infra.py",
         "scripts/verify_foundry_infra.py",
@@ -1646,9 +1631,7 @@ def validate_local_orchestration_contract(repository_root: Path) -> tuple[str, .
                 web_app_name="fictional-nurse-intake-web",
                 cosmos_database_name="nurse-intake",
                 cosmos_container_name="cases",
-                template_file=(
-                    repository_root / "infra/web-app-reconciliation.bicep"
-                ),
+                template_file=repository_root / "infra/modules/web-app.bicep",
                 enable_hosted_foundry_verifier=True,
                 hosted_verifier_project_endpoint=project_endpoint,
                 hosted_verifier_stable_agent_endpoint=stable_endpoint,
@@ -3324,7 +3307,7 @@ class RepositoryDailyAzureStageRunner:
             cosmos_database_name="nurse-intake",
             cosmos_container_name="cases",
             template_file=(
-                self.repository_root / "infra/web-app-reconciliation.bicep"
+                self.repository_root / "infra/modules/web-app.bicep"
                 if purpose == "existing_web_app_reconciliation"
                 else self.repository_root / "infra/main.bicep"
             ),

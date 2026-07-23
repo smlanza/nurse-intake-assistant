@@ -1930,20 +1930,11 @@ def _web_app_hosting_modify_plan() -> PlanResult:
 def _web_app_reconciliation_modify_plan() -> PlanResult:
     return PlanResult(
         modify_count=1,
-        ignore_count=1,
         exact_topology_match=True,
         change_evidence=(
             replace(
                 _exact_change("Modify", "web_app", "web_app_reconciliation"),
                 resource_type="Microsoft.Web/sites",
-            ),
-            replace(
-                _exact_change(
-                    "Ignore",
-                    "app_service_plan_reference",
-                    "web_app_reconciliation",
-                ),
-                resource_type="Microsoft.Web/serverfarms",
             ),
         ),
     )
@@ -2314,7 +2305,7 @@ def test_repository_reconciliation_request_is_explicit_and_never_uses_main(
     assert reconciliation.purpose == "existing_web_app_reconciliation"
     assert (
         reconciliation.template_file
-        == repository_root / "infra/web-app-reconciliation.bicep"
+        == repository_root / "infra/modules/web-app.bicep"
     )
     assert reconciliation.template_file != initial.template_file
 

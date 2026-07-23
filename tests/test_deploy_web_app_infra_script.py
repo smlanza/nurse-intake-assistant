@@ -175,7 +175,7 @@ def test_reconciliation_is_explicit_and_not_the_cli_default(
     assert reconciliation.purpose == "existing_web_app_reconciliation"
     assert (
         reconciliation.template_file
-        == script.ROOT / "infra/web-app-reconciliation.bicep"
+        == script.ROOT / "infra/modules/web-app.bicep"
     )
 
 

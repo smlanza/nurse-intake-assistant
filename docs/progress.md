@@ -77,9 +77,8 @@ Safe to demo today:
 
 Authoritative Foundry infrastructure for future TDD slices:
 - `infra/main.bicep`: authoritative full initial application entry point; Foundry remains optional through `deployFoundry=false` by default.
-- `infra/web-app-reconciliation.bicep`: dedicated existing-Web-App reconciliation entry point; it references the existing App Service plan and deploys only the Web App through the shared module.
 - `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
-- `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned identity boundary with offline-tested remote-build automation; application hosting remains disabled by default.
+- `infra/modules/web-app.bicep`: reusable initial-create module and direct existing-Web-App reconciliation boundary with offline-tested Linux hosting, system-assigned identity, and remote build; reconciliation passes the existing plan name and disables plan deployment.
 - `src/app/services/web_app_infra_deployment.py`: sanitized, purpose-bound initial-create and reconciliation deployment contract; `scripts/deploy_web_app_infra.py`: offline check and explicit what-if/live operator CLI with nondefault `--reconcile-existing-web-app` selection.
 - `src/app/services/web_app_hosting_contract.py`: exact seven-setting contract
   plus a separate exact five-setting hosted-verifier contract shared by
@@ -384,8 +383,8 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The next step is selective staging and commit, then one authorized read-only
-reconciliation what-if with `--reconcile-existing-web-app`. Confirm one
+The next step is selective staging and commit, then one authorized direct,
+read-only reconciliation what-if with `--reconcile-existing-web-app`. Confirm one
 exact Web App Modify plus only any exact required plan reference before a later
 coordinator rerun. Claim no live reconciliation or subsequent hosted-stage
 success without fresh current-session evidence; keep those stages separate.
@@ -406,11 +405,11 @@ success without fresh current-session evidence; keep those stages separate.
   metadata, and valid fixed-fictional invocation proofs; hosted execution remains
   offline-tested only.
 - Linux WebJob hosting is current only with `alwaysOn=true` and the exact baseline Kudu-agent flag. Resource-level Modify approval combines exact identity evidence with the complete locally enforced Bicep Web App shape, an identical fresh preview, one deployment, and separate verification; deployment acceptance alone is not proof. The authoritative app-settings expression must append exactly `hostedFoundryVerifierAppSettings`; its one active top-level declaration is parsed outside comments and strings, and conditional resource bodies are selected only after balanced conditions. Decoy declarations and active relative Web App children or slots are rejected. Exact subsets of the two optional Foundry-reference Ignores are allowed, while duplicate, unrelated, or ambiguous evidence remains rejected. These final parser corrections were offline only: no corrected live policy execution, Azure or HTTP operation, WebJob discovery, trigger, status, managed-identity verification, or invocation occurred or is claimed.
-- A live full-application `main.bicep` drift preview produced eight Deploy and
-  four Ignore records with no Web App Modify; the coordinator rejected that
-  topology without mutation. Reconciliation has a dedicated entry point referencing
-  the existing plan and permits only one exact Web App Modify plus an exact
-  optional plan-reference Ignore or NoChange. This slice performed no live
+- A live nested-wrapper reconciliation preview produced one Web App Deploy and
+  nine unidentified Ignore records with no Modify; the coordinator rejected it
+  without mutation. The wrapper is removed and reconciliation now deploys the
+  authoritative Web App module directly with plan deployment disabled. No live
+  direct-module preview has yet succeeded, and this slice performed no live
   reconciliation preview or deployment.
 
 ### Historical Slice Results

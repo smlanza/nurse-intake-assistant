@@ -369,11 +369,11 @@ approved through the coordinator.
 
 `infra/main.bicep` remains the full initial application infrastructure entry
 point and references the reusable `infra/modules/web-app.bicep` module only
-when `deployApp=true` (default `false`). The dedicated
-`infra/web-app-reconciliation.bicep` entry point is authoritative only for
-verified drift on an existing Web App. It references the existing App Service
-plan and invokes the same module with that plan's resource ID, so reconciliation
-modifies only the existing `Microsoft.Web/sites` resource and does not redeploy
+when `deployApp=true` (default `false`). For verified drift on an existing Web
+App, the deployment boundary invokes `infra/modules/web-app.bicep` directly
+with the existing App Service plan name and plan deployment disabled. The
+nested reconciliation wrapper has been removed. Reconciliation therefore
+targets only the existing `Microsoft.Web/sites` resource and does not redeploy
 the plan, Cosmos, Storage, monitoring, Foundry, or RBAC. The module otherwise
 defines a Linux App Service plan and Web App with a system-assigned managed
 identity, HTTPS-only access, disabled FTPS, TLS 1.2 minimums, `/health` health
@@ -393,7 +393,7 @@ remote build automation to install dependencies from the packaged
 `scripts/deploy_web_app_infra.py` add an explicit operator boundary around both
 purposes. Initial creation requires `infra/main.bicep`; the nondefault
 `--reconcile-existing-web-app` purpose requires
-`infra/web-app-reconciliation.bicep`. Purpose/template mismatches fail before
+`infra/modules/web-app.bicep`. Purpose/template mismatches fail before
 Azure CLI execution. Check mode validates required safe arguments, the selected
 template, and the mock-safe hosted settings without constructing an Azure CLI
 runner. A shared hosting-contract
@@ -424,9 +424,10 @@ verification proves the Web App absent. When the Web App exists and the same
 verifier reports hosting-contract drift, it selects reconciliation instead.
 The reconciliation policy requires exactly one resource-level
 `Microsoft.Web/sites` `Modify`, zero Create, Deploy, Delete, Unsupported, or
-unknown actions, and at most one exact Ignore or NoChange record for the
-required existing App Service plan reference. It never accepts unidentified
-references or the full-application topology. The exact preview receives
+unknown actions, and currently zero Ignore or NoChange records. An exact App
+Service plan reference may be permitted only after a direct live preview proves
+its identity, scope, parent, type, and multiplicity. Unidentified references
+and the full-application topology remain rejected. The exact preview receives
 resource-level default-no approval, followed by an identical fresh preview,
 one reconciliation deployment, and separate read-only configuration
 verification. Package deployment and WebJob discovery remain blocked until

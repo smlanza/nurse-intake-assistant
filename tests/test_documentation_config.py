@@ -50,8 +50,9 @@ def test_web_app_reconciliation_architecture_and_resume_point_are_explicit() -> 
         architecture,
         {
             "`infra/main.bicep` remains the full initial application infrastructure entry point",
-            "infra/web-app-reconciliation.bicep",
-            "references the existing app service plan",
+            "invokes `infra/modules/web-app.bicep` directly",
+            "nested reconciliation wrapper has been removed",
+            "existing app service plan name",
             "exact preview",
             "identical fresh preview",
             "separate read-only configuration verification",
@@ -60,11 +61,12 @@ def test_web_app_reconciliation_architecture_and_resume_point_are_explicit() -> 
     _assert_contains_all(
         progress,
         {
-            "eight deploy",
-            "four ignore",
-            "rejected that topology without mutation",
+            "one web app deploy",
+            "nine unidentified ignore",
+            "wrapper is removed",
             "--reconcile-existing-web-app",
             "read-only reconciliation what-if",
+            "no live direct-module preview has yet succeeded",
             "no live reconciliation preview or deployment",
         },
     )

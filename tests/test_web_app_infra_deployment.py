@@ -68,7 +68,7 @@ def reconciliation_request(
     return replace(
         deployment_request,
         purpose="existing_web_app_reconciliation",
-        template_file=ROOT / "infra/web-app-reconciliation.bicep",
+        template_file=ROOT / "infra/modules/web-app.bicep",
     )
 
 
@@ -118,25 +118,6 @@ def _reconciliation_web_app_change(
     }
 
 
-def _reconciliation_plan_reference(
-    request: deployment.WebAppInfrastructureDeploymentRequest,
-    action: str = "Ignore",
-) -> dict[str, object]:
-    root = (
-        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers"
-    )
-    return {
-        "changeType": action,
-        "resourceId": (
-            f"{root}/Microsoft.Web/serverfarms/"
-            f"{deployment._app_service_plan_name(request)}"
-        ),
-        "before": {"id": "private-before"},
-        "after": {"id": "private-after"},
-        "delta": {"changes": []},
-    }
-
-
 def _append_app_setting(module: str, name: str, value: str) -> str:
     marker = "      ], hostedFoundryVerifierAppSettings)\n"
     assert marker in module
@@ -182,10 +163,14 @@ def test_reconciliation_check_validates_dedicated_contract_offline(
     assert runner.calls == []
 
 
+def test_reconciliation_wrapper_is_removed() -> None:
+    assert not (ROOT / "infra/web-app-reconciliation.bicep").exists()
+
+
 @pytest.mark.parametrize(
     ("purpose", "template_name"),
     (
-        ("initial_create", "web-app-reconciliation.bicep"),
+        ("initial_create", "web-app.bicep"),
         ("existing_web_app_reconciliation", "main.bicep"),
         ("unbounded-purpose", "main.bicep"),
     ),
@@ -226,22 +211,20 @@ def test_purpose_template_mismatch_fails_before_runner(
         "resource config 'Microsoft.Web/sites/config@2024-04-01' = { name: '${webAppName}/web' properties: {} }",
     ),
 )
-def test_reconciliation_contract_rejects_every_extra_deployment_boundary(
+def test_direct_module_contract_rejects_every_extra_deployment_boundary(
     reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
     tmp_path: Path,
     addition: str,
 ) -> None:
-    infra = tmp_path / "infra"
-    modules = infra / "modules"
+    modules = tmp_path / "infra/modules"
     modules.mkdir(parents=True)
     source = reconciliation_request.template_file
-    template = infra / source.name
+    template = modules / source.name
     template.write_text(f"{source.read_text()}\n{addition}\n")
-    for name in (
-        "web-app.bicep",
-        "hosted-foundry-verifier-config-validation.bicep",
-    ):
-        (modules / name).write_text((ROOT / "infra/modules" / name).read_text())
+    validation_name = "hosted-foundry-verifier-config-validation.bicep"
+    (modules / validation_name).write_text(
+        (ROOT / "infra/modules" / validation_name).read_text()
+    )
     request = replace(reconciliation_request, template_file=template)
 
     result = deployment.deploy_web_app_infrastructure(request)
@@ -1289,6 +1272,8 @@ def test_reconciliation_command_uses_only_dedicated_web_app_parameters(
             f"{deployment._app_service_plan_name(reconciliation_request)}"
         ),
         f"webAppName={reconciliation_request.web_app_name}",
+        "deployAppServicePlan=false",
+        "pythonLinuxFxVersion=PYTHON|3.12",
         "hostedFoundryVerifierConfiguration="
         + json.dumps(
             {
@@ -1311,15 +1296,18 @@ def test_reconciliation_command_uses_only_dedicated_web_app_parameters(
             sort_keys=True,
         ),
     ]
-    rendered = " ".join(parameters)
     for forbidden in (
         "deployApp",
         "deployFoundry",
         "cosmosDatabaseName",
         "cosmosContainerName",
         "resourceNameSuffix",
+        "appServicePlanResourceId",
     ):
-        assert forbidden not in rendered
+        assert not any(
+            parameter.startswith(f"{forbidden}=")
+            for parameter in parameters
+        )
 
 
 def test_what_if_command_requests_machine_readable_json(
@@ -1572,21 +1560,12 @@ def _web_app_hosting_modify_changes(
     return changes
 
 
-@pytest.mark.parametrize("reference_action", (None, "Ignore", "NoChange"))
-def test_reconciliation_accepts_only_exact_web_app_modify_and_plan_reference(
+def test_reconciliation_accepts_only_exact_direct_web_app_modify(
     reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
-    reference_action: str | None,
 ) -> None:
     changes: list[dict[str, object]] = [
         _reconciliation_web_app_change(reconciliation_request)
     ]
-    if reference_action is not None:
-        changes.append(
-            _reconciliation_plan_reference(
-                reconciliation_request,
-                reference_action,
-            )
-        )
 
     result = deployment.deploy_web_app_infrastructure(
         replace(reconciliation_request, mode="what-if"),
@@ -1603,6 +1582,32 @@ def test_reconciliation_accepts_only_exact_web_app_modify_and_plan_reference(
     assert result.unsupported_count == 0
     assert safe_web_app_reconciliation_plan(_plan_from_object(result)) is True
     assert safe_web_app_plan(_plan_from_object(result)) is False
+
+
+def test_reconciliation_rejects_confirmed_nested_wrapper_preview(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    web_app = _reconciliation_web_app_change(
+        reconciliation_request,
+        action="Deploy",
+    )
+    changes: list[dict[str, object]] = [
+        web_app,
+        *({"changeType": "Ignore"} for _index in range(9)),
+    ]
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(reconciliation_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.deploy_count == 1
+    assert result.ignore_count == 9
+    assert result.modify_count == 0
+    assert result.exact_topology_match is False
+    assert safe_web_app_reconciliation_plan(_plan_from_object(result)) is False
 
 
 @pytest.mark.parametrize(
@@ -1632,8 +1637,7 @@ def test_reconciliation_preview_policy_fails_closed(
     case: str,
 ) -> None:
     web_app = _reconciliation_web_app_change(reconciliation_request)
-    plan = _reconciliation_plan_reference(reconciliation_request)
-    changes: list[dict[str, object]] = [web_app, plan]
+    changes: list[dict[str, object]] = [web_app]
     root = (
         f"/subscriptions/private-sub/resourceGroups/"
         f"{reconciliation_request.resource_group}/providers"
@@ -1641,7 +1645,15 @@ def test_reconciliation_preview_policy_fails_closed(
     if case == "web-app-create":
         web_app["changeType"] = "Create"
     elif case == "plan-modify":
-        plan["changeType"] = "Modify"
+        changes.append(
+            {
+                "changeType": "Modify",
+                "resourceId": (
+                    f"{root}/Microsoft.Web/serverfarms/"
+                    f"{deployment._app_service_plan_name(reconciliation_request)}"
+                ),
+            }
+        )
     elif case == "cosmos-modify":
         changes.append(
             {
@@ -1710,7 +1722,7 @@ def test_reconciliation_preview_policy_fails_closed(
     elif case == "unidentified-ignore":
         changes.append({"changeType": "Ignore"})
     elif case == "duplicate-reference":
-        changes.append(dict(plan))
+        changes.append(dict(web_app))
     elif case == "delete":
         web_app["changeType"] = "Delete"
     elif case == "deploy":

@@ -277,7 +277,7 @@ def _safe_bicep_name(value: object, *, minimum: int, maximum: int) -> bool:
 def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
     expected_template_name = {
         "initial_create": "main.bicep",
-        "existing_web_app_reconciliation": "web-app-reconciliation.bicep",
+        "existing_web_app_reconciliation": "web-app.bicep",
     }.get(request.purpose)
     return (
         request.mode in {"check", "what-if", "live"}
@@ -982,132 +982,54 @@ def _module_local_hosted_verifier_validation_valid(
     return True
 
 
-def _app_service_plan_selection_contract_valid(module: str) -> bool:
+def _app_service_plan_selection_contract_valid(
+    module: str,
+    *,
+    exact_deployment_boundary: bool,
+) -> bool:
     active = _strip_bicep_comments(module)
+    declarations = _active_resource_declarations(active)
+    if declarations is None:
+        return False
+    if exact_deployment_boundary:
+        if [
+            (symbol, resource_type)
+            for symbol, resource_type, _body in declarations
+        ] != [
+            ("appServicePlan", "Microsoft.Web/serverfarms@2024-04-01"),
+            ("existingAppServicePlan", "Microsoft.Web/serverfarms@2024-04-01"),
+            ("webApp", "Microsoft.Web/sites@2024-04-01"),
+        ]:
+            return False
+        outside_strings = _positions_outside_strings(active)
+        modules = tuple(
+            (match.group(1), match.group(2))
+            for match in re.finditer(
+                r"(?m)^\s*module\s+([A-Za-z][A-Za-z0-9_]*)\s+'([^']+)'\s*=",
+                active,
+            )
+            if outside_strings[match.start()]
+        )
+        if modules != (
+            (
+                "hostedFoundryVerifierConfigValidation",
+                "hosted-foundry-verifier-config-validation.bicep",
+            ),
+        ):
+            return False
     required = (
-        r"param\s+appServicePlanResourceId\s+string\s*=\s*''",
+        r"param\s+deployAppServicePlan\s+bool\s*=\s*true",
         r"resource\s+appServicePlan\s+"
         r"'Microsoft\.Web/serverfarms@2024-04-01'\s*=\s*"
-        r"if\s*\(\s*empty\(\s*appServicePlanResourceId\s*\)\s*\)",
+        r"if\s*\(\s*deployAppServicePlan\s*\)",
+        r"resource\s+existingAppServicePlan\s+"
+        r"'Microsoft\.Web/serverfarms@2024-04-01'\s+existing\s*=\s*"
+        r"\{\s*name\s*:\s*appServicePlanName\s*\}",
         r"var\s+resolvedAppServicePlanResourceId\s*=\s*"
-        r"empty\(\s*appServicePlanResourceId\s*\)\s*\?\s*"
-        r"appServicePlan!\.id\s*:\s*appServicePlanResourceId",
+        r"deployAppServicePlan\s*\?\s*appServicePlan!\.id\s*:\s*"
+        r"existingAppServicePlan\.id",
     )
     return all(re.search(pattern, active, re.DOTALL) is not None for pattern in required)
-
-
-def _reconciliation_template_contract_valid(template: str) -> bool:
-    active = _strip_bicep_comments(template)
-    outside_strings = _positions_outside_strings(active)
-    resource_pattern = re.compile(
-        r"(?m)^\s*resource\s+([A-Za-z][A-Za-z0-9_]*)\s+"
-        r"'([^']+)'\s*(existing\s*)?="
-    )
-    resources = tuple(
-        match
-        for match in resource_pattern.finditer(active)
-        if outside_strings[match.start()]
-    )
-    if (
-        len(resources) != 1
-        or resources[0].group(1) != "existingAppServicePlan"
-        or resources[0].group(2) != "Microsoft.Web/serverfarms@2024-04-01"
-        or resources[0].group(3) is None
-    ):
-        return False
-    existing_plan = _body_after_pattern(
-        active,
-        r"(?m)^\s*resource\s+existingAppServicePlan\s+"
-        r"'Microsoft\.Web/serverfarms@2024-04-01'\s+existing\s*=\s*\{",
-        "{",
-        "}",
-    )
-    if (
-        existing_plan is None
-        or not _exact_top_level_properties(existing_plan, ("name",))
-        or not _exact_top_level_scalar(
-            existing_plan,
-            "name",
-            "appServicePlanName",
-        )
-    ):
-        return False
-
-    module_pattern = re.compile(
-        r"(?m)^\s*module\s+([A-Za-z][A-Za-z0-9_]*)\s+'([^']+)'\s*="
-    )
-    modules = tuple(
-        match
-        for match in module_pattern.finditer(active)
-        if outside_strings[match.start()]
-    )
-    if (
-        len(modules) != 1
-        or modules[0].group(1) != "webApp"
-        or modules[0].group(2) != "modules/web-app.bicep"
-    ):
-        return False
-    web_app_module = _body_after_pattern(
-        active,
-        r"(?m)^\s*module\s+webApp\s+'modules/web-app\.bicep'\s*=\s*\{",
-        "{",
-        "}",
-    )
-    if web_app_module is None or not _exact_top_level_properties(
-        web_app_module,
-        ("name", "params"),
-    ):
-        return False
-    params = _body_after_pattern(
-        web_app_module,
-        r"(?m)^\s*params\s*:\s*\{",
-        "{",
-        "}",
-    )
-    if params is None or not _exact_top_level_properties(
-        params,
-        (
-            "location",
-            "appServicePlanName",
-            "appServicePlanResourceId",
-            "webAppName",
-            "pythonLinuxFxVersion",
-            "hostedFoundryVerifierConfiguration",
-            "tags",
-        ),
-    ):
-        return False
-    required_scalars = (
-        (web_app_module, "name", "'web-app-reconciliation'"),
-        (params, "location", "location"),
-        (params, "appServicePlanName", "appServicePlanName"),
-        (
-            params,
-            "appServicePlanResourceId",
-            "existingAppServicePlan.id",
-        ),
-        (params, "webAppName", "webAppName"),
-        (params, "pythonLinuxFxVersion", "pythonLinuxFxVersion"),
-        (
-            params,
-            "hostedFoundryVerifierConfiguration",
-            "hostedFoundryVerifierConfiguration",
-        ),
-        (params, "tags", "tags"),
-    )
-    return bool(
-        re.search(
-            r"param\s+hostedFoundryVerifierConfiguration\s+"
-            r"hostedFoundryVerifierConfigurationType\s*=\s*"
-            r"\{\s*mode\s*:\s*'disabled'\s*\}",
-            active,
-            re.DOTALL,
-        )
-        and all(
-            _exact_top_level_scalar(body, name, value)
-            for body, name, value in required_scalars
-        )
-    )
 
 
 def _local_contract_valid(
@@ -1117,15 +1039,25 @@ def _local_contract_valid(
     try:
         if not template_file.is_file():
             return False
-        template = template_file.read_text()
-        web_app_module = template_file.parent / "modules/web-app.bicep"
+        if purpose == "initial_create":
+            template = template_file.read_text()
+            web_app_module = template_file.parent / "modules/web-app.bicep"
+            validation_module_path = (
+                template_file.parent
+                / "modules/hosted-foundry-verifier-config-validation.bicep"
+            )
+        elif purpose == "existing_web_app_reconciliation":
+            template = ""
+            web_app_module = template_file
+            validation_module_path = (
+                template_file.parent
+                / "hosted-foundry-verifier-config-validation.bicep"
+            )
+        else:
+            return False
         if not web_app_module.is_file():
             return False
         module = web_app_module.read_text()
-        validation_module_path = (
-            template_file.parent
-            / "modules/hosted-foundry-verifier-config-validation.bicep"
-        )
         if not validation_module_path.is_file():
             return False
         validation_module = validation_module_path.read_text()
@@ -1166,14 +1098,16 @@ def _local_contract_valid(
                 template,
             ) is None:
                 return False
-    elif purpose == "existing_web_app_reconciliation":
-        if not _reconciliation_template_contract_valid(template):
-            return False
-    else:
+    elif purpose != "existing_web_app_reconciliation":
         return False
     return (
         _complete_active_web_app_resource_contract_valid(module)
-        and _app_service_plan_selection_contract_valid(module)
+        and _app_service_plan_selection_contract_valid(
+            module,
+            exact_deployment_boundary=(
+                purpose == "existing_web_app_reconciliation"
+            ),
+        )
         and _site_config_always_on_valid(module)
         and _exact_hosted_settings_valid(module)
         and _optional_hosted_verifier_contract_valid(module)
@@ -1239,6 +1173,8 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
             f"location={request.location}",
             f"appServicePlanName={_app_service_plan_name(request)}",
             f"webAppName={request.web_app_name}",
+            "deployAppServicePlan=false",
+            "pythonLinuxFxVersion=PYTHON|3.12",
             hosted_configuration,
         ]
     else:
@@ -1352,47 +1288,14 @@ def _parse_reconciliation_what_if_summary(
         request.resource_group,
         (request.web_app_name,),
     )
-    plan = ExpectedWhatIfResource(
-        "Microsoft.Web/serverfarms",
-        "app_service_plan_reference",
-        request.resource_group,
-        (_app_service_plan_name(request),),
+    parsed = parse_sanitized_what_if(
+        stdout,
+        boundary="web_app_reconciliation",
+        expected_resources=(web_app,),
+        automatically_approved_actions=frozenset({"Modify"}),
     )
-    candidates = (
-        parse_sanitized_what_if(
-            stdout,
-            boundary="web_app_reconciliation",
-            expected_resources=(web_app,),
-            automatically_approved_actions=frozenset({"Modify", "NoChange"}),
-        ),
-        parse_sanitized_what_if(
-            stdout,
-            boundary="web_app_reconciliation",
-            expected_resources=(web_app, plan),
-            automatically_approved_actions=frozenset({"Modify", "NoChange"}),
-        ),
-        parse_sanitized_what_if(
-            stdout,
-            boundary="web_app_reconciliation",
-            expected_resources=(web_app,),
-            sanitized_additional_resource_types={
-                "Microsoft.Web/serverfarms": "app_service_plan_reference",
-            },
-            expected_ignored_resources=(plan,),
-            automatically_approved_actions=frozenset({"Modify", "NoChange"}),
-        ),
-    )
-    parsed_candidates = tuple(candidate for candidate in candidates if candidate)
-    if not parsed_candidates:
+    if parsed is None:
         return None
-    parsed = next(
-        (
-            candidate
-            for candidate in parsed_candidates
-            if candidate.exact_topology_match
-        ),
-        parsed_candidates[0],
-    )
     web_app_modifications = tuple(
         change
         for change in parsed.changes
@@ -1400,21 +1303,14 @@ def _parse_reconciliation_what_if_summary(
         and change.resource_type == "Microsoft.Web/sites"
         and change.logical_category == "web_app"
     )
-    permitted_references = tuple(
-        change
-        for change in parsed.changes
-        if change.action in {"Ignore", "NoChange"}
-        and change.resource_type == "Microsoft.Web/serverfarms"
-        and change.logical_category == "app_service_plan_reference"
-    )
     exact_reconciliation = bool(
         parsed.exact_topology_match
         and len(web_app_modifications) == 1
-        and len(permitted_references) <= 1
-        and len(parsed.changes)
-        == len(web_app_modifications) + len(permitted_references)
+        and len(parsed.changes) == 1
         and parsed.count("Create") == 0
         and parsed.count("Modify") == 1
+        and parsed.count("NoChange") == 0
+        and parsed.count("Ignore") == 0
         and parsed.count("Delete") == 0
         and parsed.count("Deploy") == 0
         and parsed.count("Unsupported") == 0

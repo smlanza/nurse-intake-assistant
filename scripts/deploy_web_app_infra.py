@@ -111,7 +111,7 @@ def _request(args: argparse.Namespace) -> WebAppInfrastructureDeploymentRequest:
         else "initial_create"
     )
     template_file = args.template_file or (
-        ROOT / "infra/web-app-reconciliation.bicep"
+        ROOT / "infra/modules/web-app.bicep"
         if args.reconcile_existing_web_app
         else ROOT / "infra/main.bicep"
     )
