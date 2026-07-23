@@ -2,9 +2,19 @@
 
 ## 1. Scope
 
-This runbook prepares only the prerequisites for live project-scoped Foundry
-Agent Consumer RBAC deployment and read-only verification. Complete it before
-Codex begins the live RBAC slice.
+The normal live Consumer RBAC workflow is now the guided daily coordinator:
+
+```bash
+.venv/bin/python scripts/rebuild_daily_azure_environment.py \
+  --config .env.daily-azure.local --live --json
+```
+
+It discovers the current Web App system identity and approved Foundry project
+scope, resolves the fixed Consumer role, checks existing assignments, prompts
+for the exact assignment only when mutation is required, immediately rereads
+and compares the approved identity and scope evidence, deploys through the
+constrained repository Bicep boundary, verifies read-only, and continues hosted validation.
+The manual commands below are troubleshooting and recovery procedures.
 
 Before execution, the operator must explicitly approve one resource group,
 Foundry account, child project, model deployment, and Linux Web App parameter
@@ -217,10 +227,15 @@ scoped response stops before role-assignment reads.
 The Bicep contract uses the authoritative Foundry API version, an existing
 AIServices account, its existing child project with the account as parent and
 the project leaf as name, and one deterministic Consumer assignment scoped to
-that exact project symbol. If what-if reports Unsupported only for the
-`Microsoft.Authorization/roleAssignments` extension resource, preserve the
-Unsupported count for manual review. It is not Create, Ignore, or proof of
-deployment success; stop for separate approval before live deployment.
+that exact project symbol. Approval requires exactly one Create whose
+subscription, resource group, account/project parent, project scope,
+deterministic assignment name, principal, fixed role definition, multiplicity,
+and repository boundary all match. Unsupported, missing identity fields,
+duplicates, or any false exact-match flag stop without approval. After approval,
+fresh read-only evidence must remain equivalent at every approved identity
+boundary; otherwise `approval_evidence_stale` requires a fresh run. The Bicep
+entry point accepts approved principal/project/assignment values, independently
+resolves the current resources, and fails validation on mismatch.
 
 Latest execution evidence: current Foundry, Web App configuration/identity, and
 readiness verification each passed once. The offline RBAC check passed. One

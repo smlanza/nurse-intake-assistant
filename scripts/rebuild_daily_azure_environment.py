@@ -1,5 +1,4 @@
 import argparse
-from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -24,7 +23,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Offline-check or guide an operator-approved rebuild of the disposable "
-            "Nurse Intake Assistant Azure environment without invocation."
+            "Nurse Intake Assistant Azure environment through fixed fictional hosted validation."
         )
     )
     modes = parser.add_mutually_exclusive_group(required=True)
@@ -32,7 +31,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     modes.add_argument("--live", action="store_true")
     parser.add_argument("--config", required=True)
     parser.add_argument("--json", action="store_true")
-    parser.add_argument("--skip-webjob-discovery", action="store_true")
     args = parser.parse_args(argv)
     if args.live and not args.json:
         parser.error("--live requires --json")
@@ -67,8 +65,6 @@ def main(argv: list[str] | None = None) -> int:
     mode = "check" if args.check else "live"
     try:
         config = load_daily_azure_config(args.config, repository_root=ROOT)
-        if args.skip_webjob_discovery:
-            config = replace(config, discover_hosted_foundry_webjob=False)
         service = DailyAzureEnvironmentRebuild(
             config,
             repository_root=ROOT,

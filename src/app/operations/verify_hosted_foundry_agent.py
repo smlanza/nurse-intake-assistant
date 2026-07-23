@@ -29,9 +29,9 @@ def _create_live_verifier() -> HostedFoundryAgentVerification:
     return HostedFoundryAgentVerification()
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv)
-    mode = "check" if args.check else "live"
+def run_hosted_foundry_agent_verification(
+    mode: str,
+) -> HostedFoundryAgentVerificationResult:
     request = build_hosted_foundry_agent_verification_request(
         AppSettings(),
         mode=mode,
@@ -49,6 +49,13 @@ def main(argv: list[str] | None = None) -> int:
         result = contract_check
     else:
         result = _create_live_verifier().verify(request)
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    mode = "check" if args.check else "live"
+    result = run_hosted_foundry_agent_verification(mode)
     print(json.dumps(result.to_json_dict(), separators=(",", ":"), sort_keys=True))
     if result.ok:
         return 0

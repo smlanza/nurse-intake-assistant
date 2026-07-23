@@ -847,6 +847,47 @@ def safe_guided_plan(
     )
 
 
+def safe_web_app_plan(plan: PlanResult) -> bool:
+    if safe_guided_plan(
+        plan,
+        expected_boundary="web_app",
+        require_create=True,
+    ):
+        return True
+    if (
+        plan.malformed
+        or not plan.exact_topology_match
+        or plan.create_count
+        or plan.delete_count
+        or plan.deploy_count
+        or plan.unsupported_count
+        or plan.unknown_count
+        or plan.unrelated_resource_count
+        or not _plan_counts_match_evidence(plan)
+        or not plan.change_evidence
+    ):
+        return False
+    for change in plan.change_evidence:
+        if change.boundary != "web_app":
+            return False
+        if change.action == "Modify":
+            if not (
+                change.resource_type == "Microsoft.Web/sites"
+                and change.logical_category == "web_app"
+                and change.approved_boundary
+                and change.expected_identity_match
+                and change.expected_parent_match
+                and change.expected_scope_match
+                and change.expected_multiplicity_match
+            ):
+                return False
+        elif not _guided_change_evidence_allowed(change):
+            return False
+    if plan.modify_count:
+        return plan.modify_count == 1 and plan.no_change_count > 0
+    return plan.no_change_count > 0
+
+
 def _guided_plan_failed_predicates(
     plan: PlanResult,
     *,
@@ -992,10 +1033,38 @@ def _plan_approval_summary(
     binding = hashlib.sha256(
         json.dumps(evidence, separators=(",", ":"), sort_keys=True).encode()
     ).hexdigest()
+    classification_facts = (
+        (
+            (
+                "Plan classification",
+                "Resource-level modification of exact repository-owned Web App"
+                if plan.modify_count
+                else "Create Web App infrastructure"
+                if plan.create_count
+                else "No-change Web App infrastructure",
+            ),
+            *(
+                (
+                    (
+                        "Azure preview evidence",
+                        "Exact resource identity; individual property deltas not asserted",
+                    ),
+                    ("Repository Bicep resource contract", "complete shape pinned"),
+                    ("Fresh identical preview", "required"),
+                    ("Post-deployment configuration verification", "required"),
+                )
+                if plan.modify_count
+                else ()
+            ),
+        )
+        if stage == "web_app_deployment"
+        else ()
+    )
     return ApprovalSummary(
         stage=stage,
         heading=heading,
         facts=(
+            *classification_facts,
             ("Creates", str(plan.create_count)),
             ("Modifies", str(plan.modify_count)),
             ("Deletes", str(plan.delete_count)),
@@ -1005,7 +1074,14 @@ def _plan_approval_summary(
             ("Topology evidence complete", _yes_no(plan.exact_topology_match)),
             (
                 "Mutation required",
-                _yes_no(bool(plan.create_count or plan.deploy_count or plan.unsupported_count)),
+                _yes_no(
+                    bool(
+                        plan.create_count
+                        or plan.modify_count
+                        or plan.deploy_count
+                        or plan.unsupported_count
+                    )
+                ),
             ),
         ),
         evidence_binding=binding,
@@ -1783,11 +1859,7 @@ class DailyAzureEnvironmentRebuild:
         web_config = runner.verify_web_app_configuration(context)
         if web_config.state == "absent":
             plan = runner.plan_web_app(context)
-            if not safe_guided_plan(
-                plan,
-                expected_boundary="web_app",
-                require_create=True,
-            ):
+            if not safe_web_app_plan(plan):
                 return self._failure("unsafe_web_app_plan", progress, mutation[0])
             if not approvals.request(
                 _plan_approval_summary(
@@ -1796,6 +1868,11 @@ class DailyAzureEnvironmentRebuild:
             ):
                 return self._failure(
                     "web_app_deployment_approval_required", progress, mutation[0]
+                )
+            fresh_plan = runner.plan_web_app(context)
+            if not safe_web_app_plan(fresh_plan) or fresh_plan != plan:
+                return self._failure(
+                    "approval_evidence_stale", progress, mutation[0]
                 )
             deployed = runner.deploy_web_app(context)
             if not apply(deployed):
@@ -2503,6 +2580,8 @@ class RepositoryDailyAzureStageRunner:
         )
         if result.category == "web_app_not_found":
             return StageResult.absent("web_app_absent")
+        if result.category == "webjob_hosting_configuration_invalid":
+            return StageResult.absent("web_app_configuration_not_current")
         if not result.ok or not result.hosted_verifier_configuration_verified:
             return StageResult.failure(result.category)
         return StageResult.success(reused=True)

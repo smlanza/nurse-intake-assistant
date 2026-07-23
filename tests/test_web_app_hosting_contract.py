@@ -1,4 +1,5 @@
 from src.app.config.settings import AppSettings
+from src.app.services import web_app_hosting_contract as hosting_contract
 from src.app.services.hosted_foundry_agent_verification import (
     build_hosted_foundry_agent_verification_request,
 )
@@ -22,6 +23,27 @@ SETTINGS = {
     "AZURE_AI_FOUNDRY_AGENT_VERSION": "7",
     "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": "fictional-model",
 }
+
+
+def test_linux_webjob_prerequisites_are_exact_baseline_contract() -> None:
+    assert hosting_contract.ALWAYS_ON_REQUIRED is True
+    assert (
+        hosting_contract.WEBJOB_RUNTIME_SETTING
+        == "WEBSITE_SKIP_RUNNING_KUDUAGENT"
+    )
+    assert hosting_contract.WEBJOB_RUNTIME_VALUE == "false"
+    assert (
+        hosting_contract.BASELINE_APP_SETTINGS[
+            hosting_contract.WEBJOB_RUNTIME_SETTING
+        ]
+        == hosting_contract.WEBJOB_RUNTIME_VALUE
+    )
+    assert (
+        hosting_contract.BASELINE_APP_SETTINGS[
+            "SCM_DO_BUILD_DURING_DEPLOYMENT"
+        ]
+        == "true"
+    )
 
 
 def test_exact_five_settings_map_from_environment_to_existing_verifier_request(

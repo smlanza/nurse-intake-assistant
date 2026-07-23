@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import json
-from typing import Literal, Mapping
+from typing import Callable, Generic, Literal, Mapping, TypeVar
 
 
 _ACTIONS = {
@@ -74,6 +74,18 @@ ResourceTypeClass = Literal[
     "missing",
     "malformed",
 ]
+NormalizedAction = Literal[
+    "Create",
+    "Modify",
+    "NoChange",
+    "Delete",
+    "Ignore",
+    "Deploy",
+    "Unsupported",
+    "Replacement",
+    "unknown",
+]
+_NormalizedRecordT = TypeVar("_NormalizedRecordT")
 
 
 @dataclass(frozen=True)
@@ -200,6 +212,15 @@ class WhatIfResourceIdentity:
     subscription: str
     resource_group: str
     name_segments: tuple[str, ...]
+    resource_name: str = ""
+    canonical_resource_id: str = field(default="", repr=False)
+    parent_resource_id: str = field(default="", repr=False)
+    scope_resource_id: str = field(default="", repr=False)
+    extension_resource: bool = False
+    provider_segments: tuple[tuple[str, ...], ...] = field(
+        default=(),
+        repr=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -251,6 +272,62 @@ class SanitizedWhatIfSummary:
         return [change.to_json_dict() for change in self.changes]
 
 
+@dataclass(frozen=True, repr=False)
+class _AuthoritativeWhatIfRecord:
+    record_is_object: bool
+    action: NormalizedAction
+    action_is_supported: bool
+    action_is_canonical: bool
+    resource_id_present: bool
+    resource_id_shape_valid: bool
+    resource_type_present: bool
+    resource_type_consistent: bool
+    identity: WhatIfResourceIdentity | None = field(default=None, repr=False)
+    resource_id: str | None = field(default=None, repr=False)
+
+    @property
+    def resource_type(self) -> str | None:
+        return self.identity.resource_type if self.identity is not None else None
+
+    def resource_id_matches(self, expected: str) -> bool:
+        return bool(
+            self.identity is not None
+            and self.identity.canonical_resource_id.casefold()
+            == expected.casefold()
+        )
+
+    def parent_matches(self, expected_parent: str) -> bool:
+        return bool(
+            self.identity is not None
+            and self.identity.parent_resource_id.casefold()
+            == expected_parent.casefold()
+        )
+
+    def scope_matches(self, subscription_id: str, resource_group: str) -> bool:
+        return bool(
+            self.identity is not None
+            and self.identity.subscription.casefold() == subscription_id.casefold()
+            and self.identity.resource_group.casefold() == resource_group.casefold()
+        )
+
+    def resource_scope_matches(self, expected_scope: str) -> bool:
+        return bool(
+            self.identity is not None
+            and self.identity.scope_resource_id.casefold()
+            == expected_scope.casefold()
+        )
+
+
+@dataclass(frozen=True)
+class NormalizedWhatIfPayload(Generic[_NormalizedRecordT]):
+    payload_is_object: bool
+    changes_present: bool
+    changes_is_list: bool
+    change_record_count: int | None
+    records: tuple[_NormalizedRecordT, ...]
+    sanitized_summary: SanitizedWhatIfSummary | None
+
+
 def parse_sanitized_what_if(
     stdout: str,
     *,
@@ -260,11 +337,61 @@ def parse_sanitized_what_if(
     sanitized_additional_resource_types: Mapping[str, str] | None = None,
     expected_ignored_resources: tuple[ExpectedWhatIfResource, ...] = (),
     allow_expected_ignored_resources_absent: bool = False,
+    allow_expected_ignored_resource_subsets: bool = False,
     allowed_unidentified_ignore_counts: frozenset[int] = frozenset({0}),
     automatically_approved_actions: frozenset[str] = frozenset(
         {"Create", "NoChange", "Ignore"}
     ),
 ) -> SanitizedWhatIfSummary | None:
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    return normalize_sanitized_what_if_payload(
+        payload,
+        boundary=boundary,
+        record_factory=lambda _ordinal, _raw, _facts: None,
+        expected_resources=expected_resources,
+        allowlisted_resource_types=allowlisted_resource_types,
+        sanitized_additional_resource_types=sanitized_additional_resource_types,
+        expected_ignored_resources=expected_ignored_resources,
+        allow_expected_ignored_resources_absent=(
+            allow_expected_ignored_resources_absent
+        ),
+        allow_expected_ignored_resource_subsets=(
+            allow_expected_ignored_resource_subsets
+        ),
+        allowed_unidentified_ignore_counts=allowed_unidentified_ignore_counts,
+        automatically_approved_actions=automatically_approved_actions,
+    ).sanitized_summary
+
+
+def normalize_sanitized_what_if_payload(
+    payload: object,
+    *,
+    boundary: str,
+    record_factory: Callable[
+        [int, object, _AuthoritativeWhatIfRecord], _NormalizedRecordT
+    ],
+    expected_resources: tuple[ExpectedWhatIfResource, ...] | None = None,
+    allowlisted_resource_types: Mapping[str, str] | None = None,
+    sanitized_additional_resource_types: Mapping[str, str] | None = None,
+    expected_ignored_resources: tuple[ExpectedWhatIfResource, ...] = (),
+    allow_expected_ignored_resources_absent: bool = False,
+    allow_expected_ignored_resource_subsets: bool = False,
+    allowed_unidentified_ignore_counts: frozenset[int] = frozenset({0}),
+    automatically_approved_actions: frozenset[str] = frozenset(
+        {"Create", "NoChange", "Ignore"}
+    ),
+) -> NormalizedWhatIfPayload[_NormalizedRecordT]:
+    if not isinstance(payload, dict):
+        return NormalizedWhatIfPayload(False, False, False, None, (), None)
+    if "changes" not in payload:
+        return NormalizedWhatIfPayload(True, False, False, None, (), None)
+    raw_changes = payload.get("changes")
+    if not isinstance(raw_changes, list):
+        return NormalizedWhatIfPayload(True, True, False, None, (), None)
+
     approved_diagnostic_types = frozenset(
         item.resource_type.casefold() for item in (expected_resources or ())
     ) | frozenset(
@@ -274,14 +401,139 @@ def parse_sanitized_what_if(
     ) | frozenset(
         item.casefold() for item in (sanitized_additional_resource_types or {})
     )
-    parsed = _parse_payload(
-        stdout,
-        approved_resource_types=approved_diagnostic_types,
-    )
-    if parsed is None:
-        return None
-    actions, identities, ignore_diagnostics = parsed
+    actions: list[str] = []
+    identities: list[WhatIfResourceIdentity] = []
+    ignore_diagnostics: list[SanitizedIgnoreDiagnostic | None] = []
+    records: list[_NormalizedRecordT] = []
+    records_parseable = True
+    for ordinal, raw_change in enumerate(raw_changes, start=1):
+        if not isinstance(raw_change, dict):
+            facts = _AuthoritativeWhatIfRecord(
+                record_is_object=False,
+                action="unknown",
+                action_is_supported=False,
+                action_is_canonical=False,
+                resource_id_present=False,
+                resource_id_shape_valid=False,
+                resource_type_present=False,
+                resource_type_consistent=False,
+            )
+            records.append(record_factory(ordinal, raw_change, facts))
+            records_parseable = False
+            continue
+        raw_action = raw_change.get("changeType")
+        action_key = raw_action.casefold() if isinstance(raw_action, str) else ""
+        action_is_supported = action_key in _ACTIONS
+        if action_is_supported:
+            action: NormalizedAction = _ACTIONS[action_key]
+        elif action_key == "replacement":
+            action = "Replacement"
+        else:
+            action = "unknown"
+        identity = _resource_identity(raw_change.get("resourceId"))
+        raw_resource_type = raw_change.get("resourceType")
+        resource_type_present = "resourceType" in raw_change
+        resource_type_consistent = bool(
+            identity is not None
+            and (
+                not resource_type_present
+                or (
+                    isinstance(raw_resource_type, str)
+                    and raw_resource_type.casefold()
+                    == identity.resource_type.casefold()
+                )
+            )
+        )
+        facts = _AuthoritativeWhatIfRecord(
+            record_is_object=True,
+            action=action,
+            action_is_supported=action_is_supported,
+            action_is_canonical=bool(
+                action_is_supported and raw_action == action
+            ),
+            resource_id_present="resourceId" in raw_change,
+            resource_id_shape_valid=identity is not None,
+            resource_type_present=resource_type_present,
+            resource_type_consistent=resource_type_consistent,
+            identity=identity,
+            resource_id=(
+                raw_change.get("resourceId")
+                if isinstance(raw_change.get("resourceId"), str)
+                else None
+            ),
+        )
+        records.append(record_factory(ordinal, raw_change, facts))
+        if not action_is_supported:
+            records_parseable = False
+            continue
+        if resource_type_present and not resource_type_consistent:
+            records_parseable = False
+        normalized_identity = identity or WhatIfResourceIdentity(
+            "unidentified", "", "", ()
+        )
+        actions.append(action)
+        identities.append(normalized_identity)
+        ignore_diagnostics.append(
+            _ignore_shape_diagnostic(
+                raw_change,
+                normalized_identity,
+                approved_resource_types=approved_diagnostic_types,
+            )
+            if action == "Ignore"
+            else None
+        )
 
+    summary = (
+        _summarize_normalized_what_if(
+            tuple(actions),
+            tuple(identities),
+            tuple(ignore_diagnostics),
+            boundary=boundary,
+            expected_resources=expected_resources,
+            allowlisted_resource_types=allowlisted_resource_types,
+            sanitized_additional_resource_types=(
+                sanitized_additional_resource_types or {}
+            ),
+            expected_ignored_resources=expected_ignored_resources,
+            allow_expected_ignored_resources_absent=(
+                allow_expected_ignored_resources_absent
+            ),
+            allow_expected_ignored_resource_subsets=(
+                allow_expected_ignored_resource_subsets
+            ),
+            allowed_unidentified_ignore_counts=(
+                allowed_unidentified_ignore_counts
+            ),
+            automatically_approved_actions=automatically_approved_actions,
+        )
+        if records_parseable
+        else None
+    )
+    return NormalizedWhatIfPayload(
+        payload_is_object=True,
+        changes_present=True,
+        changes_is_list=True,
+        change_record_count=len(raw_changes),
+        records=tuple(records),
+        sanitized_summary=summary,
+    )
+
+
+def _summarize_normalized_what_if(
+    actions: tuple[str, ...],
+    identities: tuple[WhatIfResourceIdentity, ...],
+    ignore_diagnostics: tuple[SanitizedIgnoreDiagnostic | None, ...],
+    *,
+    boundary: str,
+    expected_resources: tuple[ExpectedWhatIfResource, ...] | None,
+    allowlisted_resource_types: Mapping[str, str] | None,
+    sanitized_additional_resource_types: Mapping[str, str],
+    expected_ignored_resources: tuple[ExpectedWhatIfResource, ...],
+    allow_expected_ignored_resources_absent: bool,
+    allow_expected_ignored_resource_subsets: bool,
+    allowed_unidentified_ignore_counts: frozenset[int],
+    automatically_approved_actions: frozenset[str],
+) -> SanitizedWhatIfSummary | None:
     if expected_resources is not None:
         return _exact_summary(
             actions,
@@ -290,12 +542,13 @@ def parse_sanitized_what_if(
             boundary=boundary,
             expected_resources=expected_resources,
             automatically_approved_actions=automatically_approved_actions,
-            sanitized_additional_resource_types=(
-                sanitized_additional_resource_types or {}
-            ),
+            sanitized_additional_resource_types=sanitized_additional_resource_types,
             expected_ignored_resources=expected_ignored_resources,
             allow_expected_ignored_resources_absent=(
                 allow_expected_ignored_resources_absent
+            ),
+            allow_expected_ignored_resource_subsets=(
+                allow_expected_ignored_resource_subsets
             ),
             allowed_unidentified_ignore_counts=allowed_unidentified_ignore_counts,
         )
@@ -350,6 +603,7 @@ def _exact_summary(
     sanitized_additional_resource_types: Mapping[str, str],
     expected_ignored_resources: tuple[ExpectedWhatIfResource, ...],
     allow_expected_ignored_resources_absent: bool,
+    allow_expected_ignored_resource_subsets: bool,
     allowed_unidentified_ignore_counts: frozenset[int],
 ) -> SanitizedWhatIfSummary:
     expected_keys = Counter(_expected_key(item) for item in expected_resources)
@@ -396,6 +650,19 @@ def _exact_summary(
         )
         if identity.resource_type.casefold() in additional_types
     )
+    identified_additional_keys = Counter(
+        _identity_key(identity) for _, identity, _ in identified_additional
+    )
+    identified_additional_membership_matches = bool(
+        (
+            allow_expected_ignored_resource_subsets
+            and all(
+                count <= expected_ignored_keys[key]
+                for key, count in identified_additional_keys.items()
+            )
+        )
+        or identified_additional_keys == expected_ignored_keys
+    )
     expected_ignored_resources_match = bool(
         expected_ignored_resources
         and (
@@ -404,18 +671,14 @@ def _exact_summary(
                 and allow_expected_ignored_resources_absent
             )
             or (
-                len(identified_additional) == len(expected_ignored_resources)
+                bool(identified_additional)
+                and identified_additional_membership_matches
                 and all(
                     action == "Ignore"
                     and diagnostic is not None
                     and _direct_resource_group_reference_path(diagnostic)
                     for action, _, diagnostic in identified_additional
                 )
-                and Counter(
-                    _identity_key(identity)
-                    for _, identity, _ in identified_additional
-                )
-                == expected_ignored_keys
                 and len(expected_subscriptions) == 1
                 and all(
                     identity.subscription.casefold() in expected_subscriptions
@@ -955,7 +1218,10 @@ def _expected_ignore_diagnostic(
 def _resource_identity(value: object) -> WhatIfResourceIdentity | None:
     if not isinstance(value, str) or not value.startswith("/"):
         return None
-    parts = tuple(part for part in value.split("/") if part)
+    split_parts = value.split("/")
+    if split_parts[0] or any(not part for part in split_parts[1:]):
+        return None
+    parts = tuple(split_parts[1:])
     if (
         len(parts) < 8
         or parts[0].casefold() != "subscriptions"
@@ -965,26 +1231,55 @@ def _resource_identity(value: object) -> WhatIfResourceIdentity | None:
         or parts[4].casefold() != "providers"
     ):
         return None
-    remaining = parts[5:]
-    nested_provider_indexes = [
-        index
-        for index, part in enumerate(remaining)
-        if part.casefold() == "providers"
-    ]
-    if nested_provider_indexes:
-        remaining = remaining[nested_provider_indexes[-1] + 1 :]
-    if len(remaining) < 3 or len(remaining) % 2 == 0:
+
+    provider_segments: list[tuple[str, ...]] = []
+    current_provider: list[str] = []
+    for part in parts[5:]:
+        if part.casefold() == "providers":
+            if not current_provider:
+                return None
+            provider_segments.append(tuple(current_provider))
+            current_provider = []
+        else:
+            current_provider.append(part)
+    if not current_provider:
         return None
-    namespace = remaining[0]
-    type_segments = remaining[1::2]
-    name_segments = remaining[2::2]
-    if not namespace or not all(type_segments) or not all(name_segments):
+    provider_segments.append(tuple(current_provider))
+    if any(
+        len(segment) < 3 or len(segment) % 2 == 0
+        for segment in provider_segments
+    ):
         return None
+
+    final_provider = provider_segments[-1]
+    namespace = final_provider[0]
+    type_segments = final_provider[1::2]
+    name_segments = final_provider[2::2]
+    extension_resource = len(provider_segments) > 1
+    if len(final_provider) > 3:
+        parent_parts = parts[:-2]
+    elif extension_resource:
+        final_provider_marker = max(
+            index
+            for index, part in enumerate(parts)
+            if part.casefold() == "providers"
+        )
+        parent_parts = parts[:final_provider_marker]
+    else:
+        parent_parts = parts[:4]
+    canonical_resource_id = f"/{'/'.join(parts)}"
+    parent_resource_id = f"/{'/'.join(parent_parts)}"
     return WhatIfResourceIdentity(
         resource_type="/".join((namespace, *type_segments)),
         subscription=parts[1],
         resource_group=parts[3],
         name_segments=tuple(name_segments),
+        resource_name=name_segments[-1],
+        canonical_resource_id=canonical_resource_id,
+        parent_resource_id=parent_resource_id,
+        scope_resource_id=parent_resource_id,
+        extension_resource=extension_resource,
+        provider_segments=tuple(provider_segments),
     )
 
 

@@ -4,9 +4,13 @@ from collections.abc import Mapping
 from typing import Literal, Protocol
 
 from src.app.services.web_app_hosting_contract import (
+    ALWAYS_ON_REQUIRED,
+    BASELINE_APP_SETTINGS,
     HOSTED_VERIFIER_SETTING_NAMES,
     REMOTE_BUILD_SETTING,
     SAFE_HOSTED_SETTINGS,
+    WEBJOB_RUNTIME_SETTING,
+    WEBJOB_RUNTIME_VALUE,
     hosted_verifier_settings_valid,
 )
 
@@ -17,6 +21,8 @@ EXPECTED_LOCAL_CONTRACT = {
     ),
     "health_check_path": "/health",
     "remote_build_setting": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+    "always_on": True,
+    "webjob_runtime_setting": "WEBSITE_SKIP_RUNNING_KUDUAGENT",
 }
 EXPECTED_SAFE_APP_SETTINGS = SAFE_HOSTED_SETTINGS
 EXPECTED_LINUX_FX_VERSION = EXPECTED_LOCAL_CONTRACT["linux_fx_version"]
@@ -32,12 +38,10 @@ SITE_QUERY = (
 SITE_CONFIG_QUERY = (
     "{linuxFxVersion:linuxFxVersion,appCommandLine:appCommandLine,"
     "ftpsState:ftpsState,minTlsVersion:minTlsVersion,"
-    "scmMinTlsVersion:scmMinTlsVersion,healthCheckPath:healthCheckPath}"
+    "scmMinTlsVersion:scmMinTlsVersion,healthCheckPath:healthCheckPath,"
+    "alwaysOn:alwaysOn}"
 )
-_BASE_APP_SETTING_NAMES = (
-    *SAFE_APP_SETTINGS,
-    REMOTE_BUILD_SETTING,
-)
+_BASE_APP_SETTING_NAMES = tuple(BASELINE_APP_SETTINGS)
 
 
 def _app_settings_query(include_hosted_verifier: bool) -> str:
@@ -62,6 +66,7 @@ ConfigurationCategory = Literal[
     "runtime_contract_invalid",
     "startup_command_invalid",
     "remote_build_missing",
+    "webjob_hosting_configuration_invalid",
     "security_configuration_invalid",
     "managed_identity_missing",
     "safe_posture_invalid",
@@ -82,6 +87,9 @@ MESSAGES: dict[ConfigurationCategory, str] = {
     "runtime_contract_invalid": "The Linux runtime contract is invalid.",
     "startup_command_invalid": "The application startup command is invalid.",
     "remote_build_missing": "The remote-build setting is missing or disabled.",
+    "webjob_hosting_configuration_invalid": (
+        "The Linux WebJob hosting configuration is invalid."
+    ),
     "security_configuration_invalid": "The Web App security configuration is invalid.",
     "managed_identity_missing": "A system-assigned managed identity is missing.",
     "safe_posture_invalid": "The hosted provider posture is not safe.",
@@ -105,6 +113,9 @@ NEXT_STEPS: dict[ConfigurationCategory, str] = {
     "runtime_contract_invalid": "Review the Linux runtime against the Web App Bicep contract.",
     "startup_command_invalid": "Review the startup command against the Web App Bicep contract.",
     "remote_build_missing": "Enable the Bicep-owned remote-build setting before code deployment.",
+    "webjob_hosting_configuration_invalid": (
+        "Restore the Bicep-owned Linux WebJob hosting prerequisites."
+    ),
     "security_configuration_invalid": "Review HTTPS, FTPS, TLS, and health-check configuration.",
     "managed_identity_missing": "Provision the Bicep-owned system-assigned identity before continuing.",
     "safe_posture_invalid": "Restore mock providers and suppressed notifications before continuing.",
@@ -443,6 +454,11 @@ def verify_web_app_configuration(
         )
     progress["startup_command_verified"] = True
 
+    if config.get("alwaysOn") is not ALWAYS_ON_REQUIRED:
+        return WebAppConfigurationVerificationResult.failure(
+            "webjob_hosting_configuration_invalid", **progress
+        )
+
     if config.get("ftpsState") != "Disabled":
         return WebAppConfigurationVerificationResult.failure(
             "security_configuration_invalid", **progress
@@ -496,6 +512,11 @@ def verify_web_app_configuration(
             "remote_build_missing", **progress
         )
     progress["remote_build_verified"] = True
+
+    if settings.get(WEBJOB_RUNTIME_SETTING) != WEBJOB_RUNTIME_VALUE:
+        return WebAppConfigurationVerificationResult.failure(
+            "webjob_hosting_configuration_invalid", **progress
+        )
 
     if any(settings.get(name) != value for name, value in SAFE_APP_SETTINGS.items()):
         return WebAppConfigurationVerificationResult.failure(
@@ -605,4 +626,9 @@ def _local_contract_valid() -> bool:
         and SAFE_APP_SETTINGS == EXPECTED_SAFE_APP_SETTINGS
         and EXPECTED_HOSTED_VERIFIER_SETTING_NAMES == HOSTED_VERIFIER_SETTING_NAMES
         and REMOTE_BUILD_SETTING == EXPECTED_LOCAL_CONTRACT["remote_build_setting"]
+        and ALWAYS_ON_REQUIRED == EXPECTED_LOCAL_CONTRACT["always_on"]
+        and WEBJOB_RUNTIME_SETTING
+        == EXPECTED_LOCAL_CONTRACT["webjob_runtime_setting"]
+        and BASELINE_APP_SETTINGS[WEBJOB_RUNTIME_SETTING]
+        == WEBJOB_RUNTIME_VALUE
     )

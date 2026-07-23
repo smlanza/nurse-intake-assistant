@@ -11,6 +11,7 @@ from tests.test_web_app_bicep import _compile
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 7, 19, 10, 0, 0, tzinfo=timezone.utc)
+FINGERPRINT = "a" * 64
 
 
 def _service():
@@ -25,6 +26,7 @@ def _request(mode: str):
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         source_root=ROOT,
+        environment_fingerprint=None if mode == "check" else FINGERPRINT,
     )
 
 
@@ -37,6 +39,7 @@ def _receipt():
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         webjob_name=service.WEBJOB_NAME,
+        environment_fingerprint=FINGERPRINT,
     )
 
 
@@ -49,6 +52,7 @@ def _blocked():
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         webjob_name=service.WEBJOB_NAME,
+        environment_fingerprint=FINGERPRINT,
     )
 
 
@@ -61,6 +65,7 @@ def _outcome(*, succeeded: bool = True):
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         webjob_name=service.WEBJOB_NAME,
+        environment_fingerprint=FINGERPRINT,
     )
 
 
@@ -134,6 +139,7 @@ def test_terminal_status_keeps_accepted_receipt_byte_for_byte_immutable(
     )
 
     assert result.metadata_verification_proven is True
+    assert result.invocation_attempted is True
     assert receipt_path.read_bytes() == before
 
 
@@ -208,6 +214,8 @@ def test_repeated_terminal_status_reuses_immutable_outcome_without_runner(
 
     assert first.metadata_verification_proven is True
     assert repeated.metadata_verification_proven is True
+    assert first.invocation_attempted is True
+    assert repeated.invocation_attempted is True
     assert repeated.terminal_outcome_recorded is True
     assert repeated.azure_operation_attempted is False
     assert created == []

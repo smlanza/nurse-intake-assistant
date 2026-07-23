@@ -5,6 +5,8 @@ import sys
 
 import pytest
 
+from src.app.services import foundry_agent_consumer_rbac_deployment as rbac_deployment
+
 
 VALID_ARGUMENTS = [
     "--resource-group",
@@ -16,6 +18,86 @@ VALID_ARGUMENTS = [
     "--foundry-project-name",
     "fictional-foundry-project",
 ]
+APPROVED_ARGUMENTS = [
+    "--subscription-id",
+    "00000000-0000-0000-0000-000000000001",
+    "--approved-foundry-project-resource-id",
+    "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/fictional-resource-group/providers/Microsoft.CognitiveServices/accounts/fictional-foundry-account/projects/fictional-foundry-project",
+    "--approved-web-app-principal-id",
+    "00000000-0000-0000-0000-000000000002",
+    "--approved-role-assignment-name",
+    "16f4c29e-cc74-5373-8223-e478a3a63851",
+]
+
+
+def _approved_evidence():
+    return rbac_deployment.FoundryAgentConsumerRbacDeploymentEvidence(
+        subscription_id=APPROVED_ARGUMENTS[1],
+        foundry_project_resource_id=APPROVED_ARGUMENTS[3],
+        web_app_principal_id=APPROVED_ARGUMENTS[5],
+        role_definition_id=(
+            f"/subscriptions/{APPROVED_ARGUMENTS[1]}/providers/"
+            "Microsoft.Authorization/roleDefinitions/"
+            f"{rbac_deployment.CONSUMER_ROLE_GUID}"
+        ),
+        role_assignment_name=APPROVED_ARGUMENTS[7],
+        deployment_name=rbac_deployment.DEPLOYMENT_NAME,
+    )
+
+
+def _exact_create_preview() -> dict[str, object]:
+    evidence = _approved_evidence()
+    return {
+        "changes": [
+            {
+                "changeType": "Create",
+                "resourceType": rbac_deployment.ROLE_ASSIGNMENT_RESOURCE_TYPE,
+                "resourceId": (
+                    f"{evidence.foundry_project_resource_id}/providers/"
+                    f"{rbac_deployment.ROLE_ASSIGNMENT_RESOURCE_TYPE}/"
+                    f"{evidence.role_assignment_name}"
+                ),
+                "after": {
+                    "properties": {
+                        "principalId": evidence.web_app_principal_id,
+                        "roleDefinitionId": evidence.role_definition_id,
+                    }
+                },
+            }
+        ],
+        "tenantId": "raw-tenant",
+    }
+
+
+def _exact_manual_review_preview() -> dict[str, object]:
+    evidence = _approved_evidence()
+    ignored = rbac_deployment._expected_daily_ignore_resources(
+        evidence,
+        VALID_ARGUMENTS[3],
+    )
+    changes = [
+        {
+            "changeType": "Ignore",
+            "resourceType": expected.resource_type,
+            "resourceId": rbac_deployment._expected_resource_id(
+                evidence.subscription_id,
+                expected,
+            ),
+        }
+        for expected in ignored
+    ]
+    changes.append(
+        {
+            "changeType": "Unsupported",
+            "resourceType": rbac_deployment.ROLE_ASSIGNMENT_RESOURCE_TYPE,
+            "resourceId": (
+                f"{evidence.foundry_project_resource_id}/providers/"
+                f"{rbac_deployment.ROLE_ASSIGNMENT_RESOURCE_TYPE}/"
+                f"{evidence.role_assignment_name}"
+            ),
+        }
+    )
+    return {"changes": changes, "tenantId": "raw-tenant"}
 
 
 def _script():
@@ -135,19 +217,21 @@ def test_azure_modes_lazily_use_exactly_one_injected_runner(
             self.calls.append(args)
             return script.CommandResult(
                 0,
-                '{"changes":[],"principalId":"raw-principal"}',
+                json.dumps(_exact_create_preview()),
                 "raw stderr",
             )
 
     runner = FakeRunner()
     monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: runner)
 
-    exit_code = script.main([mode, "--json", *VALID_ARGUMENTS])
+    exit_code = script.main(
+        [mode, "--json", *VALID_ARGUMENTS, *APPROVED_ARGUMENTS]
+    )
 
     output = capsys.readouterr().out
     assert exit_code == 0
     assert len(runner.calls) == 1
-    assert "raw-principal" not in output
+    assert "raw-tenant" not in output
     assert "raw stderr" not in output
 
 
@@ -160,38 +244,28 @@ def test_non_json_what_if_prints_all_sanitized_counts_and_manual_review_warning(
         def run(self, _args: list[str]):
             return script.CommandResult(
                 0,
-                json.dumps(
-                    {
-                        "changes": [
-                            {"changeType": "Create", "resourceId": "/raw/id"},
-                            {"changeType": "Modify"},
-                            {"changeType": "Delete"},
-                            {"changeType": "NoChange"},
-                            {"changeType": "Ignore"},
-                            {"changeType": "Deploy"},
-                            {"changeType": "Unsupported"},
-                        ]
-                    }
-                ),
+                json.dumps(_exact_manual_review_preview()),
                 "raw stderr",
             )
 
     monkeypatch.setattr(script, "_create_azure_cli_runner", FakeRunner)
 
-    exit_code = script.main(["--what-if", *VALID_ARGUMENTS])
+    exit_code = script.main(
+        ["--what-if", *VALID_ARGUMENTS, *APPROVED_ARGUMENTS]
+    )
 
     output = capsys.readouterr().out
     assert exit_code == 0
     assert "preview" in output.lower()
-    assert "creates: 1" in output.lower()
-    assert "modifies: 1" in output.lower()
-    assert "deletes: 1" in output.lower()
-    assert "unchanged: 1" in output.lower()
-    assert "ignored: 1" in output.lower()
-    assert "deploy-uncertain: 1" in output.lower()
+    assert "creates: 0" in output.lower()
+    assert "modifies: 0" in output.lower()
+    assert "deletes: 0" in output.lower()
+    assert "unchanged: 0" in output.lower()
+    assert "ignored: 10" in output.lower()
+    assert "deploy-uncertain: 0" in output.lower()
     assert "unsupported: 1" in output.lower()
     assert "manual review" in output.lower()
-    assert "/raw/id" not in output
+    assert "raw-tenant" not in output
     assert "raw stderr" not in output
 
 

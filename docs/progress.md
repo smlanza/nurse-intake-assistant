@@ -5,16 +5,12 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,023 passed
+- 2,127 passed full suite; 422 passed focused and 471 passed broader
+  Web App contract and Modify-policy groups
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The Daily Azure coordinator's shared runner returned its local `_CommandResult`
-where the hosted WebJob boundary intentionally requires its own exact
-`CommandResult`, so valid discovery evidence stopped as `unexpected_error`.
-The hosted boundary retains that strict result contract; one coordinator-owned
-adapter now converts only return code, stdout, and stderr for discovery,
-trigger, and receipt-correlated status verification. Focused adapter tests are
-12 passed, and the complete coordinator/WebJob groups are 252 passed.
+The coordinator-owned command-result adapter is live-proven to reach Azure response classification while preserving the hosted boundary's exact `CommandResult` contract. Discovery then stopped safely as `azure_request_failed`; a separate read-only diagnostic found `alwaysOn=false` and `WEBSITE_SKIP_RUNNING_KUDUAGENT` absent.
+Azure `ResourceIdOnly` what-if proves the exact Web App resource identity, not individual changed properties. Before accepting the seven-`NoChange`/one-`Modify` topology, the repository enforces the complete allowed active Web App Bicep resource shape, including exact nested keys, expressions, app settings, tags, and dependency. The authoritative `siteConfig.appSettings` member must be exactly the baseline array concatenated with `hostedFoundryVerifierAppSettings`, and that identifier must resolve to exactly one active top-level declaration parsed structurally outside comments and strings. Matching decoys cannot satisfy either contract. Active relative resources directly parented to `webApp`, including conditional configuration children and slots, are rejected after any balanced `if (...)` condition is parsed before the actual resource body. Approval explicitly describes a resource-level modification and remains default-no, fresh-preview-bound, and separately verified before discovery. Zero, account-only, project-only, or both exact sanitized Foundry-reference `Ignore` records are accepted; duplicates and unrelated evidence remain rejected.
 
 The live Consumer RBAC diagnostic consistently proves exactly 10 Ignore and one
 Unsupported record, with zero Create, Modify, Delete, Deploy, Replacement,
@@ -28,10 +24,10 @@ fingerprint comparison, second exactly matching preview, constrained deployment,
 and separate direct-assignment verification remain mandatory. Exact single-Create
 acceptance remains strictly bound to complete identity, parent, scope, principal,
 role, assignment-name, and after-properties proof. No Azure, HTTP, or RBAC
-operation occurred during this offline correction; no WebJob, managed-identity,
-Foundry, invocation, cleanup, commit, or push operation occurred. The next live
-coordinator rerun still requires explicit operator authorization after
-independent review. The environment remains not ready.
+operation occurred during this offline implementation; no WebJob,
+managed-identity, Foundry, invocation, cleanup, commit, or push operation
+occurred. No discovery, trigger, status, metadata, or invocation success is
+claimed. The environment remains not ready.
 
 **Active implementation direction:** The project is deliberately moving from
 the local mock capstone into an Azure-first Microsoft Foundry Agent
@@ -387,15 +383,7 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Independent review accepted the coordinator-owned WebJob result adapter; the
-hosted boundary retains its strict exact `CommandResult` contract, and discovery,
-trigger, and receipt-correlated status now receive that exact type. No live Azure
-or hosted operation ran during implementation or review. The next operational
-step is one explicitly authorized supervised coordinator rerun using the current
-environment configuration. Verify that discovery reaches Azure response
-classification instead of the prior adapter-induced `unexpected_error`. Until
-fresh current-session evidence exists, claim no discovery, trigger,
-managed-identity verification, or invocation success; keep discovery, trigger, receipt-correlated status, metadata verification, and invocation separate.
+The next step is selective staging of the reviewed task-owned changes, commit, and then an explicitly authorized supervised daily coordinator run using the current environment configuration. The run must prove the Web App is current with `alwaysOn=true` and `WEBSITE_SKIP_RUNNING_KUDUAGENT=false`, then verify fresh Azure response classification. Claim no discovery, trigger, receipt-correlated status, metadata verification, or invocation success without current-session evidence; keep those stages separate.
 
 ## Current Slice Status
 
@@ -412,6 +400,7 @@ managed-identity verification, or invocation success; keep discovery, trigger, r
 - Immutable WebJob state remains generation-bound; READY still requires WebJob,
   metadata, and valid fixed-fictional invocation proofs; hosted execution remains
   offline-tested only.
+- Linux WebJob hosting is current only with `alwaysOn=true` and the exact baseline Kudu-agent flag. Resource-level Modify approval combines exact identity evidence with the complete locally enforced Bicep Web App shape, an identical fresh preview, one deployment, and separate verification; deployment acceptance alone is not proof. The authoritative app-settings expression must append exactly `hostedFoundryVerifierAppSettings`; its one active top-level declaration is parsed outside comments and strings, and conditional resource bodies are selected only after balanced conditions. Decoy declarations and active relative Web App children or slots are rejected. Exact subsets of the two optional Foundry-reference Ignores are allowed, while duplicate, unrelated, or ambiguous evidence remains rejected. These final parser corrections were offline only: no corrected live policy execution, Azure or HTTP operation, WebJob discovery, trigger, status, managed-identity verification, or invocation occurred or is claimed.
 
 ### Historical Slice Results
 

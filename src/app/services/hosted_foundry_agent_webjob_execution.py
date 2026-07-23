@@ -2,6 +2,7 @@ import ast
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import re
 import secrets
 import stat
 from typing import Literal, Protocol
+from uuid import UUID
 
 from src.app.services.web_app_configuration_verification import (
     check_web_app_configuration_contract,
@@ -34,9 +36,10 @@ TRIGGER_RECEIPT_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "accepted-trigger.json
 TRIGGER_BLOCKED_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "blocked-trigger.json"
 TERMINAL_OUTCOME_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "terminal-outcome.json"
 TRIGGER_RESERVATION_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "trigger-reservation.lock"
-TRIGGER_RECEIPT_SCHEMA_VERSION = 1
-TRIGGER_BLOCKED_SCHEMA_VERSION = 1
-TERMINAL_OUTCOME_SCHEMA_VERSION = 1
+TRIGGER_RECEIPT_SCHEMA_VERSION = 2
+TRIGGER_BLOCKED_SCHEMA_VERSION = 2
+TERMINAL_OUTCOME_SCHEMA_VERSION = 2
+ENVIRONMENT_FINGERPRINT_SCHEMA_VERSION = 1
 WebJobMode = Literal["check", "live-discover", "live-trigger", "live-status"]
 WebJobCategory = Literal[
     "success",
@@ -59,6 +62,7 @@ WebJobCategory = Literal[
     "terminal_outcome_invalid",
     "terminal_outcome_conflict",
     "terminal_outcome_persistence_failed",
+    "environment_evidence_stale",
     "correlated_run_not_observed",
     "correlated_run_ambiguous",
     "correlated_run_nonterminal",
@@ -94,6 +98,7 @@ MESSAGES: dict[WebJobCategory, str] = {
     "terminal_outcome_invalid": "The terminal WebJob outcome evidence is invalid.",
     "terminal_outcome_conflict": "The terminal WebJob outcome evidence conflicts.",
     "terminal_outcome_persistence_failed": "The terminal WebJob outcome could not be persisted safely.",
+    "environment_evidence_stale": "The durable WebJob evidence belongs to a different environment generation.",
     "correlated_run_not_observed": "The correlated WebJob run is not yet observable.",
     "correlated_run_ambiguous": "The correlated WebJob execution is ambiguous.",
     "correlated_run_nonterminal": "The correlated WebJob run is not terminal.",
@@ -122,6 +127,7 @@ NEXT_STEPS: dict[WebJobCategory, str] = {
     "terminal_outcome_invalid": "Stop and restore the immutable terminal-outcome contract before another status read.",
     "terminal_outcome_conflict": "Stop; do not replace or infer between conflicting terminal outcomes.",
     "terminal_outcome_persistence_failed": "Stop; preserve the accepted receipt and investigate outcome persistence before another stage.",
+    "environment_evidence_stale": "Stop; preserve the immutable artifacts and complete explicit manual recovery before another trigger.",
     "correlated_run_not_observed": "Stop; a later status read requires separate authorization.",
     "correlated_run_ambiguous": "Stop; do not infer which execution is authoritative.",
     "correlated_run_nonterminal": "Stop; a later status read requires separate authorization.",
@@ -151,6 +157,19 @@ class HostedFoundryAgentWebJobExecutionRequest:
     resource_group: str
     web_app_name: str
     source_root: Path
+    environment_fingerprint: str | None = None
+
+
+@dataclass(frozen=True)
+class EnvironmentGenerationEvidence:
+    resource_group_resource_id: str
+    web_app_resource_id: str
+    principal_id: str
+    package_digest: str
+    foundry_project_resource_id: str
+    agent_name: str
+    agent_version: str
+    webjob_name: str
 
 
 @dataclass(frozen=True)
@@ -161,6 +180,7 @@ class TriggerReceipt:
     resource_group: str
     web_app_name: str
     webjob_name: str
+    environment_fingerprint: str
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -170,6 +190,7 @@ class TriggerReceipt:
             "resource_group": self.resource_group,
             "web_app_name": self.web_app_name,
             "webjob_name": self.webjob_name,
+            "environment_fingerprint": self.environment_fingerprint,
         }
 
 
@@ -189,6 +210,7 @@ class BlockedTrigger:
     resource_group: str
     web_app_name: str
     webjob_name: str
+    environment_fingerprint: str
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -198,6 +220,7 @@ class BlockedTrigger:
             "resource_group": self.resource_group,
             "web_app_name": self.web_app_name,
             "webjob_name": self.webjob_name,
+            "environment_fingerprint": self.environment_fingerprint,
         }
 
 
@@ -209,6 +232,7 @@ class TerminalOutcome:
     resource_group: str
     web_app_name: str
     webjob_name: str
+    environment_fingerprint: str
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -218,6 +242,7 @@ class TerminalOutcome:
             "resource_group": self.resource_group,
             "web_app_name": self.web_app_name,
             "webjob_name": self.webjob_name,
+            "environment_fingerprint": self.environment_fingerprint,
         }
 
 
@@ -600,6 +625,7 @@ def _result(
     correlated_run_succeeded: bool = False,
     terminal_outcome_recorded: bool = False,
     metadata_verification_proven: bool = False,
+    invocation_attempted: bool = False,
     recommended_next_step: str | None = None,
 ) -> HostedFoundryAgentWebJobExecutionResult:
     valid_modes = {"check", "live-discover", "live-trigger", "live-status"}
@@ -622,7 +648,7 @@ def _result(
         correlated_run_succeeded=correlated_run_succeeded,
         terminal_outcome_recorded=terminal_outcome_recorded,
         metadata_verification_proven=metadata_verification_proven,
-        invocation_attempted=False,
+        invocation_attempted=invocation_attempted,
         recommended_next_step=recommended_next_step or NEXT_STEPS[category],
     )
 
@@ -658,7 +684,6 @@ def _entrypoint_contract_valid(source_root: Path) -> bool:
     if any(
         forbidden in source
         for forbidden in (
-            "invoke_hosted_foundry_agent",
             "WEBJOBS_PATH",
             "Path(__file__)",
             "sys.argv",
@@ -671,35 +696,43 @@ def _entrypoint_contract_valid(source_root: Path) -> bool:
             'os.environ.get("HOME")',
             '"site" / "wwwroot"',
             "src/app/operations/verify_hosted_foundry_agent.py",
+            "src/app/operations/invoke_hosted_foundry_agent.py",
+            "run_hosted_foundry_agent_verification",
+            "run_hosted_foundry_agent_invocation",
+            "sys.stdout.write",
+            "except Exception",
         )
     ):
         return False
-    imports_metadata_operation = any(
+    imports_operations = any(
         isinstance(node, ast.ImportFrom)
         and node.module == "src.app.operations"
-        and [(alias.name, alias.asname) for alias in node.names]
-        == [("verify_hosted_foundry_agent", None)]
+        and {alias.name for alias in node.names}
+        == {"verify_hosted_foundry_agent", "invoke_hosted_foundry_agent"}
+        and all(alias.asname is None for alias in node.names)
         for node in ast.walk(tree)
     )
-    fixed_call = any(
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "verify_hosted_foundry_agent"
-        and node.func.attr == "main"
-        and not node.keywords
-        and len(node.args) == 1
-        and isinstance(node.args[0], ast.List)
-        and [
-            element.value
-            for element in node.args[0].elts
-            if isinstance(element, ast.Constant)
-        ]
-        == ["--live", "--json"]
-        and len(node.args[0].elts) == 2
+    fixed_calls = {
+        node.func.attr
         for node in ast.walk(tree)
-    )
-    return imports_metadata_operation and fixed_call
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr
+            in {
+                "run_hosted_foundry_agent_verification",
+                "run_hosted_foundry_agent_invocation",
+            }
+            and not node.keywords
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "live"
+        )
+    }
+    return imports_operations and fixed_calls == {
+        "run_hosted_foundry_agent_verification",
+        "run_hosted_foundry_agent_invocation",
+    }
 
 
 def _hosted_sdk_imports_lazy(source_root: Path) -> bool:
@@ -872,6 +905,72 @@ def _format_utc(value: datetime) -> str:
     return utc.isoformat().replace("+00:00", "Z")
 
 
+def _canonical_guid(value: object) -> str | None:
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    try:
+        canonical = str(UUID(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+    return canonical if value.casefold() == canonical else None
+
+
+def _valid_fingerprint(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def environment_generation_fingerprint(
+    evidence: EnvironmentGenerationEvidence,
+) -> str:
+    group = re.fullmatch(
+        r"/subscriptions/([^/]+)/resourceGroups/([^/]+)",
+        evidence.resource_group_resource_id,
+        flags=re.IGNORECASE,
+    )
+    web_app = re.fullmatch(
+        r"/subscriptions/([^/]+)/resourceGroups/([^/]+)/providers/"
+        r"Microsoft\.Web/sites/([^/]+)",
+        evidence.web_app_resource_id,
+        flags=re.IGNORECASE,
+    )
+    project = re.fullmatch(
+        r"/subscriptions/([^/]+)/resourceGroups/([^/]+)/providers/"
+        r"Microsoft\.CognitiveServices/accounts/([^/]+)/projects/([^/]+)",
+        evidence.foundry_project_resource_id,
+        flags=re.IGNORECASE,
+    )
+    if (
+        group is None
+        or web_app is None
+        or project is None
+        or any(_canonical_guid(match.group(1)) is None for match in (group, web_app, project))
+        or group.group(1).casefold() != web_app.group(1).casefold()
+        or group.group(1).casefold() != project.group(1).casefold()
+        or group.group(2).casefold() != web_app.group(2).casefold()
+        or group.group(2).casefold() != project.group(2).casefold()
+        or _canonical_guid(evidence.principal_id) is None
+        or re.fullmatch(r"[0-9a-f]{64}", evidence.package_digest) is None
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,62}", evidence.agent_name) is None
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.\-]{0,63}", evidence.agent_version) is None
+        or evidence.webjob_name != WEBJOB_NAME
+    ):
+        raise ValueError("Environment generation evidence is invalid.")
+    canonical = {
+        "schema_version": ENVIRONMENT_FINGERPRINT_SCHEMA_VERSION,
+        "resource_group_resource_id": evidence.resource_group_resource_id.casefold(),
+        "web_app_resource_id": evidence.web_app_resource_id.casefold(),
+        "principal_id": evidence.principal_id.casefold(),
+        "package_digest": evidence.package_digest,
+        "foundry_project_resource_id": evidence.foundry_project_resource_id.casefold(),
+        "agent_name": evidence.agent_name,
+        "agent_version": evidence.agent_version,
+        "webjob_name": evidence.webjob_name,
+    }
+    return hashlib.sha256(
+        json.dumps(canonical, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()
+
+
 def _parse_receipt(payload: object) -> TriggerReceipt | None:
     expected = {
         "schema_version",
@@ -880,6 +979,7 @@ def _parse_receipt(payload: object) -> TriggerReceipt | None:
         "resource_group",
         "web_app_name",
         "webjob_name",
+        "environment_fingerprint",
     }
     if not isinstance(payload, dict) or set(payload) != expected:
         return None
@@ -892,6 +992,7 @@ def _parse_receipt(payload: object) -> TriggerReceipt | None:
         or not _safe_resource_group(payload.get("resource_group"))
         or not _safe_web_app_name(payload.get("web_app_name"))
         or payload.get("webjob_name") != WEBJOB_NAME
+        or not _valid_fingerprint(payload.get("environment_fingerprint"))
     ):
         return None
     return TriggerReceipt(
@@ -901,6 +1002,7 @@ def _parse_receipt(payload: object) -> TriggerReceipt | None:
         resource_group=payload["resource_group"],
         web_app_name=payload["web_app_name"],
         webjob_name=WEBJOB_NAME,
+        environment_fingerprint=payload["environment_fingerprint"],
     )
 
 
@@ -919,6 +1021,7 @@ def _parse_blocked(payload: object) -> BlockedTrigger | None:
         resource_group=receipt[2],
         web_app_name=receipt[3],
         webjob_name=WEBJOB_NAME,
+        environment_fingerprint=receipt[4],
     )
 
 
@@ -937,6 +1040,7 @@ def _parse_outcome(payload: object) -> TerminalOutcome | None:
         resource_group=outcome[2],
         web_app_name=outcome[3],
         webjob_name=WEBJOB_NAME,
+        environment_fingerprint=outcome[4],
     )
 
 
@@ -945,7 +1049,7 @@ def _parse_local_context(
     *,
     schema_version: int,
     states: set[str],
-) -> tuple[str, datetime, str, str] | None:
+) -> tuple[str, datetime, str, str, str] | None:
     expected = {
         "schema_version",
         "state",
@@ -953,6 +1057,7 @@ def _parse_local_context(
         "resource_group",
         "web_app_name",
         "webjob_name",
+        "environment_fingerprint",
     }
     if not isinstance(payload, dict) or set(payload) != expected:
         return None
@@ -960,6 +1065,7 @@ def _parse_local_context(
     state = payload.get("state")
     resource_group = payload.get("resource_group")
     web_app_name = payload.get("web_app_name")
+    environment_fingerprint = payload.get("environment_fingerprint")
     if (
         payload.get("schema_version") != schema_version
         or not isinstance(state, str)
@@ -969,11 +1075,13 @@ def _parse_local_context(
         or not _safe_resource_group(resource_group)
         or not _safe_web_app_name(web_app_name)
         or payload.get("webjob_name") != WEBJOB_NAME
+        or not _valid_fingerprint(environment_fingerprint)
     ):
         return None
     assert isinstance(resource_group, str)
     assert isinstance(web_app_name, str)
-    return state, started, resource_group, web_app_name
+    assert isinstance(environment_fingerprint, str)
+    return state, started, resource_group, web_app_name, environment_fingerprint
 
 
 def _same_context(
@@ -985,6 +1093,7 @@ def _same_context(
         and receipt.resource_group == evidence.resource_group
         and receipt.web_app_name == evidence.web_app_name
         and receipt.webjob_name == evidence.webjob_name
+        and receipt.environment_fingerprint == evidence.environment_fingerprint
     )
 
 
@@ -1061,7 +1170,11 @@ def _receipt_for_request(
             return None, None, "trigger_reservation_active"
         blocked = store.read_blocked()
         if blocked is not None:
-            return None, None, "trigger_blocked"
+            return None, None, (
+                "environment_evidence_stale"
+                if blocked.environment_fingerprint != request.environment_fingerprint
+                else "trigger_blocked"
+            )
         receipt = store.read()
         outcome = store.read_outcome()
     except Exception:
@@ -1079,8 +1192,14 @@ def _receipt_for_request(
         or _utc_time(receipt.trigger_not_before) is None
     ):
         return None, None, "trigger_receipt_invalid"
+    if receipt.environment_fingerprint != request.environment_fingerprint:
+        return None, None, "environment_evidence_stale"
     if outcome is not None and not _same_context(receipt, outcome):
-        return None, None, "terminal_outcome_invalid"
+        return None, None, (
+            "environment_evidence_stale"
+            if outcome.environment_fingerprint != request.environment_fingerprint
+            else "terminal_outcome_invalid"
+        )
     return receipt, outcome, None
 
 
@@ -1106,6 +1225,7 @@ def _new_blocked(
         resource_group=request.resource_group,
         web_app_name=request.web_app_name,
         webjob_name=WEBJOB_NAME,
+        environment_fingerprint=request.environment_fingerprint,
     )
 
 
@@ -1191,6 +1311,10 @@ def execute_hosted_foundry_agent_webjob(
         request.mode not in valid_modes
         or not _safe_resource_group(request.resource_group)
         or not _safe_web_app_name(request.web_app_name)
+        or (
+            request.mode != "check"
+            and not _valid_fingerprint(request.environment_fingerprint)
+        )
     ):
         return _result(request, "invalid_arguments")
 
@@ -1234,6 +1358,9 @@ def execute_hosted_foundry_agent_webjob(
                 **common,
             )
         if blocked is not None:
+            stale_blocked = (
+                blocked.environment_fingerprint != request.environment_fingerprint
+            )
             if not _release_reservation(store, reservation):
                 return _result(
                     request,
@@ -1242,11 +1369,27 @@ def execute_hosted_foundry_agent_webjob(
                     trigger_blocked=True,
                     **common,
                 )
-            return _result(request, "trigger_blocked", trigger_blocked=True, **common)
+            return _result(
+                request,
+                "environment_evidence_stale" if stale_blocked else "trigger_blocked",
+                trigger_blocked=not stale_blocked,
+                **common,
+            )
         if existing_outcome is not None and (
             existing_receipt is None
             or not _same_context(existing_receipt, existing_outcome)
         ):
+            stale_outcome = (
+                existing_outcome.environment_fingerprint
+                != request.environment_fingerprint
+                or (
+                    existing_receipt is not None
+                    and existing_receipt.environment_fingerprint
+                    != request.environment_fingerprint
+                )
+            )
+            if stale_outcome and _release_reservation(store, reservation):
+                return _result(request, "environment_evidence_stale", **common)
             return _result(
                 request,
                 "trigger_lifecycle_critical",
@@ -1259,6 +1402,8 @@ def execute_hosted_foundry_agent_webjob(
                 and existing_receipt.resource_group == request.resource_group
                 and existing_receipt.web_app_name == request.web_app_name
                 and existing_receipt.webjob_name == WEBJOB_NAME
+                and existing_receipt.environment_fingerprint
+                == request.environment_fingerprint
             )
             if not _release_reservation(store, reservation):
                 return _result(
@@ -1271,7 +1416,14 @@ def execute_hosted_foundry_agent_webjob(
                 )
             return _result(
                 request,
-                "trigger_receipt_unresolved" if valid_receipt else "trigger_receipt_invalid",
+                "trigger_receipt_unresolved"
+                if valid_receipt
+                else (
+                    "environment_evidence_stale"
+                    if existing_receipt.environment_fingerprint
+                    != request.environment_fingerprint
+                    else "trigger_receipt_invalid"
+                ),
                 trigger_receipt_valid=valid_receipt,
                 terminal_outcome_recorded=existing_outcome is not None,
                 **common,
@@ -1301,6 +1453,7 @@ def execute_hosted_foundry_agent_webjob(
                 correlated_run_succeeded=succeeded,
                 terminal_outcome_recorded=True,
                 metadata_verification_proven=succeeded,
+                invocation_attempted=succeeded,
                 **common,
             )
 
@@ -1438,6 +1591,7 @@ def execute_hosted_foundry_agent_webjob(
             resource_group=request.resource_group,
             web_app_name=request.web_app_name,
             webjob_name=WEBJOB_NAME,
+            environment_fingerprint=request.environment_fingerprint,
         )
         try:
             store.write(new_receipt)
@@ -1508,6 +1662,7 @@ def execute_hosted_foundry_agent_webjob(
             resource_group=receipt.resource_group,
             web_app_name=receipt.web_app_name,
             webjob_name=receipt.webjob_name,
+            environment_fingerprint=receipt.environment_fingerprint,
         )
         try:
             store.write_outcome(terminal_outcome)
@@ -1549,6 +1704,7 @@ def execute_hosted_foundry_agent_webjob(
             correlated_run_succeeded=succeeded,
             terminal_outcome_recorded=True,
             metadata_verification_proven=category == "success",
+            invocation_attempted=category == "success",
             **common,
         )
     return _result(

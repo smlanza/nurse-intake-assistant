@@ -54,6 +54,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     modes.add_argument("--live-status", action="store_true")
     parser.add_argument("--resource-group", required=True)
     parser.add_argument("--web-app-name", required=True)
+    parser.add_argument("--environment-fingerprint")
     parser.add_argument("--json", action="store_true", required=True)
     return parser.parse_args(argv)
 
@@ -69,11 +70,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.live_trigger
         else "live-status"
     )
+    if mode != "check" and args.environment_fingerprint is None:
+        raise SystemExit("Live WebJob operations require current generation evidence.")
     request = HostedFoundryAgentWebJobExecutionRequest(
         mode=mode,
         resource_group=args.resource_group,
         web_app_name=args.web_app_name,
         source_root=ROOT,
+        environment_fingerprint=args.environment_fingerprint,
     )
     if mode == "check":
         result = execute_hosted_foundry_agent_webjob(request)

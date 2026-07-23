@@ -8,6 +8,7 @@ from src.app.services import web_app_infra_deployment as deployment
 from src.app.services.daily_azure_environment_rebuild import (
     _plan_from_object,
     safe_guided_plan,
+    safe_web_app_plan,
 )
 
 
@@ -326,6 +327,662 @@ def test_exact_safe_hosted_settings_contract_is_shared_with_configuration_verifi
         "AZURE_AI_FOUNDRY_AGENT_VERSION",
         "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME",
     )
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "false",
+        "quoted",
+        "numeric",
+        "other-resource",
+        "inactive-resource",
+    ],
+)
+def test_local_contract_requires_direct_true_always_on(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    module = _current_module(deployment_request)
+    replacement = {
+        "missing": "",
+        "false": "      alwaysOn: false\n",
+        "quoted": "      alwaysOn: 'true'\n",
+        "numeric": "      alwaysOn: 1\n",
+        "other-resource": "",
+        "inactive-resource": "",
+    }[mutation]
+    module = module.replace("      alwaysOn: true\n", replacement, 1)
+    if mutation in {"other-resource", "inactive-resource"}:
+        condition = " = if (false)" if mutation == "inactive-resource" else " ="
+        module += (
+            "\nresource decoyWebApp 'Microsoft.Web/sites@2024-04-01'"
+            f"{condition} {{\n"
+            "  name: 'decoy-web-app'\n"
+            "  location: location\n"
+            "  properties: {\n"
+            "    siteConfig: {\n"
+            "      alwaysOn: true\n"
+            "    }\n"
+            "  }\n"
+            "}\n"
+        )
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.category == "local_contract_invalid"
+
+
+@pytest.mark.parametrize(
+    ("level", "target", "addition"),
+    (
+        (
+            "resource",
+            "  kind: 'app,linux'\n",
+            "  clientAffinityEnabled: true\n",
+        ),
+        (
+            "properties",
+            "    httpsOnly: true\n",
+            "    publicNetworkAccess: 'Enabled'\n",
+        ),
+        (
+            "site-config",
+            "      alwaysOn: true\n",
+            "      http20Enabled: true\n",
+        ),
+        (
+            "identity",
+            "    type: 'SystemAssigned'\n",
+            "    userAssignedIdentities: {}\n",
+        ),
+        (
+            "depends-on",
+            "    hostedFoundryVerifierConfigValidation\n",
+            "    appServicePlan\n",
+        ),
+        (
+            "duplicate-properties-key",
+            "    httpsOnly: true\n",
+            "    httpsOnly: true\n",
+        ),
+        (
+            "duplicate-site-config-key",
+            "      healthCheckPath: '/health'\n",
+            "      healthCheckPath: '/health'\n",
+        ),
+        (
+            "properties-spread",
+            "    httpsOnly: true\n",
+            "    ...unrecognizedProperties\n",
+        ),
+    ),
+)
+def test_local_contract_rejects_unrecognized_active_web_app_properties(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    level: str,
+    target: str,
+    addition: str,
+) -> None:
+    module = _current_module(deployment_request)
+    assert module.count(target) == 1
+    module = module.replace(target, target + addition, 1)
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.category == "local_contract_invalid", level
+
+
+def test_local_contract_ignores_properties_on_another_resource(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+) -> None:
+    module = _current_module(deployment_request) + (
+        "\nresource unrelated 'Microsoft.Storage/storageAccounts@2023-05-01' = {\n"
+        "  name: 'fictionalunrelatedstorage'\n"
+        "  location: location\n"
+        "  properties: {\n"
+        "    publicNetworkAccess: 'Enabled'\n"
+        "  }\n"
+        "}\n"
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.ok is True
+
+
+def test_local_contract_rejects_inactive_alternate_web_app_resource(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+) -> None:
+    module = _current_module(deployment_request) + (
+        "\nresource decoyWebApp 'Microsoft.Web/sites@2024-04-01' = if (false) {\n"
+        "  name: 'fictional-decoy-web-app'\n"
+        "  location: location\n"
+        "  properties: {\n"
+        "    clientAffinityEnabled: true\n"
+        "  }\n"
+        "}\n"
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.category == "local_contract_invalid"
+
+
+def _detach_authoritative_optional_settings(module: str) -> str:
+    return module.replace(
+        "      appSettings: concat([\n",
+        "      appSettings: [\n",
+        1,
+    ).replace(
+        "      ], hostedFoundryVerifierAppSettings)\n",
+        "      ]\n",
+        1,
+    )
+
+
+def _optional_settings_declaration(module: str) -> str:
+    marker = (
+        "var hostedFoundryVerifierAppSettings = "
+        "validatedHostedFoundryVerifierConfiguration.mode == 'enabled' ? [\n"
+    )
+    start = module.index(marker)
+    end = module.index("] : []\n", start) + len("] : []\n")
+    return module[start:end]
+
+
+def _empty_optional_settings_declaration(module: str) -> str:
+    declaration = _optional_settings_declaration(module)
+    return module.replace(
+        declaration,
+        _empty_optional_settings_declaration_text(module),
+        1,
+    )
+
+
+def _empty_optional_settings_declaration_text(module: str) -> str:
+    declaration = _optional_settings_declaration(module)
+    marker = declaration[: declaration.index("[\n") + len("[\n")]
+    return marker + "] : []\n"
+
+
+@pytest.mark.parametrize(
+    ("case", "mutate"),
+    (
+        (
+            "baseline-only",
+            _detach_authoritative_optional_settings,
+        ),
+        (
+            "wrong-optional-variable",
+            lambda module: module.replace(
+                "      ], hostedFoundryVerifierAppSettings)\n",
+                "      ], anotherOptionalSettings)\n",
+                1,
+            ),
+        ),
+        (
+            "three-argument-concat",
+            lambda module: module.replace(
+                "      ], hostedFoundryVerifierAppSettings)\n",
+                "      ], hostedFoundryVerifierAppSettings, extraSettings)\n",
+                1,
+            ),
+        ),
+        (
+            "reversed-concat-arguments",
+            lambda module: module.replace(
+                "      appSettings: concat([\n",
+                "      appSettings: concat(hostedFoundryVerifierAppSettings, [\n",
+                1,
+            ).replace(
+                "      ], hostedFoundryVerifierAppSettings)\n",
+                "      ])\n",
+                1,
+            ),
+        ),
+        (
+            "wrapped-optional-settings",
+            lambda module: module.replace(
+                "      ], hostedFoundryVerifierAppSettings)\n",
+                "      ], concat(hostedFoundryVerifierAppSettings))\n",
+                1,
+            ),
+        ),
+        (
+            "trailing-expression",
+            lambda module: module.replace(
+                "      ], hostedFoundryVerifierAppSettings)\n",
+                "      ], hostedFoundryVerifierAppSettings) + extraSettings\n",
+                1,
+            ),
+        ),
+        (
+            "correct-expression-only-in-decoy-variable",
+            lambda module: _detach_authoritative_optional_settings(module)
+            + (
+                "\nvar decoy = {\n"
+                "  appSettings: concat([], hostedFoundryVerifierAppSettings)\n"
+                "}\n"
+            ),
+        ),
+        (
+            "correct-expression-only-in-comment",
+            lambda module: _detach_authoritative_optional_settings(module)
+            + (
+                "\n// appSettings: concat([], "
+                "hostedFoundryVerifierAppSettings)\n"
+            ),
+        ),
+        (
+            "correct-expression-only-in-string",
+            lambda module: _detach_authoritative_optional_settings(module)
+            + (
+                "\nvar decoyExpression = "
+                "'appSettings: concat([], hostedFoundryVerifierAppSettings)'\n"
+            ),
+        ),
+        (
+            "correct-expression-only-in-unrelated-resource",
+            lambda module: _detach_authoritative_optional_settings(module)
+            + (
+                "\nresource unrelated 'Microsoft.Storage/storageAccounts@2023-05-01' = {\n"
+                "  name: 'fictionalunrelatedstorage'\n"
+                "  location: location\n"
+                "  properties: {\n"
+                "    appSettings: concat([], hostedFoundryVerifierAppSettings)\n"
+                "  }\n"
+                "}\n"
+            ),
+        ),
+    ),
+)
+def test_local_contract_binds_optional_settings_to_authoritative_web_app(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    case: str,
+    mutate,
+) -> None:
+    module = mutate(_current_module(deployment_request))
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.category == "local_contract_invalid", case
+
+
+def test_local_contract_accepts_exact_authoritative_app_settings_expression(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    result = deployment.deploy_web_app_infrastructure(deployment_request)
+
+    assert result.ok is True
+
+
+@pytest.mark.parametrize(
+    ("case", "mutate"),
+    (
+        (
+            "multiline-string-declaration-decoy",
+            lambda module: (
+                "var decoyOptionalText = '''\n"
+                + _optional_settings_declaration(module)
+                + "'''\n"
+                + _empty_optional_settings_declaration(module)
+            ),
+        ),
+        (
+            "ordinary-string-declaration-decoy",
+            lambda module: _empty_optional_settings_declaration(module)
+            + (
+                "\nvar decoyOptionalText = "
+                "'var hostedFoundryVerifierAppSettings = ignored'\n"
+            ),
+        ),
+        (
+            "commented-declaration-decoy",
+            lambda module: "".join(
+                f"// {line}"
+                for line in _optional_settings_declaration(module).splitlines(
+                    keepends=True
+                )
+            )
+            + _empty_optional_settings_declaration(module),
+        ),
+        (
+            "duplicate-active-declaration",
+            lambda module: module
+            + "\n"
+            + _empty_optional_settings_declaration_text(module),
+        ),
+    ),
+)
+def test_local_contract_uses_one_active_optional_settings_declaration(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    case: str,
+    mutate,
+) -> None:
+    module = mutate(_current_module(deployment_request))
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.category == "local_contract_invalid", case
+
+
+def test_local_contract_accepts_exact_active_optional_settings_declaration(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    result = deployment.deploy_web_app_infrastructure(deployment_request)
+
+    assert result.ok is True
+
+
+@pytest.mark.parametrize(
+    ("case", "addition", "accepted"),
+    (
+        (
+            "relative-config-child",
+            (
+                "\nresource webAppConfig 'config@2024-04-01' = {\n"
+                "  parent: webApp\n"
+                "  name: 'web'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "relative-slot",
+            (
+                "\nresource webAppSlot 'slots@2024-04-01' = {\n"
+                "  parent: webApp\n"
+                "  name: 'staging'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "relative-extension-child",
+            (
+                "\nresource webAppExtension 'extensions@2024-04-01' = {\n"
+                "  parent: webApp\n"
+                "  name: 'fictional-extension'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "multiline-relative-parent",
+            (
+                "\nresource webAppConfig 'config@2024-04-01' = {\n"
+                "  parent:\n"
+                "    webApp\n"
+                "  name: 'web'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "fully-qualified-slot",
+            (
+                "\nresource webAppSlot 'Microsoft.Web/sites/slots@2024-04-01' = {\n"
+                "  name: 'fictional-web-app/staging'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "fully-qualified-child",
+            (
+                "\nresource webAppConfig 'Microsoft.Web/sites/config@2024-04-01' = {\n"
+                "  name: 'fictional-web-app/web'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "commented-relative-child",
+            (
+                "\n// resource webAppConfig 'config@2024-04-01' = {\n"
+                "//   parent: webApp\n"
+                "//   name: 'web'\n"
+                "//   properties: {}\n"
+                "// }\n"
+            ),
+            True,
+        ),
+        (
+            "string-containing-parent",
+            (
+                "\nvar decoyParentText = '''\n"
+                "resource decoy 'config@2024-04-01' = {\n"
+                "  parent: webApp\n"
+                "}\n"
+                "'''\n"
+            ),
+            True,
+        ),
+        (
+            "other-resource-parent",
+            (
+                "\nresource planChild 'virtualNetworkConnections@2024-04-01' = {\n"
+                "  parent: appServicePlan\n"
+                "  name: 'fictional-connection'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            True,
+        ),
+    ),
+)
+def test_local_contract_rejects_only_active_direct_web_app_children(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    case: str,
+    addition: str,
+    accepted: bool,
+) -> None:
+    module = _current_module(deployment_request) + addition
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.ok is accepted, case
+    assert result.category == ("success" if accepted else "local_contract_invalid")
+
+
+@pytest.mark.parametrize(
+    ("case", "addition", "accepted"),
+    (
+        (
+            "conditional-config-with-object-literal",
+            (
+                "\nresource webAppConfig 'config@2024-04-01' = "
+                "if (contains({}, 'x')) {\n"
+                "  parent: webApp\n"
+                "  name: 'web'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "conditional-slot-with-object-literal",
+            (
+                "\nresource webAppSlot 'slots@2024-04-01' = "
+                "if (contains({}, 'x')) {\n"
+                "  parent: webApp\n"
+                "  name: 'staging'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "multiline-nested-condition",
+            (
+                "\nresource webAppExtension 'extensions@2024-04-01' = if (\n"
+                "  contains({\n"
+                "    nested: [\n"
+                "      format('{0}', 'x')\n"
+                "    ]\n"
+                "  }, 'nested')\n"
+                ") {\n"
+                "  parent: webApp\n"
+                "  name: 'fictional-extension'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "brace-like-comment-and-string",
+            (
+                "\nresource webAppConfig 'config@2024-04-01' = if (\n"
+                "  contains({}, '}]) {') /* { ignored } */\n"
+                ") {\n"
+                "  parent: webApp\n"
+                "  name: 'web'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            False,
+        ),
+        (
+            "unrelated-conditional-resource",
+            (
+                "\nresource planChild 'virtualNetworkConnections@2024-04-01' = "
+                "if (contains({}, 'x')) {\n"
+                "  parent: appServicePlan\n"
+                "  name: 'fictional-connection'\n"
+                "  properties: {}\n"
+                "}\n"
+            ),
+            True,
+        ),
+    ),
+)
+def test_local_contract_finds_body_after_balanced_resource_condition(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    case: str,
+    addition: str,
+    accepted: bool,
+) -> None:
+    module = _current_module(deployment_request) + addition
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.ok is accepted, case
+    assert result.category == ("success" if accepted else "local_contract_invalid")
+
+
+def test_local_contract_rejects_unrecognized_optional_app_setting(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+) -> None:
+    module = _current_module(deployment_request)
+    marker = (
+        "var hostedFoundryVerifierAppSettings = "
+        "validatedHostedFoundryVerifierConfiguration.mode == 'enabled' ? [\n"
+    )
+    addition = (
+        "  {\n"
+        "    name: 'UNRECOGNIZED_OPTIONAL_SETTING'\n"
+        "    value: validatedHostedFoundryVerifierConfiguration.agentName\n"
+        "  }\n"
+    )
+    assert module.count(marker) == 1
+    module = module.replace(marker, marker + addition, 1)
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.category == "local_contract_invalid"
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "missing",
+        "true",
+        "wrong-name-case",
+        "value-case",
+        "value-whitespace",
+        "duplicate",
+        "conflicting",
+        "commented-only",
+        "optional-only",
+    ],
+)
+def test_local_contract_requires_one_exact_baseline_kudu_agent_setting(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    name = "WEBSITE_SKIP_RUNNING_KUDUAGENT"
+    block = _setting_block(name, "false")
+    module = _current_module(deployment_request)
+    if mutation == "missing":
+        module = module.replace(block, "", 1)
+    elif mutation == "true":
+        module = module.replace(block, _setting_block(name, "true"), 1)
+    elif mutation == "wrong-name-case":
+        module = module.replace(
+            block, _setting_block("Website_Skip_Running_Kuduagent", "false"), 1
+        )
+    elif mutation == "value-case":
+        module = module.replace(block, _setting_block(name, "False"), 1)
+    elif mutation == "value-whitespace":
+        module = module.replace(block, _setting_block(name, " false "), 1)
+    elif mutation == "duplicate":
+        module = _append_app_setting(module, name, "false")
+    elif mutation == "conflicting":
+        module = _append_app_setting(module, name, "true")
+    elif mutation == "commented-only":
+        commented = "".join(
+            f"// {line}" for line in block.splitlines(keepends=True)
+        )
+        module = module.replace(block, commented, 1)
+    else:
+        module = module.replace(block, "", 1)
+        marker = (
+            "var hostedFoundryVerifierAppSettings = "
+            "validatedHostedFoundryVerifierConfiguration.mode == 'enabled' ? [\n"
+        )
+        module = module.replace(marker, marker + block, 1)
+
+    result = deployment.deploy_web_app_infrastructure(
+        _request_with_module(deployment_request, tmp_path, module)
+    )
+
+    assert result.category == "local_contract_invalid"
 
 
 def test_local_contract_rejects_missing_setting(
@@ -709,6 +1366,56 @@ def _web_app_foundry_reference_ignores(
     ]
 
 
+def _web_app_hosting_modify_changes(
+    request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> list[dict[str, object]]:
+    changes: list[dict[str, object]] = [
+        *(_web_app_topology_changes(request)),
+        *_web_app_foundry_reference_ignores(request),
+    ]
+    for change in changes[:7]:
+        change["changeType"] = "NoChange"
+    changes[7]["changeType"] = "Modify"
+    return changes
+
+
+@pytest.mark.parametrize(
+    "reference_indexes",
+    ((), (0,), (1,), (0, 1)),
+    ids=("no-references", "account-only", "project-only", "both-references"),
+)
+def test_web_app_adapter_accepts_exact_hosting_contract_modify_topology(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    reference_indexes: tuple[int, ...],
+) -> None:
+    changes = _web_app_hosting_modify_changes(deployment_request)
+    references = changes[8:]
+    changes = [*changes[:8], *(references[index] for index in reference_indexes)]
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(
+                0,
+                json.dumps({"changes": changes}),
+                "",
+            )
+        ),
+    )
+
+    assert result.exact_topology_match is True
+    assert result.create_count == 0
+    assert result.modify_count == 1
+    assert result.no_change_count == 7
+    assert result.ignore_count == len(reference_indexes)
+    modifying = [
+        change for change in result.change_evidence if change.action == "Modify"
+    ]
+    assert len(modifying) == 1
+    assert modifying[0].resource_type == "Microsoft.Web/sites"
+    assert modifying[0].logical_category == "web_app"
+    assert modifying[0].approved_boundary is True
+
+
 def test_web_app_adapter_accepts_exact_existing_foundry_reference_pair(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> None:
@@ -824,8 +1531,6 @@ def test_web_app_adapter_accepts_only_the_exact_expected_topology(
 @pytest.mark.parametrize(
     "case",
     [
-        "account-only",
-        "project-only",
         "duplicate-account",
         "duplicate-project",
         "three",
@@ -855,18 +1560,10 @@ def test_web_app_adapter_rejects_inexact_foundry_reference_ignores(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
     case: str,
 ) -> None:
-    expected = _web_app_foundry_reference_ignores(deployment_request)
-    changes: list[dict[str, object]] = [
-        *_web_app_topology_changes(deployment_request),
-        *expected,
-    ]
+    changes = _web_app_hosting_modify_changes(deployment_request)
     first = changes[8]
     second = changes[9]
-    if case == "account-only":
-        changes.pop()
-    elif case == "project-only":
-        changes.pop(8)
-    elif case == "duplicate-account":
+    if case == "duplicate-account":
         changes[9] = dict(first)
     elif case == "duplicate-project":
         changes[8] = dict(second)
@@ -967,6 +1664,7 @@ def test_web_app_adapter_rejects_inexact_foundry_reference_ignores(
         expected_boundary="web_app",
         require_create=True,
     ) is False
+    assert safe_web_app_plan(_plan_from_object(result)) is False
     serialized = json.dumps(result.to_json_dict()["change_evidence"])
     for forbidden in (
         "private-sub",
@@ -1532,7 +2230,7 @@ def test_web_app_adapter_rejects_inexact_topologies(
     assert not all(change.approved_boundary for change in result.change_evidence)
 
 
-@pytest.mark.parametrize("action", ["Modify", "Delete", "Deploy", "Unsupported"])
+@pytest.mark.parametrize("action", ["Delete", "Deploy", "Unsupported"])
 def test_web_app_adapter_rejects_unapproved_actions_for_expected_resources(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
     action: str,
@@ -1553,6 +2251,58 @@ def test_web_app_adapter_rejects_unapproved_actions_for_expected_resources(
         expected_boundary="web_app",
         require_create=True,
     ) is False
+
+
+@pytest.mark.parametrize(
+    "modified_index",
+    [0, 3, 4, 6],
+    ids=("cosmos", "storage", "log-analytics", "app-service-plan"),
+)
+def test_web_app_adapter_rejects_modify_outside_exact_web_app_resource(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    modified_index: int,
+) -> None:
+    changes = _web_app_hosting_modify_changes(deployment_request)
+    changes[7]["changeType"] = "NoChange"
+    changes[modified_index]["changeType"] = "Modify"
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.modify_count == 1
+    assert result.exact_topology_match is False
+    modifying = [
+        change for change in result.change_evidence if change.action == "Modify"
+    ]
+    assert len(modifying) == 1
+    assert modifying[0].approved_boundary is False
+    assert safe_web_app_plan(_plan_from_object(result)) is False
+
+
+def test_web_app_adapter_represents_but_rejects_mixed_create_and_modify(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    changes = _web_app_topology_changes(deployment_request)
+    changes[7]["changeType"] = "Modify"
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.exact_topology_match is False
+    assert result.create_count == 7
+    assert result.modify_count == 1
+    assert next(
+        change for change in result.change_evidence if change.action == "Modify"
+    ).approved_boundary is False
+    assert safe_web_app_plan(_plan_from_object(result)) is False
 
 
 @pytest.mark.parametrize(

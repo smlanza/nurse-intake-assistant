@@ -23,9 +23,25 @@ def test_staged_entrypoint_imports_only_from_app_service_home(tmp_path: Path) ->
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("")
     (operation_root / "verify_hosted_foundry_agent.py").write_text(
-        "def main(argv):\n"
-        "    print('{\"fake_home_operation\":true}')\n"
-        "    return 0 if argv == ['--live', '--json'] else 9\n"
+        "class HostedFoundryAgentVerificationResult:\n"
+        "    def __init__(self, mode):\n"
+        "        self.ok=True; self.category='success'; self.operation='verify_hosted_foundry_agent'; self.mode=mode; "
+        "self.local_contract_validated=True; self.hosted_environment_present=True; "
+        "self.managed_identity_attempted=True; self.managed_identity_authenticated=True; "
+        "self.project_access_verified=True; self.agent_present=True; self.configured_version_present=True; "
+        "self.agent_contract_verified=True; self.agent_invocation_attempted=False; self.azure_mutation_made=False; "
+        "self.recommended_next_step='Run the separate fictional-data hosted agent invocation.'\n"
+        "def run_hosted_foundry_agent_verification(mode):\n"
+        "    return HostedFoundryAgentVerificationResult(mode)\n"
+    )
+    (operation_root / "invoke_hosted_foundry_agent.py").write_text(
+        "class HostedFoundryAgentInvocationResult:\n"
+        "    def __init__(self):\n"
+        "        self.ok=True; self.category='success'; self.message='One fictional agent response passed the application contract.'; self.invocation_attempted=True; "
+        "self.agent_output_valid=True; self.fields_present=('extraction','urgency','handoffNote'); "
+        "self.fictional_data_only=True; self.recommended_next_step='Retain human nurse review; this fictional proof is not clinical readiness.'\n"
+        "def run_hosted_foundry_agent_invocation(mode):\n"
+        "    return HostedFoundryAgentInvocationResult()\n"
     )
 
     staged_root = tmp_path / "kudu-temp/jobs/triggered/fixed/random"
@@ -50,7 +66,10 @@ def test_staged_entrypoint_imports_only_from_app_service_home(tmp_path: Path) ->
     )
 
     assert completed.returncode == 0
-    assert completed.stdout.strip() == '{"fake_home_operation":true}'
+    payload = json.loads(completed.stdout)
+    assert payload["metadata_verification_proven"] is True
+    assert payload["invocation_succeeded"] is True
+    assert completed.stdout.count("\n") == 1
     assert completed.stderr == ""
 
 
@@ -117,6 +136,7 @@ def test_discovery_is_a_distinct_single_read_mode() -> None:
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         source_root=ROOT,
+        environment_fingerprint="a" * 64,
     )
 
     result = service.execute_hosted_foundry_agent_webjob(request, runner=runner)

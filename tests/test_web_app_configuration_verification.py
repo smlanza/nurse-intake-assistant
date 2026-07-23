@@ -50,6 +50,7 @@ def _config(**overrides: object) -> str:
         "minTlsVersion": "1.2",
         "scmMinTlsVersion": "1.2",
         "healthCheckPath": "/health",
+        "alwaysOn": True,
     }
     payload.update(overrides)
     return json.dumps(payload)
@@ -65,6 +66,7 @@ def _settings(**overrides: str | None) -> str:
         "SMS_PROVIDER": "mock",
         "DEMO_SUPPRESS_NOTIFICATIONS": "true",
         "SCM_DO_BUILD_DURING_DEPLOYMENT": "true",
+        "WEBSITE_SKIP_RUNNING_KUDUAGENT": "false",
         **EXPECTED_HOSTED_VERIFIER_SETTINGS,
     }
     for name, value in overrides.items():
@@ -382,6 +384,76 @@ def test_runtime_startup_and_security_config_failures_stop_before_settings() -> 
         assert len(runner.calls) == 2
 
 
+@pytest.mark.parametrize("actual_value", (None, False, "true", 1))
+def test_missing_or_non_boolean_always_on_blocks_linux_webjob_hosting_contract(
+    actual_value: object,
+) -> None:
+    config = json.loads(_config())
+    if actual_value is None:
+        config.pop("alwaysOn")
+    else:
+        config["alwaysOn"] = actual_value
+    runner = FakeRunner(
+        [
+            _result(0, _site()),
+            _result(0, json.dumps(config)),
+        ]
+    )
+
+    result = _verify(runner)
+
+    assert result.ok is False
+    assert result.category == "webjob_hosting_configuration_invalid"
+    assert len(runner.calls) == 2
+
+
+def test_duplicate_projected_kudu_agent_setting_fails_closed() -> None:
+    settings = json.loads(_settings())
+    settings.append(
+        {"name": "WEBSITE_SKIP_RUNNING_KUDUAGENT", "value": "false"}
+    )
+    runner = FakeRunner(
+        [
+            _result(0, _site()),
+            _result(0, _config()),
+            _result(0, json.dumps(settings)),
+        ]
+    )
+
+    result = _verify(runner)
+
+    assert result.ok is False
+    assert result.category == "response_parse_failed"
+    assert len(runner.calls) == 3
+
+
+@pytest.mark.parametrize(
+    "actual_value",
+    [None, "true", "False", " false "],
+)
+def test_kudu_agent_setting_must_be_exact_false(
+    actual_value: str | None,
+) -> None:
+    runner = FakeRunner(
+        [
+            _result(0, _site()),
+            _result(0, _config()),
+            _result(
+                0,
+                _settings(
+                    **{"WEBSITE_SKIP_RUNNING_KUDUAGENT": actual_value}
+                ),
+            ),
+        ]
+    )
+
+    result = _verify(runner)
+
+    assert result.ok is False
+    assert result.category == "webjob_hosting_configuration_invalid"
+    assert len(runner.calls) == 3
+
+
 def test_remote_build_and_safe_provider_posture_failures_are_distinct() -> None:
     cases = (
         ({"SCM_DO_BUILD_DURING_DEPLOYMENT": None}, "remote_build_missing"),
@@ -628,6 +700,7 @@ def test_site_config_query_selects_only_required_runtime_and_security_fields() -
         "minTlsVersion": "minTlsVersion",
         "scmMinTlsVersion": "scmMinTlsVersion",
         "healthCheckPath": "healthCheckPath",
+        "alwaysOn": "alwaysOn",
     }
     assert query.startswith("{")
     assert query.endswith("}")
@@ -644,6 +717,7 @@ def test_app_settings_query_filters_to_exact_bicep_owned_allowlist() -> None:
         "SMS_PROVIDER",
         "DEMO_SUPPRESS_NOTIFICATIONS",
         "SCM_DO_BUILD_DURING_DEPLOYMENT",
+        "WEBSITE_SKIP_RUNNING_KUDUAGENT",
         *EXPECTED_HOSTED_VERIFIER_SETTINGS,
     }
 

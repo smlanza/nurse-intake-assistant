@@ -11,6 +11,7 @@ from src.app.services import daily_azure_environment_rebuild as daily_rebuild_se
 from src.app.services import foundry_agent_consumer_rbac_deployment
 from src.app.services import foundry_agent_consumer_rbac_verification
 from src.app.services import hosted_foundry_agent_webjob_execution
+from src.app.services import web_app_infra_deployment as web_app_deployment
 from src.app.services.daily_azure_environment_rebuild import (
     ApprovalSummary,
     ChangeEvidence,
@@ -30,6 +31,7 @@ from src.app.services.daily_azure_environment_rebuild import (
     load_daily_azure_config,
     safe_automatic_plan,
     safe_guided_plan,
+    safe_web_app_plan,
     write_runtime_session_file,
 )
 from src.app.services.foundry_agent_consumer_rbac_deployment import (
@@ -1008,6 +1010,7 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
         "verify_agent",
         "verify_web_app_configuration",
         "plan_web_app",
+        "plan_web_app",
         "deploy_web_app",
         "verify_web_app_configuration",
         "build_package",
@@ -1582,6 +1585,553 @@ def test_exact_web_app_topology_reaches_only_the_existing_approval_prompt(
     assert result.category == "web_app_deployment_approval_required"
     assert prompts == ["web_app_deployment"]
     assert "deploy_web_app" not in runner.calls
+
+
+def test_webjob_hosting_mismatch_routes_existing_web_app_through_preview(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    verification_count = 0
+
+    def verify_web_app_configuration(context):
+        nonlocal verification_count
+        verification_count += 1
+        runner.calls.append("verify_web_app_configuration")
+        runner.contexts["verify_web_app_configuration"] = context
+        if verification_count == 1:
+            return StageResult.absent("web_app_configuration_not_current")
+        return StageResult.success(reused=True)
+
+    runner.verify_web_app_configuration = verify_web_app_configuration
+    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
+    approvals: list[ApprovalSummary] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: (
+            approvals.append(summary) is None
+            and summary.stage != "web_app_deployment"
+        ),
+    )
+
+    assert result.category == "web_app_deployment_approval_required"
+    assert [summary.stage for summary in approvals] == ["web_app_deployment"]
+    facts = dict(approvals[0].facts)
+    assert "resource-level" in facts["Plan classification"].casefold()
+    assert "repository-owned web app" in facts["Plan classification"].casefold()
+    assert "individual property deltas not asserted" in facts[
+        "Azure preview evidence"
+    ]
+    assert facts["Repository Bicep resource contract"] == "complete shape pinned"
+    assert dict(approvals[0].facts)["Mutation required"] == "yes"
+    assert runner.calls.count("plan_web_app") == 1
+    assert "deploy_web_app" not in runner.calls
+    assert "build_package" not in runner.calls
+    assert "discover_webjob" not in runner.calls
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    (
+        "unrecognized-property",
+        "detached-optional-settings",
+        "relative-child",
+        "optional-variable-string-decoy",
+        "conditional-relative-child",
+    ),
+)
+def test_invalid_web_app_bicep_contract_blocks_modify_approval(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    source_root = Path(__file__).resolve().parents[1]
+    for relative in (
+        Path("infra/main.bicep"),
+        Path("infra/modules/web-app.bicep"),
+        Path("infra/modules/hosted-foundry-verifier-config-validation.bicep"),
+    ):
+        target = tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = (source_root / relative).read_text()
+        if relative.name == "web-app.bicep":
+            if mutation == "unrecognized-property":
+                source = source.replace(
+                    "    httpsOnly: true\n",
+                    "    httpsOnly: true\n"
+                    "    publicNetworkAccess: 'Enabled'\n",
+                    1,
+                )
+            elif mutation == "detached-optional-settings":
+                source = source.replace(
+                    "      appSettings: concat([\n",
+                    "      appSettings: [\n",
+                    1,
+                ).replace(
+                    "      ], hostedFoundryVerifierAppSettings)\n",
+                    "      ]\n",
+                    1,
+                )
+                source += (
+                    "\nvar decoy = {\n"
+                    "  appSettings: concat([], hostedFoundryVerifierAppSettings)\n"
+                    "}\n"
+                )
+            elif mutation == "relative-child":
+                source += (
+                    "\nresource webAppConfig 'config@2024-04-01' = {\n"
+                    "  parent: webApp\n"
+                    "  name: 'web'\n"
+                    "  properties: {}\n"
+                    "}\n"
+                )
+            elif mutation == "optional-variable-string-decoy":
+                marker = (
+                    "var hostedFoundryVerifierAppSettings = "
+                    "validatedHostedFoundryVerifierConfiguration.mode "
+                    "== 'enabled' ? [\n"
+                )
+                declaration_start = source.index(marker)
+                declaration_end = (
+                    source.index("] : []\n", declaration_start)
+                    + len("] : []\n")
+                )
+                declaration = source[declaration_start:declaration_end]
+                empty_declaration = (
+                    marker + "] : []\n"
+                )
+                source = (
+                    source[:declaration_start]
+                    + "var decoyOptionalText = '''\n"
+                    + declaration
+                    + "'''\n"
+                    + empty_declaration
+                    + source[declaration_end:]
+                )
+            else:
+                source += (
+                    "\nresource webAppConfig 'config@2024-04-01' = "
+                    "if (contains({}, 'x')) {\n"
+                    "  parent: webApp\n"
+                    "  name: 'web'\n"
+                    "  properties: {}\n"
+                    "}\n"
+                )
+        target.write_text(source)
+
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
+    approvals: list[str] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda root: (
+            ()
+            if web_app_deployment.web_app_infrastructure_local_contract_valid(
+                root / "infra/main.bicep"
+            )
+            else ("web_app_infrastructure_contract_invalid",)
+        ),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary.stage) is None,
+    )
+
+    assert result.category == "local_contract_invalid"
+    assert approvals == []
+    assert runner.calls == []
+
+
+def _web_app_hosting_modify_plan() -> PlanResult:
+    expected = (
+        ("Microsoft.DocumentDB/databaseAccounts", "cosmos_account"),
+        (
+            "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+            "cosmos_database",
+        ),
+        (
+            "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+            "cosmos_container",
+        ),
+        ("Microsoft.Storage/storageAccounts", "storage_account"),
+        ("Microsoft.OperationalInsights/workspaces", "log_analytics"),
+        ("Microsoft.Insights/components", "application_insights"),
+        ("Microsoft.Web/serverfarms", "app_service_plan"),
+    )
+    no_change = tuple(
+        replace(
+            _exact_change("NoChange", category, "web_app"),
+            resource_type=resource_type,
+        )
+        for resource_type, category in expected
+    )
+    modify = replace(
+        _exact_change("Modify", "web_app", "web_app"),
+        resource_type="Microsoft.Web/sites",
+    )
+    references = (
+        replace(
+            _exact_change("Ignore", "foundry_account_reference", "web_app"),
+            resource_type="Microsoft.CognitiveServices/accounts",
+        ),
+        replace(
+            _exact_change("Ignore", "foundry_project_reference", "web_app"),
+            resource_type="Microsoft.CognitiveServices/accounts/projects",
+        ),
+    )
+    return PlanResult(
+        modify_count=1,
+        no_change_count=7,
+        ignore_count=2,
+        exact_topology_match=True,
+        change_evidence=(*no_change, modify, *references),
+    )
+
+
+def test_web_app_plan_policy_preserves_create_nochange_and_exact_modify() -> None:
+    create = PlanResult(
+        create_count=1,
+        exact_topology_match=True,
+        change_evidence=(
+            replace(
+                _exact_change("Create", "web_app", "web_app"),
+                resource_type="Microsoft.Web/sites",
+            ),
+        ),
+    )
+    modify = _web_app_hosting_modify_plan()
+    no_change_evidence = tuple(
+        replace(change, action="NoChange")
+        if change.action == "Modify"
+        else change
+        for change in modify.change_evidence
+    )
+    no_change = replace(
+        modify,
+        modify_count=0,
+        no_change_count=8,
+        change_evidence=no_change_evidence,
+    )
+
+    assert safe_web_app_plan(create) is True
+    assert safe_web_app_plan(no_change) is True
+    assert safe_web_app_plan(modify) is True
+    assert safe_guided_plan(
+        modify,
+        expected_boundary="web_app",
+        require_create=False,
+    ) is False
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "unrelated-web-app",
+        "app-service-plan",
+        "cosmos",
+        "storage",
+        "foundry",
+        "unrecognized-child",
+        "mixed-delete",
+        "mixed-deploy",
+        "mixed-unsupported",
+        "unknown-action",
+        "multiple-modify",
+        "missing-evidence",
+        "malformed",
+        "wrong-category",
+        "wrong-scope",
+        "wrong-identity",
+        "wrong-boundary",
+        "wrong-multiplicity",
+    ),
+)
+def test_web_app_modify_policy_rejects_unrelated_or_ambiguous_evidence(
+    case: str,
+) -> None:
+    plan = _web_app_hosting_modify_plan()
+    changes = list(plan.change_evidence)
+    modify_index = next(
+        index for index, change in enumerate(changes) if change.action == "Modify"
+    )
+    modifying = changes[modify_index]
+    if case == "unrelated-web-app":
+        changes[modify_index] = replace(
+            modifying,
+            approved_boundary=False,
+            expected_identity_match=False,
+        )
+    elif case == "app-service-plan":
+        changes[modify_index] = replace(
+            modifying,
+            logical_category="app_service_plan",
+            resource_type="Microsoft.Web/serverfarms",
+        )
+    elif case == "cosmos":
+        changes[modify_index] = replace(
+            modifying,
+            logical_category="cosmos_account",
+            resource_type="Microsoft.DocumentDB/databaseAccounts",
+        )
+    elif case == "storage":
+        changes[modify_index] = replace(
+            modifying,
+            logical_category="storage_account",
+            resource_type="Microsoft.Storage/storageAccounts",
+        )
+    elif case == "foundry":
+        changes[modify_index] = replace(
+            modifying,
+            logical_category="foundry_account",
+            resource_type="Microsoft.CognitiveServices/accounts",
+        )
+    elif case == "unrecognized-child":
+        changes[modify_index] = replace(
+            modifying,
+            logical_category="web_app_configuration",
+            resource_type="Microsoft.Web/sites/config",
+        )
+    elif case in {"mixed-delete", "mixed-deploy", "mixed-unsupported"}:
+        action = {
+            "mixed-delete": "Delete",
+            "mixed-deploy": "Deploy",
+            "mixed-unsupported": "Unsupported",
+        }[case]
+        changes[0] = replace(changes[0], action=action)
+        plan = replace(
+            plan,
+            no_change_count=6,
+            delete_count=int(action == "Delete"),
+            deploy_count=int(action == "Deploy"),
+            unsupported_count=int(action == "Unsupported"),
+        )
+    elif case == "unknown-action":
+        changes[0] = replace(changes[0], action="Replacement")
+        plan = replace(plan, no_change_count=6, unknown_count=1)
+    elif case == "multiple-modify":
+        changes[0] = replace(changes[0], action="Modify")
+        plan = replace(plan, modify_count=2, no_change_count=6)
+    elif case == "missing-evidence":
+        plan = replace(plan, change_evidence=())
+        changes = []
+    elif case == "malformed":
+        plan = replace(plan, malformed=True)
+    elif case == "wrong-category":
+        changes[modify_index] = replace(
+            modifying,
+            logical_category="unexpected_resource",
+        )
+    elif case == "wrong-scope":
+        changes[modify_index] = replace(
+            modifying,
+            expected_scope_match=False,
+        )
+    elif case == "wrong-identity":
+        changes[modify_index] = replace(
+            modifying,
+            expected_identity_match=False,
+        )
+    elif case == "wrong-boundary":
+        changes[modify_index] = replace(modifying, boundary="foundry")
+    else:
+        changes[modify_index] = replace(
+            modifying,
+            expected_multiplicity_match=False,
+        )
+
+    plan = replace(plan, change_evidence=tuple(changes))
+
+    assert safe_web_app_plan(plan) is False
+
+
+def test_approved_web_app_modify_deploys_once_and_reverifies_before_discovery(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.rbac_absent = False
+    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
+    verification_count = 0
+
+    def verify_web_app_configuration(context):
+        nonlocal verification_count
+        verification_count += 1
+        runner.calls.append("verify_web_app_configuration")
+        runner.contexts["verify_web_app_configuration"] = context
+        if verification_count == 1:
+            return StageResult.absent("web_app_configuration_not_current")
+        return StageResult.success(reused=True)
+
+    runner.verify_web_app_configuration = verify_web_app_configuration
+    approvals: list[ApprovalSummary] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary) is None,
+    )
+
+    assert result.ok is True
+    assert runner.calls.count("plan_web_app") == 2
+    assert runner.calls.count("deploy_web_app") == 1
+    assert runner.calls.count("verify_web_app_configuration") == 2
+    first_preview = runner.calls.index("plan_web_app")
+    fresh_preview = runner.calls.index("plan_web_app", first_preview + 1)
+    deployment = runner.calls.index("deploy_web_app")
+    verification = runner.calls.index(
+        "verify_web_app_configuration",
+        runner.calls.index("verify_web_app_configuration") + 1,
+    )
+    discovery = runner.calls.index("discover_webjob")
+    assert first_preview < fresh_preview < deployment < verification < discovery
+    web_app_approval = next(
+        summary
+        for summary in approvals
+        if summary.stage == "web_app_deployment"
+    )
+    assert "resource-level" in dict(web_app_approval.facts)[
+        "Plan classification"
+    ].casefold()
+
+
+@pytest.mark.parametrize("fresh_case", ("changed", "malformed"))
+def test_web_app_modify_approval_rejects_stale_or_changed_fresh_preview(
+    tmp_path: Path,
+    fresh_case: str,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    initial = _web_app_hosting_modify_plan()
+    no_change = replace(
+        initial,
+        modify_count=0,
+        no_change_count=8,
+        change_evidence=tuple(
+            replace(change, action="NoChange")
+            if change.action == "Modify"
+            else change
+            for change in initial.change_evidence
+        ),
+    )
+    plans = [initial, no_change if fresh_case == "changed" else PlanResult(malformed=True)]
+
+    def plan_web_app(context):
+        runner.calls.append("plan_web_app")
+        runner.contexts["plan_web_app"] = context
+        return plans.pop(0)
+
+    runner.plan_web_app = plan_web_app
+    runner.verify_web_app_configuration = lambda _context: StageResult.absent(
+        "web_app_configuration_not_current"
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "approval_evidence_stale"
+    assert runner.calls.count("plan_web_app") == 2
+    assert "deploy_web_app" not in runner.calls
+    assert "discover_webjob" not in runner.calls
+
+
+def test_web_app_modify_deployment_failure_stops_before_reverification(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
+    runner.fail_at = "deploy_web_app"
+    runner.verify_web_app_configuration = lambda _context: StageResult.absent(
+        "web_app_configuration_not_current"
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "stage_failed"
+    assert runner.calls.count("deploy_web_app") == 1
+    assert "discover_webjob" not in runner.calls
+
+
+def test_web_app_modify_deployment_acceptance_is_not_configuration_proof(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
+
+    def verify_web_app_configuration(context):
+        runner.calls.append("verify_web_app_configuration")
+        runner.contexts["verify_web_app_configuration"] = context
+        return StageResult.absent("web_app_configuration_not_current")
+
+    runner.verify_web_app_configuration = verify_web_app_configuration
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "web_app_configuration_not_current"
+    assert runner.calls.count("deploy_web_app") == 1
+    assert runner.calls.count("verify_web_app_configuration") == 2
+    assert "build_package" not in runner.calls
+    assert "discover_webjob" not in runner.calls
+
+
+def test_repository_webjob_hosting_mismatch_is_not_reused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    verifier_result = SimpleNamespace(
+        ok=False,
+        category="webjob_hosting_configuration_invalid",
+        hosted_verifier_configuration_verified=False,
+    )
+    monkeypatch.setattr(
+        "src.app.services.web_app_configuration_verification."
+        "verify_web_app_configuration",
+        lambda *_args, **_kwargs: verifier_result,
+    )
+    runner = RepositoryDailyAzureStageRunner(
+        _config(tmp_path),
+        repository_root=Path(__file__).resolve().parents[1],
+        command_runner=CommandRunner([]),
+    )
+
+    result = runner.verify_web_app_configuration(_rbac_preview_context(tmp_path))
+
+    assert result.ok is False
+    assert result.state == "absent"
+    assert result.category == "web_app_configuration_not_current"
 
 
 def test_guided_plan_accepts_sanitized_nested_deployment_for_operator_review() -> None:

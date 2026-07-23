@@ -108,12 +108,26 @@ def test_live_success_and_failure_have_distinct_sanitized_exit_codes(
         f"/subscriptions/{subscription}/providers/Microsoft.Authorization/roleDefinitions/"
         "eed3b665-ab3a-47b6-8f48-c9382fb1dad6"
     )
+    web_app_resource_id = (
+        f"/subscriptions/{subscription}/resourceGroups/{RESOURCE_GROUP}/providers/"
+        f"Microsoft.Web/sites/{WEB_APP_NAME}"
+    )
 
     class Runner:
         def __init__(self, success: bool) -> None:
             self.results = (
                 [
-                    service.CommandResult(0, json.dumps({"principalId": principal, "type": "SystemAssigned"}), ""),
+                    service.CommandResult(
+                        0,
+                        json.dumps(
+                            {
+                                "principalId": principal,
+                                "type": "SystemAssigned",
+                                "webAppId": web_app_resource_id,
+                            }
+                        ),
+                        "",
+                    ),
                     service.CommandResult(
                         0,
                         json.dumps({"name": FOUNDRY_PROJECT_NAME, "id": scope}),

@@ -12,6 +12,7 @@ VALID_NAMES = [
     "--web-app-name", "fictional-web-app",
     "--json",
 ]
+LIVE_EVIDENCE = ["--environment-fingerprint", "a" * 64]
 
 
 def _script():
@@ -70,6 +71,7 @@ def _receipt():
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         webjob_name=service.WEBJOB_NAME,
+        environment_fingerprint="a" * 64,
     )
 
 
@@ -153,14 +155,14 @@ def test_live_modes_lazily_construct_one_runner_and_print_sanitized_json(
 
     monkeypatch.setattr(script, "_create_azure_cli_runner", factory)
 
-    exit_code = script.main([mode, *VALID_NAMES])
+    exit_code = script.main([mode, *VALID_NAMES, *LIVE_EVIDENCE])
 
     output = capsys.readouterr().out
     payload = json.loads(output)
     assert exit_code == 0
     assert created == [True]
     assert len(runner.calls) == 1
-    assert payload["invocation_attempted"] is False
+    assert payload["invocation_attempted"] is (mode == "--live-status")
     if mode == "--live-discover":
         assert runner.calls[0][:5] == ["az", "webapp", "webjob", "triggered", "list"]
         assert payload["remote_webjob_discovered"] is True
@@ -184,7 +186,7 @@ def test_status_without_receipt_fails_before_runner_factory(
         lambda: created.append(True),
     )
 
-    exit_code = script.main(["--live-status", *VALID_NAMES])
+    exit_code = script.main(["--live-status", *VALID_NAMES, *LIVE_EVIDENCE])
 
     assert exit_code == 2
     assert json.loads(capsys.readouterr().out)["category"] == "trigger_receipt_missing"

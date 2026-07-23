@@ -20,12 +20,19 @@ def _text(path: str) -> str:
     return (INFRA / path).read_text()
 
 
-def test_separate_entry_point_derives_principal_from_existing_web_app() -> None:
+def test_separate_entry_point_constrains_approved_principal_and_project() -> None:
     entry_point = _text(ENTRY_POINT)
 
     assert "targetScope = 'resourceGroup'" in entry_point
     assert "resource webApp 'Microsoft.Web/sites@2024-04-01' existing" in entry_point
-    assert "webAppPrincipalId: webApp.identity.principalId" in entry_point
+    assert (
+        "webAppPrincipalId: webApp.identity.principalId == "
+        "approvedWebAppPrincipalId ? approvedWebAppPrincipalId : ''"
+    ) in entry_point
+    assert (
+        "approvedFoundryProjectResourceId: foundryProject.id == "
+        "approvedFoundryProjectResourceId ? approvedFoundryProjectResourceId : ''"
+    ) in entry_point
     assert re.search(
         r"module\s+foundryAgentConsumerRbac\s+"
         r"'modules/foundry-agent-consumer-rbac\.bicep'",
@@ -33,7 +40,14 @@ def test_separate_entry_point_derives_principal_from_existing_web_app() -> None:
     )
 
     parameters = re.findall(r"^param\s+(\w+)\s+", entry_point, re.MULTILINE)
-    assert parameters == ["webAppName", "foundryAccountName", "foundryProjectName"]
+    assert parameters == [
+        "webAppName",
+        "foundryAccountName",
+        "foundryProjectName",
+        "approvedWebAppPrincipalId",
+        "approvedFoundryProjectResourceId",
+        "approvedRoleAssignmentName",
+    ]
 
 
 def test_nested_module_deployment_name_is_distinct_from_outer_deployment() -> None:
@@ -96,11 +110,9 @@ def test_module_uses_exact_consumer_role_and_deterministic_assignment_name() -> 
     assert "subscriptionResourceId(" in module
     assert "'Microsoft.Authorization/roleDefinitions'" in module
     assert "foundryAgentConsumerRoleDefinitionGuid" in module
-    assert re.search(
-        r"name:\s*guid\(\s*foundryProject\.id,\s*"
-        r"webAppPrincipalId,\s*foundryAgentConsumerRoleDefinitionId\s*\)",
-        module,
-    )
+    assert "var computedRoleAssignmentName = guid(" in module
+    assert "computedRoleAssignmentName == approvedRoleAssignmentName" in module
+    assert "foundryProject.id == approvedFoundryProjectResourceId" in module
     assert "roleDefinitionId: foundryAgentConsumerRoleDefinitionId" in module
     assert "newGuid(" not in module
 

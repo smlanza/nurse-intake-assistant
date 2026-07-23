@@ -25,6 +25,10 @@ OTHER_ROLE_ID = (
     f"/subscriptions/{SUBSCRIPTION_ID}/providers/Microsoft.Authorization/roleDefinitions/"
     "00000000-0000-0000-0000-000000000003"
 )
+WEB_APP_RESOURCE_ID = (
+    f"/subscriptions/{SUBSCRIPTION_ID}/resourceGroups/{RESOURCE_GROUP}/providers/"
+    f"Microsoft.Web/sites/{WEB_APP_NAME}"
+)
 
 
 class FakeRunner:
@@ -57,7 +61,11 @@ def _result(return_code: int, stdout: str = "", stderr: str = ""):
 
 
 def _identity(**overrides: object) -> str:
-    payload = {"principalId": PRINCIPAL_ID, "type": "SystemAssigned"}
+    payload = {
+        "principalId": PRINCIPAL_ID,
+        "type": "SystemAssigned",
+        "webAppId": WEB_APP_RESOURCE_ID,
+    }
     payload.update(overrides)
     return json.dumps(payload)
 
@@ -157,17 +165,65 @@ def test_fixed_consumer_role_contract_is_enforced(verification_request, monkeypa
         {"principalId": None, "type": "SystemAssigned"},
         {"principalId": "", "type": "SystemAssigned"},
         {"principalId": PRINCIPAL_ID, "type": "UserAssigned"},
+        {"principalId": PRINCIPAL_ID, "type": "SystemAssigned, UserAssigned"},
         {"principalId": PRINCIPAL_ID, "type": None},
     ],
 )
 def test_missing_system_identity_fails_safely(verification_request, identity: dict[str, object]) -> None:
-    runner = FakeRunner([_result(0, json.dumps(identity))])
+    runner = FakeRunner(
+        [_result(0, json.dumps({**json.loads(_identity()), **identity}))]
+    )
 
     result = _verify(verification_request, runner)
 
     assert result.category == "web_app_identity_missing"
     assert result.web_app_identity_present is False
     assert len(runner.calls) == 1
+
+
+@pytest.mark.parametrize("legacy_resource_guid", [None])
+def test_legacy_null_resource_guid_is_not_required_for_valid_identity(
+    verification_request, legacy_resource_guid: None
+) -> None:
+    runner = FakeRunner(
+        [
+            _result(0, _identity(resourceGuid=legacy_resource_guid)),
+            _result(0, _project()),
+            _result(0, "[]"),
+        ]
+    )
+
+    result = _verify(verification_request, runner)
+
+    assert result.category == "assignment_missing"
+    assert result.web_app_identity_present is True
+
+
+@pytest.mark.parametrize(
+    "web_app_resource_id",
+    [
+        None,
+        "not-an-arm-id",
+        WEB_APP_RESOURCE_ID.replace(SUBSCRIPTION_ID, "00000000-0000-0000-0000-000000000099"),
+        WEB_APP_RESOURCE_ID.replace(RESOURCE_GROUP, "different-resource-group"),
+        WEB_APP_RESOURCE_ID.replace(WEB_APP_NAME, "different-web-app"),
+    ],
+)
+def test_wrong_or_malformed_web_app_resource_id_fails_closed(
+    verification_request, web_app_resource_id: object
+) -> None:
+    runner = FakeRunner(
+        [
+            _result(0, _identity(webAppId=web_app_resource_id)),
+            _result(0, _project()),
+        ]
+    )
+
+    result = _verify(verification_request, runner)
+
+    assert result.ok is False
+    assert result.category == "response_parse_failed"
+    assert len(runner.calls) <= 2
 
 
 def test_missing_project_scope_fails_safely(verification_request) -> None:
@@ -263,8 +319,24 @@ def test_invalid_live_project_shapes_fail_before_assignment_query(
 def test_no_matching_assignment_returns_assignment_missing(verification_request) -> None:
     result = _verify(verification_request, _runner([]))
 
+    assert result.ok is False
     assert result.category == "assignment_missing"
+    assert result.category not in {
+        "response_parse_failed",
+        "consumer_rbac_assignment_ambiguous",
+    }
+    assert result.web_app_identity_present is True
+    assert result.foundry_project_scope_resolved is True
     assert result.consumer_assignment_present is False
+    assert result.consumer_role_matches is False
+    assert result.consumer_assignment_scope_matches is False
+    assert result.principal_id == PRINCIPAL_ID
+    assert result.web_app_resource_guid is None
+    assert result.subscription_id == SUBSCRIPTION_ID
+    assert result.foundry_project_resource_id == PROJECT_SCOPE
+    assert result.foundry_account_resource_id == PROJECT_SCOPE.rsplit("/projects/", 1)[0]
+    assert result.role_definition_id == CONSUMER_ROLE_ID
+    assert result.matching_assignment_count == 0
 
 
 @pytest.mark.parametrize(
@@ -304,8 +376,8 @@ def test_assignment_for_different_principal_is_rejected(verification_request) ->
         _runner([_assignment(principal_id="00000000-0000-0000-0000-000000000099")]),
     )
 
-    assert result.category == "assignment_missing"
-    assert result.consumer_assignment_present is False
+    assert result.category == "principal_mismatch"
+    assert result.consumer_assignment_present is True
 
 
 def test_exact_project_scoped_consumer_assignment_succeeds(verification_request) -> None:
@@ -323,6 +395,9 @@ def test_exact_project_scoped_consumer_assignment_succeeds(verification_request)
     assert result.consumer_assignment_present is True
     assert result.consumer_assignment_scope_matches is True
     assert result.consumer_role_matches is True
+    assert result.matching_assignment_count == 1
+    assert result.principal_id == PRINCIPAL_ID
+    assert result.role_definition_id == CONSUMER_ROLE_ID
     assert "hosted managed-identity Foundry Agent verification" in result.recommended_next_step
 
 
@@ -330,8 +405,77 @@ def test_duplicate_exact_assignments_fail_closed_deterministically(verification_
     result = _verify(verification_request, _runner([_assignment(), _assignment()]))
 
     assert result.ok is False
-    assert result.category == "response_parse_failed"
+    assert result.category == "assignment_ambiguous"
     assert result.consumer_assignment_present is True
+    assert result.matching_assignment_count == 2
+
+
+@pytest.mark.parametrize(
+    "principal_id",
+    [
+        "not-a-guid",
+        f"prefix-{PRINCIPAL_ID}",
+        f"{PRINCIPAL_ID}-suffix",
+        "{00000000-0000-0000-0000-000000000002}",
+        f" {PRINCIPAL_ID}",
+    ],
+)
+def test_malformed_principal_id_fails_before_project_lookup(
+    verification_request, principal_id: str
+) -> None:
+    runner = FakeRunner([_result(0, _identity(principalId=principal_id))])
+
+    result = _verify(verification_request, runner)
+
+    assert result.category == "response_parse_failed"
+    assert result.web_app_identity_present is False
+    assert len(runner.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "role_definition_id",
+    [
+        f"prefix{CONSUMER_ROLE_ID}",
+        CONSUMER_ROLE_ID.replace("/providers/", "/bad/providers/"),
+        CONSUMER_ROLE_ID.replace(SUBSCRIPTION_ID, "00000000-0000-0000-0000-000000000099"),
+        CONSUMER_ROLE_ID.replace("roleDefinitions", "roles"),
+    ],
+)
+def test_malformed_or_wrong_context_consumer_role_id_is_not_exact(
+    verification_request, role_definition_id: str
+) -> None:
+    result = _verify(
+        verification_request,
+        _runner([_assignment(role_definition_id=role_definition_id)]),
+    )
+
+    assert result.ok is False
+    assert result.matching_assignment_count != 1
+
+
+def test_uppercase_canonical_guids_are_normalized_safely(verification_request) -> None:
+    runner = FakeRunner(
+        [
+            _result(0, _identity(principalId=PRINCIPAL_ID.upper())),
+            _result(0, _project()),
+            _result(
+                0,
+                json.dumps(
+                    [
+                        _assignment(
+                            principal_id=PRINCIPAL_ID.upper(),
+                            role_definition_id=CONSUMER_ROLE_ID.upper(),
+                        )
+                    ]
+                ),
+            ),
+        ]
+    )
+
+    result = _verify(verification_request, runner)
+
+    assert result.ok is True
+    assert result.principal_id == PRINCIPAL_ID
 
 
 @pytest.mark.parametrize(
@@ -425,9 +569,12 @@ def test_live_uses_only_three_bounded_read_only_projection_commands(verification
     result = _verify(verification_request, runner)
 
     assert result.ok is True
+    assert verification.WEB_APP_IDENTITY_QUERY == (
+        "{principalId:identity.principalId,type:identity.type,webAppId:id}"
+    )
     assert runner.calls == [
         [
-            "az", "webapp", "identity", "show",
+            "az", "webapp", "show",
             "--resource-group", RESOURCE_GROUP,
             "--name", WEB_APP_NAME,
             "--query", verification.WEB_APP_IDENTITY_QUERY,
@@ -445,8 +592,6 @@ def test_live_uses_only_three_bounded_read_only_projection_commands(verification
         ],
         [
             "az", "role", "assignment", "list",
-            "--assignee-object-id", PRINCIPAL_ID,
-            "--role", "eed3b665-ab3a-47b6-8f48-c9382fb1dad6",
             "--scope", PROJECT_SCOPE,
             "--include-inherited",
             "--query", verification.ROLE_ASSIGNMENT_QUERY,
@@ -455,6 +600,7 @@ def test_live_uses_only_three_bounded_read_only_projection_commands(verification
         ],
     ]
     flattened = " ".join(" ".join(call).lower() for call in runner.calls)
+    assert "az webapp identity show" not in flattened
     for forbidden in (
         " create ", " update ", " set ", " delete ", " assign ", " remove ",
         " token ", " restart ", " deployment ", " invoke ", " agent ",

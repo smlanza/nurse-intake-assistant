@@ -2,21 +2,18 @@
 
 ## 1. Purpose and scope
 
-This runbook prepares only the future live proof that an already-deployed Linux
+This runbook defines prerequisites for a separately authorized live proof that an already-deployed Linux
 Web App, using only its system-assigned managed identity, can perform the
-repository's existing read-only prompt-agent metadata verification against one
-operator-approved Foundry project and exact immutable prompt-agent version.
+repository's read-only prompt-agent metadata verification followed by one fixed
+fictional invocation against an operator-approved project and exact version.
 Completing this runbook does not authorize or perform that proof.
 
-The packaged operation reads prompt-agent metadata. It uses the Linux Web App
-system-assigned managed identity and does not invoke the agent or model, submit
-patient or fictional intake text, persist a case, or send or record
+The packaged WebJob first verifies prompt-agent metadata and then performs one
+fixed-fictional-data invocation using the Linux Web App system-assigned managed
+identity. It never submits patient text, persists a case, or sends or records
 notifications. It does not alter infrastructure, RBAC, agent definitions,
-application configuration, or hosted code. It does not prove inference,
-application correctness beyond the metadata contract, or production readiness.
-
-Metadata verification and invocation remain separate. The fixed-fictional-data
-invocation is a later, independently reviewed and authorized slice.
+application configuration, or hosted code, and does not prove production
+readiness.
 
 ## 2. Authentication and subscription gate
 
@@ -80,6 +77,7 @@ alternate provisioner, or substitute portal-only instructions.
 | Project-scoped Consumer RBAC deployment and exact direct-assignment verification | `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_deployment.py`, `scripts/deploy_foundry_agent_consumer_rbac.py`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, and `scripts/verify_foundry_agent_consumer_rbac.py` |
 | Packaged hosted Foundry metadata verification | `src/app/services/hosted_foundry_agent_verification.py` and `src/app/operations/verify_hosted_foundry_agent.py` |
 | Fixed hosted execution boundary | `App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`, `src/app/services/hosted_foundry_agent_webjob_execution.py`, and `scripts/run_hosted_foundry_agent_verification.py` |
+| Manual immutable-state recovery | `src/app/services/hosted_foundry_agent_webjob_state_recovery.py`, `scripts/recover_hosted_foundry_agent_webjob_state.py`, and `docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md` |
 
 Infrastructure deployment, prompt-agent lifecycle, Web App deployment,
 configuration verification, packaging, code deployment, readiness, RBAC,
@@ -87,7 +85,7 @@ hosted metadata verification, and invocation are distinct approval boundaries.
 
 ## 5. Required current proof
 
-Before the future hosted operation may run, obtain fresh, successful, sanitized
+Before the hosted operation may run, obtain fresh, successful, sanitized
 evidence for every applicable prerequisite:
 
 1. `scripts/verify_foundry_infra.py` proves the approved AIServices account,
@@ -122,7 +120,10 @@ construction. Missing, stale, or historical evidence fails the gate.
 The deterministic application package now includes exactly one manually
 triggered Python WebJob at
 `App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`. Its fixed entry
-point calls only the existing metadata verifier in live JSON mode. Offline
+point first runs hosted metadata verification and, only after exact typed proof
+success, performs one fixed-fictional invocation. It validates both complete
+application-owned result schemas and emits one combined sanitized JSON result.
+Offline
 check validates the entry point, package allowlist, Bicep/configuration path,
 and lazy SDK imports without constructing an Azure runner. The entry point
 resolves only the absolute App Service `HOME`, puts validated
@@ -150,8 +151,11 @@ failure is written separately to immutable `terminal-outcome.json`; a repeated
 status request validates both artifacts and returns the recorded sanitized
 result without another Azure read. All lifecycle reads use descriptor-relative
 no-follow handling and reject symlinked parents, symlinked targets, and
-nonregular files. No mode retries, polls, sleeps, invokes the agent, or changes
-configuration.
+nonregular files. No mode retries, polls, sleeps, or changes configuration; one
+terminally successful WebJob run proves the fixed invocation completed.
+Stale, incompatible, or generation-mismatched immutable state is never ignored
+or removed here. Stop and use the separate evidence-preserving recovery runbook;
+recovery itself neither authorizes a trigger nor produces READY.
 
 This repository-owned execution mechanism is offline-tested only. Before its
 first live use, current evidence must prove that the exact package is deployed
@@ -204,6 +208,9 @@ Operator authentication/current account
 -> current hosted readiness verification
 -> current fixed WebJob discovery
 -> current exact direct RBAC verification
+-> exact assignment-only what-if and preview-bound default-no approval when missing
+-> immediate fresh identity, project, subscription, role, assignment, and generation revalidation
+-> constrained RBAC deployment and separate post-deployment verification when missing
 -> offline hosted-verifier check
 -> manual review of all sanitized evidence
 -> one explicitly authorized WebJob trigger request
@@ -218,11 +225,11 @@ before the current receipt lower bound and proves metadata success only when
 exactly one eligible run exists and is terminal `Success`; zero or multiple
 eligible runs, including stale successful history, fail closed.
 
-The final hosted execution belongs to a future slice. It must not run while
-preparing or reviewing this runbook, and it remains separate from every agent
-invocation or model-inference operation.
+The hosted execution must not run while preparing or reviewing this runbook.
+When separately authorized, its only invocation is the fixed-fictional packaged
+proof after metadata success; it is not an arbitrary prompt or intake path.
 
-## 8. Success contract for the future live slice
+## 8. Success contract for a separately authorized live proof
 
 Success requires the existing sanitized application-owned result to prove all
 of the following without exposing identifiers or raw SDK output:
@@ -235,9 +242,12 @@ of the following without exposing identifiers or raw SDK output:
 - Responses protocol support was present.
 - Routing resolved exclusively to the approved immutable version.
 - The model and centralized instructions matched the approved definition.
-- No inference, invocation, or Azure mutation was attempted.
-- The result contained only the verifier's existing sanitized application-owned
-  fields.
+- Exactly one fixed-fictional invocation was attempted after metadata success.
+- The application-owned output contract passed, fallback was not used, and the
+  fictional-data-only proof was exactly true.
+- No intake, persistence, notification, clinical action, or Azure mutation was
+  attempted.
+- One combined result contained only sanitized application-owned proof fields.
 
 RBAC existence alone, token acquisition alone, credential or client
 construction, resource existence, and successful hosted readiness are not
@@ -264,11 +274,12 @@ and, where required, a separately scoped implementation or deployment slice.
 
 ## 10. Prohibited behavior
 
-The prerequisite and future metadata-verification workflows prohibit the
+The prerequisite and hosted proof workflows prohibit the
 following ad hoc Azure changes and unsafe operations:
 
 - Ad hoc Azure changes during prerequisite verification.
-- Agent invocation or model inference.
+- Arbitrary prompts, patient-data invocation, repeated inference, or invocation
+  outside the fixed packaged proof.
 - Prompt-agent creation or version creation.
 - RBAC repair.
 - Infrastructure deployment unless separately authorized before the future
@@ -319,9 +330,9 @@ general polling, repeated calls, or indefinite waiting.
   captured.
 - [ ] No stop condition remains.
 - [ ] The operator explicitly authorizes exactly one WebJob trigger request.
-  This authorization applies only to the fixed metadata verifier and not to
-  agent invocation, model inference, status polling, deployment, RBAC change,
-  or retry.
+  This authorization applies only to metadata verification followed by the one
+  fixed-fictional invocation; it does not authorize arbitrary inference,
+  intake processing, status polling, deployment, RBAC change, or retry.
 - [ ] After trigger acceptance, the operator separately authorizes at most one
   receipt-correlated status read; trigger acceptance itself is not verification
   success, and historical latest-run evidence is insufficient.

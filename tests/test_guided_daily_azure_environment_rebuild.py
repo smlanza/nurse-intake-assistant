@@ -103,14 +103,18 @@ def test_ready_factory_requires_every_enabled_proof() -> None:
         "hosted_readiness_verified": True,
         "consumer_rbac_verified": True,
         "webjob_discovered": True,
+        "webjob_triggered": True,
+        "webjob_status_read": True,
+        "managed_identity_verification_performed": True,
+        "agent_invoked": True,
     }
     ready = DailyAzureEnvironmentRebuildResult._verified_ready(
-        proofs, azure_mutation_made=False, require_webjob_discovery=True
+        proofs, azure_mutation_made=False
     )
     assert ready.daily_environment_ready is True
 
     proofs["consumer_rbac_verified"] = False
     with pytest.raises(ValueError):
         DailyAzureEnvironmentRebuildResult._verified_ready(
-            proofs, azure_mutation_made=False, require_webjob_discovery=True
+            proofs, azure_mutation_made=False
         )

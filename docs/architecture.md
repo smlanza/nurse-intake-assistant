@@ -302,15 +302,27 @@ operator approval, fail-fast behavior, and one sanitized aggregate readiness
 result. It never supplies unattended approval. Resource-group creation,
 Foundry infrastructure deployment, Web App infrastructure deployment, and
 current package deployment each require approval for the current run and exact
-current evidence. An approval is stage-specific and one-use; a changed plan,
-package, environment, process, or earlier run cannot reuse it.
-The independent deployment, what-if, packaging, read-only verification, RBAC,
-readiness, and name-only WebJob discovery boundaries below remain authoritative
-for their resource-specific parsing and proof. The manual runbook remains the
-recovery, audit, and explicit resource-group adoption path. WebJob trigger and status, hosted managed-identity
-verification, and agent invocation remain separately authorized. The
-coordinator cannot trigger or read a WebJob run, process intake, send
-notifications, or clean up the resource group.
+current evidence. A missing Consumer assignment first receives one exact,
+sanitized what-if; its approval is bound to that preview, the current principal,
+fixed role, exact project scope, deterministic deployment name, and
+current-generation evidence. An approval is stage-specific and one-use; changed
+evidence cannot reuse it. Immediately after approval, the coordinator performs
+a fresh read-only subscription, Web App identity, Foundry project scope, role,
+deterministic assignment, and environment-generation comparison. Any difference
+returns `approval_evidence_stale` without deployment or automatic reapproval.
+The independent deployment, packaging, read-only verification, RBAC, readiness,
+and WebJob lifecycle boundaries below remain authoritative for their
+resource-specific parsing and proof. The coordinator discovers RBAC inputs,
+reuses one exact direct assignment, or invokes the fixed Bicep deployment
+boundary once after approval and then reverifies. It subsequently discovers and
+triggers the fixed WebJob and reads one receipt-correlated status result. Private
+immutable lifecycle artifacts contain only a digest of canonical current
+resource, identity, package, project, and agent-version evidence; mismatched or
+legacy evidence stops for manual recovery. A same-generation rerun reuses its
+receipt, while terminal success proves metadata verification followed by one
+fixed-fictional invocation. All hosted proofs are mandatory for readiness.
+Intake processing, notifications, and resource-group cleanup remain separately
+authorized. These capabilities do not claim that a corrected live run occurred.
 
 Two resource-group-scoped entry points reuse the
 `infra/modules/foundry.bicep` module. `main.bicep` preserves Cosmos DB, Storage,
@@ -359,12 +371,16 @@ approved through the coordinator.
 only when `deployApp=true` (default `false`). The module defines a Linux App
 Service plan and Web App with a system-assigned managed identity, HTTPS-only
 access, disabled FTPS, TLS 1.2 minimums, `/health` health checks, and the actual
-`src.app.main:app` FastAPI startup target. Its app settings retain mock
-providers and suppressed notifications. It also declares
-`SCM_DO_BUILD_DURING_DEPLOYMENT=true`, allowing App Service remote build
-automation to install dependencies from the packaged `requirements.txt`. The
-module principal ID is available only to its parent; `main.bicep` neither uses
-nor publishes that identifier.
+`src.app.main:app` FastAPI startup target. The direct `siteConfig` property
+`alwaysOn=true` and baseline app setting
+`WEBSITE_SKIP_RUNNING_KUDUAGENT=false` enable the repository-packaged manually
+triggered Linux WebJob runtime. The former is site configuration; the latter is
+not part of the optional Foundry verifier settings. This does not schedule or
+continuously run the WebJob. App settings retain mock providers, suppressed
+notifications, and `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, allowing App Service
+remote build automation to install dependencies from the packaged
+`requirements.txt`. The module principal ID is available only to its parent;
+`main.bicep` neither uses nor publishes that identifier.
 
 `src/app/services/web_app_infra_deployment.py` and
 `scripts/deploy_web_app_infra.py` add an explicit operator boundary around that
@@ -372,10 +388,12 @@ existing `main.bicep` entry point. Check mode validates required safe arguments,
 the template, `deployApp=true`, `deployFoundry=false`, and the mock-safe hosted
 settings without constructing an Azure CLI runner. A shared hosting-contract
 module owns the exact seven provider/suppression settings used here and by the
-configuration verifier. The local Bicep reader is restricted to the Web App
-resource's active `siteConfig.appSettings` declaration; missing, extra,
-duplicate, conflicting, commented-only, and overriding settings fail. The
-separate remote-build setting must also remain exactly enabled.
+configuration verifier, plus the exact remote-build and Kudu-agent baseline
+settings. The local Bicep reader is restricted to the Web App resource's active
+`siteConfig` declaration. It requires direct `alwaysOn=true` and exactly one
+baseline `WEBSITE_SKIP_RUNNING_KUDUAGENT=false`; missing, extra, duplicate,
+conflicting, commented-only, and overriding settings fail. A setting placed
+only in the optional verifier collection also fails.
 
 Explicit `--what-if` or `--live` mode issues exactly one argument-list
 `az deployment group` command against an existing resource group; the CLI never
@@ -392,8 +410,10 @@ verify configuration, package or upload code, check hosted readiness, assign
 RBAC, invoke Foundry, or clean up.
 
 The separate resource-group-scoped
-`infra/foundry-agent-consumer-rbac.bicep` entry point reads the principal ID
-from an existing Web App and invokes
+`infra/foundry-agent-consumer-rbac.bicep` accepts the exact approved principal,
+project resource ID, and deterministic assignment name, independently reads
+the existing Web App identity and Foundry project, and enforces equality before
+invoking
 `infra/modules/foundry-agent-consumer-rbac.bicep`. The module assigns only the
 built-in Foundry Agent Consumer role at the existing Foundry project scope,
 uses deterministic `guid(...)` naming from the project resource ID, principal
@@ -404,7 +424,7 @@ automatically.
 `src/app/services/foundry_agent_consumer_rbac_deployment.py` and
 `scripts/deploy_foundry_agent_consumer_rbac.py` now provide an offline-tested
 operator boundary around that exact entry point. `--check` validates safe names,
-the expected file location, its three exact parameters, its existing Web App
+the expected file location, its six exact parameters, its existing Web App
 identity lookup, its exact module reference, and the module's project-scoped
 Consumer-only assignment without constructing a runner or calling Azure.
 `--what-if` and `--live` each issue at most one argument-list resource-group
@@ -412,11 +432,14 @@ deployment command against an existing group. Neither mode creates or deletes a
 group, retries, cleans up, verifies RBAC, obtains a token, invokes an agent,
 deploys application code, restarts the Web App, or changes infrastructure.
 
-What-if requests JSON, accepts all seven documented resource change types, and
-returns separate sanitized create, delete, ignore, deploy, no-change, modify,
-and unsupported counts. Delete, Deploy, or Unsupported entries require manual
-review; only Delete sets the separate delete-review flag. Truly unknown values
-fail closed, raw output is discarded, and preview never continues to deployment.
+What-if requests JSON and parses every documented Azure action into sanitized
+counts, but only one exact Create for the approved deterministic assignment can
+authorize the coordinator. Exact subscription, resource group, Foundry account,
+project parent, project scope, assignment name, principal, role definition,
+multiplicity, and repository boundary must all match. Missing, duplicate,
+malformed, unrelated, Delete, Modify, Ignore, Deploy, NoChange, Unsupported, or
+unknown evidence fails closed for approval. Raw output is discarded, and
+preview never continues to deployment by itself.
 Live success records only Azure CLI acceptance
 of the deployment request and directs the operator to a separate
 read-only assignment verifier. No role-definition override is exposed, and
@@ -488,11 +511,14 @@ enabled; this does not enable a live provider in FastAPI.
 
 `App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py` is the sole
 allowlisted `App_Data` member in the deterministic Web App package. This thin,
-manually triggered Python WebJob calls only the existing hosted metadata
-operation with fixed `--live --json` arguments. It accepts no prompt or
-configuration override and adds no schedule, continuous job, HTTP route,
-credential implementation, persistence, notification, inference, or
-invocation path. Before importing `src`, it resolves only the App
+manually triggered Python WebJob performs the fixed sequence of hosted metadata
+verification followed by one fixed-fictional invocation, then emits one
+combined sanitized JSON result. Invocation occurs only when the exact
+application-owned metadata result type and every required proof boolean pass;
+the invocation result is validated with the same exact-type and exact-boolean
+contract. It accepts no prompt or configuration override and adds no schedule,
+continuous job, HTTP route, credential implementation, persistence, or
+notification path. Before importing `src`, it resolves only the App
 Service-provided absolute `HOME`, unconditionally puts the validated
 `$HOME/site/wwwroot` first on `sys.path`, fails closed for unexpected preloaded
 parent or target modules, and proves after import that the module's resolved
@@ -531,8 +557,15 @@ only the single receipt-correlated terminal `Success` can prove the operation
 exited successfully. Raw history, timestamps, lifecycle contents, paths, lock
 information, logs, identifiers, endpoints, and operator values are never
 serialized.
-The boundary has only offline test evidence; no WebJob was deployed, discovered,
-triggered, or read live in this slice.
+
+Stale or generation-mismatched immutable lifecycle evidence is never deleted,
+reset, adopted, or converted by the coordinator. The separate offline recovery
+service inspects it with descriptor-relative no-follow reads, produces a
+sanitized digest-bound manifest, and can retire only unchanged, nonconflicting
+evidence after a default-no manual approval. Retirement atomically moves the
+whole active directory to a sibling archive and adds an immutable retirement
+receipt; it cannot trigger a WebJob or produce READY. The operational procedure
+is in `docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md`.
 
 `src/app/services/hosted_foundry_agent_invocation.py` and the packaged
 `src/app/operations/invoke_hosted_foundry_agent.py` implement the following,
@@ -558,8 +591,8 @@ post-construction result; partial construction and cleanup failures are also
 sanitized. This operation does not call an intake route or metadata verifier,
 persist a case, send or record notifications, run deterministic urgency rules,
 change RBAC, provision or modify an agent, alter infrastructure, or repeat the
-request. Automated tests make no Azure calls, and neither live hosted metadata
-verification nor live hosted invocation ran in this slice.
+request. Capability and offline validation do not claim a successful live
+hosted proof.
 
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
@@ -573,14 +606,17 @@ contract without creating an Azure CLI runner. Only explicit `--live --json`
 uses three read-only Azure CLI commands with explicit JSON output projections.
 JMESPath `--query` shapes the JSON emitted to the Python verifier; it does not
 limit what Azure reads. The baseline app-settings projection emits only the
-eight hosting settings; hosted-verifier opt-in adds the five verifier names.
+nine hosting settings; hosted-verifier opt-in adds the five verifier names.
 The application never returns, logs, or serializes raw unfiltered Azure CLI
 output.
 The verifier checks successful provisioning, Linux `PYTHON|3.12`, the current
-uvicorn startup command, remote build, HTTPS-only access, disabled FTPS, TLS
+uvicorn startup command, `alwaysOn=true`, remote build,
+`WEBSITE_SKIP_RUNNING_KUDUAGENT=false`, HTTPS-only access, disabled FTPS, TLS
 1.2 minimums, `/health`, system-assigned identity presence, mock providers, and
-suppressed notifications. Its immutable result never exposes resource or
-identity IDs, hostnames, raw settings, command output, errors, or secrets.
+suppressed notifications. Deployment validation and this read-only verifier
+both enforce the WebJob prerequisites. Its immutable result never exposes
+resource or identity IDs, hostnames, raw settings, command output, errors, or
+secrets.
 
 `WebAppPackage` and the two thin CLIs add the next offline-tested boundaries.
 The package service selects only the root dependency manifest and required
@@ -627,46 +663,23 @@ digest, origin, hostname, response body, marker contents, or exception details.
 
 The ZIP contains Python source plus `requirements.txt`, including this packaged
 operation and its Foundry project SDK dependency; dependencies are not vendored.
-The Web App module now declares the required
-`SCM_DO_BUILD_DURING_DEPLOYMENT=true` application setting so App Service remote
-build automation can install those dependencies. The compiled Bicep/ARM
-contract, configuration proof, code-deployment acceptance, and hosted startup
+The Web App module declares the required
+`SCM_DO_BUILD_DURING_DEPLOYMENT=true` and
+`WEBSITE_SKIP_RUNNING_KUDUAGENT=false` application settings plus the direct
+`alwaysOn=true` site configuration. The compiled Bicep/ARM contract,
+configuration proof, code-deployment acceptance, WebJob discovery, explicit
+trigger, receipt-correlated status, metadata verification, and invocation
 remain separate proof boundaries.
 
-The coordinator's daily sequence is:
-
-```text
-account verification and owned resource-group inspection
--> approve absent resource-group creation, or stop for manual adoption
--> exact Foundry preview and operator approval when absent
--> one Foundry deployment request and verification
--> prompt-agent provisioning, exclusive routing, and immutable-version verification
--> exact Web App preview and operator approval when absent
--> one Web App deployment request and configuration verification
--> current-run deterministic source package and code-deployment approval
--> immutable package handoff and one code-deployment request
--> hosted package-digest and mock-safe readiness verification
--> direct Consumer RBAC verification
--> stop for the separate manual RBAC workflow when the assignment is missing
--> optional name-only WebJob discovery
--> READY
-```
-
-On rerun after that manual workflow, the coordinator verifies the exact direct
-assignment and continues; it never previews or deploys RBAC itself. Each arrow
-is a separate boundary. Code deployment does not provision
-infrastructure, alter app settings, assign RBAC, verify startup, or call
-Foundry. Configuration verification does not prove code deployment;
-deployment-request acceptance does not prove startup. Hosted defaults remain
-mock-only with notifications suppressed, and human nurse review remains
-mandatory.
-
-Infrastructure deployment, code deployment, readiness, manual RBAC deployment,
-RBAC verification, Web App-hosted managed-identity prompt-agent verification,
-and fixed fictional invocation remain separate stages. Mock defaults and
-notification suppression remain unchanged, and every fictional result still
-requires human nurse review. The project remains a capstone/demo and is not
-production clinical software.
+The coordinator keeps infrastructure deployment, code deployment, hosted
+readiness, Consumer RBAC preview/deployment, post-deployment RBAC verification,
+generation-bound WebJob execution, managed-identity metadata verification, and
+fixed fictional invocation as distinct proofs. Deployment acceptance never
+substitutes for the following verification boundary, and no omitted hosted proof
+can produce READY. Hosted defaults remain mock-only with notifications
+suppressed. Code deployment does not provision infrastructure, and human nurse
+review remains mandatory for every fictional result. The project
+remains a capstone/demo rather than production clinical software.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:

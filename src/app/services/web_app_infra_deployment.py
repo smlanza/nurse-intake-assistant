@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 from pathlib import Path
@@ -6,9 +6,9 @@ import re
 from typing import Literal, Protocol
 
 from src.app.services.web_app_hosting_contract import (
+    ALWAYS_ON_REQUIRED,
+    BASELINE_APP_SETTINGS,
     HOSTED_VERIFIER_BICEP_PARAMETERS,
-    REMOTE_BUILD_SETTING,
-    REMOTE_BUILD_VALUE,
     SAFE_HOSTED_SETTINGS,
     hosted_verifier_foundry_identity,
     hosted_verifier_settings_valid,
@@ -415,51 +415,412 @@ def _body_after_pattern(
     return extracted[0] if extracted else None
 
 
-def _app_settings_entries(module: str) -> list[tuple[str, str]] | None:
-    active = _strip_bicep_comments(module)
-    web_app = _body_after_pattern(
-        active,
-        r"resource\s+webApp\s+'Microsoft\.Web/sites@[^']+'\s*=\s*\{",
-        "{",
-        "}",
+def _positions_outside_strings(text: str) -> tuple[bool, ...]:
+    outside: list[bool] = []
+    in_string = False
+    index = 0
+    while index < len(text):
+        current = text[index]
+        following = text[index + 1] if index + 1 < len(text) else ""
+        outside.append(not in_string)
+        if in_string and current == "'":
+            if following == "'":
+                outside.append(False)
+                index += 2
+                continue
+            in_string = False
+        elif not in_string and current == "'":
+            in_string = True
+        index += 1
+    return tuple(outside)
+
+
+def _active_resource_declarations(
+    active_module: str,
+) -> tuple[tuple[str, str, str], ...] | None:
+    outside_strings = _positions_outside_strings(active_module)
+    declarations: list[tuple[str, str, str]] = []
+    pattern = re.compile(
+        r"(?m)^\s*resource\s+([A-Za-z][A-Za-z0-9_]*)\s+"
+        r"'([^']+)'\s*(?:existing\s*)?="
     )
+    for match in pattern.finditer(active_module):
+        if not outside_strings[match.start()]:
+            continue
+        cursor = match.end()
+        while cursor < len(active_module) and active_module[cursor].isspace():
+            cursor += 1
+        if re.match(r"if\b", active_module[cursor:]):
+            cursor += 2
+            while cursor < len(active_module) and active_module[cursor].isspace():
+                cursor += 1
+            if cursor >= len(active_module) or active_module[cursor] != "(":
+                return None
+            condition = _delimited_body(active_module, cursor, "(", ")")
+            if condition is None:
+                return None
+            _condition_body, cursor = condition
+            while cursor < len(active_module) and active_module[cursor].isspace():
+                cursor += 1
+        if cursor >= len(active_module) or active_module[cursor] != "{":
+            return None
+        extracted = _delimited_body(active_module, cursor, "{", "}")
+        if extracted is None:
+            return None
+        body, _end = extracted
+        declarations.append((match.group(1), match.group(2), body))
+    return tuple(declarations)
+
+
+def _active_web_app_site_config(module: str) -> str | None:
+    active = _strip_bicep_comments(module)
+    web_app = _active_web_app_resource_body(active)
     if web_app is None:
         return None
-    site_config = _body_after_pattern(
+    properties = _body_after_pattern(
         web_app,
-        r"\bsiteConfig\s*:\s*\{",
+        r"(?m)^\s*properties\s*:\s*\{",
         "{",
         "}",
     )
-    if site_config is None:
+    if properties is None:
         return None
-    app_settings = _body_after_pattern(
-        site_config,
-        r"\bappSettings\s*:\s*(?:concat\s*\(\s*)?\[",
+    return _body_after_pattern(
+        properties,
+        r"(?m)^\s*siteConfig\s*:\s*\{",
+        "{",
+        "}",
+    )
+
+
+def _active_web_app_resource_body(active_module: str) -> str | None:
+    return _body_after_pattern(
+        active_module,
+        r"(?m)^\s*resource\s+webApp\s+"
+        r"'Microsoft\.Web/sites@2024-04-01'\s*=\s*\{",
+        "{",
+        "}",
+    )
+
+
+def _top_level_visible(body: str) -> str:
+    visible: list[str] = []
+    depth = 0
+    in_string = False
+    index = 0
+    while index < len(body):
+        current = body[index]
+        following = body[index + 1] if index + 1 < len(body) else ""
+        if in_string:
+            visible.append(current if depth == 0 else "\n" if current == "\n" else " ")
+            if current == "'":
+                if following == "'":
+                    visible.append(following if depth == 0 else " ")
+                    index += 2
+                    continue
+                in_string = False
+            index += 1
+            continue
+        if current == "'":
+            in_string = True
+            visible.append(current if depth == 0 else " ")
+        elif current in "{[(":
+            visible.append(" ")
+            depth += 1
+        elif current in "}])":
+            depth = max(depth - 1, 0)
+            visible.append(" ")
+        else:
+            visible.append(current if depth == 0 else "\n" if current == "\n" else " ")
+        index += 1
+    return "".join(visible)
+
+
+def _top_level_property_names(body: str) -> tuple[str, ...]:
+    return tuple(
+        re.findall(
+            r"(?m)^\s*([A-Za-z][A-Za-z0-9_]*)\s*:",
+            _top_level_visible(body),
+        )
+    )
+
+
+def _top_level_scalar_values(body: str, name: str) -> list[str]:
+    return re.findall(
+        rf"(?m)^\s*{re.escape(name)}\s*:\s*(\S(?:.*\S)?)\s*$",
+        _top_level_visible(body),
+    )
+
+
+def _top_level_property_expression(body: str, name: str) -> str | None:
+    visible = _top_level_visible(body)
+    declarations = tuple(
+        re.finditer(
+            r"(?m)^\s*([A-Za-z][A-Za-z0-9_]*)\s*:",
+            visible,
+        )
+    )
+    matching = tuple(
+        index
+        for index, declaration in enumerate(declarations)
+        if declaration.group(1) == name
+    )
+    if len(matching) != 1:
+        return None
+    declaration_index = matching[0]
+    start = declarations[declaration_index].end()
+    end = (
+        declarations[declaration_index + 1].start()
+        if declaration_index + 1 < len(declarations)
+        else len(body)
+    )
+    return body[start:end].strip()
+
+
+def _exact_top_level_properties(
+    body: str,
+    expected: tuple[str, ...],
+) -> bool:
+    visible = _top_level_visible(body)
+    declarations_only = all(
+        re.fullmatch(
+            r"\s*[A-Za-z][A-Za-z0-9_]*\s*:(?:\s*\S.*)?\s*",
+            line,
+        )
+        is not None
+        for line in visible.splitlines()
+        if line.strip()
+    )
+    actual = _top_level_property_names(body)
+    return bool(
+        declarations_only
+        and len(actual) == len(expected)
+        and set(actual) == set(expected)
+    )
+
+
+def _exact_top_level_scalar(body: str, name: str, expected: str) -> bool:
+    return _top_level_scalar_values(body, name) == [expected]
+
+
+def _complete_active_web_app_resource_contract_valid(module: str) -> bool:
+    active = _strip_bicep_comments(module)
+    declarations = _active_resource_declarations(active)
+    if declarations is None:
+        return False
+    if [
+        (symbol, resource_type)
+        for symbol, resource_type, _body in declarations
+        if resource_type.split("@", 1)[0].casefold().startswith(
+            "microsoft.web/sites"
+        )
+    ] != [("webApp", "Microsoft.Web/sites@2024-04-01")]:
+        return False
+    if any(
+        symbol != "webApp"
+        and _top_level_property_expression(body, "parent") == "webApp"
+        for symbol, _resource_type, body in declarations
+    ):
+        return False
+    web_app = _active_web_app_resource_body(active)
+    if web_app is None or not _exact_top_level_properties(
+        web_app,
+        ("name", "location", "kind", "identity", "properties", "tags", "dependsOn"),
+    ):
+        return False
+    identity = _body_after_pattern(
+        web_app,
+        r"(?m)^\s*identity\s*:\s*\{",
+        "{",
+        "}",
+    )
+    properties = _body_after_pattern(
+        web_app,
+        r"(?m)^\s*properties\s*:\s*\{",
+        "{",
+        "}",
+    )
+    depends_on = _body_after_pattern(
+        web_app,
+        r"(?m)^\s*dependsOn\s*:\s*\[",
         "[",
         "]",
     )
+    if (
+        identity is None
+        or properties is None
+        or depends_on is None
+        or not _exact_top_level_properties(identity, ("type",))
+        or not _exact_top_level_properties(
+            properties,
+            ("serverFarmId", "httpsOnly", "siteConfig"),
+        )
+    ):
+        return False
+    site_config = _body_after_pattern(
+        properties,
+        r"(?m)^\s*siteConfig\s*:\s*\{",
+        "{",
+        "}",
+    )
+    if site_config is None or not _exact_top_level_properties(
+        site_config,
+        (
+            "linuxFxVersion",
+            "appCommandLine",
+            "alwaysOn",
+            "ftpsState",
+            "minTlsVersion",
+            "scmMinTlsVersion",
+            "healthCheckPath",
+            "appSettings",
+        ),
+    ):
+        return False
+    exact_scalars = (
+        (web_app, "name", "webAppName"),
+        (web_app, "location", "location"),
+        (web_app, "kind", "'app,linux'"),
+        (web_app, "tags", "tags"),
+        (identity, "type", "'SystemAssigned'"),
+        (properties, "serverFarmId", "appServicePlan.id"),
+        (properties, "httpsOnly", "true"),
+        (site_config, "linuxFxVersion", "pythonLinuxFxVersion"),
+        (site_config, "appCommandLine", "startupCommand"),
+        (site_config, "alwaysOn", "true"),
+        (site_config, "ftpsState", "'Disabled'"),
+        (site_config, "minTlsVersion", "'1.2'"),
+        (site_config, "scmMinTlsVersion", "'1.2'"),
+        (site_config, "healthCheckPath", "'/health'"),
+    )
+    return bool(
+        all(
+            _exact_top_level_scalar(body, name, value)
+            for body, name, value in exact_scalars
+        )
+        and "".join(depends_on.split())
+        == "hostedFoundryVerifierConfigValidation"
+    )
+
+
+def _top_level_property_values(body: str, name: str) -> list[str]:
+    return re.findall(
+        rf"(?m)^\s*{re.escape(name)}\s*:\s*([A-Za-z]+)\s*$",
+        _top_level_visible(body),
+    )
+
+
+def _site_config_always_on_valid(module: str) -> bool:
+    site_config = _active_web_app_site_config(module)
+    if site_config is None:
+        return False
+    expected = "true" if ALWAYS_ON_REQUIRED else "false"
+    return _top_level_property_values(site_config, "alwaysOn") == [expected]
+
+
+def _split_top_level_arguments(body: str) -> tuple[str, ...] | None:
+    arguments: list[str] = []
+    stack: list[str] = []
+    matching = {")": "(", "]": "[", "}": "{"}
+    in_string = False
+    start = 0
+    index = 0
+    while index < len(body):
+        current = body[index]
+        following = body[index + 1] if index + 1 < len(body) else ""
+        if in_string:
+            if current == "'":
+                if following == "'":
+                    index += 2
+                    continue
+                in_string = False
+            index += 1
+            continue
+        if current == "'":
+            in_string = True
+        elif current in "([{":
+            stack.append(current)
+        elif current in ")]}":
+            if not stack or stack.pop() != matching[current]:
+                return None
+        elif current == "," and not stack:
+            arguments.append(body[start:index].strip())
+            start = index + 1
+        index += 1
+    if in_string or stack:
+        return None
+    arguments.append(body[start:].strip())
+    return tuple(arguments)
+
+
+def _authoritative_app_settings_array(module: str) -> str | None:
+    site_config = _active_web_app_site_config(module)
+    if site_config is None:
+        return None
+    expression = _top_level_property_expression(site_config, "appSettings")
+    if expression is None:
+        return None
+    concat_match = re.match(r"concat\s*\(", expression)
+    if concat_match is None:
+        return None
+    opening_index = expression.find("(", 0, concat_match.end())
+    extracted = _delimited_body(expression, opening_index, "(", ")")
+    if extracted is None:
+        return None
+    argument_body, expression_end = extracted
+    if expression[expression_end:].strip():
+        return None
+    arguments = _split_top_level_arguments(argument_body)
+    if (
+        arguments is None
+        or len(arguments) != 2
+        or arguments[1] != "hostedFoundryVerifierAppSettings"
+    ):
+        return None
+    baseline = arguments[0]
+    if not baseline.startswith("["):
+        return None
+    baseline_extracted = _delimited_body(baseline, 0, "[", "]")
+    if baseline_extracted is None:
+        return None
+    baseline_body, baseline_end = baseline_extracted
+    if baseline[baseline_end:].strip():
+        return None
+    return baseline_body
+
+
+def _app_settings_entries(module: str) -> list[tuple[str, str]] | None:
+    app_settings = _authoritative_app_settings_array(module)
     if app_settings is None:
         return None
+    return _setting_entries(
+        app_settings,
+        r"'(?:[^']|'')*'|[A-Za-z][A-Za-z0-9]*",
+    )
 
+
+def _setting_entries(
+    array_body: str,
+    value_pattern: str,
+) -> list[tuple[str, str]] | None:
     entries: list[tuple[str, str]] = []
     index = 0
-    while index < len(app_settings):
-        while index < len(app_settings) and (
-            app_settings[index].isspace() or app_settings[index] == ","
+    while index < len(array_body):
+        while index < len(array_body) and (
+            array_body[index].isspace() or array_body[index] == ","
         ):
             index += 1
-        if index == len(app_settings):
+        if index == len(array_body):
             break
-        if app_settings[index] != "{":
+        if array_body[index] != "{":
             return None
-        extracted = _delimited_body(app_settings, index, "{", "}")
+        extracted = _delimited_body(array_body, index, "{", "}")
         if extracted is None:
             return None
         entry_body, index = extracted
         fields = re.fullmatch(
             r"\s*name\s*:\s*'([^']+)'\s+value\s*:\s*"
-            r"('(?:[^']|'')*'|[A-Za-z][A-Za-z0-9]*)\s*",
+            rf"({value_pattern})\s*",
             entry_body,
         )
         if fields is None:
@@ -476,49 +837,65 @@ def _exact_hosted_settings_valid(module: str) -> bool:
     if len(names) != len(set(names)):
         return False
     actual_settings = dict(entries)
-    remote_build_value = actual_settings.pop(REMOTE_BUILD_SETTING, None)
-    safe_settings = {
-        name: actual_settings.pop(name, None) for name in SAFE_HOSTED_SETTINGS
+    return actual_settings == {
+        name: repr(value) for name, value in BASELINE_APP_SETTINGS.items()
     }
-    return (
-        not actual_settings
-        and safe_settings
-        == {name: repr(value) for name, value in SAFE_HOSTED_SETTINGS.items()}
-        and remote_build_value == repr(REMOTE_BUILD_VALUE)
-    )
 
 
 def _optional_hosted_verifier_contract_valid(module: str) -> bool:
     active = _strip_bicep_comments(module)
-    if not re.search(
-        r"var\s+hostedFoundryVerifierAppSettings\s*=\s*"
-        r"validatedHostedFoundryVerifierConfiguration\.mode\s*==\s*'enabled'\s*\?\s*\[",
-        active,
-    ):
-        return False
-    if not re.search(
-        r"appSettings\s*:\s*concat\s*\(\s*\[.*?\]\s*,\s*"
-        r"hostedFoundryVerifierAppSettings\s*\)",
-        active,
-        re.DOTALL,
-    ):
-        return False
-    for setting_name, property_name in HOSTED_VERIFIER_BICEP_PARAMETERS.items():
-        if re.search(
-            rf"name\s*:\s*'{re.escape(setting_name)}'\s+"
-            rf"value\s*:\s*validatedHostedFoundryVerifierConfiguration\.{property_name}",
-            active,
-        ) is None:
-            return False
-    expected_names = {
-        *SAFE_HOSTED_SETTINGS,
-        REMOTE_BUILD_SETTING,
-        *HOSTED_VERIFIER_BICEP_PARAMETERS,
-    }
-    return all(
-        len(re.findall(rf"\bname\s*:\s*'{re.escape(name)}'", active)) == 1
-        for name in expected_names
+    visible = _top_level_visible(active)
+    outside_strings = _positions_outside_strings(active)
+    optional_matches = tuple(
+        match
+        for match in re.finditer(
+            r"(?m)^\s*var\s+hostedFoundryVerifierAppSettings\s*=",
+            visible,
+        )
+        if outside_strings[match.start()]
     )
+    if len(optional_matches) != 1:
+        return False
+    cursor = optional_matches[0].end()
+    condition = re.match(
+        r"\s*validatedHostedFoundryVerifierConfiguration\.mode\s*"
+        r"==\s*'enabled'\s*\?\s*",
+        active[cursor:],
+    )
+    if condition is None:
+        return False
+    cursor += condition.end()
+    if cursor >= len(active) or active[cursor] != "[":
+        return False
+    extracted = _delimited_body(active, cursor, "[", "]")
+    if extracted is None:
+        return False
+    optional_body, cursor = extracted
+    false_branch = re.match(r"\s*:\s*", active[cursor:])
+    if false_branch is None:
+        return False
+    cursor += false_branch.end()
+    if cursor >= len(active) or active[cursor] != "[":
+        return False
+    empty_branch = _delimited_body(active, cursor, "[", "]")
+    if empty_branch is None:
+        return False
+    empty_body, cursor = empty_branch
+    if empty_body.strip() or re.match(
+        r"[ \t]*(?:\r?\n|$)",
+        active[cursor:],
+    ) is None:
+        return False
+    optional_entries = _setting_entries(
+        optional_body,
+        r"validatedHostedFoundryVerifierConfiguration\.[A-Za-z][A-Za-z0-9]*",
+    )
+    if optional_entries is None or dict(optional_entries) != {
+        setting_name: f"validatedHostedFoundryVerifierConfiguration.{property_name}"
+        for setting_name, property_name in HOSTED_VERIFIER_BICEP_PARAMETERS.items()
+    } or len(optional_entries) != len(HOSTED_VERIFIER_BICEP_PARAMETERS):
+        return False
+    return True
 
 
 def _module_local_hosted_verifier_validation_valid(
@@ -627,7 +1004,9 @@ def _local_contract_valid(template_file: Path) -> bool:
         ) is None:
             return False
     return (
-        _exact_hosted_settings_valid(module)
+        _complete_active_web_app_resource_contract_valid(module)
+        and _site_config_always_on_valid(module)
+        and _exact_hosted_settings_valid(module)
         and _optional_hosted_verifier_contract_valid(module)
         and _module_local_hosted_verifier_validation_valid(
             module,
@@ -736,10 +1115,35 @@ def _parse_what_if_summary(
         sanitized_additional_resource_types=additional_types,
         expected_ignored_resources=expected_ignored or (),
         allow_expected_ignored_resources_absent=True,
-        automatically_approved_actions=frozenset({"Create", "NoChange"}),
+        allow_expected_ignored_resource_subsets=True,
+        automatically_approved_actions=frozenset({"Create", "Modify", "NoChange"}),
     )
     if parsed is None:
         return None
+    modifying = tuple(
+        change for change in parsed.changes if change.action == "Modify"
+    )
+    modify_topology_approved = bool(
+        not modifying
+        or (
+            len(modifying) == 1
+            and parsed.count("Create") == 0
+            and parsed.count("NoChange") > 0
+            and modifying[0].resource_type == "Microsoft.Web/sites"
+            and modifying[0].logical_category == "web_app"
+            and modifying[0].approved_boundary
+            and modifying[0].expected_identity_match
+            and modifying[0].expected_parent_match
+            and modifying[0].expected_scope_match
+            and modifying[0].expected_multiplicity_match
+        )
+    )
+    change_evidence = tuple(
+        replace(change, approved_boundary=False)
+        if change.action == "Modify" and not modify_topology_approved
+        else change
+        for change in parsed.changes
+    )
     return WhatIfSummary(
         create_count=parsed.count("Create"),
         modify_count=parsed.count("Modify"),
@@ -748,8 +1152,10 @@ def _parse_what_if_summary(
         ignore_count=parsed.count("Ignore"),
         deploy_count=parsed.count("Deploy"),
         unsupported_count=parsed.count("Unsupported"),
-        change_evidence=parsed.changes,
-        exact_topology_match=parsed.exact_topology_match,
+        change_evidence=change_evidence,
+        exact_topology_match=bool(
+            parsed.exact_topology_match and modify_topology_approved
+        ),
     )
 
 

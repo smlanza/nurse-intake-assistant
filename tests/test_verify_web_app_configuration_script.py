@@ -94,8 +94,9 @@ def test_live_mode_lazily_uses_injected_runner_and_prints_sanitized_json(
                             "appCommandLine": "python -m uvicorn src.app.main:app --host 0.0.0.0 --port 8000",
                             "ftpsState": "Disabled",
                             "minTlsVersion": "1.2",
-                            "scmMinTlsVersion": "1.2",
-                            "healthCheckPath": "/health",
+                                "scmMinTlsVersion": "1.2",
+                                "healthCheckPath": "/health",
+                                "alwaysOn": True,
                         }
                     ),
                     "",
@@ -111,7 +112,11 @@ def test_live_mode_lazily_uses_injected_runner_and_prints_sanitized_json(
                             {"name": "EMAIL_PROVIDER", "value": "mock"},
                             {"name": "SMS_PROVIDER", "value": "mock"},
                             {"name": "DEMO_SUPPRESS_NOTIFICATIONS", "value": "true"},
-                            {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true"},
+                                {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true"},
+                                {
+                                    "name": "WEBSITE_SKIP_RUNNING_KUDUAGENT",
+                                    "value": "false",
+                                },
                             *[
                                 {"name": name, "value": value}
                                 for name, value in HOSTED_SETTINGS.items()

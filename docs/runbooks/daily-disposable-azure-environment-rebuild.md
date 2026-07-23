@@ -32,18 +32,20 @@ set -o pipefail
   python -m json.tool
 ```
 
-4. Review each sanitized prompt and answer `y` only for the current stage. The
+4. Review each prompt and answer `y` only for the current stage. The
    default, EOF, malformed input, or noninteractive input stops without that
    mutation. The possible approvals are resource-group creation, Foundry
    infrastructure deployment, Web App infrastructure deployment, and current
-   package deployment. Already verified stages are not prompted.
-5. If that result reports `category=manual_rbac_action_required`, run the
-   existing manual RBAC workflow in sections 13 and 14 exactly once under its
-   own authorization.
-6. Rerun the coordinator from step 3. The rerun rebuilds, approves, deploys, and verifies the
-   current deterministic application package; it does not reuse an earlier
-   package proof.
-7. Require `daily_environment_ready=true` from the current run before recording
+   package deployment. When Consumer RBAC is missing, one acceptable assignment-
+   only what-if must complete before the prompt shows the exact current Web App
+   principal, fixed Consumer role and definition ID, Foundry project scope, and
+matching-assignment count. Approval is bound to that preview and the current
+environment generation. Immediately after approval, fresh read-only evidence
+must match the approved subscription, principal, exact project resource ID and
+scope, fixed role, deterministic assignment identity, and generation fingerprint
+before the constrained Bicep deployment can run. Already verified infrastructure and RBAC stages are
+   not prompted.
+5. Require `daily_environment_ready=true` from the current run before recording
    the READY declaration below.
 
 Begin the approved Azure-dependent Codex slice only when the current live
@@ -61,14 +63,30 @@ on Delete, Modify, malformed, unknown, unrelated, incomplete, count-disagreeing,
 or otherwise ambiguous evidence. Package deployment has its own current-run
 approval and immutable transient handoff. Live mode reruns the
 complete offline contract; the prior standalone check is not reused as proof.
-When direct verification finds the Consumer assignment missing, the coordinator
-always stops for the manual workflow regardless of whether a separate preview
-is empty, Create, NoChange, Ignore, Unsupported, malformed, or unavailable. The
-coordinator contains no live RBAC deployment path. It
-does not trigger or read WebJob execution,
-perform hosted managed-identity verification, invoke an agent, process intake,
-send notifications, or delete the resource group. Use
-`--skip-webjob-discovery` only when remote name-only discovery is not required.
+The coordinator derives the current subscription, Web App system identity,
+Foundry account/project IDs, exact project scope, fixed Consumer role-definition
+ID, and deterministic deployment name from current configuration and read-only
+Azure results. It reuses exactly one correct direct assignment without a prompt.
+When the assignment is missing, the coordinator accepts only one Create for the
+intended project-scoped assignment and rejects Delete, Modify, Deploy,
+Unsupported, unrelated, or malformed preview evidence. It defaults to no and deploys only through
+`scripts/deploy_foundry_agent_consumer_rbac.py`'s service boundary after explicit
+approval, and requires a fresh read-only verification before continuing. Wrong
+principal, role, scope, inherited-only, duplicate, or malformed assignment state
+stops without deletion or replacement.
+
+After RBAC verification, the coordinator discovers and triggers the fixed hosted
+verifier WebJob and performs one receipt-correlated status read. A nonterminal
+run safely returns NOT READY; a repeated coordinator run reuses the unresolved
+receipt only when its private generation fingerprint matches current Azure
+resource, identity, package, project, agent-version, and WebJob evidence. Legacy,
+mismatched, or conflicting immutable state returns NOT READY for manual
+investigation and is never overwritten to permit a retrigger. Use
+`docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md` for the
+separate offline, evidence-preserving retirement procedure. Terminal success proves hosted
+managed-identity metadata verification followed by one fixed-fictional-data
+agent invocation. Intake processing, notifications, and resource-group cleanup
+remain separate. There is no hosted-proof skip path to READY.
 
 The detailed manual stages below remain the troubleshooting, recovery, audit,
 and individual-boundary reference. They are not the normal daily command path.
@@ -540,6 +558,10 @@ set -o pipefail
   --web-app-name <web-app-name> \
   --foundry-account-name <foundry-account-name> \
   --foundry-project-name <foundry-project-name> \
+  --subscription-id <fresh-subscription-id> \
+  --approved-foundry-project-resource-id <fresh-project-resource-id> \
+  --approved-web-app-principal-id <fresh-principal-id> \
+  --approved-role-assignment-name <deterministic-assignment-name> \
   --json |
   python -m json.tool
 
@@ -549,11 +571,19 @@ set -o pipefail
   --web-app-name <web-app-name> \
   --foundry-account-name <foundry-account-name> \
   --foundry-project-name <foundry-project-name> \
+  --subscription-id <fresh-subscription-id> \
+  --approved-foundry-project-resource-id <fresh-project-resource-id> \
+  --approved-web-app-principal-id <fresh-principal-id> \
+  --approved-role-assignment-name <deterministic-assignment-name> \
   --json |
   python -m json.tool
 ```
 
-Manually review the what-if and exact project scope before running live. Do not
+The what-if/live evidence arguments are transient values from the immediately
+current read-only proof; do not save them in this runbook or repository.
+Manually review every exact-match flag and the exact project scope before
+running live. Re-read all evidence after approval and stop on any difference.
+Do not
 use a manual role assignment or retry a failed deployment without correcting
 its cause.
 
@@ -587,10 +617,13 @@ Require exactly one matching direct Foundry Agent Consumer assignment at the
 approved project scope. Historical, inherited, broader, duplicate, or inferred
 assignments do not pass. This does not prove managed-identity token acquisition.
 
-## 15. Optional WebJob discovery
+## 15. Consumer RBAC and WebJob troubleshooting
 
-Run this only when the next narrow slice requires the fixed hosted verifier.
-The check is offline; discovery performs exactly one read:
+The normal daily path performs RBAC discovery, preview, approval, deployment,
+post-deployment verification, WebJob discovery, trigger, and status sequencing.
+Use the individual commands below only for troubleshooting or recovery. The
+check is offline. Live discovery, trigger, and status are coordinator-owned so
+they receive repository-derived current-generation evidence:
 
 ```bash
 set -o pipefail
@@ -601,26 +634,24 @@ set -o pipefail
   --web-app-name <web-app-name> \
   --json |
   python -m json.tool
-
-.venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
-  --live-discover \
-  --resource-group <resource-group> \
-  --web-app-name <web-app-name> \
-  --json |
-  python -m json.tool
 ```
 
-Discovery does not authorize a trigger, status read, managed-identity access,
-metadata verification, or agent invocation. Those remain separately scoped,
-explicitly approved future operations.
+Standalone discovery does not itself authorize a trigger, status read,
+managed-identity access, metadata verification, or agent invocation. The daily
+coordinator owns the normal sequence, including its fixed fictional invocation.
+If immutable evidence is stale, incompatible, or generation-mismatched, do not
+delete or ignore it and do not use a coordinator skip. Follow the separate
+stale-state recovery runbook, verify its archive, then restart the normal daily
+coordinator from the beginning.
 
 ## 16. Daily environment-ready declaration
 
 Declare **READY** only after the operator has reviewed current-session success
 for every required stage: authentication, resource group, Foundry deployment
 and verification, exact prompt-agent version, Web App deployment/configuration,
-package/code, readiness, RBAC deployment and verification, plus WebJob discovery
-when the next slice needs it.
+package/code, readiness, RBAC deployment and verification, WebJob discovery,
+receipt-correlated terminal success, managed-identity metadata verification, and
+one valid fixed-fictional invocation.
 
 The declaration must name the next narrow Azure-dependent slice and list which
 fresh sanitized prerequisites satisfy it. READY authorizes only that slice; it

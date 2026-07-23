@@ -19,8 +19,27 @@ def test_progress_has_one_current_hosted_verifier_state_and_baseline() -> None:
     assert progress.count("Latest verified test baseline:") == 1
     assert "offline-tested only" in progress
     assert "preferred daily path" in progress.casefold()
-    assert "later agent invocation" in progress.casefold()
+    assert "fixed fictional invocation" in progress.casefold()
     assert len(progress.splitlines()) <= 500
+
+
+def test_current_coordinator_documentation_has_no_superseded_manual_or_skip_claims() -> None:
+    architecture = _normalized(_read("docs/architecture.md")).casefold()
+    progress = _normalized(_read("docs/progress.md")).casefold()
+    runbook = _normalized(
+        _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")
+    ).casefold()
+
+    for stale in (
+        "stop for the separate manual rbac workflow",
+        "never previews or deploys rbac itself",
+        "does not trigger or read webjob execution",
+        "--skip-webjob-discovery",
+    ):
+        assert stale not in architecture + progress + runbook
+    assert "current-generation" in architecture
+    assert "what-if" in architecture
+    assert "no live" in progress
 
 
 def _normalized(text: str) -> str:
@@ -463,6 +482,9 @@ def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() 
             "Proposed deletes are surfaced for manual review",
             "preview mode never invokes live mode",
             "SCM_DO_BUILD_DURING_DEPLOYMENT=true",
+            "alwaysOn=true",
+            "WEBSITE_SKIP_RUNNING_KUDUAGENT=false",
+            "does not schedule or continuously run the WebJob",
             "scripts/verify_web_app_configuration.py",
             "Check mode validates the local contract without creating an Azure CLI runner",
             "three read-only Azure CLI commands with explicit JSON output projections",
@@ -708,9 +730,9 @@ def test_daily_azure_coordinator_docs_define_the_guided_safe_path() -> None:
             "--live",
             "daily_environment_ready=true",
             "troubleshooting, recovery, audit",
-            "does not trigger or read WebJob execution",
-            "category=manual_rbac_action_required",
-            "coordinator contains no live RBAC deployment path",
+            "exact current Web App principal",
+            "scripts/deploy_foundry_agent_consumer_rbac.py",
+            "receipt-correlated status read",
             "current-run approval",
             "resource_group_ownership_approval_required",
             "immutable transient handoff",
@@ -723,9 +745,9 @@ def test_daily_azure_coordinator_docs_define_the_guided_safe_path() -> None:
             "independent deployment",
             "stage-specific operator approval",
             "explicit manual adoption",
-            "cannot trigger or read a WebJob run",
+            "triggers the fixed WebJob",
             "healthy old worker cannot produce READY",
-            "never previews or deploys RBAC itself",
+            "fixed Bicep deployment boundary",
             "exact identity, scope, parent",
         },
     )
@@ -769,7 +791,7 @@ def test_daily_disposable_azure_runbook_has_ordered_stage_boundaries() -> None:
         "## 12. Hosted readiness verification",
         "## 13. Consumer RBAC deployment",
         "## 14. Consumer RBAC verification",
-        "## 15. Optional WebJob discovery",
+        "## 15. Consumer RBAC and WebJob troubleshooting",
         "## 16. Daily environment-ready declaration",
         "## 17. End-of-session cleanup and evidence expiry",
         "## 18. Fail-fast rules",
@@ -808,7 +830,7 @@ def test_daily_disposable_azure_runbook_separates_procedure_and_live_evidence() 
             "scripts/deploy_foundry_agent_consumer_rbac.py",
             "scripts/verify_foundry_agent_consumer_rbac.py",
             "scripts/run_hosted_foundry_agent_verification.py",
-            "Discovery does not authorize a trigger, status read, managed-identity access, metadata verification, or agent invocation",
+            "Standalone discovery does not itself authorize a trigger, status read, managed-identity access, metadata verification, or agent invocation",
         },
     )
 
@@ -842,8 +864,8 @@ def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> Non
             "read-only prompt-agent metadata verification",
             "system-assigned managed identity",
             "current prerequisite",
-            "does not invoke the agent or model",
-            "Metadata verification and invocation remain separate",
+            "fixed-fictional-data invocation",
+            "never submits patient text",
             "repository-owned execution mechanism",
             "repository-owned configuration boundary",
             "offline-tested only",
@@ -864,7 +886,7 @@ def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> Non
             "terminal-outcome.json",
             "not a distributed lock across workstations or checkouts",
             "trigger acceptance without treating it as verification success",
-            "not to agent invocation",
+            "terminally successful WebJob run proves the fixed invocation completed",
         },
     )
     for unauthorized_command in {
@@ -874,3 +896,57 @@ def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> Non
         "az webapp ssh",
     }:
         assert unauthorized_command not in runbook
+
+
+def test_current_hosted_docs_reject_superseded_metadata_only_meanings() -> None:
+    combined = _normalized(
+        _read("docs/architecture.md")
+        + "\n"
+        + _read("docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md")
+    ).casefold()
+    superseded = (
+        "metadata verification only",
+        "calls only the metadata verifier",
+        "calls only the existing metadata",
+        "no invocation path",
+        "invocation remains outside the coordinator",
+        "separate from every agent invocation",
+        "coordinator never deploys rbac",
+        "stale evidence may be deleted",
+        "stale evidence may be ignored",
+    )
+    for meaning in superseded:
+        assert meaning not in combined
+    for current in (
+        "metadata verification followed by one fixed-fictional invocation",
+        "one combined sanitized json result",
+        "immediately after approval",
+        "evidence-preserving recovery",
+    ):
+        assert current in combined
+
+
+def test_stale_webjob_recovery_docs_define_separate_manual_boundary() -> None:
+    recovery = _normalized(
+        _read("docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md")
+    )
+    daily = _normalized(
+        _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")
+    )
+    _assert_contains_all(
+        recovery,
+        {
+            "--check",
+            "--inspect",
+            "--archive",
+            "exact manifest digest",
+            "defaults to no",
+            "atomically renames",
+            "retirement-receipt.json",
+            "never delete",
+            "does not call Azure or HTTP",
+            "does not",
+            "daily_environment_ready=true",
+        },
+    )
+    assert "recover-stale-hosted-foundry-agent-webjob-state.md" in daily

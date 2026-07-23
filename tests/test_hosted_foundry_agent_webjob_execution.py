@@ -9,6 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 7, 19, 10, 0, 0, tzinfo=timezone.utc)
+FINGERPRINT = "a" * 64
 
 
 def _service():
@@ -23,6 +24,7 @@ def _request(mode: str = "check", *, source_root: Path = ROOT):
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         source_root=source_root,
+        environment_fingerprint=None if mode == "check" else FINGERPRINT,
     )
 
 
@@ -35,6 +37,7 @@ def _receipt(*, state: str = "accepted", started: datetime = NOW):
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         webjob_name=service.WEBJOB_NAME,
+        environment_fingerprint=FINGERPRINT,
     )
 
 
@@ -47,6 +50,7 @@ def _outcome(*, succeeded: bool = True, started: datetime = NOW):
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         webjob_name=service.WEBJOB_NAME,
+        environment_fingerprint=FINGERPRINT,
     )
 
 
@@ -59,6 +63,7 @@ def _blocked():
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
         webjob_name=service.WEBJOB_NAME,
+        environment_fingerprint=FINGERPRINT,
     )
 
 
@@ -191,6 +196,153 @@ def test_check_proves_only_local_contract_without_runner_or_remote_claim() -> No
     assert result.metadata_verification_proven is False
     assert result.invocation_attempted is False
     assert runner.calls == []
+
+
+def test_environment_generation_fingerprint_changes_for_every_generation_input() -> None:
+    service = _service()
+    evidence = service.EnvironmentGenerationEvidence(
+        resource_group_resource_id=(
+            "/subscriptions/00000000-0000-0000-0000-000000000001/"
+            "resourceGroups/fictional-rg"
+        ),
+        web_app_resource_id=(
+            "/subscriptions/00000000-0000-0000-0000-000000000001/"
+            "resourceGroups/fictional-rg/providers/Microsoft.Web/sites/fictional-web-app"
+        ),
+        principal_id="00000000-0000-0000-0000-000000000002",
+        package_digest="b" * 64,
+        foundry_project_resource_id=(
+            "/subscriptions/00000000-0000-0000-0000-000000000001/"
+            "resourceGroups/fictional-rg/providers/Microsoft.CognitiveServices/"
+            "accounts/account/projects/project"
+        ),
+        agent_name="nurse-intake-agent",
+        agent_version="7",
+        webjob_name=service.WEBJOB_NAME,
+    )
+    baseline = service.environment_generation_fingerprint(evidence)
+
+    assert len(baseline) == 64
+    for changes in (
+        {"principal_id": "00000000-0000-0000-0000-000000000005"},
+        {"package_digest": "c" * 64},
+        {
+            "resource_group_resource_id": (
+                "/subscriptions/00000000-0000-0000-0000-000000000001/"
+                "resourceGroups/other-rg"
+            ),
+            "web_app_resource_id": evidence.web_app_resource_id.replace(
+                "fictional-rg", "other-rg"
+            ),
+            "foundry_project_resource_id": (
+                evidence.foundry_project_resource_id.replace(
+                    "fictional-rg", "other-rg"
+                )
+            ),
+        },
+        {
+            "foundry_project_resource_id": (
+                evidence.foundry_project_resource_id.replace(
+                    "/projects/project", "/projects/other"
+                )
+            )
+        },
+        {"agent_name": "replacement-agent"},
+        {"agent_version": "8"},
+        {
+            "web_app_resource_id": evidence.web_app_resource_id.replace(
+                "fictional-web-app", "replacement-web-app"
+            )
+        },
+    ):
+        assert service.environment_generation_fingerprint(
+            replace(evidence, **changes)
+        ) != baseline
+
+
+def test_environment_generation_fingerprint_is_order_independent_and_complete() -> None:
+    service = _service()
+    values = {
+        "resource_group_resource_id": (
+            "/subscriptions/00000000-0000-0000-0000-000000000001/"
+            "resourceGroups/fictional-rg"
+        ),
+        "web_app_resource_id": (
+            "/subscriptions/00000000-0000-0000-0000-000000000001/"
+            "resourceGroups/fictional-rg/providers/Microsoft.Web/sites/fictional-web-app"
+        ),
+        "principal_id": "00000000-0000-0000-0000-000000000002",
+        "package_digest": "b" * 64,
+        "foundry_project_resource_id": (
+            "/subscriptions/00000000-0000-0000-0000-000000000001/"
+            "resourceGroups/fictional-rg/providers/Microsoft.CognitiveServices/"
+            "accounts/account/projects/project"
+        ),
+        "agent_name": "nurse-intake-agent",
+        "agent_version": "7",
+        "webjob_name": service.WEBJOB_NAME,
+    }
+    forward = service.EnvironmentGenerationEvidence(**values)
+    reverse = service.EnvironmentGenerationEvidence(
+        **dict(reversed(tuple(values.items())))
+    )
+
+    assert service.environment_generation_fingerprint(forward) == (
+        service.environment_generation_fingerprint(reverse)
+    )
+    with pytest.raises(TypeError):
+        service.EnvironmentGenerationEvidence(
+            **{name: value for name, value in values.items() if name != "principal_id"}
+        )
+
+
+@pytest.mark.parametrize("fingerprint", [None, "", "not-a-digest", "A" * 64])
+def test_live_modes_reject_missing_or_malformed_environment_fingerprint(
+    fingerprint: str | None,
+) -> None:
+    request = replace(_request("live-discover"), environment_fingerprint=fingerprint)
+
+    result = _service().execute_hosted_foundry_agent_webjob(
+        request,
+        runner=FakeRunner(error=AssertionError("invalid evidence must stop first")),
+        receipt_store=MemoryStore(),
+    )
+
+    assert result.category == "invalid_arguments"
+
+
+def test_mismatched_receipt_fingerprint_is_stale_and_never_reused() -> None:
+    service = _service()
+    request = replace(_request("live-status"), environment_fingerprint="b" * 64)
+    receipt = replace(_receipt(), environment_fingerprint="a" * 64)
+    store = MemoryStore(receipt, outcome=replace(_outcome(), environment_fingerprint="a" * 64))
+    runner = FakeRunner(error=AssertionError("stale evidence must not read Azure"))
+
+    result = service.execute_hosted_foundry_agent_webjob(
+        request, runner=runner, receipt_store=store
+    )
+
+    assert result.category == "environment_evidence_stale"
+    assert result.metadata_verification_proven is False
+    assert result.invocation_attempted is False
+    assert runner.calls == []
+
+
+def test_terminal_outcome_fingerprint_conflict_never_replays_success() -> None:
+    service = _service()
+    request = replace(_request("live-status"), environment_fingerprint=FINGERPRINT)
+    receipt = replace(_receipt(), environment_fingerprint=FINGERPRINT)
+    outcome = replace(_outcome(), environment_fingerprint="b" * 64)
+
+    result = service.execute_hosted_foundry_agent_webjob(
+        request,
+        runner=FakeRunner(error=AssertionError("conflict must stop first")),
+        receipt_store=MemoryStore(receipt, outcome=outcome),
+    )
+
+    assert result.category == "environment_evidence_stale"
+    assert result.metadata_verification_proven is False
+    assert result.invocation_attempted is False
 
 
 def test_discovery_uses_exactly_one_narrow_read_and_ignores_unrelated_jobs() -> None:
@@ -505,6 +657,7 @@ def test_status_uses_receipt_lower_bound_and_records_separate_terminal_success()
     assert result.correlated_run_terminal is True
     assert result.correlated_run_succeeded is True
     assert result.metadata_verification_proven is True
+    assert result.invocation_attempted is True
     assert store.receipt == _receipt()
     assert store.outcome == _outcome()
     assert result.terminal_outcome_recorded is True
@@ -643,7 +796,7 @@ def test_file_receipt_store_uses_fixed_path_strict_schema_and_atomic_permissions
 @pytest.mark.parametrize(
     "mutation",
     [
-        {"schema_version": 2},
+        {"schema_version": 1},
         {"state": "unknown"},
         {"trigger_not_before": "2026-07-19T10:00:00"},
         {"web_app_name": "/unsafe"},

@@ -11,7 +11,9 @@ if str(ROOT) not in sys.path:
 
 from src.app.services.foundry_agent_consumer_rbac_deployment import (
     CommandResult,
+    DEPLOYMENT_NAME,
     EXPECTED_TEMPLATE,
+    FoundryAgentConsumerRbacDeploymentEvidence,
     FoundryAgentConsumerRbacDeploymentRequest,
     deploy_foundry_agent_consumer_rbac,
     validate_foundry_agent_consumer_rbac_request,
@@ -56,12 +58,38 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--web-app-name", required=True)
     parser.add_argument("--foundry-account-name", required=True)
     parser.add_argument("--foundry-project-name", required=True)
+    parser.add_argument("--subscription-id")
+    parser.add_argument("--approved-foundry-project-resource-id")
+    parser.add_argument("--approved-web-app-principal-id")
+    parser.add_argument("--approved-role-assignment-name")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
 
 def _request(args: argparse.Namespace) -> FoundryAgentConsumerRbacDeploymentRequest:
     mode = "check" if args.check else "what-if" if args.what_if else "live"
+    evidence = None
+    if mode != "check" and all(
+        isinstance(value, str)
+        for value in (
+            args.subscription_id,
+            args.approved_foundry_project_resource_id,
+            args.approved_web_app_principal_id,
+            args.approved_role_assignment_name,
+        )
+    ):
+        evidence = FoundryAgentConsumerRbacDeploymentEvidence(
+            subscription_id=args.subscription_id,
+            foundry_project_resource_id=args.approved_foundry_project_resource_id,
+            web_app_principal_id=args.approved_web_app_principal_id,
+            role_definition_id=(
+                f"/subscriptions/{args.subscription_id}/providers/"
+                "Microsoft.Authorization/roleDefinitions/"
+                "eed3b665-ab3a-47b6-8f48-c9382fb1dad6"
+            ),
+            role_assignment_name=args.approved_role_assignment_name,
+            deployment_name=DEPLOYMENT_NAME,
+        )
     return FoundryAgentConsumerRbacDeploymentRequest(
         mode=mode,
         resource_group=args.resource_group,
@@ -69,6 +97,7 @@ def _request(args: argparse.Namespace) -> FoundryAgentConsumerRbacDeploymentRequ
         foundry_account_name=args.foundry_account_name,
         foundry_project_name=args.foundry_project_name,
         template_file=EXPECTED_TEMPLATE,
+        approved_evidence=evidence,
     )
 
 

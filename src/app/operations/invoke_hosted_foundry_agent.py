@@ -29,9 +29,9 @@ def _create_live_invoker() -> HostedFoundryAgentInvocation:
     return HostedFoundryAgentInvocation()
 
 
-def main(argv: list[str] | None = None) -> int:
-    args = _parse_args(argv)
-    mode = "check" if args.check else "live"
+def run_hosted_foundry_agent_invocation(
+    mode: str,
+) -> HostedFoundryAgentInvocationResult:
     request = build_hosted_foundry_agent_invocation_request(
         AppSettings(), mode=mode
     )
@@ -46,6 +46,13 @@ def main(argv: list[str] | None = None) -> int:
         result = contract_check
     else:
         result = _create_live_invoker().invoke(request)
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    mode = "check" if args.check else "live"
+    result = run_hosted_foundry_agent_invocation(mode)
     print(json.dumps(result.to_json_dict(), separators=(",", ":"), sort_keys=True))
     if result.ok:
         return 0
