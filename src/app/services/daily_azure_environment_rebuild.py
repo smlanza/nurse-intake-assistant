@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import InitVar, dataclass, fields, replace
+from dataclasses import InitVar, dataclass, field, fields, replace
 import hashlib
 from importlib.util import find_spec
 import os
@@ -10,8 +10,20 @@ import json
 import subprocess
 import tempfile
 from typing import Callable, Literal, Mapping, Protocol
+from uuid import UUID
 
 from src.app.services.azure_what_if_evidence import SanitizedWhatIfChange
+from src.app.services.foundry_agent_consumer_rbac_deployment import (
+    CONSUMER_ROLE_GUID,
+    DEPLOYMENT_NAME as CONSUMER_RBAC_DEPLOYMENT_NAME,
+    PreviewTopology,
+    WhatIfDiagnostic,
+)
+from src.app.services.hosted_foundry_agent_webjob_execution import (
+    WEBJOB_NAME,
+    EnvironmentGenerationEvidence,
+    environment_generation_fingerprint,
+)
 
 
 REBUILD_OPERATION = "rebuild_daily_azure_environment"
@@ -27,6 +39,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SESSION_FILE = Path(".artifacts/daily-azure-rebuild/current-session.env")
 RESOURCE_GROUP_PURPOSE = "fictional-daily-validation"
 NESTED_DEPLOYMENT_RESOURCE_TYPE = "Microsoft.Resources/deployments"
+CONSUMER_ROLE_NAME = "Foundry Agent Consumer"
 _READY_CONSTRUCTION_SENTINEL = object()
 
 _REQUIRED_SETTINGS = (
@@ -109,6 +122,7 @@ class DailyAzureRuntimeContext:
     stable_agent_endpoint: str
     web_app_name: str
     hosted_origin: str
+    environment_fingerprint: str | None = None
 
 
 @dataclass(frozen=True)
@@ -123,6 +137,65 @@ class RuntimeUpdates:
 StageState = Literal["verified", "absent", "failed"]
 
 
+@dataclass(frozen=True, repr=False)
+class ConsumerRbacPlan:
+    subscription_id: str
+    resource_group: str
+    web_app_name: str
+    principal_id: str
+    web_app_resource_id: str
+    foundry_account_name: str
+    foundry_account_resource_id: str
+    foundry_project_name: str
+    foundry_project_resource_id: str
+    role_name: str
+    role_definition_id: str
+    role_assignment_name: str
+    deployment_name: str
+    existing_matching_assignments: int
+
+    @property
+    def mutation_required(self) -> bool:
+        return self.existing_matching_assignments == 0
+
+
+@dataclass(frozen=True)
+class ConsumerRbacPreviewProof:
+    topology: PreviewTopology
+    assignment_contents_proved: bool
+    manual_review_required: bool
+    record_count: int
+    create_count: int
+    modify_count: int
+    no_change_count: int
+    delete_count: int
+    ignore_count: int
+    deploy_count: int
+    unsupported_count: int
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "topology": self.topology,
+            "assignment_contents_proved": self.assignment_contents_proved,
+            "manual_review_required": self.manual_review_required,
+            "record_count": self.record_count,
+            "create_count": self.create_count,
+            "modify_count": self.modify_count,
+            "no_change_count": self.no_change_count,
+            "delete_count": self.delete_count,
+            "ignore_count": self.ignore_count,
+            "deploy_count": self.deploy_count,
+            "unsupported_count": self.unsupported_count,
+        }
+
+
+@dataclass(frozen=True, repr=False)
+class _CurrentEnvironmentGenerationSnapshot:
+    consumer_rbac_plan: ConsumerRbacPlan
+    package_digest: str
+    environment_fingerprint: str
+
+
 @dataclass(frozen=True)
 class StageResult:
     ok: bool
@@ -135,6 +208,13 @@ class StageResult:
     accepted: bool = False
     artifact_current: bool = False
     approval_binding: str | None = None
+    consumer_rbac_plan: ConsumerRbacPlan | None = field(default=None, repr=False)
+    consumer_rbac_preview: ConsumerRbacPreviewProof | None = None
+    what_if_diagnostic: WhatIfDiagnostic | None = None
+    webjob_triggered: bool = False
+    webjob_status_read: bool = False
+    managed_identity_verification_performed: bool = False
+    agent_invoked: bool = False
 
     def __post_init__(self) -> None:
         if self.ok and not isinstance(self.mutation_made, bool):
@@ -151,6 +231,7 @@ class StageResult:
         accepted: bool = False,
         artifact_current: bool = False,
         approval_binding: str | None = None,
+        consumer_rbac_preview: ConsumerRbacPreviewProof | None = None,
     ) -> "StageResult":
         return cls(
             ok=True,
@@ -163,6 +244,7 @@ class StageResult:
             accepted=accepted,
             artifact_current=artifact_current,
             approval_binding=approval_binding,
+            consumer_rbac_preview=consumer_rbac_preview,
         )
 
     @classmethod
@@ -176,6 +258,7 @@ class StageResult:
         *,
         mutation_made: bool | None = False,
         attempted: bool = False,
+        what_if_diagnostic: WhatIfDiagnostic | None = None,
     ) -> "StageResult":
         return cls(
             False,
@@ -183,6 +266,7 @@ class StageResult:
             category,
             mutation_made=mutation_made,
             attempted=attempted,
+            what_if_diagnostic=what_if_diagnostic,
         )
 
 
@@ -281,6 +365,7 @@ ApprovalStage = Literal[
     "foundry_deployment",
     "web_app_deployment",
     "application_code_deployment",
+    "consumer_rbac_deployment",
 ]
 _APPROVAL_STAGES = frozenset(
     {
@@ -288,6 +373,7 @@ _APPROVAL_STAGES = frozenset(
         "foundry_deployment",
         "web_app_deployment",
         "application_code_deployment",
+        "consumer_rbac_deployment",
     }
 )
 
@@ -367,7 +453,18 @@ class DailyAzureStageRunner(Protocol):
     def deploy_code(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_readiness(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_rbac(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def preview_rbac(
+        self, context: DailyAzureRuntimeContext, plan: ConsumerRbacPlan
+    ) -> StageResult: ...
+    def deploy_rbac(
+        self,
+        context: DailyAzureRuntimeContext,
+        preview_binding: str,
+        plan: ConsumerRbacPlan,
+    ) -> StageResult: ...
     def discover_webjob(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def trigger_webjob(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def verify_hosted_agent(self, context: DailyAzureRuntimeContext) -> StageResult: ...
 
 
 @dataclass(frozen=True)
@@ -390,6 +487,10 @@ class DailyAzureEnvironmentRebuildResult:
     application_deployment_accepted: bool = False
     hosted_readiness_verified: bool = False
     consumer_rbac_verified: bool = False
+    consumer_rbac_assignment_required: bool = False
+    consumer_rbac_assignment_approved: bool = False
+    consumer_rbac_assignment_attempted: bool = False
+    consumer_rbac_assignment_reused: bool = False
     webjob_discovered: bool = False
     azure_mutation_made: bool | None = False
     agent_invoked: bool = False
@@ -398,6 +499,7 @@ class DailyAzureEnvironmentRebuildResult:
     managed_identity_verification_performed: bool = False
     recommended_next_step: str = FAILURE_NEXT_STEP
     foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None
+    what_if_diagnostic: WhatIfDiagnostic | None = None
     _ready_authority: InitVar[object | None] = None
 
     def __post_init__(self, _ready_authority: object | None) -> None:
@@ -412,10 +514,9 @@ class DailyAzureEnvironmentRebuildResult:
     @classmethod
     def _verified_ready(
         cls,
-        proofs: Mapping[str, bool],
+        proofs: Mapping[str, object],
         *,
         azure_mutation_made: bool | None,
-        require_webjob_discovery: bool,
     ) -> "DailyAzureEnvironmentRebuildResult":
         required = (
             "local_orchestration_ready",
@@ -431,16 +532,17 @@ class DailyAzureEnvironmentRebuildResult:
             "application_deployment_accepted",
             "hosted_readiness_verified",
             "consumer_rbac_verified",
+            "webjob_discovered",
+            "webjob_triggered",
+            "webjob_status_read",
+            "managed_identity_verification_performed",
+            "agent_invoked",
         )
         if (
             not isinstance(azure_mutation_made, bool)
             or any(proofs.get(name) is not True for name in required)
-            or (
-                require_webjob_discovery
-                and proofs.get("webjob_discovered") is not True
-            )
         ):
-            raise ValueError("READY requires every enabled proof.")
+            raise ValueError("READY requires every mandatory proof.")
         allowed = {field.name for field in fields(cls)}
         progress = {
             name: value
@@ -479,12 +581,26 @@ class DailyAzureEnvironmentRebuildResult:
             "application_deployment_accepted": self.application_deployment_accepted,
             "hosted_readiness_verified": self.hosted_readiness_verified,
             "consumer_rbac_verified": self.consumer_rbac_verified,
+            "consumer_rbac_assignment_required": (
+                self.consumer_rbac_assignment_required
+            ),
+            "consumer_rbac_assignment_approved": (
+                self.consumer_rbac_assignment_approved
+            ),
+            "consumer_rbac_assignment_attempted": (
+                self.consumer_rbac_assignment_attempted
+            ),
+            "consumer_rbac_assignment_reused": (
+                self.consumer_rbac_assignment_reused
+            ),
             "webjob_discovered": self.webjob_discovered,
             "azure_mutation_made": self.azure_mutation_made,
-            "agent_invoked": False,
-            "webjob_triggered": False,
-            "webjob_status_read": False,
-            "managed_identity_verification_performed": False,
+            "agent_invoked": self.agent_invoked,
+            "webjob_triggered": self.webjob_triggered,
+            "webjob_status_read": self.webjob_status_read,
+            "managed_identity_verification_performed": (
+                self.managed_identity_verification_performed
+            ),
             "readiness_declaration": (
                 READY_MESSAGE if self.daily_environment_ready else NOT_READY_MESSAGE
             ),
@@ -494,6 +610,8 @@ class DailyAzureEnvironmentRebuildResult:
             result["foundry_plan_diagnostic"] = (
                 self.foundry_plan_diagnostic.to_json_dict()
             )
+        if self.what_if_diagnostic is not None:
+            result["what_if_diagnostic"] = self.what_if_diagnostic.to_json_dict()
         return result
 
 
@@ -586,9 +704,7 @@ def load_daily_azure_config(
     discovery = _parse_bool(values["DISCOVER_HOSTED_FOUNDRY_WEBJOB"])
     if hosted is None or discovery is None:
         raise ConfigValidationError("invalid_configuration")
-    if discovery and not hosted:
-        raise ConfigValidationError("incompatible_options")
-    if not hosted:
+    if not hosted or not discovery:
         raise ConfigValidationError("incompatible_options")
 
     return DailyAzureConfig(
@@ -896,6 +1012,361 @@ def _plan_approval_summary(
     )
 
 
+def _consumer_rbac_approval_summary(
+    plan: ConsumerRbacPlan,
+    *,
+    preview: ConsumerRbacPreviewProof,
+    preview_binding: str,
+    environment_fingerprint: str,
+) -> ApprovalSummary:
+    common_facts = (
+        ("Principal type", "Web App system-assigned managed identity"),
+        ("Principal resource", plan.web_app_name),
+        ("Current system principal verified", "yes"),
+        ("Role name", plan.role_name),
+        ("Fixed built-in role verified", "yes"),
+        ("Scope type", "Foundry project"),
+        (
+            "Scope resource",
+            f"{plan.foundry_account_name}/{plan.foundry_project_name}",
+        ),
+        ("Exact project scope verified", "yes"),
+        (
+            "Existing matching assignments",
+            str(plan.existing_matching_assignments),
+        ),
+        ("Mutation required", _yes_no(plan.mutation_required)),
+    )
+    if preview.topology == "exact_create":
+        preview_facts = (
+            ("Preview classification", "Exact Create"),
+            (
+                "Azure assignment contents proved",
+                _yes_no(preview.assignment_contents_proved),
+            ),
+            ("Expected Consumer assignment count", str(preview.create_count)),
+            ("Manual review required", _yes_no(preview.manual_review_required)),
+            ("Destructive change", "no"),
+        )
+        facts = (
+            *common_facts,
+            *preview_facts,
+            ("Current generation bound", "yes"),
+        )
+    else:
+        facts = (
+            (
+                "Preview classification",
+                "Unsupported role-assignment preview",
+            ),
+            (
+                "Azure assignment contents proved",
+                _yes_no(preview.assignment_contents_proved),
+            ),
+            ("Ignore records", str(preview.ignore_count)),
+            ("Unsupported records", str(preview.unsupported_count)),
+            ("Manual review required", _yes_no(preview.manual_review_required)),
+            ("Create records", str(preview.create_count)),
+            ("Modify records", str(preview.modify_count)),
+            ("Delete records", str(preview.delete_count)),
+            ("Deploy records", str(preview.deploy_count)),
+            ("Unknown records", "0"),
+            ("Destructive or modifying changes", "no"),
+        )
+    binding = hashlib.sha256(
+        json.dumps(
+            {
+                "deployment_name": plan.deployment_name,
+                "principal_id": plan.principal_id.casefold(),
+                "role_definition_id": plan.role_definition_id.casefold(),
+                "scope": plan.foundry_project_resource_id.casefold(),
+                "existing_matching_assignments": (
+                    plan.existing_matching_assignments
+                ),
+                "preview_binding": preview_binding,
+                "preview": preview.to_json_dict(),
+                "environment_fingerprint": environment_fingerprint,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    return ApprovalSummary(
+        stage="consumer_rbac_deployment",
+        heading="FOUNDRY AGENT CONSUMER RBAC",
+        facts=facts,
+        evidence_binding=binding,
+    )
+
+
+def _consumer_rbac_preview_proof_valid(
+    proof: ConsumerRbacPreviewProof | None,
+) -> bool:
+    if not isinstance(proof, ConsumerRbacPreviewProof):
+        return False
+    semantics = {
+        "exact_create": (True, False),
+        "expected_ignore_plus_unsupported": (False, True),
+    }
+    expected = semantics.get(proof.topology)
+    counts = (
+        proof.create_count,
+        proof.modify_count,
+        proof.no_change_count,
+        proof.delete_count,
+        proof.ignore_count,
+        proof.deploy_count,
+        proof.unsupported_count,
+    )
+    return bool(
+        expected is not None
+        and (proof.assignment_contents_proved, proof.manual_review_required)
+        == expected
+        and type(proof.record_count) is int
+        and proof.record_count > 0
+        and all(type(count) is int and count >= 0 for count in counts)
+        and sum(counts) == proof.record_count
+        and proof.modify_count == 0
+        and proof.no_change_count == 0
+        and proof.delete_count == 0
+        and proof.deploy_count == 0
+    )
+
+
+def _consumer_rbac_preview_binding(
+    proof: ConsumerRbacPreviewProof,
+    changes: tuple[SanitizedWhatIfChange, ...],
+    *,
+    delete_review_required: bool,
+) -> str:
+    payload = {
+        "proof": proof.to_json_dict(),
+        "boundary": "consumer_rbac",
+        "closed_zero_action_counts": {
+            "Replacement": 0,
+            "unknown": 0,
+        },
+        "delete_review_required": delete_review_required,
+        "changes": [change.to_json_dict() for change in changes],
+    }
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()
+
+
+def _consumer_rbac_plan_valid(
+    plan: ConsumerRbacPlan | None,
+    context: DailyAzureRuntimeContext,
+) -> bool:
+    if (
+        not isinstance(plan, ConsumerRbacPlan)
+        or type(plan.existing_matching_assignments) is not int
+        or plan.existing_matching_assignments not in {0, 1}
+    ):
+        return False
+    string_fields = (
+        plan.subscription_id,
+        plan.resource_group,
+        plan.web_app_name,
+        plan.principal_id,
+        plan.web_app_resource_id,
+        plan.foundry_account_name,
+        plan.foundry_account_resource_id,
+        plan.foundry_project_name,
+        plan.foundry_project_resource_id,
+        plan.role_name,
+        plan.role_definition_id,
+        plan.role_assignment_name,
+        plan.deployment_name,
+    )
+    if any(
+        not isinstance(value, str) or not value or value != value.strip()
+        for value in string_fields
+    ):
+        return False
+    project_match = re.fullmatch(
+        r"/subscriptions/([^/]+)/resourceGroups/([^/]+)/providers/"
+        r"Microsoft\.CognitiveServices/accounts/([^/]+)/projects/([^/]+)",
+        plan.foundry_project_resource_id,
+        flags=re.IGNORECASE,
+    )
+    web_app_match = re.fullmatch(
+        r"/subscriptions/([^/]+)/resourceGroups/([^/]+)/providers/"
+        r"Microsoft\.Web/sites/([^/]+)",
+        plan.web_app_resource_id,
+        flags=re.IGNORECASE,
+    )
+    try:
+        canonical_subscription_id = str(UUID(plan.subscription_id))
+        canonical_principal_id = str(UUID(plan.principal_id))
+    except (AttributeError, TypeError, ValueError):
+        return False
+    if (
+        project_match is None
+        or web_app_match is None
+        or canonical_subscription_id != plan.subscription_id.casefold()
+        or canonical_principal_id != plan.principal_id.casefold()
+    ):
+        return False
+    subscription_id, resource_group, account_name, project_name = (
+        project_match.groups()
+    )
+    web_subscription_id, web_resource_group, web_app_name = (
+        web_app_match.groups()
+    )
+    expected_account_id = plan.foundry_project_resource_id.rsplit(
+        "/projects/", 1
+    )[0]
+    expected_role_id = (
+        f"/subscriptions/{subscription_id}/providers/"
+        "Microsoft.Authorization/roleDefinitions/"
+        f"{CONSUMER_ROLE_GUID}"
+    )
+    try:
+        expected_assignment_name = _consumer_role_assignment_name(
+            plan.foundry_project_resource_id,
+            plan.principal_id,
+            plan.role_definition_id,
+        )
+    except (TypeError, ValueError):
+        return False
+    return all(
+        (
+            plan.subscription_id.casefold() == subscription_id.casefold(),
+            plan.subscription_id.casefold() == web_subscription_id.casefold(),
+            plan.resource_group.casefold() == resource_group.casefold(),
+            plan.resource_group.casefold() == web_resource_group.casefold(),
+            plan.resource_group.casefold() == context.resource_group.casefold(),
+            plan.web_app_name.casefold() == context.web_app_name.casefold(),
+            plan.web_app_name.casefold() == web_app_name.casefold(),
+            plan.foundry_account_name.casefold() == account_name.casefold(),
+            plan.foundry_account_name.casefold()
+            == context.foundry_account_name.casefold(),
+            plan.foundry_account_resource_id.casefold()
+            == expected_account_id.casefold(),
+            plan.foundry_project_name.casefold() == project_name.casefold(),
+            plan.foundry_project_name.casefold()
+            == context.foundry_project_name.casefold(),
+            plan.role_name == CONSUMER_ROLE_NAME,
+            plan.role_definition_id.casefold() == expected_role_id.casefold(),
+            plan.role_assignment_name == expected_assignment_name,
+            plan.deployment_name == CONSUMER_RBAC_DEPLOYMENT_NAME,
+        )
+    )
+
+
+def _consumer_role_assignment_name(
+    project_resource_id: str,
+    principal_id: str,
+    role_definition_id: str,
+) -> str:
+    from src.app.services.foundry_agent_consumer_rbac_deployment import (
+        deterministic_role_assignment_name,
+    )
+
+    return deterministic_role_assignment_name(
+        project_resource_id, principal_id, role_definition_id
+    )
+
+
+def _shared_environment_fingerprint(
+    context: DailyAzureRuntimeContext,
+    plan: ConsumerRbacPlan,
+    package_digest: str,
+) -> str | None:
+    if context.immutable_agent_version is None:
+        return None
+    resource_group_resource_id = plan.foundry_project_resource_id.split(
+        "/providers/", 1
+    )[0]
+    try:
+        return environment_generation_fingerprint(
+            EnvironmentGenerationEvidence(
+                resource_group_resource_id=resource_group_resource_id,
+                web_app_resource_id=plan.web_app_resource_id,
+                principal_id=plan.principal_id,
+                package_digest=package_digest,
+                foundry_project_resource_id=plan.foundry_project_resource_id,
+                agent_name=context.agent_name,
+                agent_version=context.immutable_agent_version,
+                webjob_name=WEBJOB_NAME,
+            )
+        )
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _read_only_generation_stage_valid(result: StageResult) -> bool:
+    if not isinstance(result, StageResult):
+        return False
+    return all(
+        (
+            result.ok,
+            result.state == "verified",
+            result.mutation_made is False,
+            result.updates == RuntimeUpdates(),
+        )
+    )
+
+
+def _reread_current_environment_generation(
+    runner: DailyAzureStageRunner,
+    context: DailyAzureRuntimeContext,
+    approved_plan: ConsumerRbacPlan,
+    approved_package_digest: str,
+) -> tuple[_CurrentEnvironmentGenerationSnapshot | None, str]:
+    for read in (
+        runner.inspect_resource_group,
+        runner.verify_foundry,
+        runner.verify_agent,
+        runner.verify_web_app_configuration,
+    ):
+        result = read(context)
+        if not _read_only_generation_stage_valid(result):
+            return None, result.category
+
+    package = runner.build_package(context)
+    if (
+        not _read_only_generation_stage_valid(package)
+        or package.approval_binding is None
+    ):
+        return None, package.category
+    if package.approval_binding != approved_package_digest:
+        return None, "approval_evidence_stale"
+
+    readiness = runner.verify_readiness(context)
+    if not _read_only_generation_stage_valid(readiness):
+        return None, readiness.category
+    if not readiness.artifact_current:
+        return None, "application_artifact_mismatch"
+
+    rbac = runner.verify_rbac(context)
+    plan = rbac.consumer_rbac_plan
+    if (
+        rbac.state != "absent"
+        or rbac.mutation_made is not False
+        or not _consumer_rbac_plan_valid(plan, context)
+        or plan is None
+        or plan != approved_plan
+    ):
+        return None, "approval_evidence_stale"
+    fingerprint = _shared_environment_fingerprint(
+        context,
+        plan,
+        package.approval_binding,
+    )
+    if fingerprint is None:
+        return None, "environment_generation_evidence_invalid"
+    return (
+        _CurrentEnvironmentGenerationSnapshot(
+            consumer_rbac_plan=plan,
+            package_digest=package.approval_binding,
+            environment_fingerprint=fingerprint,
+        ),
+        "success",
+    )
+
+
 def _yes_no(value: bool) -> str:
     return "yes" if value else "no"
 
@@ -1171,7 +1642,7 @@ class DailyAzureEnvironmentRebuild:
         *,
         approver: Callable[[ApprovalSummary], bool] | None = None,
     ) -> DailyAzureEnvironmentRebuildResult:
-        progress: dict[str, bool] = {}
+        progress: dict[str, object] = {}
         mutation: list[bool | None] = [False]
         try:
             failures = self.local_contract_checker(self.repository_root)
@@ -1203,7 +1674,7 @@ class DailyAzureEnvironmentRebuild:
         self,
         runner: DailyAzureStageRunner,
         approvals: GuidedApprovalSession,
-        progress: dict[str, bool],
+        progress: dict[str, object],
         mutation: list[bool | None],
     ) -> DailyAzureEnvironmentRebuildResult:
         context = self._initial_context()
@@ -1382,26 +1853,167 @@ class DailyAzureEnvironmentRebuild:
         progress["application_artifact_current"] = True
 
         rbac = runner.verify_rbac(context)
-        if rbac.state == "absent":
-            return self._failure(
-                "manual_rbac_action_required",
-                progress,
-                mutation[0],
+        plan = rbac.consumer_rbac_plan
+        if not _consumer_rbac_plan_valid(plan, context):
+            category = (
+                rbac.category
+                if rbac.state == "failed"
+                else "consumer_rbac_discovery_failed"
             )
+            return self._failure(category, progress, mutation[0])
+        assert plan is not None
+        environment_fingerprint = _shared_environment_fingerprint(
+            context, plan, package.approval_binding
+        )
+        if environment_fingerprint is None:
+            return self._failure(
+                "environment_generation_evidence_invalid", progress, mutation[0]
+            )
+        context = replace(
+            context, environment_fingerprint=environment_fingerprint
+        )
+        progress.update(
+            consumer_rbac_assignment_required=plan.mutation_required,
+            consumer_rbac_assignment_approved=False,
+            consumer_rbac_assignment_attempted=False,
+            consumer_rbac_assignment_reused=not plan.mutation_required,
+        )
+        if rbac.state == "absent":
+            if not plan.mutation_required:
+                return self._failure(
+                    "consumer_rbac_assignment_ambiguous", progress, mutation[0]
+                )
+            preview = runner.preview_rbac(context, plan)
+            if not apply(preview):
+                return self._failure(
+                    preview.category,
+                    progress,
+                    mutation[0],
+                    what_if_diagnostic=preview.what_if_diagnostic,
+                )
+            if (
+                not _read_only_generation_stage_valid(preview)
+                or not preview.approval_binding
+                or not _consumer_rbac_preview_proof_valid(
+                    preview.consumer_rbac_preview
+                )
+            ):
+                return self._failure(
+                    "consumer_rbac_preview_unsafe", progress, mutation[0]
+                )
+            if not approvals.request(
+                _consumer_rbac_approval_summary(
+                    plan,
+                    preview=preview.consumer_rbac_preview,
+                    preview_binding=preview.approval_binding,
+                    environment_fingerprint=environment_fingerprint,
+                )
+            ):
+                return self._failure(
+                    "consumer_rbac_operator_declined", progress, mutation[0]
+                )
+            progress["consumer_rbac_assignment_approved"] = True
+            snapshot, snapshot_category = _reread_current_environment_generation(
+                runner,
+                context,
+                plan,
+                package.approval_binding,
+            )
+            if snapshot is None:
+                return self._failure(snapshot_category, progress, mutation[0])
+            fresh_context = replace(
+                context,
+                environment_fingerprint=snapshot.environment_fingerprint,
+            )
+            fresh_preview = runner.preview_rbac(
+                fresh_context,
+                snapshot.consumer_rbac_plan,
+            )
+            if not apply(fresh_preview):
+                return self._failure(
+                    fresh_preview.category,
+                    progress,
+                    mutation[0],
+                    what_if_diagnostic=fresh_preview.what_if_diagnostic,
+                )
+            if (
+                not _read_only_generation_stage_valid(fresh_preview)
+                or not fresh_preview.approval_binding
+                or not _consumer_rbac_preview_proof_valid(
+                    fresh_preview.consumer_rbac_preview
+                )
+            ):
+                return self._failure(
+                    "consumer_rbac_preview_unsafe", progress, mutation[0]
+                )
+            if (
+                snapshot.environment_fingerprint != environment_fingerprint
+                or fresh_preview.approval_binding != preview.approval_binding
+            ):
+                return self._failure(
+                    "approval_evidence_stale", progress, mutation[0]
+                )
+            deployed_rbac = runner.deploy_rbac(
+                fresh_context,
+                fresh_preview.approval_binding,
+                snapshot.consumer_rbac_plan,
+            )
+            progress["consumer_rbac_assignment_attempted"] = (
+                deployed_rbac.attempted
+            )
+            if not apply(deployed_rbac):
+                return self._failure(
+                    "consumer_rbac_deployment_failed", progress, mutation[0]
+                )
+            context = fresh_context
+            rbac = runner.verify_rbac(context)
+            verified_plan = rbac.consumer_rbac_plan
+            if (
+                not rbac.ok
+                or not _consumer_rbac_plan_valid(verified_plan, context)
+                or verified_plan is None
+                or verified_plan.existing_matching_assignments != 1
+            ):
+                return self._failure(
+                    "consumer_rbac_verification_failed", progress, mutation[0]
+                )
+            verified_fingerprint = _shared_environment_fingerprint(
+                context, verified_plan, snapshot.package_digest
+            )
+            if verified_fingerprint != environment_fingerprint:
+                return self._failure(
+                    "environment_generation_evidence_changed", progress, mutation[0]
+                )
+            plan = verified_plan
         if not apply(rbac):
             return self._failure(rbac.category, progress, mutation[0])
         progress["consumer_rbac_verified"] = True
 
-        if self.config.discover_hosted_foundry_webjob:
-            discovery = runner.discover_webjob(context)
-            if not apply(discovery):
-                return self._failure(discovery.category, progress, mutation[0])
-            progress["webjob_discovered"] = True
+        discovery = runner.discover_webjob(context)
+        if not apply(discovery):
+            return self._failure(discovery.category, progress, mutation[0])
+        progress["webjob_discovered"] = True
+        trigger = runner.trigger_webjob(context)
+        if not apply(trigger) or not trigger.webjob_triggered:
+            return self._failure(trigger.category, progress, mutation[0])
+        progress["webjob_triggered"] = True
+        hosted = runner.verify_hosted_agent(context)
+        progress["webjob_status_read"] = hosted.webjob_status_read
+        progress["managed_identity_verification_performed"] = (
+            hosted.managed_identity_verification_performed
+        )
+        progress["agent_invoked"] = hosted.agent_invoked
+        if (
+            not apply(hosted)
+            or not hosted.webjob_status_read
+            or not hosted.managed_identity_verification_performed
+            or not hosted.agent_invoked
+        ):
+            return self._failure(hosted.category, progress, mutation[0])
 
         return DailyAzureEnvironmentRebuildResult._verified_ready(
             progress,
             azure_mutation_made=mutation[0],
-            require_webjob_discovery=self.config.discover_hosted_foundry_webjob,
         )
 
     def _environment_binding(self) -> str:
@@ -1440,10 +2052,11 @@ class DailyAzureEnvironmentRebuild:
     def _failure(
         self,
         category: str,
-        progress: dict[str, bool] | None = None,
+        progress: dict[str, object] | None = None,
         mutation_made: bool | None = False,
         *,
         foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None,
+        what_if_diagnostic: WhatIfDiagnostic | None = None,
     ) -> DailyAzureEnvironmentRebuildResult:
         allowed = {field.name for field in fields(DailyAzureEnvironmentRebuildResult)}
         safe_progress = {
@@ -1469,8 +2082,17 @@ class DailyAzureEnvironmentRebuild:
             "application_code_deployment_approval_required": (
                 "Rerun guided live mode and review the newly built current package."
             ),
-            "manual_rbac_action_required": (
-                "Run the repository-owned manual Consumer RBAC workflow, verify it, then rerun."
+            "consumer_rbac_operator_declined": (
+                "No Consumer RBAC mutation was requested; rerun and approve only "
+                "after reviewing the exact current assignment."
+            ),
+            "consumer_rbac_assignment_ambiguous": (
+                "Inspect the repository-owned read-only RBAC verifier result; do "
+                "not delete or replace assignments automatically."
+            ),
+            "consumer_rbac_verification_failed": (
+                "Azure accepted the RBAC deployment request but current read-only "
+                "verification did not prove exactly one direct assignment."
             ),
         }
         return DailyAzureEnvironmentRebuildResult(
@@ -1480,6 +2102,7 @@ class DailyAzureEnvironmentRebuild:
             azure_mutation_made=mutation_made,
             recommended_next_step=next_steps.get(category, FAILURE_NEXT_STEP),
             foundry_plan_diagnostic=foundry_plan_diagnostic,
+            what_if_diagnostic=what_if_diagnostic,
             **safe_progress,
         )
 
@@ -1539,6 +2162,25 @@ class _SubprocessRunner:
         )
 
 
+class _HostedWebJobCommandRunner:
+    def __init__(self, runner: _SubprocessRunner) -> None:
+        self._runner = runner
+
+    def run(self, args: list[str]) -> object:
+        from src.app.services.hosted_foundry_agent_webjob_execution import (
+            CommandResult,
+        )
+
+        outcome = self._runner.run(args)
+        if not isinstance(outcome, _CommandResult):
+            return outcome
+        return CommandResult(
+            return_code=outcome.return_code,
+            stdout=outcome.stdout,
+            stderr=outcome.stderr,
+        )
+
+
 class RepositoryDailyAzureStageRunner:
     """Thin live adapter over the repository's existing resource boundaries."""
 
@@ -1556,10 +2198,16 @@ class RepositoryDailyAzureStageRunner:
         self.config = config
         self.repository_root = repository_root
         self.command_runner = command_runner or _SubprocessRunner()
+        self._hosted_webjob_command_runner = _HostedWebJobCommandRunner(
+            self.command_runner
+        )
         self._package = None
         self._package_authorization_session = create_package_authorization_session()
         self._expected_application_artifact_digest: str | None = None
         self._foundry_parameters: Path | None = None
+        self._consumer_rbac_preview_authorization: (
+            tuple[str, str, ConsumerRbacPlan] | None
+        ) = None
 
     def verify_account(self, context: DailyAzureRuntimeContext) -> StageResult:
         outcome = self.command_runner.run(
@@ -1977,15 +2625,318 @@ class RepositoryDailyAzureStageRunner:
             ),
             runner=self.command_runner,
         )
-        if (
-            result.category == "assignment_missing"
-            and result.web_app_identity_present
-            and result.foundry_project_scope_resolved
+        category = getattr(result, "category", None)
+        valid_missing = all(
+            (
+                getattr(result, "ok", None) is False,
+                category == "assignment_missing",
+                getattr(result, "operation", None)
+                == "verify_foundry_agent_consumer_rbac",
+                getattr(result, "mode", None) == "live",
+                getattr(result, "local_contract_validated", None) is True,
+                getattr(result, "azure_request_attempted", None) is True,
+                getattr(result, "web_app_identity_present", None) is True,
+                getattr(result, "foundry_project_scope_resolved", None)
+                is True,
+                getattr(result, "consumer_assignment_present", None) is False,
+                getattr(result, "consumer_assignment_scope_matches", None)
+                is False,
+                getattr(result, "consumer_role_matches", None) is False,
+                type(getattr(result, "matching_assignment_count", None))
+                is int,
+                getattr(result, "matching_assignment_count", None) == 0,
+            )
+        )
+        valid_existing = all(
+            (
+                getattr(result, "ok", None) is True,
+                category == "success",
+                getattr(result, "operation", None)
+                == "verify_foundry_agent_consumer_rbac",
+                getattr(result, "mode", None) == "live",
+                getattr(result, "local_contract_validated", None) is True,
+                getattr(result, "azure_request_attempted", None) is True,
+                getattr(result, "web_app_identity_present", None) is True,
+                getattr(result, "foundry_project_scope_resolved", None)
+                is True,
+                getattr(result, "consumer_assignment_present", None) is True,
+                getattr(result, "consumer_assignment_scope_matches", None)
+                is True,
+                getattr(result, "consumer_role_matches", None) is True,
+                type(getattr(result, "matching_assignment_count", None))
+                is int,
+                getattr(result, "matching_assignment_count", None) == 1,
+            )
+        )
+        identifiers = tuple(
+            getattr(result, name, None)
+            for name in (
+                "principal_id",
+                "web_app_resource_id",
+                "subscription_id",
+                "foundry_account_resource_id",
+                "foundry_project_resource_id",
+                "role_definition_id",
+            )
+        )
+        plan: ConsumerRbacPlan | None = None
+        if (valid_missing or valid_existing) and all(
+            isinstance(value, str) and bool(value.strip())
+            for value in identifiers
         ):
-            return StageResult.absent("rbac_absent")
-        if not result.ok:
-            return StageResult.failure(result.category)
-        return StageResult.success(reused=True)
+            (
+                principal_id,
+                web_app_resource_id,
+                subscription_id,
+                foundry_account_resource_id,
+                foundry_project_resource_id,
+                role_definition_id,
+            ) = identifiers
+            assert all(isinstance(value, str) for value in identifiers)
+            plan = ConsumerRbacPlan(
+                subscription_id=subscription_id,
+                resource_group=context.resource_group,
+                web_app_name=context.web_app_name,
+                principal_id=principal_id,
+                web_app_resource_id=web_app_resource_id,
+                foundry_account_name=context.foundry_account_name,
+                foundry_account_resource_id=foundry_account_resource_id,
+                foundry_project_name=context.foundry_project_name,
+                foundry_project_resource_id=foundry_project_resource_id,
+                role_name=CONSUMER_ROLE_NAME,
+                role_definition_id=role_definition_id,
+                role_assignment_name=_consumer_role_assignment_name(
+                    foundry_project_resource_id,
+                    principal_id,
+                    role_definition_id,
+                ),
+                deployment_name=CONSUMER_RBAC_DEPLOYMENT_NAME,
+                existing_matching_assignments=getattr(
+                    result, "matching_assignment_count"
+                ),
+            )
+        if valid_missing and _consumer_rbac_plan_valid(plan, context):
+            return replace(
+                StageResult.absent("consumer_rbac_assignment_required"),
+                consumer_rbac_plan=plan,
+            )
+        if valid_existing and _consumer_rbac_plan_valid(plan, context):
+            return replace(
+                StageResult.success(reused=True),
+                consumer_rbac_plan=plan,
+            )
+        if getattr(result, "ok", None) is not True:
+            category = {
+                "web_app_identity_missing": "consumer_rbac_prerequisite_missing",
+                "foundry_project_scope_not_found": (
+                    "consumer_rbac_prerequisite_missing"
+                ),
+                "invalid_configuration": "consumer_rbac_scope_invalid",
+                "assignment_scope_mismatch": "consumer_rbac_scope_invalid",
+                "principal_mismatch": "consumer_rbac_assignment_ambiguous",
+                "role_mismatch": "consumer_rbac_assignment_ambiguous",
+                "assignment_ambiguous": "consumer_rbac_assignment_ambiguous",
+                "response_parse_failed": "consumer_rbac_assignment_ambiguous",
+            }.get(category, "consumer_rbac_discovery_failed")
+            return StageResult.failure(category)
+        return StageResult.failure("consumer_rbac_discovery_failed")
+
+    def preview_rbac(
+        self, context: DailyAzureRuntimeContext, plan: ConsumerRbacPlan
+    ) -> StageResult:
+        from src.app.services.foundry_agent_consumer_rbac_deployment import (
+            EXPECTED_TEMPLATE,
+            FoundryAgentConsumerRbacDeploymentEvidence,
+            FoundryAgentConsumerRbacDeploymentRequest,
+            deploy_foundry_agent_consumer_rbac,
+        )
+
+        result = deploy_foundry_agent_consumer_rbac(
+            FoundryAgentConsumerRbacDeploymentRequest(
+                "what-if",
+                context.resource_group,
+                context.web_app_name,
+                context.foundry_account_name,
+                context.foundry_project_name,
+                EXPECTED_TEMPLATE,
+                FoundryAgentConsumerRbacDeploymentEvidence(
+                    subscription_id=plan.subscription_id,
+                    foundry_project_resource_id=plan.foundry_project_resource_id,
+                    web_app_principal_id=plan.principal_id,
+                    role_definition_id=plan.role_definition_id,
+                    role_assignment_name=plan.role_assignment_name,
+                    deployment_name=plan.deployment_name,
+                ),
+            ),
+            runner=self.command_runner,
+        )
+        changes = result.change_evidence
+        counts = (
+            result.create_count,
+            result.modify_count,
+            result.no_change_count,
+            result.delete_count,
+            result.ignore_count,
+            result.deploy_count,
+            result.unsupported_count,
+        )
+        semantics = {
+            "exact_create": (True, False),
+            "expected_ignore_plus_unsupported": (False, True),
+        }
+        expected_semantics = semantics.get(result.preview_topology)
+        counts_complete = bool(
+            all(type(count) is int and count >= 0 for count in counts)
+            and sum(counts) == len(changes)
+        )
+        exact_evidence_complete = bool(
+            counts_complete
+            and all(
+                change.boundary == "consumer_rbac"
+                and change.expected_identity_match is True
+                and change.expected_parent_match is True
+                and change.expected_scope_match is True
+                and change.expected_multiplicity_match is True
+                for change in changes
+            )
+        )
+        bounded_evidence_complete = bool(
+            counts_complete
+            and result.preview_topology
+            == "expected_ignore_plus_unsupported"
+            and all(
+                change.boundary == "consumer_rbac"
+                and change.action in {"Ignore", "Unsupported"}
+                and change.resource_type == "unidentified"
+                and change.logical_category
+                == (
+                    "bounded_manual_review_ignore"
+                    if change.action == "Ignore"
+                    else "bounded_manual_review_unsupported"
+                )
+                and change.approved_boundary is (change.action == "Ignore")
+                and change.expected_identity_match is False
+                and change.expected_parent_match is False
+                and change.expected_scope_match is False
+                and change.expected_multiplicity_match is True
+                for change in changes
+            )
+        )
+        evidence_complete = bool(
+            exact_evidence_complete
+            if result.preview_topology == "exact_create"
+            else bounded_evidence_complete
+        )
+        safe = bool(
+            result.ok
+            and result.category == "success"
+            and result.mode == "what-if"
+            and result.azure_operation_attempted
+            and not result.deployment_request_accepted
+            and expected_semantics is not None
+            and (
+                result.assignment_contents_proved,
+                result.manual_review_required,
+            )
+            == expected_semantics
+            and evidence_complete
+            and result.manual_review_required
+            is any(not change.approved_boundary for change in changes)
+            and result.assignment_contents_proved
+            is all(change.approved_boundary for change in changes)
+            and result.modify_count == 0
+            and result.no_change_count == 0
+            and result.delete_count == 0
+            and result.deploy_count == 0
+            and result.delete_review_required is False
+        )
+        if not safe or context.environment_fingerprint is None:
+            return StageResult.failure(
+                result.category if not result.ok else "consumer_rbac_preview_unsafe",
+                what_if_diagnostic=(
+                    result.what_if_diagnostic if not result.ok else None
+                ),
+            )
+        assert result.preview_topology is not None
+        assert result.assignment_contents_proved is not None
+        assert all(type(count) is int for count in counts)
+        proof = ConsumerRbacPreviewProof(
+            topology=result.preview_topology,
+            assignment_contents_proved=result.assignment_contents_proved,
+            manual_review_required=result.manual_review_required,
+            record_count=len(changes),
+            create_count=result.create_count,
+            modify_count=result.modify_count,
+            no_change_count=result.no_change_count,
+            delete_count=result.delete_count,
+            ignore_count=result.ignore_count,
+            deploy_count=result.deploy_count,
+            unsupported_count=result.unsupported_count,
+        )
+        binding = _consumer_rbac_preview_binding(
+            proof,
+            changes,
+            delete_review_required=result.delete_review_required,
+        )
+        self._consumer_rbac_preview_authorization = (
+            binding,
+            context.environment_fingerprint,
+            plan,
+        )
+        return StageResult.success(
+            approval_binding=binding,
+            consumer_rbac_preview=proof,
+        )
+
+    def deploy_rbac(
+        self,
+        context: DailyAzureRuntimeContext,
+        preview_binding: str,
+        plan: ConsumerRbacPlan,
+    ) -> StageResult:
+        from src.app.services.foundry_agent_consumer_rbac_deployment import (
+            EXPECTED_TEMPLATE,
+            FoundryAgentConsumerRbacDeploymentEvidence,
+            FoundryAgentConsumerRbacDeploymentRequest,
+            deploy_foundry_agent_consumer_rbac,
+        )
+
+        expected = self._consumer_rbac_preview_authorization
+        self._consumer_rbac_preview_authorization = None
+        if expected != (preview_binding, context.environment_fingerprint, plan):
+            return StageResult.failure("consumer_rbac_preview_changed")
+        result = deploy_foundry_agent_consumer_rbac(
+            FoundryAgentConsumerRbacDeploymentRequest(
+                "live",
+                context.resource_group,
+                context.web_app_name,
+                context.foundry_account_name,
+                context.foundry_project_name,
+                EXPECTED_TEMPLATE,
+                FoundryAgentConsumerRbacDeploymentEvidence(
+                    subscription_id=plan.subscription_id,
+                    foundry_project_resource_id=plan.foundry_project_resource_id,
+                    web_app_principal_id=plan.principal_id,
+                    role_definition_id=plan.role_definition_id,
+                    role_assignment_name=plan.role_assignment_name,
+                    deployment_name=plan.deployment_name,
+                ),
+            ),
+            runner=self.command_runner,
+        )
+        if not result.ok or not result.deployment_request_accepted:
+            return StageResult.failure(
+                "consumer_rbac_deployment_failed",
+                mutation_made=(
+                    None if result.azure_operation_attempted else False
+                ),
+                attempted=result.azure_operation_attempted,
+            )
+        return StageResult.success(
+            mutation_made=True,
+            attempted=True,
+            accepted=True,
+        )
 
     def discover_webjob(self, context: DailyAzureRuntimeContext) -> StageResult:
         from src.app.services.hosted_foundry_agent_webjob_execution import (
@@ -1999,8 +2950,9 @@ class RepositoryDailyAzureStageRunner:
                 context.resource_group,
                 context.web_app_name,
                 self.repository_root,
+                context.environment_fingerprint,
             ),
-            runner=self.command_runner,
+            runner=self._hosted_webjob_command_runner,
         )
         if (
             not result.ok
@@ -2010,6 +2962,67 @@ class RepositoryDailyAzureStageRunner:
         ):
             return StageResult.failure(result.category)
         return StageResult.success(reused=True)
+
+    def trigger_webjob(self, context: DailyAzureRuntimeContext) -> StageResult:
+        from src.app.services.hosted_foundry_agent_webjob_execution import (
+            HostedFoundryAgentWebJobExecutionRequest,
+            execute_hosted_foundry_agent_webjob,
+        )
+
+        result = execute_hosted_foundry_agent_webjob(
+            HostedFoundryAgentWebJobExecutionRequest(
+                "live-trigger",
+                context.resource_group,
+                context.web_app_name,
+                self.repository_root,
+                context.environment_fingerprint,
+            ),
+            runner=self._hosted_webjob_command_runner,
+        )
+        if result.ok and result.trigger_request_accepted and result.trigger_receipt_valid:
+            return StageResult.success(
+                mutation_made=True,
+                attempted=True,
+                accepted=True,
+                webjob_triggered=True,
+            )
+        if result.category == "trigger_receipt_unresolved" and result.trigger_receipt_valid:
+            return StageResult.success(
+                reused=True,
+                webjob_triggered=True,
+            )
+        return StageResult.failure(
+            result.category,
+            mutation_made=(
+                None if result.trigger_request_accepted else False
+            ),
+            attempted=result.azure_operation_attempted,
+        )
+
+    def verify_hosted_agent(self, context: DailyAzureRuntimeContext) -> StageResult:
+        from src.app.services.hosted_foundry_agent_webjob_execution import (
+            HostedFoundryAgentWebJobExecutionRequest,
+            execute_hosted_foundry_agent_webjob,
+        )
+
+        result = execute_hosted_foundry_agent_webjob(
+            HostedFoundryAgentWebJobExecutionRequest(
+                "live-status",
+                context.resource_group,
+                context.web_app_name,
+                self.repository_root,
+                context.environment_fingerprint,
+            ),
+            runner=self._hosted_webjob_command_runner,
+        )
+        if not result.ok or not result.metadata_verification_proven:
+            return StageResult.failure(result.category)
+        return StageResult.success(
+            reused=not result.azure_operation_attempted,
+            webjob_status_read=True,
+            managed_identity_verification_performed=True,
+            agent_invoked=result.invocation_attempted,
+        )
 
     def _parameters_file(self) -> Path | None:
         if self._foundry_parameters is not None:

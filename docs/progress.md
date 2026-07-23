@@ -3,9 +3,35 @@
 Active resume document; June 2026 history is in `docs/archive/progress-2026-06.md`.
 
 ## Current Status
+
 Latest verified test baseline:
-- 1,789 passed
+- 2,023 passed
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
+
+The Daily Azure coordinator's shared runner returned its local `_CommandResult`
+where the hosted WebJob boundary intentionally requires its own exact
+`CommandResult`, so valid discovery evidence stopped as `unexpected_error`.
+The hosted boundary retains that strict result contract; one coordinator-owned
+adapter now converts only return code, stdout, and stderr for discovery,
+trigger, and receipt-correlated status verification. Focused adapter tests are
+12 passed, and the complete coordinator/WebJob groups are 252 passed.
+
+The live Consumer RBAC diagnostic consistently proves exactly 10 Ignore and one
+Unsupported record, with zero Create, Modify, Delete, Deploy, Replacement,
+NoChange, or unknown actions. Azure what-if does not provide stable canonical
+identity evidence for every record, so this exact distribution is a bounded
+manual-review preview rather than Azure proof of assignment contents. Repository
+safety still requires the validated local Bicep contract, exact approved Web App
+principal and Foundry project scope, fixed Consumer role, deterministic assignment
+name, and default-no approval. A complete current-generation reread, canonical
+fingerprint comparison, second exactly matching preview, constrained deployment,
+and separate direct-assignment verification remain mandatory. Exact single-Create
+acceptance remains strictly bound to complete identity, parent, scope, principal,
+role, assignment-name, and after-properties proof. No Azure, HTTP, or RBAC
+operation occurred during this offline correction; no WebJob, managed-identity,
+Foundry, invocation, cleanup, commit, or push operation occurred. The next live
+coordinator rerun still requires explicit operator authorization after
+independent review. The environment remains not ready.
 
 **Active implementation direction:** The project is deliberately moving from
 the local mock capstone into an Azure-first Microsoft Foundry Agent
@@ -23,8 +49,8 @@ Disposable Foundry infrastructure
 -> deterministic source deployment packaging
 -> explicit Web App code-deployment request
 -> offline-tested hosted Web App readiness verification
--> live-proven project-scoped Foundry Agent Consumer RBAC deployment boundary
--> live-proven read-only direct-assignment verification
+-> offline-tested project-scoped Foundry Agent Consumer RBAC deployment boundary
+-> current read-only direct-assignment verification reports assignment missing
 -> offline-tested Web App-hosted managed-identity prompt-agent verification
 -> offline-tested fixed-fictional-data Web App-hosted prompt-agent invocation boundary
 ```
@@ -69,6 +95,10 @@ Authoritative Foundry infrastructure for future TDD slices:
   and `scripts/run_hosted_foundry_agent_verification.py`: offline check plus
   separate one-read discovery, one-request trigger, and receipt-correlated
   one-read status boundaries.
+- `src/app/services/hosted_foundry_agent_webjob_state_recovery.py`,
+  `scripts/recover_hosted_foundry_agent_webjob_state.py`, and the dedicated
+  recovery runbook: separate offline manifest inspection and default-no,
+  reservation-held quarantine/reinspection of immutable lifecycle evidence.
 - Packaged `src/app/operations/invoke_hosted_foundry_agent.py`: separate strict system-identity boundary for one fixed fictional invocation and sanitized application-contract proof; check mode is offline and live remains explicit.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
@@ -91,28 +121,25 @@ contracts; explicit `--live --json` sequences the existing deployment and
 verification boundaries, reuses conclusively valid resources, and returns one
 sanitized aggregate result. The detailed manual runbook remains the fallback,
 recovery, and audit reference. Azure-dependent Codex prompts still require a
-fresh current-session `daily_environment_ready=true` result. The coordinator
-does not trigger or read WebJob execution, perform hosted managed-identity
-verification, invoke an agent, process intake, send notifications, or delete
+fresh current-session `daily_environment_ready=true` result. READY now requires
+current-generation WebJob discovery, receipt-bound terminal success,
+managed-identity metadata verification, and one fixed-fictional invocation.
+The coordinator still does not process intake, send notifications, or delete
 the resource group.
 
-Web App preview validation requires exactly one matching resource in each of
-the eight approved application categories. The Foundry-disabled `main.bicep`
-preview may additionally contain either zero Ignore records or the exact
-existing Foundry account and child project referenced by the validated
-current-invocation hosted-verifier endpoints. The ARM-path diagnostic proved
-the two records are simple resource-group-scoped Cognitive Services resources
-with one and two type/name pairs; the previous nested-deployment interpretation
-was incorrect and is removed. The validator now proves exact account/project
-identity, parent, resource group, shared application-evidence subscription,
-distinctness, action, and complete-pair multiplicity without serializing raw
-identity values. Arbitrary Cognitive Services resources and incomplete,
-duplicate, additional, or mismatched pairs remain rejected, and the coordinator
-stays fail-closed unless the complete topology is proven. No Web App or package
-deployment, RBAC, WebJob, managed-identity verification, or invocation occurred.
-After review and commit, run one standalone Web App what-if with current-session
-hosted-verifier values. Do not rerun the supervised coordinator until that
-standalone result returns `exact_topology_match=true`.
+The current remediation requires exact subscription, resource-group, Foundry
+account/project parent, project scope, principal, fixed role, deterministic
+assignment, multiplicity, and boundary proof for the Consumer RBAC preview.
+After preview-bound default-no approval, the coordinator freshly verifies the
+resource group, Foundry/model and prompt-agent generation, Web App
+configuration, deterministic package and deployed readiness generation,
+current Web App identity/principal, and RBAC discovery. It recomputes the
+shared canonical generation fingerprint, regenerates the sanitized RBAC
+what-if, and deploys only when both fresh bindings exactly match the approved
+evidence. Stale or unavailable proof stops without deployment or automatic
+reapproval. The packaged WebJob accepts only exact application-owned result
+types and exact booleans for metadata verification followed by one
+fixed-fictional invocation.
 
 Deleting the resource group expires all prior evidence for the resource group,
 Foundry AIServices account, child project and model deployment, prompt agent and
@@ -360,61 +387,34 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The exact recommended next boundary is to rerun the operator-supervised guided
-coordinator against the existing deployed environment so it reuses verified
-infrastructure and reaches the application-code deployment approval:
-```text
-run rebuild_daily_azure_environment.py --check --json
--> run rebuild_daily_azure_environment.py --live --json
--> review and approve only the resource-group, Foundry, Web App, and package stages presented
--> use the separate manual RBAC workflow only when requested, then rerun
--> require daily_environment_ready=true
--> separately authorize one WebJob trigger
--> separately authorize one receipt-correlated status read
-```
-
-Continue in small RED-to-GREEN slices with offline automated tests, sanitized
-diagnostics, fictional data, explicit manual opt-in for live Azure operations,
-mandatory nurse review, and no production clinical-readiness claim. Avoid
-low-value frontend polish, unrelated local abstractions, or peripheral features
-when a practical Foundry or Agents capability slice is available. Keep ACS
-phone intake, Speech, auth, Key Vault, retry/durable processing, and production
-frontend deferred unless explicitly scoped.
+Independent review accepted the coordinator-owned WebJob result adapter; the
+hosted boundary retains its strict exact `CommandResult` contract, and discovery,
+trigger, and receipt-correlated status now receive that exact type. No live Azure
+or hosted operation ran during implementation or review. The next operational
+step is one explicitly authorized supervised coordinator rerun using the current
+environment configuration. Verify that discovery reaches Azure response
+classification instead of the prior adapter-induced `unexpected_error`. Until
+fresh current-session evidence exists, claim no discovery, trigger,
+managed-identity verification, or invocation success; keep discovery, trigger, receipt-correlated status, metadata verification, and invocation separate.
 
 ## Current Slice Status
 
-- The final independent review selected a guided, operator-approved coordinator
-  instead of another autonomous-hardening cycle. The coordinator automates
-  offline validation, safe reads, sequencing, dynamic value propagation, and
-  verification, but it cannot approve its own mutation boundaries.
 - An absent resource group requires current-run approval before creation. An
   existing group is reusable only with the exact location, usable state, and
   repository daily-purpose tag; otherwise the run stops for explicit manual
   adoption and a rerun.
 - Foundry and Web App deployment each require approval bound to the current sanitized preview; package deployment separately binds its proof and uses a restrictive immutable handoff.
 - A failed Foundry what-if remains unsafe and now retains its sanitized upstream category and failed guided-plan predicates instead of being mislabeled as an ordinary topology rejection.
-- Missing direct Consumer RBAC always stops with
-  `manual_rbac_action_required`; the coordinator never previews or deploys
-  RBAC. READY is created only through a private proof-complete constructor.
-- A supervised rebuild verified the resource group, Foundry, prompt agent,
-  routing, and Web App configuration, then a package-result factory mismatch
-  stopped before code approval. The offline correction preserves the current
-  package binding; no code deployment has run. Hosted execution remains
-  offline-tested only; later agent invocation and cleanup remain outside scope.
+- Consumer RBAC diagnostics share the topology normalizer, remain sanitized and
+  fail closed, and propagate through the production repository adapter. Missing
+  assignment still requires default-no approval, fresh rereads, matching preview
+  and fingerprint evidence, guarded deployment, and separate verification.
+- Immutable WebJob state remains generation-bound; READY still requires WebJob,
+  metadata, and valid fixed-fictional invocation proofs; hosted execution remains
+  offline-tested only.
 
 ### Historical Slice Results
 
-- `docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md` now
-  guards the future hosted system-identity metadata proof. At that historical
-  point, RED was the focused
-  documentation test failing because the runbook was absent. No Azure operation
-  or hosted metadata verification ran. The next execution step is conditional
-  on completing the runbook, and the then-missing hosted execution and configuration
-  boundaries were the next implementation slice. Agent invocation
-  remains later and separate. Mock defaults, notification suppression,
-  fictional-data restrictions, mandatory nurse review, and the non-production
-  boundary are unchanged. Focused documentation GREEN is 22 passed; full GREEN
-  is 1,410 passed with the one existing FastAPI/TestClient warning.
 - A documentation guardrail first failed because the prerequisite runbook was absent, then passed after `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` and the permanent runbook gate were added. Full GREEN is 1,409 passed with one existing warning.
 - Direct read-only diagnostics proved the project scope. Azure then conclusively identified the failed `Microsoft.Resources/deployments` operation as a nested deployment whose name equaled the deterministic outer name, producing `DeploymentActive`.
 - RED was 3 failed and 112 passed. GREEN is 115 focused tests after the verifier switched to `az cognitiveservices account project show`, projected only name/ID, accepted leaf or qualified names, validated Azure's returned ID against the approved tuple, and failed closed before assignment reads for malformed or mismatched shapes. The existing Bicep parent/leaf project declaration already matched the authoritative API and was retained.
