@@ -32,6 +32,7 @@ from src.app.services.daily_azure_environment_rebuild import (
     safe_automatic_plan,
     safe_guided_plan,
     safe_web_app_plan,
+    safe_web_app_reconciliation_plan,
     write_runtime_session_file,
 )
 from src.app.services.foundry_agent_consumer_rbac_deployment import (
@@ -450,6 +451,17 @@ class FakeRunner:
             self.web_app_absent = False
             return replace(result, mutation_made=True)
         return result
+
+    def plan_web_app_reconciliation(self, context):
+        self._stage("plan_web_app_reconciliation", context)
+        return self.plan_overrides.get(
+            "plan_web_app_reconciliation",
+            _web_app_reconciliation_modify_plan(),
+        )
+
+    def deploy_web_app_reconciliation(self, context):
+        result = self._stage("deploy_web_app_reconciliation", context)
+        return replace(result, mutation_made=True) if result.ok else result
 
     def build_package(self, context):
         result = self._stage("build_package", context)
@@ -1606,7 +1618,9 @@ def test_webjob_hosting_mismatch_routes_existing_web_app_through_preview(
         return StageResult.success(reused=True)
 
     runner.verify_web_app_configuration = verify_web_app_configuration
-    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
+    runner.plan_overrides[
+        "plan_web_app_reconciliation"
+    ] = _web_app_reconciliation_modify_plan()
     approvals: list[ApprovalSummary] = []
 
     result = DailyAzureEnvironmentRebuild(
@@ -1625,16 +1639,129 @@ def test_webjob_hosting_mismatch_routes_existing_web_app_through_preview(
     assert [summary.stage for summary in approvals] == ["web_app_deployment"]
     facts = dict(approvals[0].facts)
     assert "resource-level" in facts["Plan classification"].casefold()
-    assert "repository-owned web app" in facts["Plan classification"].casefold()
+    assert "repository-owned existing web app" in facts[
+        "Plan classification"
+    ].casefold()
     assert "individual property deltas not asserted" in facts[
         "Azure preview evidence"
     ]
     assert facts["Repository Bicep resource contract"] == "complete shape pinned"
     assert dict(approvals[0].facts)["Mutation required"] == "yes"
-    assert runner.calls.count("plan_web_app") == 1
-    assert "deploy_web_app" not in runner.calls
+    assert runner.calls.count("plan_web_app_reconciliation") == 1
+    assert "deploy_web_app_reconciliation" not in runner.calls
     assert "build_package" not in runner.calls
     assert "discover_webjob" not in runner.calls
+
+
+def test_existing_web_app_drift_rejects_confirmed_broad_main_template_topology(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.verify_web_app_configuration = lambda _context: StageResult.absent(
+        "web_app_configuration_not_current"
+    )
+    runner.plan_overrides["plan_web_app_reconciliation"] = PlanResult(
+        deploy_count=8,
+        ignore_count=4,
+        exact_topology_match=False,
+        change_evidence=(
+            *(
+                _exact_change("Deploy", f"full-template-resource-{index}", "web_app")
+                for index in range(8)
+            ),
+            *(
+                ChangeEvidence("Ignore", "unidentified_resource", "web_app", False)
+                for _index in range(4)
+            ),
+        ),
+    )
+    approvals: list[ApprovalSummary] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary) is None,
+    )
+
+    assert result.category == "unsafe_web_app_plan"
+    assert approvals == []
+    assert runner.calls.count("plan_web_app_reconciliation") == 1
+    assert "plan_web_app" not in runner.calls
+    assert "deploy_web_app" not in runner.calls
+    assert "deploy_web_app_reconciliation" not in runner.calls
+
+
+def test_existing_web_app_drift_uses_exact_reconciliation_flow(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.web_app_absent = False
+    runner.rbac_absent = False
+    verification_count = 0
+
+    def verify_web_app_configuration(context):
+        nonlocal verification_count
+        verification_count += 1
+        runner.calls.append("verify_web_app_configuration")
+        runner.contexts["verify_web_app_configuration"] = context
+        if verification_count == 1:
+            return StageResult.absent("web_app_configuration_not_current")
+        return StageResult.success(reused=True)
+
+    runner.verify_web_app_configuration = verify_web_app_configuration
+    approvals: list[ApprovalSummary] = []
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary) is None,
+    )
+
+    assert result.ok is True
+    assert runner.calls.count("plan_web_app_reconciliation") == 2
+    assert runner.calls.count("deploy_web_app_reconciliation") == 1
+    assert runner.calls.count("verify_web_app_configuration") == 2
+    assert "plan_web_app" not in runner.calls
+    assert "deploy_web_app" not in runner.calls
+    first_preview = runner.calls.index("plan_web_app_reconciliation")
+    fresh_preview = runner.calls.index(
+        "plan_web_app_reconciliation",
+        first_preview + 1,
+    )
+    deployment = runner.calls.index("deploy_web_app_reconciliation")
+    verification = runner.calls.index(
+        "verify_web_app_configuration",
+        runner.calls.index("verify_web_app_configuration") + 1,
+    )
+    package = runner.calls.index("build_package")
+    discovery = runner.calls.index("discover_webjob")
+    assert first_preview < fresh_preview < deployment < verification
+    assert verification < package < discovery
+    approval = next(
+        summary
+        for summary in approvals
+        if summary.stage == "web_app_deployment"
+    )
+    facts = dict(approval.facts)
+    assert (
+        facts["Plan classification"]
+        == "Resource-level modification of exact repository-owned existing Web App through dedicated reconciliation template"
+    )
+    assert (
+        facts["Excluded deployments"]
+        == "App Service plan, Cosmos, Storage, monitoring, Foundry, and RBAC"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1729,7 +1856,9 @@ def test_invalid_web_app_bicep_contract_blocks_modify_approval(
     runner.resource_group_absent = False
     runner.foundry_absent = False
     runner.web_app_absent = False
-    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
+    runner.plan_overrides[
+        "plan_web_app_reconciliation"
+    ] = _web_app_reconciliation_modify_plan()
     approvals: list[str] = []
 
     result = DailyAzureEnvironmentRebuild(
@@ -1795,6 +1924,28 @@ def _web_app_hosting_modify_plan() -> PlanResult:
         ignore_count=2,
         exact_topology_match=True,
         change_evidence=(*no_change, modify, *references),
+    )
+
+
+def _web_app_reconciliation_modify_plan() -> PlanResult:
+    return PlanResult(
+        modify_count=1,
+        ignore_count=1,
+        exact_topology_match=True,
+        change_evidence=(
+            replace(
+                _exact_change("Modify", "web_app", "web_app_reconciliation"),
+                resource_type="Microsoft.Web/sites",
+            ),
+            replace(
+                _exact_change(
+                    "Ignore",
+                    "app_service_plan_reference",
+                    "web_app_reconciliation",
+                ),
+                resource_type="Microsoft.Web/serverfarms",
+            ),
+        ),
     )
 
 
@@ -1987,12 +2138,15 @@ def test_approved_web_app_modify_deploys_once_and_reverifies_before_discovery(
     )
 
     assert result.ok is True
-    assert runner.calls.count("plan_web_app") == 2
-    assert runner.calls.count("deploy_web_app") == 1
+    assert runner.calls.count("plan_web_app_reconciliation") == 2
+    assert runner.calls.count("deploy_web_app_reconciliation") == 1
     assert runner.calls.count("verify_web_app_configuration") == 2
-    first_preview = runner.calls.index("plan_web_app")
-    fresh_preview = runner.calls.index("plan_web_app", first_preview + 1)
-    deployment = runner.calls.index("deploy_web_app")
+    first_preview = runner.calls.index("plan_web_app_reconciliation")
+    fresh_preview = runner.calls.index(
+        "plan_web_app_reconciliation",
+        first_preview + 1,
+    )
+    deployment = runner.calls.index("deploy_web_app_reconciliation")
     verification = runner.calls.index(
         "verify_web_app_configuration",
         runner.calls.index("verify_web_app_configuration") + 1,
@@ -2018,13 +2172,12 @@ def test_web_app_modify_approval_rejects_stale_or_changed_fresh_preview(
     runner.resource_group_absent = False
     runner.foundry_absent = False
     runner.web_app_absent = False
-    initial = _web_app_hosting_modify_plan()
+    initial = _web_app_reconciliation_modify_plan()
     no_change = replace(
         initial,
-        modify_count=0,
-        no_change_count=8,
+        exact_topology_match=False,
         change_evidence=tuple(
-            replace(change, action="NoChange")
+            replace(change, expected_identity_match=False)
             if change.action == "Modify"
             else change
             for change in initial.change_evidence
@@ -2032,12 +2185,12 @@ def test_web_app_modify_approval_rejects_stale_or_changed_fresh_preview(
     )
     plans = [initial, no_change if fresh_case == "changed" else PlanResult(malformed=True)]
 
-    def plan_web_app(context):
-        runner.calls.append("plan_web_app")
-        runner.contexts["plan_web_app"] = context
+    def plan_web_app_reconciliation(context):
+        runner.calls.append("plan_web_app_reconciliation")
+        runner.contexts["plan_web_app_reconciliation"] = context
         return plans.pop(0)
 
-    runner.plan_web_app = plan_web_app
+    runner.plan_web_app_reconciliation = plan_web_app_reconciliation
     runner.verify_web_app_configuration = lambda _context: StageResult.absent(
         "web_app_configuration_not_current"
     )
@@ -2049,8 +2202,8 @@ def test_web_app_modify_approval_rejects_stale_or_changed_fresh_preview(
     ).live(runner, approver=lambda _summary: True)
 
     assert result.category == "approval_evidence_stale"
-    assert runner.calls.count("plan_web_app") == 2
-    assert "deploy_web_app" not in runner.calls
+    assert runner.calls.count("plan_web_app_reconciliation") == 2
+    assert "deploy_web_app_reconciliation" not in runner.calls
     assert "discover_webjob" not in runner.calls
 
 
@@ -2061,8 +2214,10 @@ def test_web_app_modify_deployment_failure_stops_before_reverification(
     runner.resource_group_absent = False
     runner.foundry_absent = False
     runner.web_app_absent = False
-    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
-    runner.fail_at = "deploy_web_app"
+    runner.plan_overrides[
+        "plan_web_app_reconciliation"
+    ] = _web_app_reconciliation_modify_plan()
+    runner.fail_at = "deploy_web_app_reconciliation"
     runner.verify_web_app_configuration = lambda _context: StageResult.absent(
         "web_app_configuration_not_current"
     )
@@ -2074,7 +2229,7 @@ def test_web_app_modify_deployment_failure_stops_before_reverification(
     ).live(runner, approver=lambda _summary: True)
 
     assert result.category == "stage_failed"
-    assert runner.calls.count("deploy_web_app") == 1
+    assert runner.calls.count("deploy_web_app_reconciliation") == 1
     assert "discover_webjob" not in runner.calls
 
 
@@ -2085,7 +2240,9 @@ def test_web_app_modify_deployment_acceptance_is_not_configuration_proof(
     runner.resource_group_absent = False
     runner.foundry_absent = False
     runner.web_app_absent = False
-    runner.plan_overrides["plan_web_app"] = _web_app_hosting_modify_plan()
+    runner.plan_overrides[
+        "plan_web_app_reconciliation"
+    ] = _web_app_reconciliation_modify_plan()
 
     def verify_web_app_configuration(context):
         runner.calls.append("verify_web_app_configuration")
@@ -2101,7 +2258,7 @@ def test_web_app_modify_deployment_acceptance_is_not_configuration_proof(
     ).live(runner, approver=lambda _summary: True)
 
     assert result.category == "web_app_configuration_not_current"
-    assert runner.calls.count("deploy_web_app") == 1
+    assert runner.calls.count("deploy_web_app_reconciliation") == 1
     assert runner.calls.count("verify_web_app_configuration") == 2
     assert "build_package" not in runner.calls
     assert "discover_webjob" not in runner.calls
@@ -2132,6 +2289,34 @@ def test_repository_webjob_hosting_mismatch_is_not_reused(
     assert result.ok is False
     assert result.state == "absent"
     assert result.category == "web_app_configuration_not_current"
+
+
+def test_repository_reconciliation_request_is_explicit_and_never_uses_main(
+    tmp_path: Path,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    runner = RepositoryDailyAzureStageRunner(
+        _config(tmp_path),
+        repository_root=repository_root,
+        command_runner=CommandRunner([]),
+    )
+    context = _rbac_preview_context(tmp_path)
+
+    initial = runner._web_app_request("what-if", context)
+    reconciliation = runner._web_app_request(
+        "what-if",
+        context,
+        purpose="existing_web_app_reconciliation",
+    )
+
+    assert initial.purpose == "initial_create"
+    assert initial.template_file == repository_root / "infra/main.bicep"
+    assert reconciliation.purpose == "existing_web_app_reconciliation"
+    assert (
+        reconciliation.template_file
+        == repository_root / "infra/web-app-reconciliation.bicep"
+    )
+    assert reconciliation.template_file != initial.template_file
 
 
 def test_guided_plan_accepts_sanitized_nested_deployment_for_operator_review() -> None:

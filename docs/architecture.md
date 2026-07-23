@@ -367,11 +367,18 @@ topology evidence. Resource details remain discarded. Safe evidence requires
 current operator approval; destructive or incomplete evidence cannot be
 approved through the coordinator.
 
-`main.bicep` also references the reusable `infra/modules/web-app.bicep` module
-only when `deployApp=true` (default `false`). The module defines a Linux App
-Service plan and Web App with a system-assigned managed identity, HTTPS-only
-access, disabled FTPS, TLS 1.2 minimums, `/health` health checks, and the actual
-`src.app.main:app` FastAPI startup target. The direct `siteConfig` property
+`infra/main.bicep` remains the full initial application infrastructure entry
+point and references the reusable `infra/modules/web-app.bicep` module only
+when `deployApp=true` (default `false`). The dedicated
+`infra/web-app-reconciliation.bicep` entry point is authoritative only for
+verified drift on an existing Web App. It references the existing App Service
+plan and invokes the same module with that plan's resource ID, so reconciliation
+modifies only the existing `Microsoft.Web/sites` resource and does not redeploy
+the plan, Cosmos, Storage, monitoring, Foundry, or RBAC. The module otherwise
+defines a Linux App Service plan and Web App with a system-assigned managed
+identity, HTTPS-only access, disabled FTPS, TLS 1.2 minimums, `/health` health
+checks, and the actual `src.app.main:app` FastAPI startup target. The direct
+`siteConfig` property
 `alwaysOn=true` and baseline app setting
 `WEBSITE_SKIP_RUNNING_KUDUAGENT=false` enable the repository-packaged manually
 triggered Linux WebJob runtime. The former is site configuration; the latter is
@@ -383,10 +390,13 @@ remote build automation to install dependencies from the packaged
 `main.bicep` neither uses nor publishes that identifier.
 
 `src/app/services/web_app_infra_deployment.py` and
-`scripts/deploy_web_app_infra.py` add an explicit operator boundary around that
-existing `main.bicep` entry point. Check mode validates required safe arguments,
-the template, `deployApp=true`, `deployFoundry=false`, and the mock-safe hosted
-settings without constructing an Azure CLI runner. A shared hosting-contract
+`scripts/deploy_web_app_infra.py` add an explicit operator boundary around both
+purposes. Initial creation requires `infra/main.bicep`; the nondefault
+`--reconcile-existing-web-app` purpose requires
+`infra/web-app-reconciliation.bicep`. Purpose/template mismatches fail before
+Azure CLI execution. Check mode validates required safe arguments, the selected
+template, and the mock-safe hosted settings without constructing an Azure CLI
+runner. A shared hosting-contract
 module owns the exact seven provider/suppression settings used here and by the
 configuration verifier, plus the exact remote-build and Kudu-agent baseline
 settings. The local Bicep reader is restricted to the Web App resource's active
@@ -408,6 +418,19 @@ automatically; preview mode never invokes live mode. Live uses a deterministic
 deployment name and records only Azure acceptance of the request. It does not
 verify configuration, package or upload code, check hosted readiness, assign
 RBAC, invoke Foundry, or clean up.
+
+The daily coordinator selects full initial creation only when read-only
+verification proves the Web App absent. When the Web App exists and the same
+verifier reports hosting-contract drift, it selects reconciliation instead.
+The reconciliation policy requires exactly one resource-level
+`Microsoft.Web/sites` `Modify`, zero Create, Deploy, Delete, Unsupported, or
+unknown actions, and at most one exact Ignore or NoChange record for the
+required existing App Service plan reference. It never accepts unidentified
+references or the full-application topology. The exact preview receives
+resource-level default-no approval, followed by an identical fresh preview,
+one reconciliation deployment, and separate read-only configuration
+verification. Package deployment and WebJob discovery remain blocked until
+that verification succeeds.
 
 The separate resource-group-scoped
 `infra/foundry-agent-consumer-rbac.bicep` accepts the exact approved principal,

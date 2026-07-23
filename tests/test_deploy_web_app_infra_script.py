@@ -141,6 +141,44 @@ def test_check_allows_ordinary_web_app_without_hosted_verifier_values(
     assert payload["hosted_verifier_configuration_supplied"] is False
 
 
+def test_reconciliation_is_explicit_and_not_the_cli_default(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    captured = []
+    original_execute = script.deploy_web_app_infrastructure
+
+    def execute(request, **_kwargs):
+        captured.append(request)
+        return original_execute(request)
+
+    monkeypatch.setattr(script, "deploy_web_app_infrastructure", execute)
+
+    assert script.main(["--check", "--json", *VALID_ARGUMENTS]) == 0
+    assert (
+        script.main(
+            [
+                "--check",
+                "--json",
+                "--reconcile-existing-web-app",
+                *VALID_ARGUMENTS,
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    initial, reconciliation = captured
+    assert initial.purpose == "initial_create"
+    assert initial.template_file == script.ROOT / "infra/main.bicep"
+    assert reconciliation.purpose == "existing_web_app_reconciliation"
+    assert (
+        reconciliation.template_file
+        == script.ROOT / "infra/web-app-reconciliation.bicep"
+    )
+
+
 def test_unsafe_argument_fails_before_runner_construction(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

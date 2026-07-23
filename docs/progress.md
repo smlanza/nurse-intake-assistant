@@ -76,10 +76,11 @@ Safe to demo today:
   boundary
 
 Authoritative Foundry infrastructure for future TDD slices:
-- `infra/main.bicep`: authoritative full application entry point; Foundry remains optional through `deployFoundry=false` by default.
+- `infra/main.bicep`: authoritative full initial application entry point; Foundry remains optional through `deployFoundry=false` by default.
+- `infra/web-app-reconciliation.bicep`: dedicated existing-Web-App reconciliation entry point; it references the existing App Service plan and deploys only the Web App through the shared module.
 - `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
 - `infra/modules/web-app.bicep`: optional Linux Web App and system-assigned identity boundary with offline-tested remote-build automation; application hosting remains disabled by default.
-- `src/app/services/web_app_infra_deployment.py`: sanitized infrastructure deployment contract; `scripts/deploy_web_app_infra.py`: offline check and explicit what-if/live operator CLI for the existing `main.bicep`.
+- `src/app/services/web_app_infra_deployment.py`: sanitized, purpose-bound initial-create and reconciliation deployment contract; `scripts/deploy_web_app_infra.py`: offline check and explicit what-if/live operator CLI with nondefault `--reconcile-existing-web-app` selection.
 - `src/app/services/web_app_hosting_contract.py`: exact seven-setting contract
   plus a separate exact five-setting hosted-verifier contract shared by
   infrastructure deployment and configuration verification.
@@ -341,7 +342,7 @@ Completed work by feature area:
   scope without coupling access to `main.bicep`.
 - The allowlisted package builder and explicit deployment CLI keep code upload
   separate from infrastructure, RBAC, startup checks, and Foundry operations.
-- The Web App infrastructure CLI reuses `main.bicep`, never creates the resource group, and fixes `deployApp=true` with `deployFoundry=false`.
+- The Web App infrastructure CLI uses `main.bicep` for initial creation and the dedicated reconciliation entry point for an existing drifted Web App; neither path creates the resource group.
 - `infra/README.md` documents Azure CLI build, validate, deploy, and cleanup
   commands.
 - Manual Cosmos smoke testing verified local `APP_MODE=cosmos` with a deployed
@@ -383,7 +384,11 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The next step is selective staging of the reviewed task-owned changes, commit, and then an explicitly authorized supervised daily coordinator run using the current environment configuration. The run must prove the Web App is current with `alwaysOn=true` and `WEBSITE_SKIP_RUNNING_KUDUAGENT=false`, then verify fresh Azure response classification. Claim no discovery, trigger, receipt-correlated status, metadata verification, or invocation success without current-session evidence; keep those stages separate.
+The next step is selective staging and commit, then one authorized read-only
+reconciliation what-if with `--reconcile-existing-web-app`. Confirm one
+exact Web App Modify plus only any exact required plan reference before a later
+coordinator rerun. Claim no live reconciliation or subsequent hosted-stage
+success without fresh current-session evidence; keep those stages separate.
 
 ## Current Slice Status
 
@@ -401,6 +406,12 @@ The next step is selective staging of the reviewed task-owned changes, commit, a
   metadata, and valid fixed-fictional invocation proofs; hosted execution remains
   offline-tested only.
 - Linux WebJob hosting is current only with `alwaysOn=true` and the exact baseline Kudu-agent flag. Resource-level Modify approval combines exact identity evidence with the complete locally enforced Bicep Web App shape, an identical fresh preview, one deployment, and separate verification; deployment acceptance alone is not proof. The authoritative app-settings expression must append exactly `hostedFoundryVerifierAppSettings`; its one active top-level declaration is parsed outside comments and strings, and conditional resource bodies are selected only after balanced conditions. Decoy declarations and active relative Web App children or slots are rejected. Exact subsets of the two optional Foundry-reference Ignores are allowed, while duplicate, unrelated, or ambiguous evidence remains rejected. These final parser corrections were offline only: no corrected live policy execution, Azure or HTTP operation, WebJob discovery, trigger, status, managed-identity verification, or invocation occurred or is claimed.
+- A live full-application `main.bicep` drift preview produced eight Deploy and
+  four Ignore records with no Web App Modify; the coordinator rejected that
+  topology without mutation. Reconciliation has a dedicated entry point referencing
+  the existing plan and permits only one exact Web App Modify plus an exact
+  optional plan-reference Ignore or NoChange. This slice performed no live
+  reconciliation preview or deployment.
 
 ### Historical Slice Results
 

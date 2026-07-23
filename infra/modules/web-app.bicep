@@ -26,6 +26,8 @@ type hostedFoundryVerifierConfigurationType =
 param location string
 param appServicePlanName string
 param webAppName string
+@description('Existing App Service plan resource ID. When supplied, the plan is referenced instead of deployed.')
+param appServicePlanResourceId string = ''
 param appServicePlanSkuName string = 'B1'
 param pythonLinuxFxVersion string = 'PYTHON|3.12'
 param hostedFoundryVerifierConfiguration hostedFoundryVerifierConfigurationType = {
@@ -74,7 +76,7 @@ module hostedFoundryVerifierConfigValidation 'hosted-foundry-verifier-config-val
   }
 }
 
-resource appServicePlan 'Microsoft.Web/serverfarms@2024-04-01' = {
+resource appServicePlan 'Microsoft.Web/serverfarms@2024-04-01' = if (empty(appServicePlanResourceId)) {
   name: appServicePlanName
   location: location
   kind: 'linux'
@@ -87,6 +89,8 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2024-04-01' = {
   tags: tags
 }
 
+var resolvedAppServicePlanResourceId = empty(appServicePlanResourceId) ? appServicePlan!.id : appServicePlanResourceId
+
 resource webApp 'Microsoft.Web/sites@2024-04-01' = {
   name: webAppName
   location: location
@@ -95,7 +99,7 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
     type: 'SystemAssigned'
   }
   properties: {
-    serverFarmId: appServicePlan.id
+    serverFarmId: resolvedAppServicePlanResourceId
     httpsOnly: true
     siteConfig: {
       linuxFxVersion: pythonLinuxFxVersion

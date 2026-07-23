@@ -42,6 +42,34 @@ def test_current_coordinator_documentation_has_no_superseded_manual_or_skip_clai
     assert "no live" in progress
 
 
+def test_web_app_reconciliation_architecture_and_resume_point_are_explicit() -> None:
+    architecture = _normalized(_read("docs/architecture.md")).casefold()
+    progress = _normalized(_read("docs/progress.md")).casefold()
+
+    _assert_contains_all(
+        architecture,
+        {
+            "`infra/main.bicep` remains the full initial application infrastructure entry point",
+            "infra/web-app-reconciliation.bicep",
+            "references the existing app service plan",
+            "exact preview",
+            "identical fresh preview",
+            "separate read-only configuration verification",
+        },
+    )
+    _assert_contains_all(
+        progress,
+        {
+            "eight deploy",
+            "four ignore",
+            "rejected that topology without mutation",
+            "--reconcile-existing-web-app",
+            "read-only reconciliation what-if",
+            "no live reconciliation preview or deployment",
+        },
+    )
+
+
 def _normalized(text: str) -> str:
     return " ".join(text.split())
 

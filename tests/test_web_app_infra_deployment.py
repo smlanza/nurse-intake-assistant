@@ -9,6 +9,7 @@ from src.app.services.daily_azure_environment_rebuild import (
     _plan_from_object,
     safe_guided_plan,
     safe_web_app_plan,
+    safe_web_app_reconciliation_plan,
 )
 
 
@@ -60,6 +61,17 @@ def deployment_request() -> deployment.WebAppInfrastructureDeploymentRequest:
     )
 
 
+@pytest.fixture
+def reconciliation_request(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> deployment.WebAppInfrastructureDeploymentRequest:
+    return replace(
+        deployment_request,
+        purpose="existing_web_app_reconciliation",
+        template_file=ROOT / "infra/web-app-reconciliation.bicep",
+    )
+
+
 def _setting_block(name: str, value: str) -> str:
     return (
         "        {\n"
@@ -93,6 +105,38 @@ def _current_module(
     ).read_text()
 
 
+def _reconciliation_web_app_change(
+    request: deployment.WebAppInfrastructureDeploymentRequest,
+    action: str = "Modify",
+) -> dict[str, str]:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers"
+    )
+    return {
+        "changeType": action,
+        "resourceId": f"{root}/Microsoft.Web/sites/{request.web_app_name}",
+    }
+
+
+def _reconciliation_plan_reference(
+    request: deployment.WebAppInfrastructureDeploymentRequest,
+    action: str = "Ignore",
+) -> dict[str, object]:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers"
+    )
+    return {
+        "changeType": action,
+        "resourceId": (
+            f"{root}/Microsoft.Web/serverfarms/"
+            f"{deployment._app_service_plan_name(request)}"
+        ),
+        "before": {"id": "private-before"},
+        "after": {"id": "private-after"},
+        "delta": {"changes": []},
+    }
+
+
 def _append_app_setting(module: str, name: str, value: str) -> str:
     marker = "      ], hostedFoundryVerifierAppSettings)\n"
     assert marker in module
@@ -119,6 +163,90 @@ def test_check_validates_local_contract_without_runner_or_azure_operation(
     assert result.deploy_foundry is False
     assert result.hosted_verifier_configuration_supplied is True
     assert runner.calls == []
+
+
+def test_reconciliation_check_validates_dedicated_contract_offline(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    runner = FakeRunner()
+
+    result = deployment.deploy_web_app_infrastructure(
+        reconciliation_request,
+        runner=runner,
+    )
+
+    assert result.ok is True
+    assert result.purpose == "existing_web_app_reconciliation"
+    assert result.local_validation_passed is True
+    assert result.azure_operation_attempted is False
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize(
+    ("purpose", "template_name"),
+    (
+        ("initial_create", "web-app-reconciliation.bicep"),
+        ("existing_web_app_reconciliation", "main.bicep"),
+        ("unbounded-purpose", "main.bicep"),
+    ),
+)
+def test_purpose_template_mismatch_fails_before_runner(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    purpose: str,
+    template_name: str,
+) -> None:
+    runner = FakeRunner()
+    request = replace(
+        deployment_request,
+        mode="what-if",
+        purpose=purpose,
+        template_file=ROOT / "infra" / template_name,
+    )
+
+    result = deployment.deploy_web_app_infrastructure(request, runner=runner)
+
+    assert result.category == "invalid_arguments"
+    assert result.azure_operation_attempted is False
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize(
+    "addition",
+    (
+        "module extra 'modules/web-app.bicep' = { params: { location: location appServicePlanName: appServicePlanName webAppName: webAppName appServicePlanResourceId: existingAppServicePlan.id } }",
+        "resource extraPlan 'Microsoft.Web/serverfarms@2024-04-01' = { name: 'extra' location: location sku: { name: 'B1' } properties: { reserved: true } }",
+        "resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-05-15' = { name: 'extra' location: location kind: 'GlobalDocumentDB' properties: { databaseAccountOfferType: 'Standard' locations: [] } }",
+        "resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = { name: 'stextra' location: location sku: { name: 'Standard_LRS' } kind: 'StorageV2' }",
+        "resource monitoring 'Microsoft.Insights/components@2020-02-02' = { name: 'extra' location: location kind: 'web' properties: { Application_Type: 'web' } }",
+        "resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' = { name: 'extra' location: location properties: {} }",
+        "resource foundry 'Microsoft.CognitiveServices/accounts@2025-06-01' = { name: 'extra' location: location kind: 'AIServices' sku: { name: 'S0' } properties: {} }",
+        "resource rbac 'Microsoft.Authorization/roleAssignments@2022-04-01' = { name: guid(resourceGroup().id) properties: { principalId: '00000000-0000-0000-0000-000000000001' roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00000000-0000-0000-0000-000000000002') } }",
+        "resource secondWebApp 'Microsoft.Web/sites@2024-04-01' = { name: 'extra' location: location properties: { serverFarmId: existingAppServicePlan.id } }",
+        "resource slot 'Microsoft.Web/sites/slots@2024-04-01' = { parent: existingWebApp name: 'extra' location: location }",
+        "resource config 'Microsoft.Web/sites/config@2024-04-01' = { name: '${webAppName}/web' properties: {} }",
+    ),
+)
+def test_reconciliation_contract_rejects_every_extra_deployment_boundary(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    addition: str,
+) -> None:
+    infra = tmp_path / "infra"
+    modules = infra / "modules"
+    modules.mkdir(parents=True)
+    source = reconciliation_request.template_file
+    template = infra / source.name
+    template.write_text(f"{source.read_text()}\n{addition}\n")
+    for name in (
+        "web-app.bicep",
+        "hosted-foundry-verifier-config-validation.bicep",
+    ):
+        (modules / name).write_text((ROOT / "infra/modules" / name).read_text())
+    request = replace(reconciliation_request, template_file=template)
+
+    result = deployment.deploy_web_app_infrastructure(request)
+
+    assert result.category == "local_contract_invalid"
 
 
 def test_ordinary_web_app_deployment_defaults_hosted_verifier_to_disabled(
@@ -260,7 +388,8 @@ def test_missing_template_and_invalid_local_contract_fail_offline(
     tmp_path: Path,
 ) -> None:
     missing = replace(
-        deployment_request, template_file=tmp_path / "missing.bicep"
+        deployment_request,
+        template_file=tmp_path / "missing" / "main.bicep",
     )
     invalid = tmp_path / "main.bicep"
     invalid.write_text("param deployApp bool = false\n")
@@ -1129,6 +1258,70 @@ def test_azure_modes_issue_one_allowlisted_infrastructure_command(
     assert result.deployment_attempted is (mode == "live")
 
 
+@pytest.mark.parametrize(
+    ("mode", "operation"),
+    (("what-if", "what-if"), ("live", "create")),
+)
+def test_reconciliation_command_uses_only_dedicated_web_app_parameters(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+    mode: str,
+    operation: str,
+) -> None:
+    runner = FakeRunner()
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(reconciliation_request, mode=mode),
+        runner=runner,
+    )
+
+    assert result.ok is True
+    assert len(runner.calls) == 1
+    command = runner.calls[0]
+    assert command[:4] == ["az", "deployment", "group", operation]
+    assert command[command.index("--template-file") + 1] == str(
+        reconciliation_request.template_file
+    )
+    parameters = command[command.index("--parameters") + 1 :]
+    assert parameters == [
+        f"location={reconciliation_request.location}",
+        (
+            "appServicePlanName="
+            f"{deployment._app_service_plan_name(reconciliation_request)}"
+        ),
+        f"webAppName={reconciliation_request.web_app_name}",
+        "hostedFoundryVerifierConfiguration="
+        + json.dumps(
+            {
+                "mode": "enabled",
+                "projectEndpoint": (
+                    reconciliation_request.hosted_verifier_project_endpoint
+                ),
+                "agentEndpoint": (
+                    reconciliation_request.hosted_verifier_stable_agent_endpoint
+                ),
+                "agentName": reconciliation_request.hosted_verifier_agent_name,
+                "agentVersion": (
+                    reconciliation_request.hosted_verifier_agent_version
+                ),
+                "modelDeploymentName": (
+                    reconciliation_request.hosted_verifier_model_deployment_name
+                ),
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ),
+    ]
+    rendered = " ".join(parameters)
+    for forbidden in (
+        "deployApp",
+        "deployFoundry",
+        "cosmosDatabaseName",
+        "cosmosContainerName",
+        "resourceNameSuffix",
+    ):
+        assert forbidden not in rendered
+
+
 def test_what_if_command_requests_machine_readable_json(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> None:
@@ -1377,6 +1570,173 @@ def _web_app_hosting_modify_changes(
         change["changeType"] = "NoChange"
     changes[7]["changeType"] = "Modify"
     return changes
+
+
+@pytest.mark.parametrize("reference_action", (None, "Ignore", "NoChange"))
+def test_reconciliation_accepts_only_exact_web_app_modify_and_plan_reference(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+    reference_action: str | None,
+) -> None:
+    changes: list[dict[str, object]] = [
+        _reconciliation_web_app_change(reconciliation_request)
+    ]
+    if reference_action is not None:
+        changes.append(
+            _reconciliation_plan_reference(
+                reconciliation_request,
+                reference_action,
+            )
+        )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(reconciliation_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.exact_topology_match is True
+    assert result.modify_count == 1
+    assert result.create_count == 0
+    assert result.deploy_count == 0
+    assert result.delete_count == 0
+    assert result.unsupported_count == 0
+    assert safe_web_app_reconciliation_plan(_plan_from_object(result)) is True
+    assert safe_web_app_plan(_plan_from_object(result)) is False
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "web-app-create",
+        "plan-modify",
+        "cosmos-modify",
+        "storage-deploy",
+        "monitoring-modify",
+        "foundry-deploy",
+        "rbac-change",
+        "slot",
+        "child",
+        "second-web-app",
+        "unidentified-ignore",
+        "duplicate-reference",
+        "delete",
+        "deploy",
+        "unsupported",
+        "unknown",
+        "missing-evidence",
+    ),
+)
+def test_reconciliation_preview_policy_fails_closed(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+    case: str,
+) -> None:
+    web_app = _reconciliation_web_app_change(reconciliation_request)
+    plan = _reconciliation_plan_reference(reconciliation_request)
+    changes: list[dict[str, object]] = [web_app, plan]
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/"
+        f"{reconciliation_request.resource_group}/providers"
+    )
+    if case == "web-app-create":
+        web_app["changeType"] = "Create"
+    elif case == "plan-modify":
+        plan["changeType"] = "Modify"
+    elif case == "cosmos-modify":
+        changes.append(
+            {
+                "changeType": "Modify",
+                "resourceId": f"{root}/Microsoft.DocumentDB/databaseAccounts/extra",
+            }
+        )
+    elif case == "storage-deploy":
+        changes.append(
+            {
+                "changeType": "Deploy",
+                "resourceId": f"{root}/Microsoft.Storage/storageAccounts/stextra",
+            }
+        )
+    elif case == "monitoring-modify":
+        changes.append(
+            {
+                "changeType": "Modify",
+                "resourceId": f"{root}/Microsoft.Insights/components/extra",
+            }
+        )
+    elif case == "foundry-deploy":
+        changes.append(
+            {
+                "changeType": "Deploy",
+                "resourceId": f"{root}/Microsoft.CognitiveServices/accounts/extra",
+            }
+        )
+    elif case == "rbac-change":
+        changes.append(
+            {
+                "changeType": "Create",
+                "resourceId": (
+                    f"{root}/Microsoft.Authorization/roleAssignments/"
+                    "00000000-0000-0000-0000-000000000001"
+                ),
+            }
+        )
+    elif case == "slot":
+        changes.append(
+            {
+                "changeType": "Modify",
+                "resourceId": (
+                    f"{root}/Microsoft.Web/sites/"
+                    f"{reconciliation_request.web_app_name}/slots/extra"
+                ),
+            }
+        )
+    elif case == "child":
+        changes.append(
+            {
+                "changeType": "Modify",
+                "resourceId": (
+                    f"{root}/Microsoft.Web/sites/"
+                    f"{reconciliation_request.web_app_name}/config/web"
+                ),
+            }
+        )
+    elif case == "second-web-app":
+        changes.append(
+            {
+                "changeType": "Modify",
+                "resourceId": f"{root}/Microsoft.Web/sites/other-web-app",
+            }
+        )
+    elif case == "unidentified-ignore":
+        changes.append({"changeType": "Ignore"})
+    elif case == "duplicate-reference":
+        changes.append(dict(plan))
+    elif case == "delete":
+        web_app["changeType"] = "Delete"
+    elif case == "deploy":
+        web_app["changeType"] = "Deploy"
+    elif case == "unsupported":
+        web_app["changeType"] = "Unsupported"
+    elif case == "unknown":
+        web_app["changeType"] = "Unknown"
+    else:
+        web_app.pop("resourceId")
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(reconciliation_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    plan_result = _plan_from_object(result)
+    assert result.category in {"success", "what_if_parse_failed"}
+    assert (
+        result.exact_topology_match is False
+        if result.category == "success"
+        else True
+    )
+    assert safe_web_app_reconciliation_plan(plan_result) is False
 
 
 @pytest.mark.parametrize(
@@ -2387,6 +2747,7 @@ def test_json_result_is_exactly_the_approved_sanitized_projection(
         "ok",
         "category",
         "mode",
+        "purpose",
         "message",
         "resource_group",
         "web_app_name",

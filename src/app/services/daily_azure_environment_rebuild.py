@@ -449,6 +449,12 @@ class DailyAzureStageRunner(Protocol):
     def verify_web_app_configuration(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def plan_web_app(self, context: DailyAzureRuntimeContext) -> PlanResult: ...
     def deploy_web_app(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def plan_web_app_reconciliation(
+        self, context: DailyAzureRuntimeContext
+    ) -> PlanResult: ...
+    def deploy_web_app_reconciliation(
+        self, context: DailyAzureRuntimeContext
+    ) -> StageResult: ...
     def build_package(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def deploy_code(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_readiness(self, context: DailyAzureRuntimeContext) -> StageResult: ...
@@ -888,6 +894,52 @@ def safe_web_app_plan(plan: PlanResult) -> bool:
     return plan.no_change_count > 0
 
 
+def safe_web_app_reconciliation_plan(plan: PlanResult) -> bool:
+    if (
+        plan.malformed
+        or not plan.exact_topology_match
+        or plan.create_count
+        or plan.modify_count != 1
+        or plan.delete_count
+        or plan.deploy_count
+        or plan.unsupported_count
+        or plan.unknown_count
+        or plan.unrelated_resource_count
+        or plan.no_change_count + plan.ignore_count > 1
+        or not _plan_counts_match_evidence(plan)
+    ):
+        return False
+    web_app_modifications = 0
+    plan_references = 0
+    for change in plan.change_evidence:
+        if change.boundary != "web_app_reconciliation":
+            return False
+        exact = (
+            change.approved_boundary
+            and change.expected_identity_match
+            and change.expected_parent_match
+            and change.expected_scope_match
+            and change.expected_multiplicity_match
+        )
+        if (
+            change.action == "Modify"
+            and change.resource_type == "Microsoft.Web/sites"
+            and change.logical_category == "web_app"
+            and exact
+        ):
+            web_app_modifications += 1
+        elif (
+            change.action in {"Ignore", "NoChange"}
+            and change.resource_type == "Microsoft.Web/serverfarms"
+            and change.logical_category == "app_service_plan_reference"
+            and exact
+        ):
+            plan_references += 1
+        else:
+            return False
+    return web_app_modifications == 1 and plan_references <= 1
+
+
 def _guided_plan_failed_predicates(
     plan: PlanResult,
     *,
@@ -988,6 +1040,8 @@ def _plan_approval_summary(
     stage: ApprovalStage,
     heading: str,
     plan: PlanResult,
+    *,
+    web_app_reconciliation: bool = False,
 ) -> ApprovalSummary:
     nested = any(
         change.resource_type.casefold()
@@ -1037,11 +1091,29 @@ def _plan_approval_summary(
         (
             (
                 "Plan classification",
-                "Resource-level modification of exact repository-owned Web App"
+                (
+                    "Resource-level modification of exact repository-owned "
+                    "existing Web App through dedicated reconciliation template"
+                )
+                if web_app_reconciliation
+                else "Resource-level modification of exact repository-owned Web App"
                 if plan.modify_count
                 else "Create Web App infrastructure"
                 if plan.create_count
                 else "No-change Web App infrastructure",
+            ),
+            *(
+                (
+                    (
+                        "Excluded deployments",
+                        (
+                            "App Service plan, Cosmos, Storage, monitoring, "
+                            "Foundry, and RBAC"
+                        ),
+                    ),
+                )
+                if web_app_reconciliation
+                else ()
             ),
             *(
                 (
@@ -1451,6 +1523,7 @@ def validate_local_orchestration_contract(repository_root: Path) -> tuple[str, .
     required = (
         "infra/foundry-only.bicep",
         "infra/main.bicep",
+        "infra/web-app-reconciliation.bicep",
         "infra/foundry-agent-consumer-rbac.bicep",
         "scripts/deploy_foundry_infra.py",
         "scripts/verify_foundry_infra.py",
@@ -1563,7 +1636,29 @@ def validate_local_orchestration_contract(repository_root: Path) -> tuple[str, .
                 hosted_verifier_model_deployment_name="fictional-model",
             )
         )
-        if not web.ok:
+        reconciliation = deploy_web_app_infrastructure(
+            WebAppInfrastructureDeploymentRequest(
+                mode="check",
+                resource_group="fictional-rg",
+                location="eastus2",
+                environment_name="daily",
+                project_name="nurse-intake",
+                web_app_name="fictional-nurse-intake-web",
+                cosmos_database_name="nurse-intake",
+                cosmos_container_name="cases",
+                template_file=(
+                    repository_root / "infra/web-app-reconciliation.bicep"
+                ),
+                enable_hosted_foundry_verifier=True,
+                hosted_verifier_project_endpoint=project_endpoint,
+                hosted_verifier_stable_agent_endpoint=stable_endpoint,
+                hosted_verifier_agent_name="fictional-agent",
+                hosted_verifier_agent_version="1",
+                hosted_verifier_model_deployment_name="fictional-model",
+                purpose="existing_web_app_reconciliation",
+            )
+        )
+        if not web.ok or not reconciliation.ok:
             failures.append("contract:web_app_infrastructure")
     except Exception:
         failures.append("contract:web_app_infrastructure")
@@ -1857,7 +1952,37 @@ class DailyAzureEnvironmentRebuild:
         progress["immutable_routing_verified"] = True
 
         web_config = runner.verify_web_app_configuration(context)
-        if web_config.state == "absent":
+        if (
+            web_config.state == "absent"
+            and web_config.category == "web_app_configuration_not_current"
+        ):
+            plan = runner.plan_web_app_reconciliation(context)
+            if not safe_web_app_reconciliation_plan(plan):
+                return self._failure("unsafe_web_app_plan", progress, mutation[0])
+            if not approvals.request(
+                _plan_approval_summary(
+                    "web_app_deployment",
+                    "WEB APP RECONCILIATION DEPLOYMENT",
+                    plan,
+                    web_app_reconciliation=True,
+                )
+            ):
+                return self._failure(
+                    "web_app_deployment_approval_required", progress, mutation[0]
+                )
+            fresh_plan = runner.plan_web_app_reconciliation(context)
+            if (
+                not safe_web_app_reconciliation_plan(fresh_plan)
+                or fresh_plan != plan
+            ):
+                return self._failure(
+                    "approval_evidence_stale", progress, mutation[0]
+                )
+            deployed = runner.deploy_web_app_reconciliation(context)
+            if not apply(deployed):
+                return self._failure(deployed.category, progress, mutation[0])
+            web_config = runner.verify_web_app_configuration(context)
+        elif web_config.state == "absent" and web_config.category == "web_app_absent":
             plan = runner.plan_web_app(context)
             if not safe_web_app_plan(plan):
                 return self._failure("unsafe_web_app_plan", progress, mutation[0])
@@ -1878,6 +2003,8 @@ class DailyAzureEnvironmentRebuild:
             if not apply(deployed):
                 return self._failure(deployed.category, progress, mutation[0])
             web_config = runner.verify_web_app_configuration(context)
+        elif web_config.state == "absent":
+            return self._failure(web_config.category, progress, mutation[0])
         if not apply(web_config):
             return self._failure(web_config.category, progress, mutation[0])
         progress["web_app_configuration_verified"] = True
@@ -2612,6 +2739,48 @@ class RepositoryDailyAzureStageRunner:
             )
         return StageResult.success(mutation_made=True)
 
+    def plan_web_app_reconciliation(
+        self,
+        context: DailyAzureRuntimeContext,
+    ) -> PlanResult:
+        from src.app.services.web_app_infra_deployment import (
+            deploy_web_app_infrastructure,
+        )
+
+        result = deploy_web_app_infrastructure(
+            self._web_app_request(
+                "what-if",
+                context,
+                purpose="existing_web_app_reconciliation",
+            ),
+            runner=self.command_runner,
+        )
+        return _plan_from_object(result)
+
+    def deploy_web_app_reconciliation(
+        self,
+        context: DailyAzureRuntimeContext,
+    ) -> StageResult:
+        from src.app.services.web_app_infra_deployment import (
+            deploy_web_app_infrastructure,
+        )
+
+        result = deploy_web_app_infrastructure(
+            self._web_app_request(
+                "live",
+                context,
+                purpose="existing_web_app_reconciliation",
+            ),
+            runner=self.command_runner,
+        )
+        if not result.ok or not result.deployment_attempted:
+            return StageResult.failure(
+                result.category,
+                mutation_made=None if result.deployment_attempted else False,
+                attempted=result.deployment_attempted,
+            )
+        return StageResult.success(mutation_made=True)
+
     def build_package(self, context: DailyAzureRuntimeContext) -> StageResult:
         from src.app.services.web_app_package import (
             PackageSafetyError,
@@ -3134,7 +3303,13 @@ class RepositoryDailyAzureStageRunner:
         self._foundry_parameters = path
         return path
 
-    def _web_app_request(self, mode: str, context: DailyAzureRuntimeContext):
+    def _web_app_request(
+        self,
+        mode: str,
+        context: DailyAzureRuntimeContext,
+        *,
+        purpose: str = "initial_create",
+    ):
         from src.app.services.web_app_infra_deployment import (
             WebAppInfrastructureDeploymentRequest,
         )
@@ -3148,13 +3323,18 @@ class RepositoryDailyAzureStageRunner:
             web_app_name=context.web_app_name,
             cosmos_database_name="nurse-intake",
             cosmos_container_name="cases",
-            template_file=self.repository_root / "infra/main.bicep",
+            template_file=(
+                self.repository_root / "infra/web-app-reconciliation.bicep"
+                if purpose == "existing_web_app_reconciliation"
+                else self.repository_root / "infra/main.bicep"
+            ),
             enable_hosted_foundry_verifier=True,
             hosted_verifier_project_endpoint=context.project_endpoint,
             hosted_verifier_stable_agent_endpoint=context.stable_agent_endpoint,
             hosted_verifier_agent_name=context.agent_name,
             hosted_verifier_agent_version=context.immutable_agent_version,
             hosted_verifier_model_deployment_name=context.model_deployment_name,
+            purpose=purpose,
         )
 
 

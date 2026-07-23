@@ -50,6 +50,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     modes.add_argument("--check", action="store_true")
     modes.add_argument("--what-if", action="store_true")
     modes.add_argument("--live", action="store_true")
+    parser.add_argument(
+        "--reconcile-existing-web-app",
+        action="store_true",
+        help=(
+            "Use the dedicated existing-Web-App reconciliation topology. "
+            "Initial creation remains the default."
+        ),
+    )
     parser.add_argument("--resource-group", required=True)
     parser.add_argument("--location", required=True)
     parser.add_argument("--environment-name", required=True)
@@ -69,7 +77,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--template-file",
         type=Path,
-        default=ROOT / "infra/main.bicep",
+        default=None,
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -97,6 +105,16 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 def _request(args: argparse.Namespace) -> WebAppInfrastructureDeploymentRequest:
     mode = "check" if args.check else "what-if" if args.what_if else "live"
+    purpose = (
+        "existing_web_app_reconciliation"
+        if args.reconcile_existing_web_app
+        else "initial_create"
+    )
+    template_file = args.template_file or (
+        ROOT / "infra/web-app-reconciliation.bicep"
+        if args.reconcile_existing_web_app
+        else ROOT / "infra/main.bicep"
+    )
     return WebAppInfrastructureDeploymentRequest(
         mode=mode,
         resource_group=args.resource_group,
@@ -116,7 +134,8 @@ def _request(args: argparse.Namespace) -> WebAppInfrastructureDeploymentRequest:
         hosted_verifier_model_deployment_name=(
             args.hosted_verifier_model_deployment_name
         ),
-        template_file=args.template_file,
+        template_file=template_file,
+        purpose=purpose,
     )
 
 
