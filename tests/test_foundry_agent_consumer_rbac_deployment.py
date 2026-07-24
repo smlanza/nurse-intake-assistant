@@ -290,7 +290,7 @@ def _known_ignore_changes(request) -> list[dict[str, object]]:
 
 
 def _unsupported_change(request) -> dict[str, object]:
-    change = _exact_change(request, include_properties=False)
+    change = _exact_change(request)
     change["changeType"] = "Unsupported"
     return change
 
@@ -300,8 +300,6 @@ def _live_shape_changes(request) -> list[dict[str, object]]:
     assignment = _exact_change(request)
     assignment["changeType"] = "Unsupported"
     changes.append(assignment)
-    for change in changes:
-        change.pop("resourceType")
     return changes
 
 
@@ -342,7 +340,7 @@ def test_known_ignore_plus_unsupported_topology_requires_manual_review(
     assert result.ok is True
     assert result.category == "success"
     assert result.preview_topology == "expected_ignore_plus_unsupported"
-    assert result.assignment_contents_proved is False
+    assert result.assignment_contents_proved is True
     assert result.ignore_count == 10
     assert result.unsupported_count == 1
     assert result.manual_review_required is True
@@ -350,37 +348,30 @@ def test_known_ignore_plus_unsupported_topology_requires_manual_review(
     assert result.what_if_diagnostic is None
     assignment = result.change_evidence[-1]
     assert assignment.action == "Unsupported"
-    assert assignment.logical_category == "bounded_manual_review_unsupported"
-    assert assignment.resource_type == "unidentified"
+    assert assignment.logical_category == "consumer_role_assignment"
+    assert assignment.resource_type == "role_assignment"
     assert assignment.approved_boundary is False
-    assert assignment.expected_identity_match is False
-    assert assignment.expected_parent_match is False
-    assert assignment.expected_scope_match is False
+    assert assignment.expected_identity_match is True
+    assert assignment.expected_parent_match is True
+    assert assignment.expected_scope_match is True
     assert assignment.expected_multiplicity_match is True
 
 
-def test_live_shape_without_resource_types_accepts_expected_topology(
+def test_live_shape_without_resource_types_is_not_independent_topology_proof(
     rbac_request,
 ) -> None:
-    result = _preview_result(rbac_request, _live_shape_changes(rbac_request))
+    changes = _live_shape_changes(rbac_request)
+    for change in changes:
+        change.pop("resourceType")
 
-    assert result.ok is True
-    assert result.category == "success"
-    assert result.preview_topology == "expected_ignore_plus_unsupported"
-    assert result.ignore_count == 10
-    assert result.unsupported_count == 1
-    assert result.manual_review_required is True
-    assert result.what_if_diagnostic is None
-    assignment = result.change_evidence[-1]
-    assert assignment.action == "Unsupported"
-    assert assignment.resource_type == "unidentified"
-    assert assignment.approved_boundary is False
-    assert assignment.expected_identity_match is False
-    assert assignment.expected_parent_match is False
-    assert assignment.expected_scope_match is False
+    result = _preview_result(rbac_request, changes)
+
+    assert result.ok is False
+    assert result.category == "what_if_parse_failed"
+    assert result.deployment_request_accepted is False
 
 
-def test_bounded_action_only_live_topology_reaches_manual_review(
+def test_bounded_action_only_live_topology_is_rejected(
     rbac_request,
 ) -> None:
     result = _preview_result(
@@ -388,19 +379,9 @@ def test_bounded_action_only_live_topology_reaches_manual_review(
         _bounded_action_only_changes(rbac_request),
     )
 
-    assert result.category == "success"
-    assert result.preview_topology == "expected_ignore_plus_unsupported"
-    assert result.create_count == 0
-    assert result.modify_count == 0
-    assert result.no_change_count == 0
-    assert result.delete_count == 0
-    assert result.ignore_count == 10
-    assert result.deploy_count == 0
-    assert result.unsupported_count == 1
-    assert result.assignment_contents_proved is False
-    assert result.manual_review_required is True
-    assert result.what_if_diagnostic is None
-    assert len(result.change_evidence) == 11
+    assert result.ok is False
+    assert result.category == "what_if_parse_failed"
+    assert result.deployment_request_accepted is False
 
 
 def test_exact_create_derives_omitted_resource_type_from_identity(
@@ -435,48 +416,85 @@ def test_contradictory_resource_type_fails_closed_with_precise_reason(
 @pytest.mark.parametrize(
     "case",
     [
-        "wrong_project_parent",
+        "wrong_account",
+        "wrong_child_project",
+        "wrong_parent_relationship",
+        "wrong_project_scope",
         "wrong_assignment_name",
-        "wrong_extension_type",
+        "wrong_assignment_resource_type",
         "wrong_principal",
         "wrong_role",
-        "unrelated_extension_ignore",
+        "missing_expected_ignore",
+        "additional_unrelated_ignore",
+        "duplicate_ignore",
+        "additional_unsupported",
     ],
 )
-def test_bounded_unsupported_ignores_unstable_identity_details(
+def test_bounded_unsupported_rejects_incorrect_identity_details(
     rbac_request, case: str
 ) -> None:
+    baseline = _preview_result(
+        rbac_request,
+        _live_shape_changes(rbac_request),
+    )
+    assert baseline.ok is True
+    assert baseline.preview_topology == "expected_ignore_plus_unsupported"
+
     changes = _live_shape_changes(rbac_request)
     assignment = changes[-1]
-    if case == "wrong_project_parent":
+    if case == "wrong_account":
+        assignment["resourceId"] = str(assignment["resourceId"]).replace(
+            f"/accounts/{rbac_request.foundry_account_name}/",
+            "/accounts/unrelated-account/",
+        )
+    elif case == "wrong_child_project":
         assignment["resourceId"] = str(assignment["resourceId"]).replace(
             f"/projects/{rbac_request.foundry_project_name}/",
             "/projects/unrelated-project/",
         )
+    elif case == "wrong_parent_relationship":
+        assignment["resourceId"] = str(assignment["resourceId"]).replace(
+            f"/projects/{rbac_request.foundry_project_name}",
+            "",
+        )
+    elif case == "wrong_project_scope":
+        assignment["resourceId"] = str(assignment["resourceId"]).replace(
+            f"/resourceGroups/{rbac_request.resource_group}/",
+            "/resourceGroups/unrelated-resource-group/",
+        )
     elif case == "wrong_assignment_name":
         assignment["resourceId"] = f"{assignment['resourceId']}-other"
-    elif case == "wrong_extension_type":
-        assignment["resourceId"] = str(assignment["resourceId"]).replace(
-            "Microsoft.Authorization/roleAssignments",
-            "Microsoft.Authorization/locks",
-        )
+    elif case == "wrong_assignment_resource_type":
+        assignment["resourceType"] = "Microsoft.Authorization/locks"
     elif case == "wrong_principal":
         assignment["after"]["properties"]["principalId"] = "wrong-principal"
     elif case == "wrong_role":
         assignment["after"]["properties"]["roleDefinitionId"] = "wrong-role"
-    else:
-        changes[0]["resourceId"] = (
-            f"{changes[0]['resourceId']}/providers/"
-            "Microsoft.Authorization/locks/unrelated-lock"
+    elif case == "missing_expected_ignore":
+        changes.pop(0)
+    elif case == "additional_unrelated_ignore":
+        changes.insert(
+            -1,
+            {
+                "changeType": "Ignore",
+                "resourceType": "Microsoft.Authorization/locks",
+                "resourceId": (
+                    f"/subscriptions/{rbac_request.approved_evidence.subscription_id}/"
+                    f"resourceGroups/{rbac_request.resource_group}/providers/"
+                    "Microsoft.Authorization/locks/unrelated-lock"
+                ),
+            },
         )
+    elif case == "duplicate_ignore":
+        changes.insert(-1, dict(changes[0]))
+    else:
+        changes.append(dict(assignment))
 
     result = _preview_result(rbac_request, changes)
 
-    assert result.category == "success"
-    assert result.preview_topology == "expected_ignore_plus_unsupported"
-    assert result.assignment_contents_proved is False
-    assert result.manual_review_required is True
-    assert result.what_if_diagnostic is None
+    assert result.ok is False
+    assert result.category == "what_if_parse_failed"
+    assert result.deployment_request_accepted is False
 
 
 def test_exact_assignment_preview_sets_every_required_match_flag(rbac_request) -> None:
@@ -785,7 +803,7 @@ def test_rejected_assignment_shape_reports_presence_and_content_predicates(
         {"properties": {"roleDefinitionId": "wrong-role"}},
     ],
 )
-def test_bounded_unsupported_does_not_treat_optional_evidence_as_proof(
+def test_bounded_unsupported_requires_complete_exact_evidence(
     rbac_request, after: object
 ) -> None:
     assignment = _unsupported_change(rbac_request)
@@ -796,13 +814,12 @@ def test_bounded_unsupported_does_not_treat_optional_evidence_as_proof(
         [*_known_ignore_changes(rbac_request), assignment],
     )
 
-    assert result.category == "success"
-    assert result.assignment_contents_proved is False
-    assert result.manual_review_required is True
-    assert result.what_if_diagnostic is None
+    assert result.ok is False
+    assert result.category == "what_if_parse_failed"
+    assert result.deployment_request_accepted is False
 
 
-def test_unsupported_null_optional_evidence_remains_acceptable(
+def test_unsupported_null_evidence_is_rejected(
     rbac_request,
 ) -> None:
     assignment = _unsupported_change(rbac_request)
@@ -818,9 +835,8 @@ def test_unsupported_null_optional_evidence_remains_acceptable(
         [*_known_ignore_changes(rbac_request), assignment],
     )
 
-    assert result.ok is True
-    assert result.preview_topology == "expected_ignore_plus_unsupported"
-    assert result.what_if_diagnostic is None
+    assert result.ok is False
+    assert result.category == "what_if_parse_failed"
 
 
 @pytest.mark.parametrize(
@@ -1141,9 +1157,9 @@ def test_identity_only_changes_do_not_become_azure_assignment_proof(
     changed_result = _preview_result(rbac_request, changed)
 
     assert valid.ok is True
-    assert changed_result.ok is True
-    assert changed_result.assignment_contents_proved is False
-    assert _sanitized_preview_binding(valid) == _sanitized_preview_binding(
+    assert changed_result.ok is False
+    assert changed_result.category == "what_if_parse_failed"
+    assert _sanitized_preview_binding(valid) != _sanitized_preview_binding(
         changed_result
     )
 

@@ -14,6 +14,9 @@ from src.app.services import hosted_foundry_agent_webjob_execution
 from src.app.services import web_app_infra_deployment as web_app_deployment
 from src.app.services.daily_azure_environment_rebuild import (
     ApprovalSummary,
+    FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET,
+    MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES,
+    READINESS_RECEIPT_FILE,
     ChangeEvidence,
     ConsumerRbacPlan,
     ConsumerRbacPreviewProof,
@@ -27,6 +30,9 @@ from src.app.services.daily_azure_environment_rebuild import (
     RepositoryDailyAzureStageRunner,
     RuntimeUpdates,
     StageResult,
+    build_foundry_account_name,
+    generate_foundry_account_name,
+    load_matching_daily_azure_readiness_receipt,
     _plan_from_mapping,
     load_daily_azure_config,
     safe_automatic_plan,
@@ -374,6 +380,9 @@ class FakeRunner:
             ),
         )
 
+    def check_foundry(self, context):
+        return self._stage("check_foundry", context)
+
     def deploy_foundry(self, context):
         result = self._stage("deploy_foundry", context)
         if result.ok:
@@ -381,9 +390,9 @@ class FakeRunner:
             return replace(
                 result,
                 updates=RuntimeUpdates(
-                    foundry_account_name="fictional-account",
+                    foundry_account_name=context.foundry_account_name,
                     project_endpoint=(
-                        "https://fictional-account.services.ai.azure.com/"
+                        f"https://{context.foundry_account_name}.services.ai.azure.com/"
                         "api/projects/fictional-intake-project"
                     ),
                 ),
@@ -768,6 +777,14 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
     assert payload["webjob_triggered"] is False
     assert payload["webjob_status_read"] is False
     assert payload["managed_identity_verification_performed"] is False
+    assert payload["requested_foundry_account_name"] == CONFIG[
+        "AZURE_FOUNDRY_ACCOUNT_NAME"
+    ]
+    assert payload["foundry_account_name"] == CONFIG[
+        "AZURE_FOUNDRY_ACCOUNT_NAME"
+    ]
+    assert payload["foundry_account_name_generated"] is False
+    assert payload["foundry_account_name_generation_attempts"] == 0
     assert approval_stages == [
         "resource_group",
         "foundry_deployment",
@@ -1156,15 +1173,10 @@ def test_actual_clean_start_failed_plan_fixture_preserves_adapter_failure(
         ).read_text()
     )
     config = _config(tmp_path)
-    repository_root = Path(__file__).resolve().parents[1]
     repository_runner = RepositoryDailyAzureStageRunner(
         config,
-        repository_root=repository_root,
+        repository_root=tmp_path,
         command_runner=CommandRunner([]),
-    )
-    repository_runner._foundry_parameters = _foundry_parameters(
-        tmp_path,
-        repository_root,
     )
     monkeypatch.setattr(
         "scripts.deploy_foundry_infra.execute",
@@ -1193,6 +1205,38 @@ def test_actual_clean_start_failed_plan_fixture_preserves_adapter_failure(
     ) is False
 
 
+def test_foundry_adapter_rejects_unexpected_partial_resource_state(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=tmp_path,
+        command_runner=CommandRunner([]),
+    )
+    monkeypatch.setattr(
+        "scripts.verify_foundry_infra.verify",
+        lambda *args, **kwargs: {
+            "ok": False,
+            "category": "resource_not_found",
+            "account_verified": True,
+            "project_verified": False,
+            "model_deployment_verified": False,
+        },
+    )
+    context = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    )._initial_context()
+
+    result = runner.verify_foundry(context)
+
+    assert result.state == "failed"
+    assert result.category == "foundry_partial_state"
+
+
 def test_plan_mapping_does_not_expose_unrecognized_adapter_failure_category() -> None:
     plan = _plan_from_mapping(
         {
@@ -1214,7 +1258,7 @@ def test_plan_mapping_does_not_expose_unrecognized_adapter_failure_category() ->
     assert "private-rg" not in serialized
 
 
-def test_foundry_adapter_failure_is_not_mislabeled_as_unsafe_plan(
+def test_foundry_name_conflicts_exhaust_bounded_candidates_without_deployment(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner()
@@ -1233,7 +1277,7 @@ def test_foundry_adapter_failure_is_not_mislabeled_as_unsafe_plan(
         approver=lambda summary: prompts.append(summary.stage) is None,
     )
 
-    assert result.category == "foundry_account_name_unavailable"
+    assert result.category == "foundry_account_name_candidates_exhausted"
     assert result.resource_group_ready is True
     assert result.daily_environment_ready is False
     assert result.azure_mutation_made is True
@@ -1245,10 +1289,896 @@ def test_foundry_adapter_failure_is_not_mislabeled_as_unsafe_plan(
         "verify_foundry",
         "plan_foundry",
     ]
+    assert runner.calls.count("check_foundry") == 3
+    assert runner.calls.count("plan_foundry") == 4
     assert "deploy_foundry" not in runner.calls
     assert result.to_json_dict()["foundry_plan_diagnostic"][
         "safe_guided_plan"
     ] is False
+
+
+def test_foundry_account_name_builder_normalizes_truncates_and_validates() -> None:
+    candidate = build_foundry_account_name(
+        "A Very_Long.Foundry/Base Name" * 5,
+        "ab12cd",
+    )
+
+    assert len(candidate) <= 64
+    assert candidate.endswith("-ab12cd")
+    assert candidate == candidate.casefold()
+    assert set(candidate) <= set(FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET + "-")
+    assert daily_rebuild_service.valid_foundry_account_name(candidate)
+
+
+def test_secure_foundry_name_generator_returns_distinct_candidates() -> None:
+    first = generate_foundry_account_name("fictional-base", frozenset())
+    second = generate_foundry_account_name(
+        "fictional-base",
+        frozenset({first}),
+    )
+
+    assert first.startswith("fictional-base-")
+    assert second.startswith("fictional-base-")
+    assert first != second
+    source = inspect.getsource(daily_rebuild_service)
+    assert "import random" not in source
+    assert "from random" not in source
+    assert "secrets.choice" in source
+
+
+def test_proven_name_conflict_recovers_with_fresh_candidate_boundaries(
+    tmp_path: Path,
+) -> None:
+    config_path = _config_file(tmp_path)
+    original_config = config_path.read_text()
+    config = load_daily_azure_config(
+        config_path,
+        repository_root=tmp_path,
+        repository_state_checker=lambda _root, _path: True,
+    )
+    runner = FakeRunner()
+    plan_contexts: list[DailyAzureRuntimeContext] = []
+
+    def plan_foundry(context):
+        runner.calls.append("plan_foundry")
+        plan_contexts.append(context)
+        if len(plan_contexts) == 1:
+            return PlanResult(
+                malformed=True,
+                source_failure_category="foundry_account_name_unavailable",
+            )
+        return PlanResult(
+            create_count=1,
+            exact_topology_match=True,
+            change_evidence=(
+                _exact_change("Create", "foundry_account", "foundry"),
+            ),
+        )
+
+    runner.plan_foundry = plan_foundry
+    approvals: list[ApprovalSummary] = []
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=lambda base, attempted: build_foundry_account_name(
+            base,
+            "abc123",
+        ),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary) is None,
+    )
+
+    effective = "fictional-intake-foundry-abc123"
+    assert result.ok is True
+    assert result.foundry_account_name == effective
+    assert result.requested_foundry_account_name == CONFIG[
+        "AZURE_FOUNDRY_ACCOUNT_NAME"
+    ]
+    assert result.foundry_account_name_generated is True
+    assert result.foundry_account_name_generation_attempts == 1
+    assert runner.calls.count("check_foundry") == 1
+    assert runner.calls.count("plan_foundry") == 2
+    assert plan_contexts[1].foundry_account_name == effective
+    assert runner.contexts["deploy_foundry"].foundry_account_name == effective
+    for stage in (
+        "verify_foundry",
+        "provision_agent",
+        "configure_agent_routing",
+        "verify_agent",
+        "verify_web_app_configuration",
+        "verify_readiness",
+    ):
+        assert runner.contexts[stage].foundry_account_name == effective
+    foundry_approvals = [
+        approval
+        for approval in approvals
+        if approval.stage == "foundry_deployment"
+    ]
+    assert len(foundry_approvals) == 1
+    assert ("Effective resource name", effective) in foundry_approvals[0].facts
+    assert config_path.read_text() == original_config
+
+    payload = result.to_json_dict()
+    assert payload["foundry_account_name"] == effective
+    assert payload["rbac_handoff"]["foundry_account_name"] == effective
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    receipt = load_matching_daily_azure_readiness_receipt(
+        receipt_path,
+        config,
+    )
+    assert receipt is not None
+    assert receipt.requested_foundry_account_name == config.foundry_account_name
+    assert receipt.foundry_account_name == effective
+    assert receipt.resource_group == config.resource_group
+    assert receipt.foundry_project_name == config.foundry_project_name
+    assert os.stat(receipt_path).st_mode & 0o777 == 0o600
+
+
+def test_foundry_parameters_are_rebuilt_for_the_effective_candidate(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=tmp_path,
+        command_runner=CommandRunner([]),
+    )
+    initial = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+    )._initial_context()
+    initial_path = runner._parameters_file(initial)
+    assert initial_path is not None
+    assert (
+        f"param foundryAccountName = '{config.foundry_account_name}'"
+        in initial_path.read_text()
+    )
+
+    effective = build_foundry_account_name(
+        config.foundry_account_name,
+        "abc123",
+    )
+    generated = daily_rebuild_service._context_with_foundry_account_name(
+        initial,
+        effective,
+        generation_attempts=1,
+    )
+    generated_path = runner._parameters_file(generated)
+
+    assert generated_path == initial_path
+    generated_text = generated_path.read_text()
+    assert f"param foundryAccountName = '{effective}'" in generated_text
+    assert (
+        f"param foundryAccountName = '{config.foundry_account_name}'"
+        not in generated_text
+    )
+
+
+def test_live_name_conflict_never_reuses_rejected_approval(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    deployment_contexts: list[DailyAzureRuntimeContext] = []
+
+    def deploy_foundry(context):
+        runner.calls.append("deploy_foundry")
+        deployment_contexts.append(context)
+        if len(deployment_contexts) == 1:
+            return StageResult.failure(
+                "foundry_account_name_unavailable",
+                mutation_made=False,
+                attempted=True,
+            )
+        runner.foundry_absent = False
+        return StageResult.success(mutation_made=True, attempted=True)
+
+    runner.deploy_foundry = deploy_foundry
+    approvals: list[ApprovalSummary] = []
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=lambda base, attempted: build_foundry_account_name(
+            base,
+            "def456",
+        ),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary) is None,
+    )
+
+    assert result.ok is True
+    assert [item.foundry_account_name for item in deployment_contexts] == [
+        CONFIG["AZURE_FOUNDRY_ACCOUNT_NAME"],
+        "fictional-intake-foundry-def456",
+    ]
+    foundry_approvals = [
+        item for item in approvals if item.stage == "foundry_deployment"
+    ]
+    assert len(foundry_approvals) == 2
+    assert foundry_approvals[0].evidence_binding != foundry_approvals[1].evidence_binding
+    assert runner.calls.count("check_foundry") == 1
+    assert runner.calls.count("plan_foundry") == 2
+
+
+def test_name_conflict_with_ambiguous_mutation_stops_without_generation(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+
+    def deploy_foundry(context):
+        runner.calls.append("deploy_foundry")
+        runner.contexts["deploy_foundry"] = context
+        return StageResult.failure(
+            "foundry_account_name_unavailable",
+            mutation_made=None,
+            attempted=True,
+        )
+
+    runner.deploy_foundry = deploy_foundry
+    generated = False
+
+    def forbidden_generator(base, attempted):
+        nonlocal generated
+        generated = True
+        return build_foundry_account_name(base, "abc123")
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=forbidden_generator,
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "foundry_account_name_recovery_unsafe_partial_state"
+    assert result.azure_mutation_made is None
+    assert generated is False
+    assert "check_foundry" not in runner.calls
+
+
+@pytest.mark.parametrize(
+    "category",
+    [
+        "what_if_failed",
+        "authentication_or_authorization_failed",
+        "quota_failed",
+        "policy_failed",
+        "timeout",
+        "what_if_parse_failed",
+        "foundry_plan_failed",
+    ],
+)
+def test_non_name_failures_never_activate_foundry_renaming(
+    tmp_path: Path,
+    category: str,
+) -> None:
+    runner = FakeRunner()
+    runner.plan_overrides["plan_foundry"] = PlanResult(
+        malformed=True,
+        source_failure_category=category,
+    )
+    generated = False
+
+    def forbidden_generator(base, attempted):
+        nonlocal generated
+        generated = True
+        return build_foundry_account_name(base, "abc123")
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=forbidden_generator,
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == category
+    assert generated is False
+    assert "check_foundry" not in runner.calls
+    assert "deploy_foundry" not in runner.calls
+
+
+def test_generated_candidate_failure_is_local_and_fail_closed(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.plan_overrides["plan_foundry"] = PlanResult(
+        malformed=True,
+        source_failure_category="foundry_account_name_unavailable",
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=lambda _base, _attempted: "INVALID",
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "foundry_account_name_generation_failed"
+    assert runner.calls.count("plan_foundry") == 1
+    assert "check_foundry" not in runner.calls
+    assert "deploy_foundry" not in runner.calls
+
+
+def test_generated_candidate_must_pass_fresh_offline_check(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.plan_overrides["plan_foundry"] = PlanResult(
+        malformed=True,
+        source_failure_category="foundry_account_name_unavailable",
+    )
+
+    def failed_check(context):
+        runner.calls.append("check_foundry")
+        runner.contexts["check_foundry"] = context
+        return StageResult.failure("parameter_file_invalid")
+
+    runner.check_foundry = failed_check
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=lambda base, attempted: build_foundry_account_name(
+            base,
+            "abc123",
+        ),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "parameter_file_invalid"
+    assert runner.calls.count("check_foundry") == 1
+    assert runner.calls.count("plan_foundry") == 1
+    assert "deploy_foundry" not in runner.calls
+
+
+def test_generated_candidate_unsafe_what_if_stops_before_approval(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    plan_count = 0
+
+    def plan_foundry(context):
+        nonlocal plan_count
+        runner.calls.append("plan_foundry")
+        plan_count += 1
+        if plan_count == 1:
+            return PlanResult(
+                malformed=True,
+                source_failure_category="foundry_account_name_unavailable",
+            )
+        return PlanResult(
+            modify_count=1,
+            exact_topology_match=True,
+            change_evidence=(
+                _exact_change("Modify", "foundry_account", "foundry"),
+            ),
+        )
+
+    runner.plan_foundry = plan_foundry
+    approvals: list[str] = []
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=lambda base, attempted: build_foundry_account_name(
+            base,
+            "abc123",
+        ),
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary.stage) is None,
+    )
+
+    assert result.category == "unsafe_foundry_plan"
+    assert runner.calls.count("check_foundry") == 1
+    assert runner.calls.count("plan_foundry") == 2
+    assert "foundry_deployment" not in approvals
+    assert "deploy_foundry" not in runner.calls
+
+
+def test_operator_declining_generated_candidate_stops_without_deployment(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    plan_count = 0
+
+    def plan_foundry(context):
+        nonlocal plan_count
+        runner.calls.append("plan_foundry")
+        plan_count += 1
+        if plan_count == 1:
+            return PlanResult(
+                malformed=True,
+                source_failure_category="foundry_account_name_unavailable",
+            )
+        return PlanResult(
+            create_count=1,
+            exact_topology_match=True,
+            change_evidence=(
+                _exact_change("Create", "foundry_account", "foundry"),
+            ),
+        )
+
+    runner.plan_foundry = plan_foundry
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=lambda base, attempted: build_foundry_account_name(
+            base,
+            "abc123",
+        ),
+    ).live(
+        runner,
+        approver=lambda summary: summary.stage == "resource_group",
+    )
+
+    assert result.category == "foundry_deployment_approval_required"
+    assert runner.calls.count("check_foundry") == 1
+    assert "deploy_foundry" not in runner.calls
+
+
+def test_generated_candidates_are_distinct_and_bounded(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.plan_overrides["plan_foundry"] = PlanResult(
+        malformed=True,
+        source_failure_category="foundry_account_name_unavailable",
+    )
+    suffixes = iter(("aa0001", "aa0002", "aa0003"))
+    generated: list[str] = []
+
+    def generator(base, attempted):
+        candidate = build_foundry_account_name(base, next(suffixes))
+        assert candidate not in attempted
+        generated.append(candidate)
+        return candidate
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=generator,
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "foundry_account_name_candidates_exhausted"
+    assert len(generated) == MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
+    assert len(set(generated)) == MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
+    assert runner.calls.count("check_foundry") == MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
+    assert runner.calls.count("plan_foundry") == (
+        MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES + 1
+    )
+    assert "deploy_foundry" not in runner.calls
+
+
+def test_readiness_receipt_rejects_different_current_base_name(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    config = _config(tmp_path)
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+    assert result.ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    different_values = {
+        **CONFIG,
+        "AZURE_FOUNDRY_ACCOUNT_NAME": "different-stable-base",
+    }
+    different_config = load_daily_azure_config(
+        _config_file(tmp_path, different_values),
+        repository_root=tmp_path,
+        repository_state_checker=lambda _root, _path: True,
+    )
+
+    assert (
+        load_matching_daily_azure_readiness_receipt(
+            receipt_path,
+            different_config,
+        )
+        is None
+    )
+
+
+def test_new_live_run_revokes_prior_receipt_before_first_azure_read(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    first = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+    assert first.ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    assert receipt_path.is_file()
+
+    class FailingRunner(FakeRunner):
+        def verify_account(self, context):
+            assert not receipt_path.exists()
+            return StageResult.failure("authentication_or_authorization_failed")
+
+    failed = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FailingRunner(), approver=lambda _summary: True)
+
+    assert failed.category == "authentication_or_authorization_failed"
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is None
+
+
+def test_declined_live_run_leaves_prior_ready_receipt_revoked(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    first = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+    assert first.ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    prior_receipt = receipt_path.read_text()
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "invalidate_daily_azure_readiness_receipt",
+        lambda _path: None,
+    )
+
+    declined = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: False)
+
+    assert declined.ok is False
+    assert receipt_path.read_text() == prior_receipt
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is None
+
+
+def test_receipt_invalidation_failure_stops_before_runner_creation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config = _config(tmp_path)
+    first = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+    assert first.ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is not None
+    runner_created = False
+
+    def fail_invalidation(_path: Path) -> None:
+        raise OSError("private runtime detail")
+
+    def runner_factory():
+        nonlocal runner_created
+        runner_created = True
+        return FakeRunner()
+
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "invalidate_daily_azure_readiness_receipt",
+        fail_invalidation,
+        raising=False,
+    )
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        runner_factory=runner_factory,
+        local_contract_checker=lambda _root: (),
+    ).live(approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "readiness_receipt_invalidation_failed"
+    assert result.azure_mutation_made is False
+    assert runner_created is False
+    assert "private runtime detail" not in json.dumps(result.to_json_dict())
+    assert receipt_path.is_file()
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is None
+
+    import scripts.deploy_foundry_agent_consumer_rbac as focused_rbac
+
+    monkeypatch.setattr(
+        focused_rbac,
+        "load_daily_azure_config",
+        lambda path, repository_root: config,
+    )
+    monkeypatch.setattr(
+        focused_rbac,
+        "_create_azure_cli_runner",
+        lambda: pytest.fail("revoked handoff must stop before Azure"),
+    )
+    exit_code = focused_rbac.main(
+        [
+            "--live",
+            "--config",
+            "ignored.env",
+            "--readiness-receipt",
+            str(receipt_path),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 2
+    assert payload["category"] == "rbac_handoff_invalid"
+    assert payload["azure_operation_attempted"] is False
+
+
+def test_revocation_state_write_failure_stops_before_cleanup_or_azure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    first = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+    assert first.ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    cleanup_attempted = False
+    runner_created = False
+
+    def fail_state_write(*_args, **_kwargs) -> None:
+        raise OSError("private state detail")
+
+    def cleanup(_path: Path) -> None:
+        nonlocal cleanup_attempted
+        cleanup_attempted = True
+
+    def runner_factory():
+        nonlocal runner_created
+        runner_created = True
+        return FakeRunner()
+
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "write_daily_azure_readiness_state",
+        fail_state_write,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "invalidate_daily_azure_readiness_receipt",
+        cleanup,
+    )
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        runner_factory=runner_factory,
+        local_contract_checker=lambda _root: (),
+    ).live(approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "readiness_receipt_revocation_failed"
+    assert result.azure_mutation_made is False
+    assert cleanup_attempted is False
+    assert runner_created is False
+    assert receipt_path.is_file()
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is not None
+    assert "private state detail" not in json.dumps(result.to_json_dict())
+
+
+def test_malformed_or_stale_readiness_state_fails_closed(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+    assert result.ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    state_path = daily_rebuild_service.daily_azure_readiness_state_path(
+        receipt_path,
+        config,
+    )
+    original_state = json.loads(state_path.read_text())
+    receipt = json.loads(receipt_path.read_text())
+
+    state_path.write_text("{malformed")
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is None
+
+    state_path.write_text(
+        json.dumps(
+            {
+                **original_state,
+                "run_epoch": "f" * 32,
+            }
+        )
+    )
+    assert receipt["run_epoch"] != "f" * 32
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is None
+
+
+def test_successful_run_publishes_matching_ready_epoch_without_sensitive_state(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+    assert result.ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    state_path = daily_rebuild_service.daily_azure_readiness_state_path(
+        receipt_path,
+        config,
+    )
+    receipt = json.loads(receipt_path.read_text())
+    state = json.loads(state_path.read_text())
+
+    assert state["state"] == "ready"
+    assert state["run_epoch"] == receipt["run_epoch"]
+    assert state["configuration_fingerprint"] == (
+        daily_rebuild_service.daily_azure_configuration_fingerprint(config)
+    )
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is not None
+    serialized = state_path.read_text() + receipt_path.read_text()
+    for forbidden in (
+        "subscription_id",
+        "tenant_id",
+        "principal_id",
+        "role_definition_id",
+        "assignment_id",
+        "access_token",
+    ):
+        assert forbidden not in serialized.casefold()
+
+
+def test_readiness_state_is_isolated_by_configuration_fingerprint(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    different_config = replace(config, web_app_name="fictional-other-web")
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    service = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    )
+    assert service.live(FakeRunner(), approver=lambda _summary: True).ok
+    original_receipt = receipt_path.read_text()
+
+    assert daily_rebuild_service.daily_azure_readiness_state_path(
+        receipt_path,
+        config,
+    ) != daily_rebuild_service.daily_azure_readiness_state_path(
+        receipt_path,
+        different_config,
+    )
+    blocked = DailyAzureEnvironmentRebuild(
+        different_config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: ("blocked",),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+
+    assert blocked.category == "local_contract_invalid"
+    assert receipt_path.read_text() == original_receipt
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is not None
+    assert (
+        load_matching_daily_azure_readiness_receipt(
+            receipt_path,
+            different_config,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("failure_kind", ["blocked", "exception"])
+def test_non_ready_run_after_revocation_leaves_prior_receipt_unusable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    failure_kind: str,
+) -> None:
+    config = _config(tmp_path)
+    service = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    )
+    assert service.live(FakeRunner(), approver=lambda _summary: True).ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    prior_receipt = receipt_path.read_text()
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "invalidate_daily_azure_readiness_receipt",
+        lambda _path: None,
+    )
+
+    if failure_kind == "blocked":
+        result = DailyAzureEnvironmentRebuild(
+            config,
+            repository_root=tmp_path,
+            local_contract_checker=lambda _root: ("blocked",),
+        ).live(FakeRunner(), approver=lambda _summary: True)
+        assert result.category == "local_contract_invalid"
+    else:
+        runner = FakeRunner()
+
+        def interrupted(_context):
+            raise RuntimeError("private interrupted detail")
+
+        runner.verify_account = interrupted
+        result = DailyAzureEnvironmentRebuild(
+            config,
+            repository_root=tmp_path,
+            local_contract_checker=lambda _root: (),
+        ).live(runner, approver=lambda _summary: True)
+        assert result.category == "unexpected_error"
+        assert "private interrupted detail" not in json.dumps(
+            result.to_json_dict()
+        )
+
+    assert receipt_path.read_text() == prior_receipt
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is None
+
+
+def test_ready_state_publication_failure_leaves_new_receipt_revoked(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    real_writer = daily_rebuild_service.write_daily_azure_readiness_state
+    write_count = 0
+
+    def fail_ready_publication(path, state):
+        nonlocal write_count
+        write_count += 1
+        if state.state == "ready":
+            raise OSError("private publication detail")
+        real_writer(path, state)
+
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "write_daily_azure_readiness_state",
+        fail_ready_publication,
+    )
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    state_path = daily_rebuild_service.daily_azure_readiness_state_path(
+        receipt_path,
+        config,
+    )
+
+    assert result.category == "readiness_receipt_write_failed"
+    assert write_count == 2
+    assert receipt_path.is_file()
+    assert json.loads(state_path.read_text())["state"] == "revoked"
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is None
+    assert "private publication detail" not in json.dumps(result.to_json_dict())
+
+
+def test_offline_check_does_not_revoke_ready_receipt(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    service = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    )
+    assert service.live(FakeRunner(), approver=lambda _summary: True).ok
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+
+    assert service.check().ok
+    assert load_matching_daily_azure_readiness_receipt(receipt_path, config) is not None
 
 
 def test_inexact_web_app_topology_still_stops_before_deployment(tmp_path: Path) -> None:

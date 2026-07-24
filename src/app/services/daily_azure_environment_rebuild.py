@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import re
 import json
+import secrets
+import string
 import subprocess
 import tempfile
 from typing import Callable, Literal, Mapping, Protocol
@@ -39,6 +41,9 @@ FAILURE_NEXT_STEP = (
 )
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 SESSION_FILE = Path(".artifacts/daily-azure-rebuild/current-session.env")
+READINESS_RECEIPT_FILE = Path(
+    ".artifacts/daily-azure-rebuild/readiness-receipt.json"
+)
 RESOURCE_GROUP_PURPOSE = "fictional-daily-validation"
 NESTED_DEPLOYMENT_RESOURCE_TYPE = "Microsoft.Resources/deployments"
 CONSUMER_ROLE_NAME = "Foundry Agent Consumer"
@@ -82,6 +87,17 @@ _AZURE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.()\-]*")
 _RESOURCE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-]*")
 _LOCATION = re.compile(r"[a-z][a-z0-9]+")
 _VERSION = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.\-]*")
+_FOUNDRY_ACCOUNT_NAME = re.compile(
+    r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+)
+FOUNDRY_ACCOUNT_NAME_MIN_LENGTH = 2
+FOUNDRY_ACCOUNT_NAME_MAX_LENGTH = 64
+FOUNDRY_ACCOUNT_NAME_SUFFIX_LENGTH = 6
+FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET = string.ascii_lowercase + string.digits
+MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES = 3
+READINESS_RECEIPT_SCHEMA_VERSION = 1
+READINESS_STATE_SCHEMA_VERSION = 1
+_READINESS_RUN_EPOCH = re.compile(r"[0-9a-f]{32}")
 
 
 class ConfigValidationError(ValueError):
@@ -110,6 +126,10 @@ class DailyAzureConfig:
     enable_hosted_foundry_verifier: bool
     discover_hosted_foundry_webjob: bool
 
+    @property
+    def configured_foundry_account_name(self) -> str:
+        return self.foundry_account_name
+
 
 @dataclass(frozen=True)
 class DailyAzureRuntimeContext:
@@ -125,6 +145,13 @@ class DailyAzureRuntimeContext:
     web_app_name: str
     hosted_origin: str
     environment_fingerprint: str | None = None
+    configured_foundry_account_name: str | None = None
+    foundry_account_name_generated: bool = False
+    foundry_account_name_generation_attempts: int = 0
+
+    @property
+    def effective_foundry_account_name(self) -> str:
+        return self.foundry_account_name
 
 
 @dataclass(frozen=True)
@@ -403,14 +430,33 @@ class GuidedApprovalSession:
         ).digest()
         self._approver = approver
         self._used_stages: set[str] = set()
+        self._approved_foundry_resource_names: set[str] = set()
         self._consumed_fingerprints: set[bytes] = set()
 
     def request(self, summary: ApprovalSummary) -> bool:
         fingerprint = self._fingerprint(summary)
+        foundry_resource_name = next(
+            (
+                value
+                for label, value in summary.facts
+                if label == "Effective resource name"
+            ),
+            None,
+        )
+        repeated_stage_allowed = bool(
+            summary.stage == "foundry_deployment"
+            and isinstance(foundry_resource_name, str)
+            and foundry_resource_name
+            and foundry_resource_name
+            not in self._approved_foundry_resource_names
+        )
         if (
             self._approver is None
             or summary.stage not in _APPROVAL_STAGES
-            or summary.stage in self._used_stages
+            or (
+                summary.stage in self._used_stages
+                and not repeated_stage_allowed
+            )
             or fingerprint in self._consumed_fingerprints
         ):
             return False
@@ -421,6 +467,15 @@ class GuidedApprovalSession:
         if not approved:
             return False
         self._used_stages.add(summary.stage)
+        if summary.stage == "foundry_deployment":
+            assert foundry_resource_name is None or isinstance(
+                foundry_resource_name,
+                str,
+            )
+            if foundry_resource_name:
+                self._approved_foundry_resource_names.add(
+                    foundry_resource_name
+                )
         self._consumed_fingerprints.add(fingerprint)
         return True
 
@@ -443,6 +498,7 @@ class DailyAzureStageRunner(Protocol):
     def inspect_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def create_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_foundry(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def check_foundry(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def plan_foundry(self, context: DailyAzureRuntimeContext) -> PlanResult: ...
     def deploy_foundry(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def provision_agent(self, context: DailyAzureRuntimeContext) -> StageResult: ...
@@ -473,6 +529,67 @@ class DailyAzureStageRunner(Protocol):
     def discover_webjob(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def trigger_webjob(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_hosted_agent(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+
+
+@dataclass(frozen=True)
+class RbacHandoff:
+    readiness_receipt: str
+    requested_foundry_account_name: str
+    foundry_account_name: str
+    foundry_account_name_generated: bool
+    resource_group: str
+    foundry_project_name: str
+    web_app_name: str
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "readiness_receipt": self.readiness_receipt,
+            "requested_foundry_account_name": (
+                self.requested_foundry_account_name
+            ),
+            "foundry_account_name": self.foundry_account_name,
+            "foundry_account_name_generated": (
+                self.foundry_account_name_generated
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class DailyAzureReadinessReceipt:
+    schema_version: int
+    operation: str
+    ready: bool
+    configuration_fingerprint: str
+    run_epoch: str
+    correlation_fingerprint: str
+    requested_foundry_account_name: str
+    foundry_account_name: str
+    foundry_account_name_generated: bool
+    foundry_account_name_generation_attempts: int
+    resource_group: str
+    foundry_project_name: str
+    web_app_name: str
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            field.name: getattr(self, field.name)
+            for field in fields(self)
+        }
+
+
+@dataclass(frozen=True)
+class DailyAzureReadinessState:
+    schema_version: int
+    operation: str
+    configuration_fingerprint: str
+    run_epoch: str
+    state: Literal["revoked", "ready"]
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            field.name: getattr(self, field.name)
+            for field in fields(self)
+        }
 
 
 @dataclass(frozen=True)
@@ -508,6 +625,11 @@ class DailyAzureEnvironmentRebuildResult:
     recommended_next_step: str = FAILURE_NEXT_STEP
     foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None
     what_if_diagnostic: WhatIfDiagnostic | None = None
+    requested_foundry_account_name: str | None = None
+    foundry_account_name: str | None = None
+    foundry_account_name_generated: bool = False
+    foundry_account_name_generation_attempts: int = 0
+    rbac_handoff: RbacHandoff | None = None
     _ready_authority: InitVar[object | None] = None
 
     def __post_init__(self, _ready_authority: object | None) -> None:
@@ -525,6 +647,11 @@ class DailyAzureEnvironmentRebuildResult:
         proofs: Mapping[str, object],
         *,
         azure_mutation_made: bool | None,
+        requested_foundry_account_name: str | None = None,
+        foundry_account_name: str | None = None,
+        foundry_account_name_generated: bool = False,
+        foundry_account_name_generation_attempts: int = 0,
+        rbac_handoff: RbacHandoff | None = None,
     ) -> "DailyAzureEnvironmentRebuildResult":
         required = (
             "local_orchestration_ready",
@@ -567,6 +694,13 @@ class DailyAzureEnvironmentRebuildResult:
             daily_environment_ready=True,
             azure_mutation_made=azure_mutation_made,
             recommended_next_step=RECOMMENDED_NEXT_STEP,
+            requested_foundry_account_name=requested_foundry_account_name,
+            foundry_account_name=foundry_account_name,
+            foundry_account_name_generated=foundry_account_name_generated,
+            foundry_account_name_generation_attempts=(
+                foundry_account_name_generation_attempts
+            ),
+            rbac_handoff=rbac_handoff,
             _ready_authority=_READY_CONSTRUCTION_SENTINEL,
             **progress,
         )
@@ -623,7 +757,98 @@ class DailyAzureEnvironmentRebuildResult:
             )
         if self.what_if_diagnostic is not None:
             result["what_if_diagnostic"] = self.what_if_diagnostic.to_json_dict()
+        if self.foundry_account_name is not None:
+            result.update(
+                {
+                    "requested_foundry_account_name": (
+                        self.requested_foundry_account_name
+                    ),
+                    "foundry_account_name": self.foundry_account_name,
+                    "foundry_account_name_generated": (
+                        self.foundry_account_name_generated
+                    ),
+                    "foundry_account_name_generation_attempts": (
+                        self.foundry_account_name_generation_attempts
+                    ),
+                }
+            )
+        if self.rbac_handoff is not None:
+            result["rbac_handoff"] = self.rbac_handoff.to_json_dict()
         return result
+
+
+def valid_foundry_account_name(value: str) -> bool:
+    return bool(
+        isinstance(value, str)
+        and FOUNDRY_ACCOUNT_NAME_MIN_LENGTH
+        <= len(value)
+        <= FOUNDRY_ACCOUNT_NAME_MAX_LENGTH
+        and _FOUNDRY_ACCOUNT_NAME.fullmatch(value) is not None
+    )
+
+
+def build_foundry_account_name(base_name: str, suffix: str) -> str:
+    if (
+        not isinstance(base_name, str)
+        or not isinstance(suffix, str)
+        or len(suffix) != FOUNDRY_ACCOUNT_NAME_SUFFIX_LENGTH
+        or any(
+            character not in FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET
+            for character in suffix
+        )
+    ):
+        raise ValueError("Invalid Foundry account-name input.")
+    normalized = _normalized_foundry_account_name_base(base_name)
+    candidate = f"{normalized}-{suffix}"
+    if not valid_foundry_account_name(candidate):
+        raise ValueError("Generated Foundry account name is invalid.")
+    return candidate
+
+
+def _normalized_foundry_account_name_base(base_name: str) -> str:
+    if not isinstance(base_name, str):
+        raise ValueError("Invalid Foundry account-name base.")
+    normalized = re.sub(r"[^a-z0-9]+", "-", base_name.casefold()).strip("-")
+    available = (
+        FOUNDRY_ACCOUNT_NAME_MAX_LENGTH
+        - FOUNDRY_ACCOUNT_NAME_SUFFIX_LENGTH
+        - 1
+    )
+    normalized = normalized[:available].rstrip("-")
+    if len(normalized) < FOUNDRY_ACCOUNT_NAME_MIN_LENGTH:
+        normalized = "ai"
+    return normalized
+
+
+def _foundry_account_candidate_matches_base(
+    candidate: str,
+    base_name: str,
+) -> bool:
+    prefix = f"{_normalized_foundry_account_name_base(base_name)}-"
+    suffix = candidate.removeprefix(prefix)
+    return bool(
+        candidate.startswith(prefix)
+        and len(suffix) == FOUNDRY_ACCOUNT_NAME_SUFFIX_LENGTH
+        and all(
+            character in FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET
+            for character in suffix
+        )
+    )
+
+
+def generate_foundry_account_name(
+    base_name: str,
+    attempted_names: frozenset[str],
+) -> str:
+    for _ in range(32):
+        suffix = "".join(
+            secrets.choice(FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET)
+            for _ in range(FOUNDRY_ACCOUNT_NAME_SUFFIX_LENGTH)
+        )
+        candidate = build_foundry_account_name(base_name, suffix)
+        if candidate not in attempted_names:
+            return candidate
+    raise ValueError("Could not generate a distinct Foundry account name.")
 
 
 def load_daily_azure_config(
@@ -682,7 +907,6 @@ def load_daily_azure_config(
     for name, minimum, maximum in (
         ("AZURE_ENVIRONMENT_NAME", 3, 10),
         ("AZURE_PROJECT_NAME", 3, 20),
-        ("AZURE_FOUNDRY_ACCOUNT_NAME", 2, 64),
         ("AZURE_FOUNDRY_PROJECT_NAME", 2, 64),
         ("AZURE_FOUNDRY_MODEL_DEPLOYMENT_NAME", 2, 64),
         ("AZURE_FOUNDRY_AGENT_NAME", 2, 63),
@@ -691,11 +915,7 @@ def load_daily_azure_config(
         if not _valid(values[name], _RESOURCE_NAME, minimum, maximum):
             raise ConfigValidationError("invalid_configuration")
     foundry_account_name = values["AZURE_FOUNDRY_ACCOUNT_NAME"]
-    if (
-        foundry_account_name != foundry_account_name.casefold()
-        or foundry_account_name.startswith("-")
-        or foundry_account_name.endswith("-")
-    ):
+    if not valid_foundry_account_name(foundry_account_name):
         raise ConfigValidationError("invalid_configuration")
     if not _VERSION.fullmatch(values["AZURE_FOUNDRY_MODEL_NAME"]):
         raise ConfigValidationError("invalid_configuration")
@@ -1032,6 +1252,7 @@ def _plan_approval_summary(
     plan: PlanResult,
     *,
     web_app_reconciliation: bool = False,
+    resource_identity: str | None = None,
 ) -> ApprovalSummary:
     nested = any(
         change.resource_type.casefold()
@@ -1060,6 +1281,7 @@ def _plan_approval_summary(
         "categories": categories,
         "nested": nested,
         "topology": plan.exact_topology_match,
+        "resource_identity": resource_identity,
         "changes": [
             {
                 "action": change.action,
@@ -1127,6 +1349,11 @@ def _plan_approval_summary(
         heading=heading,
         facts=(
             *classification_facts,
+            *(
+                (("Effective resource name", resource_identity),)
+                if resource_identity is not None
+                else ()
+            ),
             ("Creates", str(plan.create_count)),
             ("Modifies", str(plan.modify_count)),
             ("Deletes", str(plan.delete_count)),
@@ -1244,7 +1471,7 @@ def _consumer_rbac_preview_proof_valid(
         return False
     semantics = {
         "exact_create": (True, False),
-        "expected_ignore_plus_unsupported": (False, True),
+        "expected_ignore_plus_unsupported": (True, True),
     }
     expected = semantics.get(proof.topology)
     counts = (
@@ -1735,6 +1962,10 @@ def write_runtime_session_file(
     values = {
         "AZURE_RESOURCE_GROUP": context.resource_group,
         "AZURE_LOCATION": context.location,
+        "AZURE_REQUESTED_FOUNDRY_ACCOUNT_NAME": (
+            context.configured_foundry_account_name
+            or context.foundry_account_name
+        ),
         "AZURE_FOUNDRY_ACCOUNT_NAME": context.foundry_account_name,
         "AZURE_FOUNDRY_PROJECT_NAME": context.foundry_project_name,
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": context.project_endpoint,
@@ -1765,6 +1996,294 @@ def write_runtime_session_file(
         raise
 
 
+def daily_azure_configuration_fingerprint(config: DailyAzureConfig) -> str:
+    payload = {
+        field.name: getattr(config, field.name)
+        for field in fields(config)
+    }
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()
+
+
+def _readiness_receipt_correlation(
+    *,
+    configuration_fingerprint: str,
+    run_epoch: str,
+    requested_foundry_account_name: str,
+    foundry_account_name: str,
+    foundry_account_name_generated: bool,
+    foundry_account_name_generation_attempts: int,
+    resource_group: str,
+    foundry_project_name: str,
+    web_app_name: str,
+) -> str:
+    payload = {
+        "configuration_fingerprint": configuration_fingerprint,
+        "run_epoch": run_epoch,
+        "requested_foundry_account_name": requested_foundry_account_name,
+        "foundry_account_name": foundry_account_name,
+        "foundry_account_name_generated": foundry_account_name_generated,
+        "foundry_account_name_generation_attempts": (
+            foundry_account_name_generation_attempts
+        ),
+        "resource_group": resource_group,
+        "foundry_project_name": foundry_project_name,
+        "web_app_name": web_app_name,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    ).hexdigest()
+
+
+def build_daily_azure_readiness_receipt(
+    config: DailyAzureConfig,
+    context: DailyAzureRuntimeContext,
+    run_epoch: str,
+) -> DailyAzureReadinessReceipt:
+    if _READINESS_RUN_EPOCH.fullmatch(run_epoch) is None:
+        raise ValueError("Invalid readiness run epoch.")
+    configured_name = (
+        context.configured_foundry_account_name
+        or config.configured_foundry_account_name
+    )
+    configuration_fingerprint = daily_azure_configuration_fingerprint(config)
+    values = {
+        "configuration_fingerprint": configuration_fingerprint,
+        "run_epoch": run_epoch,
+        "requested_foundry_account_name": configured_name,
+        "foundry_account_name": context.effective_foundry_account_name,
+        "foundry_account_name_generated": (
+            context.foundry_account_name_generated
+        ),
+        "foundry_account_name_generation_attempts": (
+            context.foundry_account_name_generation_attempts
+        ),
+        "resource_group": context.resource_group,
+        "foundry_project_name": context.foundry_project_name,
+        "web_app_name": context.web_app_name,
+    }
+    return DailyAzureReadinessReceipt(
+        schema_version=READINESS_RECEIPT_SCHEMA_VERSION,
+        operation=REBUILD_OPERATION,
+        ready=True,
+        correlation_fingerprint=_readiness_receipt_correlation(**values),
+        **values,
+    )
+
+
+def write_daily_azure_readiness_receipt(
+    path: Path,
+    receipt: DailyAzureReadinessReceipt,
+) -> None:
+    if _path_has_symlink(path):
+        raise OSError("Unsafe readiness receipt path.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if _path_has_symlink(path):
+        raise OSError("Unsafe readiness receipt path.")
+    payload = json.dumps(
+        receipt.to_json_dict(),
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    file_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".readiness-receipt.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    try:
+        os.fchmod(file_descriptor, 0o600)
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as stream:
+            stream.write(payload)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_name, path)
+        os.chmod(path, 0o600)
+    except Exception:
+        try:
+            os.unlink(temporary_name)
+        except OSError:
+            pass
+        raise
+
+
+def daily_azure_readiness_state_path(
+    receipt_path: Path,
+    config: DailyAzureConfig,
+) -> Path:
+    fingerprint = daily_azure_configuration_fingerprint(config)
+    return receipt_path.with_name(
+        f".{receipt_path.name}.{fingerprint}.state.json"
+    )
+
+
+def write_daily_azure_readiness_state(
+    path: Path,
+    state: DailyAzureReadinessState,
+) -> None:
+    if _path_has_symlink(path):
+        raise OSError("Unsafe readiness state path.")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if _path_has_symlink(path):
+        raise OSError("Unsafe readiness state path.")
+    payload = json.dumps(
+        state.to_json_dict(),
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    _atomic_text_write(path, f"{payload}\n")
+
+
+def _load_daily_azure_readiness_state(
+    path: Path,
+    config: DailyAzureConfig,
+) -> DailyAzureReadinessState | None:
+    if _path_has_symlink(path) or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, TypeError, json.JSONDecodeError):
+        return None
+    expected_fields = {field.name for field in fields(DailyAzureReadinessState)}
+    if not isinstance(payload, dict) or set(payload) != expected_fields:
+        return None
+    try:
+        state = DailyAzureReadinessState(**payload)
+    except TypeError:
+        return None
+    fingerprint = daily_azure_configuration_fingerprint(config)
+    if (
+        state.schema_version != READINESS_STATE_SCHEMA_VERSION
+        or state.operation != REBUILD_OPERATION
+        or state.configuration_fingerprint != fingerprint
+        or _READINESS_RUN_EPOCH.fullmatch(state.run_epoch) is None
+        or state.state not in {"revoked", "ready"}
+    ):
+        return None
+    return state
+
+
+def _receipt_configuration_fingerprint(path: Path) -> str | None:
+    if _path_has_symlink(path) or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, TypeError, json.JSONDecodeError):
+        return None
+    value = (
+        payload.get("configuration_fingerprint")
+        if isinstance(payload, dict)
+        else None
+    )
+    return value if isinstance(value, str) else None
+
+
+def invalidate_daily_azure_readiness_receipt(path: Path) -> None:
+    if _path_has_symlink(path):
+        raise OSError("Unsafe readiness receipt path.")
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise OSError("Unable to invalidate readiness receipt.") from exc
+
+
+def load_matching_daily_azure_readiness_receipt(
+    path: Path,
+    config: DailyAzureConfig,
+) -> DailyAzureReadinessReceipt | None:
+    state = _load_daily_azure_readiness_state(
+        daily_azure_readiness_state_path(path, config),
+        config,
+    )
+    if state is None or state.state != "ready":
+        return None
+    if _path_has_symlink(path) or not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, TypeError, json.JSONDecodeError):
+        return None
+    expected_fields = {field.name for field in fields(DailyAzureReadinessReceipt)}
+    if not isinstance(payload, dict) or set(payload) != expected_fields:
+        return None
+    try:
+        receipt = DailyAzureReadinessReceipt(**payload)
+    except TypeError:
+        return None
+    string_values = (
+        receipt.operation,
+        receipt.configuration_fingerprint,
+        receipt.run_epoch,
+        receipt.correlation_fingerprint,
+        receipt.requested_foundry_account_name,
+        receipt.foundry_account_name,
+        receipt.resource_group,
+        receipt.foundry_project_name,
+        receipt.web_app_name,
+    )
+    if (
+        receipt.schema_version != READINESS_RECEIPT_SCHEMA_VERSION
+        or receipt.operation != REBUILD_OPERATION
+        or receipt.ready is not True
+        or receipt.run_epoch != state.run_epoch
+        or _READINESS_RUN_EPOCH.fullmatch(receipt.run_epoch) is None
+        or type(receipt.foundry_account_name_generated) is not bool
+        or type(receipt.foundry_account_name_generation_attempts) is not int
+        or not all(
+            isinstance(value, str) and value and value == value.strip()
+            for value in string_values
+        )
+        or not valid_foundry_account_name(receipt.foundry_account_name)
+        or receipt.requested_foundry_account_name
+        != config.configured_foundry_account_name
+        or receipt.resource_group != config.resource_group
+        or receipt.foundry_project_name != config.foundry_project_name
+        or receipt.web_app_name != config.web_app_name
+        or receipt.configuration_fingerprint
+        != daily_azure_configuration_fingerprint(config)
+        or receipt.foundry_account_name_generated
+        is (receipt.foundry_account_name == receipt.requested_foundry_account_name)
+        or (
+            receipt.foundry_account_name_generated
+            and not (
+                1
+                <= receipt.foundry_account_name_generation_attempts
+                <= MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
+            )
+        )
+        or (
+            receipt.foundry_account_name_generated
+            and not _foundry_account_candidate_matches_base(
+                receipt.foundry_account_name,
+                receipt.requested_foundry_account_name,
+            )
+        )
+        or (
+            not receipt.foundry_account_name_generated
+            and receipt.foundry_account_name_generation_attempts != 0
+        )
+    ):
+        return None
+    correlation = _readiness_receipt_correlation(
+        configuration_fingerprint=receipt.configuration_fingerprint,
+        run_epoch=receipt.run_epoch,
+        requested_foundry_account_name=receipt.requested_foundry_account_name,
+        foundry_account_name=receipt.foundry_account_name,
+        foundry_account_name_generated=receipt.foundry_account_name_generated,
+        foundry_account_name_generation_attempts=(
+            receipt.foundry_account_name_generation_attempts
+        ),
+        resource_group=receipt.resource_group,
+        foundry_project_name=receipt.foundry_project_name,
+        web_app_name=receipt.web_app_name,
+    )
+    return receipt if secrets.compare_digest(
+        receipt.correlation_fingerprint,
+        correlation,
+    ) else None
+
+
 class DailyAzureEnvironmentRebuild:
     def __init__(
         self,
@@ -1775,11 +2294,15 @@ class DailyAzureEnvironmentRebuild:
         local_contract_checker: Callable[[Path], tuple[str, ...]] = (
             validate_local_orchestration_contract
         ),
+        foundry_name_generator: Callable[
+            [str, frozenset[str]], str
+        ] = generate_foundry_account_name,
     ) -> None:
         self.config = config
         self.repository_root = repository_root
         self.runner_factory = runner_factory
         self.local_contract_checker = local_contract_checker
+        self.foundry_name_generator = foundry_name_generator
 
     def check(self) -> DailyAzureEnvironmentRebuildResult:
         failures = self.local_contract_checker(self.repository_root)
@@ -1803,6 +2326,47 @@ class DailyAzureEnvironmentRebuild:
     ) -> DailyAzureEnvironmentRebuildResult:
         progress: dict[str, object] = {}
         mutation: list[bool | None] = [False]
+        receipt_path = self.repository_root / READINESS_RECEIPT_FILE
+        configuration_fingerprint = daily_azure_configuration_fingerprint(
+            self.config
+        )
+        run_epoch = secrets.token_hex(16)
+        readiness_state_path = daily_azure_readiness_state_path(
+            receipt_path,
+            self.config,
+        )
+        try:
+            write_daily_azure_readiness_state(
+                readiness_state_path,
+                DailyAzureReadinessState(
+                    schema_version=READINESS_STATE_SCHEMA_VERSION,
+                    operation=REBUILD_OPERATION,
+                    configuration_fingerprint=configuration_fingerprint,
+                    run_epoch=run_epoch,
+                    state="revoked",
+                ),
+            )
+        except Exception:
+            return self._failure(
+                "readiness_receipt_revocation_failed",
+                progress,
+                False,
+            )
+        try:
+            receipt_fingerprint = _receipt_configuration_fingerprint(
+                receipt_path
+            )
+            if (
+                receipt_fingerprint is None
+                or receipt_fingerprint == configuration_fingerprint
+            ):
+                invalidate_daily_azure_readiness_receipt(receipt_path)
+        except OSError:
+            return self._failure(
+                "readiness_receipt_invalidation_failed",
+                progress,
+                False,
+            )
         try:
             failures = self.local_contract_checker(self.repository_root)
         except Exception:
@@ -1823,7 +2387,14 @@ class DailyAzureEnvironmentRebuild:
                 environment_binding=self._environment_binding(),
                 approver=approver,
             )
-            return self._live(runner, approvals, progress, mutation)
+            return self._live(
+                runner,
+                approvals,
+                progress,
+                mutation,
+                run_epoch,
+                readiness_state_path,
+            )
         except Exception:
             if mutation[0] is False:
                 mutation[0] = None
@@ -1835,6 +2406,8 @@ class DailyAzureEnvironmentRebuild:
         approvals: GuidedApprovalSession,
         progress: dict[str, object],
         mutation: list[bool | None],
+        run_epoch: str,
+        readiness_state_path: Path,
     ) -> DailyAzureEnvironmentRebuildResult:
         context = self._initial_context()
 
@@ -1880,45 +2453,155 @@ class DailyAzureEnvironmentRebuild:
 
         foundry = runner.verify_foundry(context)
         if foundry.state == "absent":
-            plan = runner.plan_foundry(context)
-            if plan.source_failure_category is not None:
+            attempted_names = {context.effective_foundry_account_name}
+            for _foundry_attempt in range(
+                MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES + 1
+            ):
+                plan = runner.plan_foundry(context)
+                conflict_from_plan = (
+                    plan.source_failure_category
+                    == "foundry_account_name_unavailable"
+                )
+                if conflict_from_plan:
+                    recovery = self._next_foundry_account_context(
+                        context,
+                        attempted_names,
+                    )
+                    if isinstance(recovery, str):
+                        return self._failure(
+                            recovery,
+                            progress,
+                            mutation[0],
+                            foundry_plan_diagnostic=GuidedPlanDiagnostic(
+                                plan,
+                                expected_boundary="foundry",
+                                require_create=True,
+                            ),
+                        )
+                    context = recovery
+                    attempted_names.add(context.effective_foundry_account_name)
+                    offline = runner.check_foundry(context)
+                    if (
+                        not offline.ok
+                        or offline.mutation_made is not False
+                        or offline.updates != RuntimeUpdates()
+                    ):
+                        return self._failure(
+                            (
+                                offline.category
+                                if not offline.ok
+                                else "foundry_candidate_offline_check_failed"
+                            ),
+                            progress,
+                            mutation[0],
+                        )
+                    continue
+                if plan.source_failure_category is not None:
+                    return self._failure(
+                        plan.source_failure_category,
+                        progress,
+                        mutation[0],
+                        foundry_plan_diagnostic=GuidedPlanDiagnostic(
+                            plan,
+                            expected_boundary="foundry",
+                            require_create=True,
+                        ),
+                    )
+                if not safe_guided_plan(
+                    plan,
+                    expected_boundary="foundry",
+                    require_create=True,
+                ):
+                    return self._failure(
+                        "unsafe_foundry_plan",
+                        progress,
+                        mutation[0],
+                        foundry_plan_diagnostic=GuidedPlanDiagnostic(
+                            plan,
+                            expected_boundary="foundry",
+                            require_create=True,
+                        ),
+                    )
+                if not approvals.request(
+                    _plan_approval_summary(
+                        "foundry_deployment",
+                        "FOUNDRY DEPLOYMENT",
+                        plan,
+                        resource_identity=(
+                            context.effective_foundry_account_name
+                        ),
+                    )
+                ):
+                    return self._failure(
+                        "foundry_deployment_approval_required",
+                        progress,
+                        mutation[0],
+                    )
+                deployed = runner.deploy_foundry(context)
+                mutation[0] = _combine_mutation_state(
+                    mutation[0],
+                    deployed.mutation_made,
+                )
+                if not deployed.ok:
+                    if deployed.category != "foundry_account_name_unavailable":
+                        return self._failure(
+                            deployed.category,
+                            progress,
+                            mutation[0],
+                        )
+                    if deployed.mutation_made is not False:
+                        return self._failure(
+                            "foundry_account_name_recovery_unsafe_partial_state",
+                            progress,
+                            mutation[0],
+                        )
+                    recovery = self._next_foundry_account_context(
+                        context,
+                        attempted_names,
+                    )
+                    if isinstance(recovery, str):
+                        return self._failure(
+                            recovery,
+                            progress,
+                            mutation[0],
+                        )
+                    context = recovery
+                    attempted_names.add(context.effective_foundry_account_name)
+                    offline = runner.check_foundry(context)
+                    if (
+                        not offline.ok
+                        or offline.mutation_made is not False
+                        or offline.updates != RuntimeUpdates()
+                    ):
+                        return self._failure(
+                            (
+                                offline.category
+                                if not offline.ok
+                                else "foundry_candidate_offline_check_failed"
+                            ),
+                            progress,
+                            mutation[0],
+                        )
+                    continue
+                if (
+                    deployed.updates.foundry_account_name is not None
+                    and deployed.updates.foundry_account_name
+                    != context.effective_foundry_account_name
+                ):
+                    return self._failure(
+                        "foundry_deployment_identity_mismatch",
+                        progress,
+                        mutation[0],
+                    )
+                context = _apply_updates(context, deployed.updates)
+                foundry = runner.verify_foundry(context)
+                break
+            else:
                 return self._failure(
-                    plan.source_failure_category,
+                    "foundry_account_name_candidates_exhausted",
                     progress,
                     mutation[0],
-                    foundry_plan_diagnostic=GuidedPlanDiagnostic(
-                        plan,
-                        expected_boundary="foundry",
-                        require_create=True,
-                    ),
                 )
-            if not safe_guided_plan(
-                plan,
-                expected_boundary="foundry",
-                require_create=True,
-            ):
-                return self._failure(
-                    "unsafe_foundry_plan",
-                    progress,
-                    mutation[0],
-                    foundry_plan_diagnostic=GuidedPlanDiagnostic(
-                        plan,
-                        expected_boundary="foundry",
-                        require_create=True,
-                    ),
-                )
-            if not approvals.request(
-                _plan_approval_summary(
-                    "foundry_deployment", "FOUNDRY DEPLOYMENT", plan
-                )
-            ):
-                return self._failure(
-                    "foundry_deployment_approval_required", progress, mutation[0]
-                )
-            deployed = runner.deploy_foundry(context)
-            if not apply(deployed):
-                return self._failure(deployed.category, progress, mutation[0])
-            foundry = runner.verify_foundry(context)
         if not apply(foundry):
             return self._failure(foundry.category, progress, mutation[0])
         progress["foundry_infrastructure_verified"] = True
@@ -2022,9 +2705,95 @@ class DailyAzureEnvironmentRebuild:
         progress["hosted_readiness_verified"] = True
         progress["application_artifact_current"] = True
 
+        receipt = build_daily_azure_readiness_receipt(
+            self.config,
+            context,
+            run_epoch,
+        )
+        try:
+            write_daily_azure_readiness_receipt(
+                self.repository_root / READINESS_RECEIPT_FILE,
+                receipt,
+            )
+            write_daily_azure_readiness_state(
+                readiness_state_path,
+                DailyAzureReadinessState(
+                    schema_version=READINESS_STATE_SCHEMA_VERSION,
+                    operation=REBUILD_OPERATION,
+                    configuration_fingerprint=(
+                        receipt.configuration_fingerprint
+                    ),
+                    run_epoch=receipt.run_epoch,
+                    state="ready",
+                ),
+            )
+        except OSError:
+            return self._failure(
+                "readiness_receipt_write_failed",
+                progress,
+                mutation[0],
+            )
+        handoff = RbacHandoff(
+            readiness_receipt=str(READINESS_RECEIPT_FILE),
+            requested_foundry_account_name=(
+                receipt.requested_foundry_account_name
+            ),
+            foundry_account_name=receipt.foundry_account_name,
+            foundry_account_name_generated=(
+                receipt.foundry_account_name_generated
+            ),
+            resource_group=receipt.resource_group,
+            foundry_project_name=receipt.foundry_project_name,
+            web_app_name=receipt.web_app_name,
+        )
         return DailyAzureEnvironmentRebuildResult._verified_ready(
             progress,
             azure_mutation_made=mutation[0],
+            requested_foundry_account_name=(
+                receipt.requested_foundry_account_name
+            ),
+            foundry_account_name=receipt.foundry_account_name,
+            foundry_account_name_generated=(
+                receipt.foundry_account_name_generated
+            ),
+            foundry_account_name_generation_attempts=(
+                receipt.foundry_account_name_generation_attempts
+            ),
+            rbac_handoff=handoff,
+        )
+
+    def _next_foundry_account_context(
+        self,
+        context: DailyAzureRuntimeContext,
+        attempted_names: set[str],
+    ) -> DailyAzureRuntimeContext | str:
+        if (
+            context.foundry_account_name_generation_attempts
+            >= MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
+        ):
+            return "foundry_account_name_candidates_exhausted"
+        try:
+            candidate = self.foundry_name_generator(
+                self.config.configured_foundry_account_name,
+                frozenset(attempted_names),
+            )
+        except (TypeError, ValueError):
+            return "foundry_account_name_generation_failed"
+        if (
+            candidate in attempted_names
+            or not valid_foundry_account_name(candidate)
+            or not _foundry_account_candidate_matches_base(
+                candidate,
+                self.config.configured_foundry_account_name,
+            )
+        ):
+            return "foundry_account_name_generation_failed"
+        return _context_with_foundry_account_name(
+            context,
+            candidate,
+            generation_attempts=(
+                context.foundry_account_name_generation_attempts + 1
+            ),
         )
 
     def _environment_binding(self) -> str:
@@ -2058,6 +2827,9 @@ class DailyAzureEnvironmentRebuild:
             stable_agent_endpoint=stable_endpoint,
             web_app_name=self.config.web_app_name,
             hosted_origin=f"https://{self.config.web_app_name}.azurewebsites.net",
+            configured_foundry_account_name=(
+                self.config.configured_foundry_account_name
+            ),
         )
 
     def _failure(
@@ -2084,8 +2856,16 @@ class DailyAzureEnvironmentRebuild:
                 "Rerun guided live mode and review the fresh Foundry preview."
             ),
             "foundry_account_name_unavailable": (
-                "Choose a different globally unique Foundry account name in the "
-                "ignored local configuration, then rerun the fresh preview."
+                "Azure proved the Foundry base name unavailable; rerun the "
+                "coordinator to start a new bounded recovery run."
+            ),
+            "foundry_account_name_candidates_exhausted": (
+                "The three generated Foundry account-name candidates were "
+                "exhausted; stop and review the sanitized conflict category."
+            ),
+            "foundry_account_name_recovery_unsafe_partial_state": (
+                "Automatic renaming stopped because mutation state was not "
+                "conclusively absent."
             ),
             "web_app_deployment_approval_required": (
                 "Rerun guided live mode and review the fresh Web App preview."
@@ -2149,6 +2929,32 @@ def _apply_updates(
         if value is not None
     }
     return replace(context, **values) if values else context
+
+
+def _context_with_foundry_account_name(
+    context: DailyAzureRuntimeContext,
+    foundry_account_name: str,
+    *,
+    generation_attempts: int,
+) -> DailyAzureRuntimeContext:
+    if not valid_foundry_account_name(foundry_account_name):
+        raise ValueError("Invalid effective Foundry account name.")
+    project_endpoint = (
+        f"https://{foundry_account_name}.services.ai.azure.com/"
+        f"api/projects/{context.foundry_project_name}"
+    )
+    stable_agent_endpoint = (
+        f"{project_endpoint}/agents/{context.agent_name}/"
+        "endpoint/protocols/openai"
+    )
+    return replace(
+        context,
+        foundry_account_name=foundry_account_name,
+        project_endpoint=project_endpoint,
+        stable_agent_endpoint=stable_agent_endpoint,
+        foundry_account_name_generated=True,
+        foundry_account_name_generation_attempts=generation_attempts,
+    )
 
 
 @dataclass(frozen=True)
@@ -2219,7 +3025,6 @@ class RepositoryDailyAzureStageRunner:
         self._package = None
         self._package_authorization_session = create_package_authorization_session()
         self._expected_application_artifact_digest: str | None = None
-        self._foundry_parameters: Path | None = None
         self._consumer_rbac_preview_authorization: (
             tuple[str, str, ConsumerRbacPlan] | None
         ) = None
@@ -2356,6 +3161,15 @@ class RepositoryDailyAzureStageRunner:
             self.command_runner,
         )
         if result.get("category") == "resource_not_found":
+            if any(
+                result.get(name) is True
+                for name in (
+                    "account_verified",
+                    "project_verified",
+                    "model_deployment_verified",
+                )
+            ):
+                return StageResult.failure("foundry_partial_state")
             return StageResult.absent("foundry_absent")
         if not result.get("ok"):
             return StageResult.failure(str(result.get("category", "foundry_verification_failed")))
@@ -2369,10 +3183,34 @@ class RepositoryDailyAzureStageRunner:
             return StageResult.failure("foundry_model_drift")
         return StageResult.success(reused=True)
 
+    def check_foundry(self, context: DailyAzureRuntimeContext) -> StageResult:
+        from scripts.deploy_foundry_infra import DeploymentRequest, execute
+
+        parameters = self._parameters_file(context)
+        if parameters is None:
+            return StageResult.failure("parameter_file_invalid")
+        result = execute(
+            DeploymentRequest(
+                "check",
+                "foundry-only",
+                parameters,
+                context.resource_group,
+                context.location,
+            ),
+            self.command_runner,
+            ensure_resource_group=False,
+            verify_resource_group=False,
+        )
+        if not result.get("ok"):
+            return StageResult.failure(
+                str(result.get("category", "foundry_candidate_offline_check_failed"))
+            )
+        return StageResult.success(reused=True)
+
     def plan_foundry(self, context: DailyAzureRuntimeContext) -> PlanResult:
         from scripts.deploy_foundry_infra import DeploymentRequest, execute
 
-        parameters = self._parameters_file()
+        parameters = self._parameters_file(context)
         if parameters is None:
             return PlanResult(malformed=True)
         result = execute(
@@ -2391,7 +3229,7 @@ class RepositoryDailyAzureStageRunner:
     def deploy_foundry(self, context: DailyAzureRuntimeContext) -> StageResult:
         from scripts.deploy_foundry_infra import DeploymentRequest, execute
 
-        parameters = self._parameters_file()
+        parameters = self._parameters_file(context)
         if parameters is None:
             return StageResult.failure("parameter_file_invalid")
         result = execute(
@@ -2407,9 +3245,20 @@ class RepositoryDailyAzureStageRunner:
         )
         endpoint = result.get("project_endpoint")
         if not result.get("ok") or endpoint != context.project_endpoint:
+            category = str(
+                result.get("category", "foundry_deployment_failed")
+            )
+            mutation_made: bool | None = None
+            if category == "foundry_account_name_unavailable":
+                post_failure_state = self.verify_foundry(context)
+                if (
+                    post_failure_state.state == "absent"
+                    and post_failure_state.mutation_made is False
+                ):
+                    mutation_made = False
             return StageResult.failure(
-                str(result.get("category", "foundry_deployment_failed")),
-                mutation_made=None,
+                category,
+                mutation_made=mutation_made,
                 attempted=True,
             )
         return StageResult.success(mutation_made=True)
@@ -2841,7 +3690,7 @@ class RepositoryDailyAzureStageRunner:
         )
         semantics = {
             "exact_create": (True, False),
-            "expected_ignore_plus_unsupported": (False, True),
+            "expected_ignore_plus_unsupported": (True, True),
         }
         expected_semantics = semantics.get(result.preview_topology)
         counts_complete = bool(
@@ -2859,24 +3708,20 @@ class RepositoryDailyAzureStageRunner:
                 for change in changes
             )
         )
-        bounded_evidence_complete = bool(
+        unsupported_evidence_complete = bool(
             counts_complete
             and result.preview_topology
             == "expected_ignore_plus_unsupported"
             and all(
                 change.boundary == "consumer_rbac"
                 and change.action in {"Ignore", "Unsupported"}
-                and change.resource_type == "unidentified"
+                and change.resource_type != "unidentified"
                 and change.logical_category
-                == (
-                    "bounded_manual_review_ignore"
-                    if change.action == "Ignore"
-                    else "bounded_manual_review_unsupported"
-                )
+                != "bounded_manual_review_unsupported"
                 and change.approved_boundary is (change.action == "Ignore")
-                and change.expected_identity_match is False
-                and change.expected_parent_match is False
-                and change.expected_scope_match is False
+                and change.expected_identity_match is True
+                and change.expected_parent_match is True
+                and change.expected_scope_match is True
                 and change.expected_multiplicity_match is True
                 for change in changes
             )
@@ -2884,7 +3729,7 @@ class RepositoryDailyAzureStageRunner:
         evidence_complete = bool(
             exact_evidence_complete
             if result.preview_topology == "exact_create"
-            else bounded_evidence_complete
+            else unsupported_evidence_complete
         )
         safe = bool(
             result.ok
@@ -2901,8 +3746,7 @@ class RepositoryDailyAzureStageRunner:
             and evidence_complete
             and result.manual_review_required
             is any(not change.approved_boundary for change in changes)
-            and result.assignment_contents_proved
-            is all(change.approved_boundary for change in changes)
+            and result.assignment_contents_proved is True
             and result.modify_count == 0
             and result.no_change_count == 0
             and result.delete_count == 0
@@ -3083,9 +3927,14 @@ class RepositoryDailyAzureStageRunner:
             agent_invoked=result.invocation_attempted,
         )
 
-    def _parameters_file(self) -> Path | None:
-        if self._foundry_parameters is not None:
-            return self._foundry_parameters
+    def _parameters_file(
+        self,
+        context: DailyAzureRuntimeContext,
+    ) -> Path | None:
+        if not valid_foundry_account_name(
+            context.effective_foundry_account_name
+        ):
+            return None
         path = self.repository_root / ".artifacts/daily-azure-rebuild/foundry-only.bicepparam"
         if _path_has_symlink(path):
             return None
@@ -3095,7 +3944,8 @@ class RepositoryDailyAzureStageRunner:
             f"param location = '{self.config.location}'\n"
             f"param projectName = '{self.config.project_name}'\n"
             f"param environmentName = '{self.config.environment_name}'\n"
-            f"param foundryAccountName = '{self.config.foundry_account_name}'\n"
+            "param foundryAccountName = "
+            f"'{context.effective_foundry_account_name}'\n"
             f"param foundryProjectName = '{self.config.foundry_project_name}'\n"
             "param foundryProjectDisplayName = 'Fictional Intake Daily Validation'\n"
             "param foundryProjectDescription = 'Disposable fictional validation project.'\n"
@@ -3111,7 +3961,6 @@ class RepositoryDailyAzureStageRunner:
             _atomic_text_write(path, content)
         except OSError:
             return None
-        self._foundry_parameters = path
         return path
 
     def _web_app_request(

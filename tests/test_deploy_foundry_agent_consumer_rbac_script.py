@@ -2,6 +2,7 @@ import importlib
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,14 +10,10 @@ from src.app.services import foundry_agent_consumer_rbac_deployment as rbac_depl
 
 
 VALID_ARGUMENTS = [
-    "--resource-group",
-    "fictional-resource-group",
-    "--web-app-name",
-    "fictional-nurse-intake-web-app",
-    "--foundry-account-name",
-    "fictional-foundry-account",
-    "--foundry-project-name",
-    "fictional-foundry-project",
+    "--config",
+    ".env.daily-azure.local",
+    "--readiness-receipt",
+    ".artifacts/daily-azure-rebuild/readiness-receipt.json",
 ]
 APPROVED_ARGUMENTS = [
     "--subscription-id",
@@ -73,7 +70,7 @@ def _exact_manual_review_preview() -> dict[str, object]:
     evidence = _approved_evidence()
     ignored = rbac_deployment._expected_daily_ignore_resources(
         evidence,
-        VALID_ARGUMENTS[3],
+        "fictional-nurse-intake-web-app",
     )
     changes = [
         {
@@ -95,6 +92,12 @@ def _exact_manual_review_preview() -> dict[str, object]:
                 f"{rbac_deployment.ROLE_ASSIGNMENT_RESOURCE_TYPE}/"
                 f"{evidence.role_assignment_name}"
             ),
+            "after": {
+                "properties": {
+                    "principalId": evidence.web_app_principal_id,
+                    "roleDefinitionId": evidence.role_definition_id,
+                }
+            },
         }
     )
     return {"changes": changes, "tenantId": "raw-tenant"}
@@ -102,6 +105,35 @@ def _exact_manual_review_preview() -> dict[str, object]:
 
 def _script():
     return importlib.import_module("scripts.deploy_foundry_agent_consumer_rbac")
+
+
+def _receipt():
+    return SimpleNamespace(
+        requested_foundry_account_name="fictional-foundry-base",
+        foundry_account_name="fictional-foundry-account",
+        foundry_account_name_generated=True,
+        resource_group="fictional-resource-group",
+        web_app_name="fictional-nurse-intake-web-app",
+        foundry_project_name="fictional-foundry-project",
+    )
+
+
+def _patch_valid_handoff(
+    script,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        script,
+        "load_daily_azure_config",
+        lambda path, repository_root: SimpleNamespace(
+            foundry_account_name="fictional-foundry-base"
+        ),
+    )
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda path, config: _receipt(),
+    )
 
 
 def test_import_performs_no_azure_operation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,22 +159,11 @@ def test_modes_are_required_and_mutually_exclusive() -> None:
             script.main(argv)
 
 
-@pytest.mark.parametrize(
-    "flag",
-    [
-        "--resource-group",
-        "--web-app-name",
-        "--foundry-account-name",
-        "--foundry-project-name",
-    ],
-)
-def test_required_names_are_enforced(flag: str) -> None:
+def test_daily_config_is_required() -> None:
     script = _script()
-    index = VALID_ARGUMENTS.index(flag)
-    argv = ["--check", *VALID_ARGUMENTS[:index], *VALID_ARGUMENTS[index + 2 :]]
 
     with pytest.raises(SystemExit):
-        script.main(argv)
+        script.main(["--check"])
 
 
 def test_role_definition_override_is_not_a_cli_option() -> None:
@@ -168,6 +189,7 @@ def test_check_is_offline_and_prints_sanitized_json(
         "_create_azure_cli_runner",
         lambda: pytest.fail("check must not construct a runner"),
     )
+    _patch_valid_handoff(script, monkeypatch)
 
     exit_code = script.main(["--check", "--json", *VALID_ARGUMENTS])
 
@@ -187,16 +209,19 @@ def test_unsafe_input_fails_before_runner_construction(
     monkeypatch.setattr(
         script, "_create_azure_cli_runner", lambda: constructed.append(True)
     )
-    argv = [
-        value if value != "fictional-resource-group" else "unsafe\nresource-group"
-        for value in VALID_ARGUMENTS
-    ]
+    monkeypatch.setattr(
+        script,
+        "load_daily_azure_config",
+        lambda path, repository_root: (_ for _ in ()).throw(
+            script.ConfigValidationError("invalid_configuration")
+        ),
+    )
 
-    exit_code = script.main(["--live", "--json", *argv])
+    exit_code = script.main(["--live", "--json", *VALID_ARGUMENTS])
 
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 2
-    assert payload["category"] == "invalid_request"
+    assert payload["category"] == "invalid_configuration"
     assert payload["azure_operation_attempted"] is False
     assert constructed == []
 
@@ -223,14 +248,43 @@ def test_azure_modes_lazily_use_exactly_one_injected_runner(
 
     runner = FakeRunner()
     monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: runner)
-
-    exit_code = script.main(
-        [mode, "--json", *VALID_ARGUMENTS, *APPROVED_ARGUMENTS]
+    _patch_valid_handoff(script, monkeypatch)
+    monkeypatch.setattr(
+        script,
+        "_account_matches_handoff",
+        lambda runner, **kwargs: True,
     )
+    monkeypatch.setattr(
+        script,
+        "_fresh_evidence",
+        lambda runner, **kwargs: (_approved_evidence(), None),
+    )
+    if mode == "--live":
+        monkeypatch.setattr(
+            script,
+            "prompt_for_rbac_approval",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            script,
+            "verify_foundry_agent_consumer_rbac",
+            lambda request, runner: SimpleNamespace(
+                ok=True,
+                category="success",
+                web_app_identity_present=True,
+                foundry_project_scope_resolved=True,
+                consumer_assignment_present=True,
+                consumer_assignment_scope_matches=True,
+                consumer_role_matches=True,
+                matching_assignment_count=1,
+            ),
+        )
+
+    exit_code = script.main([mode, "--json", *VALID_ARGUMENTS])
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert len(runner.calls) == 1
+    assert len(runner.calls) == (2 if mode == "--live" else 1)
     assert "raw-tenant" not in output
     assert "raw stderr" not in output
 
@@ -249,10 +303,19 @@ def test_non_json_what_if_prints_all_sanitized_counts_and_manual_review_warning(
             )
 
     monkeypatch.setattr(script, "_create_azure_cli_runner", FakeRunner)
-
-    exit_code = script.main(
-        ["--what-if", *VALID_ARGUMENTS, *APPROVED_ARGUMENTS]
+    _patch_valid_handoff(script, monkeypatch)
+    monkeypatch.setattr(
+        script,
+        "_account_matches_handoff",
+        lambda runner, **kwargs: True,
     )
+    monkeypatch.setattr(
+        script,
+        "_fresh_evidence",
+        lambda runner, **kwargs: (_approved_evidence(), None),
+    )
+
+    exit_code = script.main(["--what-if", *VALID_ARGUMENTS])
 
     output = capsys.readouterr().out
     assert exit_code == 0

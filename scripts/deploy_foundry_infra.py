@@ -94,24 +94,66 @@ def _authorization_failure(stderr: str) -> bool:
     return "authorization" in value or "authentication" in value or "login" in value
 
 
-def _what_if_failure(stderr: str) -> tuple[str, dict[str, object] | None]:
-    if _authorization_failure(stderr):
-        return "authentication_or_authorization_failed", None
-    value = stderr.casefold()
-    deleted_account_markers = (
-        "invalidtemplatedeployment",
-        "cognitiveservices",
-        "deleted",
-        "not available",
-        "purge",
-        "different name",
+def _foundry_account_name_conflict(
+    outcome: CommandResult,
+    request: DeploymentRequest,
+) -> tuple[str, str] | None:
+    account_name = _parameter_string(
+        request.parameters,
+        "foundryAccountName",
     )
-    if all(marker in value for marker in deleted_account_markers):
+    if account_name is None:
+        return None
+    structured_errors: list[dict[str, object]] = []
+    for raw in (outcome.stdout, outcome.stderr):
+        try:
+            payload = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if (
+            isinstance(payload, dict)
+            and set(payload) == {"error"}
+            and isinstance(payload.get("error"), dict)
+        ):
+            structured_errors.append(payload["error"])
+    if len(structured_errors) != 1:
+        return None
+    error = structured_errors[0]
+    if (
+        error.get("code") != "CustomDomainInUse"
+        or error.get("details") != []
+        or not isinstance(error.get("target"), str)
+    ):
+        return None
+    target_parts = error["target"].split("/")
+    if (
+        len(target_parts) != 9
+        or target_parts[1].casefold() != "subscriptions"
+        or not target_parts[2]
+        or target_parts[3].casefold() != "resourcegroups"
+        or target_parts[4].casefold() != request.resource_group.casefold()
+        or target_parts[5].casefold() != "providers"
+        or target_parts[6].casefold() != "microsoft.cognitiveservices"
+        or target_parts[7].casefold() != "accounts"
+        or target_parts[8].casefold() != account_name.casefold()
+    ):
+        return None
+    return "custom_domain_in_use", "custom_domain_in_use"
+
+
+def _what_if_failure(
+    outcome: CommandResult,
+    request: DeploymentRequest,
+) -> tuple[str, dict[str, object] | None]:
+    if _authorization_failure(outcome.stderr):
+        return "authentication_or_authorization_failed", None
+    conflict = _foundry_account_name_conflict(outcome, request)
+    if conflict is not None:
         return (
             "foundry_account_name_unavailable",
             {
-                "azure_error_class": "invalid_template_deployment",
-                "failure_kind": "deleted_foundry_account_name_unavailable",
+                "azure_error_class": conflict[0],
+                "failure_kind": conflict[1],
                 "same_configuration_retry_safe": False,
             },
         )
@@ -227,7 +269,7 @@ def execute(
         ]
         outcome = runner.run(command)
         if outcome.return_code != 0:
-            category, diagnostic = _what_if_failure(outcome.stderr)
+            category, diagnostic = _what_if_failure(outcome, request)
             result = _base(request, category)
             if diagnostic is not None:
                 result["what_if_failure_diagnostic"] = diagnostic
@@ -296,9 +338,22 @@ def execute(
         "--query", "properties.outputs", "--output", "json",
     ])
     if deployment.return_code != 0:
-        category = "authentication_or_authorization_failed" if _authorization_failure(deployment.stderr) else "deployment_failed"
+        conflict = _foundry_account_name_conflict(deployment, request)
+        category = (
+            "authentication_or_authorization_failed"
+            if _authorization_failure(deployment.stderr)
+            else "foundry_account_name_unavailable"
+            if conflict is not None
+            else "deployment_failed"
+        )
         result = _base(request, category)
         result["resource_group_ready"] = True
+        if conflict is not None:
+            result["deployment_failure_diagnostic"] = {
+                "azure_error_class": conflict[0],
+                "failure_kind": conflict[1],
+                "account_name_conflict_proven": True,
+            }
         return result
     try:
         outputs = json.loads(deployment.stdout)

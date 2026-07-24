@@ -5,45 +5,40 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,116 passed full suite; 228 passed focused daily coordinator and
-  documentation groups
+- 2,174 passed full suite
+- 370 focused coordinator/RBAC tests and 31 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The daily coordinator's scope is intentionally reduced after repeated live
-what-if evidence could not establish a safe existing-Web-App reconciliation
-topology. Those unsafe previews caused zero Azure mutation. The coordinator now
-considers the disposable environment ready after verified Foundry
-infrastructure and prompt-agent routing, Web App infrastructure/configuration,
-application deployment or safe reuse, and hosted application readiness. It
-returns success immediately at that boundary.
+The final coordinator receipt correction is complete offline. Every new live
+run atomically publishes a configuration-bound revoked run epoch before
+cleanup or Azure work, so a prior handoff is unloadable even if receipt
+deletion fails. Only a receipt matching the atomically published current
+`ready` epoch is accepted. RBAC What-If tests now begin from a complete accepted
+baseline and independently reject each named identity or topology mutation.
+The focused `--live` command remains the one-command post-`READY` boundary.
 
-Consumer RBAC, WebJob execution and recovery, managed-identity verification,
-metadata access, and hosted agent invocation remain standalone optional
-workflows. Their false result fields do not make the daily environment fail.
-Existing-Web-App drift remains fail-closed: the operator may recreate the
-disposable resource group through the normal fresh-build path or use a separate
-supervised Web App deployment workflow. No Azure, HTTP, RBAC, WebJob, identity,
-Foundry, invocation, cleanup, commit, or push operation occurred during this
-offline implementation.
-
-**Active implementation direction:** The project is deliberately moving from
-the local mock capstone into an Azure-first Microsoft Foundry Agent
-implementation. Current momentum is:
+The intended permanent sequence remains:
 
 ```text
-Disposable Foundry infrastructure
--> immutable prompt-agent lifecycle
--> guarded agent invocation
--> evaluation and Foundry metric publication
--> managed-identity-ready Web App hosting
--> offline-tested App Service remote-build prerequisite
--> explicit offline-tested Web App infrastructure deployment boundary
--> offline-tested Web App configuration verification
--> deterministic source deployment packaging
--> explicit Web App code-deployment request
--> offline-tested hosted Web App readiness verification
--> daily disposable environment ready
+daily coordinator READY
+-> sanitized readiness receipt and RBAC handoff
+-> focused Consumer RBAC command
+-> exact direct assignment reused or safely deployed
+-> read-only RBAC verification
+-> ready for the next hosted managed-identity slice
 ```
+
+Consumer RBAC is complete only when the command reports successful exact reuse
+or `assignment_verified=true` after deployment. WebJob execution/recovery,
+managed-identity verification, metadata access, and fixed-fictional hosted
+invocation remain standalone optional workflows. No live Azure, HTTP,
+deployment, cleanup, configuration rewrite, commit, or push operation occurred
+during this correction.
+
+**Active implementation direction:** move the local mock capstone toward an
+Azure-first Microsoft Foundry Agent implementation through disposable Foundry,
+immutable agents, evaluation, managed-identity-ready hosting, deterministic
+deployment, and hosted application readiness.
 
 Optional standalone boundaries remain available for project-scoped Consumer
 RBAC, WebJob execution/recovery, managed-identity verification, and
@@ -64,9 +59,10 @@ Important constraints:
 
 ## Current Resume Point
 
-The daily coordinator boundary correction is complete offline. Resume
-application and AI-103 feature development; do not resume the prior
-existing-Web-App reconciliation or hosted-proof automation loop.
+Resume Nurse Intake Assistant application and AI-103 feature development. Do
+not resume the prior existing-Web-App reconciliation loop. Any later hosted
+managed-identity slice must start only after a current coordinator `READY` and
+successful focused Consumer RBAC result.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point
@@ -383,35 +379,39 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Resume Nurse Intake Assistant application and AI-103 feature development. Do
-not continue disposable-environment reconciliation or hosted-proof automation
-as the active project thread. If a later feature specifically requires Consumer
-RBAC, WebJob execution, managed-identity verification, or hosted invocation,
-authorize and run only that standalone workflow with fresh current-session
-evidence.
+Resume Nurse Intake Assistant application and AI-103 feature development.
+Keep WebJob execution, managed-identity token acquisition, hosted Foundry
+metadata, and fixed-fictional invocation separate from the completed
+coordinator-to-RBAC boundary.
 
 ## Current Slice Status
 
-- An absent resource group requires current-run approval before creation. An
-  existing group is reusable only with the exact location, usable state, and
-  repository daily-purpose tag; otherwise the run stops for explicit manual
-  adoption and a rerun.
-- Foundry and Web App deployment each require approval bound to the current sanitized preview; package deployment separately binds its proof and uses a restrictive immutable handoff.
-- A failed Foundry what-if remains unsafe and now retains its sanitized upstream category and failed guided-plan predicates instead of being mislabeled as an ordinary topology rejection.
-- The daily coordinator now stops successfully after hosted application
-  readiness proves the current application artifact. Consumer RBAC, WebJob,
-  managed-identity, metadata, and invocation fields remain false because those
-  workflows are not entered.
-- Existing-Web-App configuration drift stops before any reconciliation preview,
-  approval, or deployment. The normal fresh-build path or a separate supervised
-  Web App workflow is required.
-- Linux WebJob hosting is current only with `alwaysOn=true` and the exact baseline Kudu-agent flag. Resource-level Modify approval combines exact identity evidence with the complete locally enforced Bicep Web App shape, an identical fresh preview, one deployment, and separate verification; deployment acceptance alone is not proof. The authoritative app-settings expression must append exactly `hostedFoundryVerifierAppSettings`; its one active top-level declaration is parsed outside comments and strings, and conditional resource bodies are selected only after balanced conditions. Decoy declarations and active relative Web App children or slots are rejected. Exact subsets of the two optional Foundry-reference Ignores are allowed, while duplicate, unrelated, or ambiguous evidence remains rejected. These final parser corrections were offline only: no corrected live policy execution, Azure or HTTP operation, WebJob discovery, trigger, status, managed-identity verification, or invocation occurred or is claimed.
-- A live nested-wrapper reconciliation preview produced one Web App Deploy and
-  nine unidentified Ignore records with no Modify; the coordinator rejected it
-  without mutation. The wrapper is removed and reconciliation now deploys the
-  authoritative Web App module directly with plan deployment disabled. No live
-  direct-module preview has yet succeeded, and this slice performed no live
-  reconciliation preview or deployment.
+- Verified: secure distinct candidate generation is bounded to three names
+  after the configured base; effective-name context reaches Foundry
+  verification, agent routing, Web App settings, READY JSON, receipt, and
+  handoff; local configuration remains unchanged.
+- Verified: the receipt is gitignored, permission-restricted, atomically
+  replaced, schema-checked, configuration-fingerprinted, correlation-checked,
+  rejects malformed or differently configured content, and is invalidated
+  before every new live-run Azure read.
+- Verified: account-name conflicts require structured exact code/resource/name
+  evidence; malformed, ambiguous, or substring-only output does not trigger
+  automatic recovery.
+- Verified: exact Create and exact Ignore-plus-Unsupported previews prove the
+  assignment identity and topology. Unrelated, incomplete, duplicate, or
+  mismatched evidence fails before approval.
+- Verified: the focused live command reuses one exact direct assignment without
+  prompting, otherwise previews, prompts once, refreshes evidence, deploys only
+  through repository Bicep, and immediately verifies exactly one direct
+  assignment.
+- Final independent review: focused GREEN is 370, documentation GREEN is 31,
+  and full GREEN is 2,174 with one existing warning.
+- No Azure, HTTP, deployment, cleanup, configuration rewrite, staging, commit, or push operation occurred.
+- Architecture impact: none; `docs/architecture.md` remains unchanged.
+- Historical Web App reconciliation remains separate: one Web App Deploy and
+  nine unidentified Ignore records were rejected without mutation. The wrapper
+  is removed; no live direct-module preview has yet succeeded, and this review
+  performed no live reconciliation preview or deployment.
 
 ### Historical Slice Results
 
@@ -463,38 +463,38 @@ Future Codex prompts must keep `docs/architecture.md` outside the default writab
 
 Perform architecture cleanup through periodic focused documentation reviews, not routine accumulation in every TDD slice. Check for duplicated rules, superseded statements, removable code-level detail, operational procedures that belong in or should reference runbooks, disagreement with the current implementation, and headings or sections that describe historical work instead of the present system.
 
-## Workflow
+## TDD Slice Scope And Review Gate
 
-1. Before each Codex task, ChatGPT should recommend the Codex model and
-   reasoning level. ChatGPT should recommend the Codex model and reasoning level
-   before each slice.
-2. Default recommendation:
-   - Model: GPT-5.5
-   - Reasoning: Medium for normal TDD slices
-   - Reasoning: High for cross-cutting architecture, risky integration, or multi-layer refactors
-   - Reasoning: Light for docs-only or tiny single-file cleanup
-3. Every future TDD slice must include a `docs/progress.md` update as part of
-   its acceptance criteria.
-4. Run pytest.
-5. Run git status.
-6. Review output with ChatGPT.
-7. Commit and push.
-8. Ask ChatGPT for the next Codex prompt.
+Before implementation, freeze objective, acceptance criteria, allowed files, prohibited work, and required verification.
+Builder and reviewer use frozen criteria; review must not add features, optional hardening, speculative failure modes, unrelated refactoring, or broader architecture requirements.
+
+```text
+freeze slice -> builder RED to GREEN -> focused and full verification
+-> one independent review -> one blocking-finding correction pass -> commit
+```
+A final review is permitted only when the correction changes a security-critical, authorization, destructive-deployment, concurrency, or persistent-state boundary.
+
+A finding blocks only for a concrete failure against frozen acceptance criteria,
+an existing repository contract, authorization or data safety, a reproducible
+correctness defect, or a required operator workflow. It must identify the exact
+location, concrete failure path, and smallest correction.
+
+Do not block for optional refactoring, naming or style, additional abstractions,
+theoretical hardening, unsupported environments, unrequired test permutations,
+or future operations. Record useful nonblocking concerns as future-slice candidates.
+
+Stop and split when a correction adds responsibility, materially expands frozen criteria, requires unrelated production changes, or substantially grows the surface.
+
+A slice is ready to commit when:
+
+```text
+frozen acceptance criteria satisfied
+- no concrete Critical or High defect remains; required focused tests pass
+- full suite passes; documentation matches implementation
+- git diff --check passes
+```
+Passing this gate ends the slice; further improvements belong in a later slice.
 
 ## Testing Guidance
 
-- Human-reviewed repository CLI examples that emit JSON pipe through
-  `python -m json.tool`, with `set -o pipefail` preserving the repository
-  command's failure status. Machine-consumed or captured output, fixtures, and
-  historical transcripts remain unmodified.
-- Continue using TDD for backend behavior, business rules, provider selection,
-  notification semantics, safety boundaries, idempotency, and error handling.
-- For docs-only slices, avoid adding many brittle string-matching tests.
-- Documentation tests should verify important project guardrails, not exact
-  prose everywhere.
-- For UI polish slices, test stable workflow controls, section headings, and
-  safety/human-review boundaries only when useful.
-- Avoid tests that lock in incidental wording, CSS/layout details, or
-  formatting.
-- Prefer a small number of high-value guardrail tests over many low-value
-  documentation tests.
+- For docs-only work, prefer a few semantic guardrails over brittle exact-prose tests; human-reviewed JSON CLI examples use `set -o pipefail` and `python -m json.tool`.

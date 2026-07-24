@@ -1,5 +1,6 @@
 import importlib
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,15 +10,36 @@ WEB_APP_NAME = "fictional-nurse-intake-web-app"
 FOUNDRY_ACCOUNT_NAME = "fictional-foundry-account"
 FOUNDRY_PROJECT_NAME = "fictional-foundry-project"
 NAMES = [
-    "--resource-group", RESOURCE_GROUP,
-    "--web-app-name", WEB_APP_NAME,
-    "--foundry-account-name", FOUNDRY_ACCOUNT_NAME,
-    "--foundry-project-name", FOUNDRY_PROJECT_NAME,
+    "--config", ".env.daily-azure.local",
+    "--readiness-receipt",
+    ".artifacts/daily-azure-rebuild/readiness-receipt.json",
 ]
 
 
 def _script():
     return importlib.import_module("scripts.verify_foundry_agent_consumer_rbac")
+
+
+def _patch_handoff(script, monkeypatch) -> None:
+    receipt = SimpleNamespace(
+        requested_foundry_account_name="fictional-foundry-base",
+        foundry_account_name=FOUNDRY_ACCOUNT_NAME,
+        resource_group=RESOURCE_GROUP,
+        web_app_name=WEB_APP_NAME,
+        foundry_project_name=FOUNDRY_PROJECT_NAME,
+    )
+    monkeypatch.setattr(
+        script,
+        "load_daily_azure_config",
+        lambda path, repository_root: SimpleNamespace(
+            foundry_account_name="fictional-foundry-base"
+        ),
+    )
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda path, config: receipt,
+    )
 
 
 def test_import_and_help_have_no_azure_side_effect(monkeypatch, capsys) -> None:
@@ -42,6 +64,7 @@ def test_check_is_json_offline_and_does_not_construct_runner(monkeypatch, capsys
         "_create_azure_cli_runner",
         lambda: pytest.fail("check must not construct a runner"),
     )
+    _patch_handoff(script, monkeypatch)
 
     exit_code = script.main(["--check", *NAMES, "--json"])
 
@@ -60,16 +83,15 @@ def test_invalid_live_name_fails_before_runner_creation(monkeypatch, capsys) -> 
         "_create_azure_cli_runner",
         lambda: created.append(True),
     )
-
-    exit_code = script.main(
-        [
-            "--live", "--json",
-            "--resource-group", "unsafe/resource-group",
-            "--web-app-name", WEB_APP_NAME,
-            "--foundry-account-name", FOUNDRY_ACCOUNT_NAME,
-            "--foundry-project-name", FOUNDRY_PROJECT_NAME,
-        ]
+    monkeypatch.setattr(
+        script,
+        "load_daily_azure_config",
+        lambda path, repository_root: (_ for _ in ()).throw(
+            script.ConfigValidationError("invalid_configuration")
+        ),
     )
+
+    exit_code = script.main(["--live", "--json", *NAMES])
 
     assert exit_code == 2
     assert json.loads(capsys.readouterr().out)["category"] == "invalid_configuration"
@@ -83,7 +105,7 @@ def test_cli_requires_exclusive_mode_all_names_and_json() -> None:
         ["--check", "--live", *NAMES, "--json"],
         ["--check", *NAMES],
         ["--live", *NAMES],
-        ["--live", "--json", *NAMES[:-2]],
+        ["--live", "--json"],
     )
     for argv in invalid:
         with pytest.raises(SystemExit):
@@ -143,6 +165,7 @@ def test_live_success_and_failure_have_distinct_sanitized_exit_codes(
             return self.results.pop(0)
 
     monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: Runner(True))
+    _patch_handoff(script, monkeypatch)
     assert script.main(["--live", *NAMES, "--json"]) == 0
     success_output = capsys.readouterr().out
     assert json.loads(success_output)["ok"] is True
@@ -192,6 +215,7 @@ def test_missing_azure_cli_is_sanitized(monkeypatch, capsys) -> None:
         raise FileNotFoundError("secret executable path")
 
     monkeypatch.setattr(script.subprocess, "run", missing)
+    _patch_handoff(script, monkeypatch)
     exit_code = script.main(["--live", *NAMES, "--json"])
 
     output = capsys.readouterr().out

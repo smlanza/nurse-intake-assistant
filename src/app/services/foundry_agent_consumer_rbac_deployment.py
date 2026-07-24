@@ -838,11 +838,13 @@ def _evaluate_what_if_summary(
         action: sum(record.shape.action == action for record in normalized)
         for action in _SAFE_ACTIONS
     }
-    bounded_unsupported_topology = bool(
+    unsupported_topology_shape = bool(
         change_record_count == len(expected_ignored) + 1
         and len(normalized) == change_record_count
         and all(
-            record.record_is_object and record.action_is_supported
+            record.record_is_object
+            and record.action_is_supported
+            and record.action_is_canonical
             for record in normalized
         )
         and normalized_action_counts
@@ -858,28 +860,82 @@ def _evaluate_what_if_summary(
             "unknown": 0,
         }
     )
-    if bounded_unsupported_topology:
-        bounded_changes = tuple(
+    if unsupported_topology_shape:
+        ignore_records = tuple(
+            record
+            for record in normalized
+            if record.shape.action == "Ignore"
+        )
+        assignment_records = tuple(
+            record
+            for record in normalized
+            if record.shape.action == "Unsupported"
+        )
+        exact_ignore_indexes = {
+            record.expected_ignore_index for record in ignore_records
+        }
+        exact_unsupported_topology = bool(
+            len(ignore_records) == len(expected_ignored)
+            and exact_ignore_indexes == set(range(len(expected_ignored)))
+            and all(
+                record.shape.resource_id_present
+                and record.shape.resource_id_shape_valid
+                and record.shape.resource_type_present
+                and record.canonical_resource_type_present
+                and record.resource_type_consistent
+                and record.expected_ignore_index is not None
+                and record.expected_ignore_resource_type_match
+                and record.shape.expected_identity_match
+                and record.shape.expected_parent_match
+                and record.shape.expected_scope_match
+                for record in ignore_records
+            )
+            and len(assignment_records) == 1
+            and assignment_records[0].shape.resource_id_present
+            and assignment_records[0].shape.resource_id_shape_valid
+            and assignment_records[0].shape.resource_type_present
+            and assignment_records[0].canonical_resource_type_present
+            and assignment_records[0].resource_type_consistent
+            and assignment_records[0].assignment_resource_id_match
+            and assignment_records[0].assignment_resource_type_match
+            and assignment_records[0].assignment_parent_match
+            and assignment_records[0].assignment_scope_match
+            and assignment_records[0].shape.after_present
+            and assignment_records[0].shape.properties_present
+            and assignment_records[0].shape.principal_id_present
+            and assignment_records[0].shape.role_definition_id_present
+            and assignment_records[0].after_value_valid
+            and assignment_records[0].properties_value_valid
+            and assignment_records[0].principal_value_match
+            and assignment_records[0].role_value_match
+            and not assignment_records[0].principal_value_is_none
+            and not assignment_records[0].role_value_is_none
+            and not assignment_records[0].principal_value_malformed
+            and not assignment_records[0].role_value_malformed
+        )
+        if not exact_unsupported_topology:
+            return None
+        exact_changes = tuple(
             SanitizedWhatIfChange(
                 action=record.shape.action,
-                resource_type="unidentified",
+                resource_type=record.shape.safe_resource_type,
                 logical_category=(
-                    "bounded_manual_review_ignore"
+                    expected_ignored[record.expected_ignore_index].logical_category
                     if record.shape.action == "Ignore"
-                    else "bounded_manual_review_unsupported"
+                    else "consumer_role_assignment"
                 ),
                 boundary="consumer_rbac",
                 approved_boundary=record.shape.action == "Ignore",
-                expected_identity_match=False,
-                expected_parent_match=False,
-                expected_scope_match=False,
+                expected_identity_match=True,
+                expected_parent_match=True,
+                expected_scope_match=True,
                 expected_multiplicity_match=True,
             )
             for record in normalized
         )
         return WhatIfSummary(
             preview_topology="expected_ignore_plus_unsupported",
-            assignment_contents_proved=False,
+            assignment_contents_proved=True,
             create_count=0,
             modify_count=0,
             no_change_count=0,
@@ -887,7 +943,7 @@ def _evaluate_what_if_summary(
             ignore_count=len(expected_ignored),
             deploy_count=0,
             unsupported_count=1,
-            change_evidence=bounded_changes,
+            change_evidence=exact_changes,
         )
 
     if (

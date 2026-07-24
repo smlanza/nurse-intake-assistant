@@ -51,7 +51,9 @@ set -o pipefail
    infrastructure deployment, Web App infrastructure deployment, and current
    package deployment. Already verified required stages are not prompted.
 5. Require `daily_environment_ready=true` from the current run before recording
-   the READY declaration below.
+   the READY declaration below. The successful JSON reports the actual
+   `foundry_account_name`, whether it was generated, the bounded generation
+   attempt count, and a receipt-backed `rbac_handoff`.
 
 Begin the approved Azure-dependent Codex slice only when the current live
 result reports `daily_environment_ready=true` and the operator records:
@@ -70,6 +72,24 @@ approval and immutable transient handoff. Live mode reruns the complete offline
 contract; the prior standalone check is not reused as proof. The coordinator
 then verifies the exact hosted application artifact through `/health`,
 `/version`, and `/demo/status` and returns success immediately.
+
+`AZURE_FOUNDRY_ACCOUNT_NAME` is the stable operator-selected base name. When
+Azure proves the account name is unavailable with the specific
+`CustomDomainInUse` conflict (or the repository's equivalent normalized
+account-name-unavailable category), the coordinator may append a short random
+lowercase alphanumeric suffix. It tries at most three distinct generated
+candidates. Every candidate receives rebuilt parameters, a fresh offline
+check, a fresh What-If and safety classification, and fresh approval before
+deployment. Generic conflicts, authorization, policy, quota, timeout,
+malformed, unknown, or ambiguous partial-state failures never activate this
+recovery.
+
+Do not edit `.env.daily-azure.local` or export the generated name. The file
+retains the stable base name. All later daily phases consume the verified
+effective name automatically. The actual deployed name is returned in
+coordinator JSON, persisted in
+`.artifacts/daily-azure-rebuild/readiness-receipt.json`, and included in the
+`rbac_handoff`.
 
 An existing Web App with configuration drift is not reconciled by the daily
 coordinator. On a same-day rerun, unsafe or ambiguous drift evidence remains
@@ -138,7 +158,7 @@ defaults:
 - subscription name, Azure region, and a new resource-group name;
 - short project and environment names, App Service plan/SKU parameters, and a
   globally unique Linux Web App name;
-- Foundry account name, project name, project endpoint, model deployment name,
+- stable Foundry account base name, project name, project endpoint, model deployment name,
   and model/version/SKU/capacity values available in the selected region;
 - prompt-agent name, immutable version, and complete stable agent endpoint;
 - the public HTTPS Web App base URL.
@@ -556,47 +576,34 @@ set -o pipefail
 
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --check \
-  --resource-group <resource-group> \
-  --web-app-name <web-app-name> \
-  --foundry-account-name <foundry-account-name> \
-  --foundry-project-name <foundry-project-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
   --json |
   python -m json.tool
 
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --what-if \
-  --resource-group <resource-group> \
-  --web-app-name <web-app-name> \
-  --foundry-account-name <foundry-account-name> \
-  --foundry-project-name <foundry-project-name> \
-  --subscription-id <fresh-subscription-id> \
-  --approved-foundry-project-resource-id <fresh-project-resource-id> \
-  --approved-web-app-principal-id <fresh-principal-id> \
-  --approved-role-assignment-name <deterministic-assignment-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
   --json |
   python -m json.tool
 
 .venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
   --live \
-  --resource-group <resource-group> \
-  --web-app-name <web-app-name> \
-  --foundry-account-name <foundry-account-name> \
-  --foundry-project-name <foundry-project-name> \
-  --subscription-id <fresh-subscription-id> \
-  --approved-foundry-project-resource-id <fresh-project-resource-id> \
-  --approved-web-app-principal-id <fresh-principal-id> \
-  --approved-role-assignment-name <deterministic-assignment-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
   --json |
   python -m json.tool
 ```
 
-The what-if/live evidence arguments are transient values from the immediately
-current read-only proof; do not save them in this runbook or repository.
+The command matches the receipt's requested base name to the current daily
+configuration, accepts the effective account name only from that matching
+receipt, rereads the exact account and child project from Azure, and derives
+fresh transient RBAC evidence before What-If or mutation. It rejects a missing,
+stale, differently named, differently scoped, or ambiguous account/project.
 Manually review every exact-match flag and the exact project scope before
-running live. Re-read all evidence after approval and stop on any difference.
-Do not
-use a manual role assignment or retry a failed deployment without correcting
-its cause.
+running live. Do not use a manual role assignment or retry a failed deployment
+without correcting its cause.
 
 ## 14. Optional standalone Consumer RBAC verification
 
@@ -608,19 +615,15 @@ set -o pipefail
 
 .venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
   --check \
-  --resource-group <resource-group> \
-  --web-app-name <web-app-name> \
-  --foundry-account-name <foundry-account-name> \
-  --foundry-project-name <foundry-project-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
   --json |
   python -m json.tool
 
 .venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
   --live \
-  --resource-group <resource-group> \
-  --web-app-name <web-app-name> \
-  --foundry-account-name <foundry-account-name> \
-  --foundry-project-name <foundry-project-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
   --json |
   python -m json.tool
 ```

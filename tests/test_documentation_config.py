@@ -692,19 +692,23 @@ def test_progress_is_active_resume_with_honest_safety_and_history_boundaries() -
 
 
 def test_progress_documents_future_tdd_and_test_maintenance_guardrails() -> None:
-    progress = _read("docs/progress.md")
+    progress = _normalized(_read("docs/progress.md"))
 
     _assert_contains_all(
         progress,
         {
-            "Every future TDD slice must include a `docs/progress.md` update",
-            "Model: GPT-5.5",
-            "Reasoning: Medium for normal TDD slices",
-            "Reasoning: High for cross-cutting architecture",
-            "Reasoning: Light for docs-only or tiny single-file cleanup",
-            "Documentation tests should verify important project guardrails",
-            "avoid adding many brittle string-matching tests",
-            "Prefer a small number of high-value guardrail tests",
+            "TDD Slice Scope And Review Gate",
+            "freeze objective, acceptance criteria, allowed files",
+            "builder RED to GREEN",
+            "one independent review",
+            "one blocking-finding correction pass",
+            "security-critical",
+            "exact location, concrete failure path, and smallest correction",
+            "Record useful nonblocking concerns as future-slice candidates",
+            "Stop and split",
+            "frozen acceptance criteria satisfied",
+            "Passing this gate ends the slice",
+            "prefer a few semantic guardrails over brittle exact-prose tests",
         },
     )
 

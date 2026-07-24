@@ -52,6 +52,27 @@ def _paths(monkeypatch: pytest.MonkeyPatch, files: tuple[Path, Path, Path]) -> P
     return parameters
 
 
+def _structured_name_conflict(
+    *,
+    resource_group: str = "existing-rg",
+    resource_type: str = "Microsoft.CognitiveServices/accounts",
+    resource_name: str = "private-account",
+) -> str:
+    return json.dumps(
+        {
+            "error": {
+                "code": "CustomDomainInUse",
+                "target": (
+                    "/subscriptions/00000000-0000-0000-0000-000000000001/"
+                    f"resourceGroups/{resource_group}/providers/"
+                    f"{resource_type}/{resource_name}"
+                ),
+                "details": [],
+            }
+        }
+    )
+
+
 def test_check_runs_only_local_cli_and_build_commands(
     monkeypatch: pytest.MonkeyPatch,
     files: tuple[Path, Path, Path],
@@ -334,7 +355,7 @@ def test_what_if_group_exists_failure_never_attempts_deployment(
     assert runner.calls[0][:3] == ["az", "group", "exists"]
 
 
-def test_internal_what_if_classifies_deleted_foundry_account_without_raw_output(
+def test_internal_what_if_does_not_classify_unstructured_deleted_account_text(
     monkeypatch: pytest.MonkeyPatch,
     files: tuple[Path, Path, Path],
 ) -> None:
@@ -354,16 +375,45 @@ def test_internal_what_if_classifies_deleted_foundry_account_without_raw_output(
         verify_resource_group=False,
     )
 
-    assert result["category"] == "foundry_account_name_unavailable"
-    assert result["what_if_failure_diagnostic"] == {
-        "azure_error_class": "invalid_template_deployment",
-        "failure_kind": "deleted_foundry_account_name_unavailable",
-        "same_configuration_retry_safe": False,
-    }
+    assert result["category"] == "what_if_failed"
+    assert "what_if_failure_diagnostic" not in result
     serialized = json.dumps(result)
     assert "private-account-name" not in serialized
     assert "private-subscription-id" not in serialized
     assert "private-stdout" not in serialized
+
+
+def test_internal_what_if_requires_structured_exact_name_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    runner = FakeRunner(
+        [
+            script.CommandResult(
+                1,
+                "private-stdout",
+                _structured_name_conflict(),
+            )
+        ]
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+        verify_resource_group=False,
+    )
+
+    assert result["category"] == "foundry_account_name_unavailable"
+    assert result["what_if_failure_diagnostic"] == {
+        "azure_error_class": "custom_domain_in_use",
+        "failure_kind": "custom_domain_in_use",
+        "same_configuration_retry_safe": False,
+    }
+    assert "private-account" not in json.dumps(result)
+    assert "private-subscription" not in json.dumps(result)
 
 
 def test_internal_what_if_does_not_overclassify_other_template_failures(
@@ -386,6 +436,119 @@ def test_internal_what_if_does_not_overclassify_other_template_failures(
             "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
         ),
         runner,
+        verify_resource_group=False,
+    )
+
+    assert result["category"] == "what_if_failed"
+    assert "what_if_failure_diagnostic" not in result
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    (
+        "ERROR: Conflict",
+        "ERROR: DeploymentActive",
+        "ERROR: policy denied",
+        "ERROR: quota exceeded",
+        "ERROR: timeout",
+        "ERROR: unknown failure",
+    ),
+)
+def test_live_does_not_overclassify_unrelated_failures_as_name_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+    stderr: str,
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    runner = FakeRunner([script.CommandResult(1, "", stderr)])
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+        ensure_resource_group=False,
+    )
+
+    assert result["category"] == "deployment_failed"
+    assert "deployment_failure_diagnostic" not in result
+
+
+def test_live_classifies_only_custom_domain_name_conflict_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    runner = FakeRunner(
+        [
+            script.CommandResult(
+                1,
+                "private output",
+                _structured_name_conflict(),
+            )
+        ]
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        runner,
+        ensure_resource_group=False,
+    )
+
+    assert result["category"] == "foundry_account_name_unavailable"
+    assert result["deployment_failure_diagnostic"] == {
+        "azure_error_class": "custom_domain_in_use",
+        "failure_kind": "custom_domain_in_use",
+        "account_name_conflict_proven": True,
+    }
+    assert "private output" not in json.dumps(result)
+    assert "private account details" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "structured",
+    (
+        "ERROR: (CustomDomainInUse) private-account",
+        "{malformed",
+        _structured_name_conflict(resource_type="Microsoft.Web/sites"),
+        _structured_name_conflict(resource_name="another-account"),
+        json.dumps(
+            {
+                "error": {
+                    "code": "CustomDomainInUse",
+                    "target": (
+                        "/subscriptions/00000000-0000-0000-0000-000000000001/"
+                        "resourceGroups/existing-rg/providers/"
+                        "Microsoft.CognitiveServices/accounts/private-account"
+                    ),
+                    "details": [
+                        {
+                            "code": "Conflict",
+                            "target": "another-operation",
+                        }
+                    ],
+                }
+            }
+        ),
+    ),
+)
+def test_name_conflict_requires_one_unambiguous_structured_account_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+    structured: str,
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if",
+            "foundry-only",
+            parameters,
+            "existing-rg",
+            "eastus2",
+        ),
+        FakeRunner([script.CommandResult(1, "", structured)]),
         verify_resource_group=False,
     )
 
