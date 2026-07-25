@@ -89,11 +89,9 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2024-04-01' = if (deployAppSe
   tags: tags
 }
 
-resource existingAppServicePlan 'Microsoft.Web/serverfarms@2024-04-01' existing = {
-  name: appServicePlanName
-}
-
-var resolvedAppServicePlanResourceId = deployAppServicePlan ? appServicePlan!.id : existingAppServicePlan.id
+var resolvedAppServicePlanResourceId = deployAppServicePlan
+  ? appServicePlan!.id
+  : resourceId('Microsoft.Web/serverfarms', appServicePlanName)
 
 resource webApp 'Microsoft.Web/sites@2024-04-01' = {
   name: webAppName

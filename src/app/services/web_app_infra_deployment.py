@@ -997,7 +997,6 @@ def _app_service_plan_selection_contract_valid(
             for symbol, resource_type, _body in declarations
         ] != [
             ("appServicePlan", "Microsoft.Web/serverfarms@2024-04-01"),
-            ("existingAppServicePlan", "Microsoft.Web/serverfarms@2024-04-01"),
             ("webApp", "Microsoft.Web/sites@2024-04-01"),
         ]:
             return False
@@ -1022,12 +1021,10 @@ def _app_service_plan_selection_contract_valid(
         r"resource\s+appServicePlan\s+"
         r"'Microsoft\.Web/serverfarms@2024-04-01'\s*=\s*"
         r"if\s*\(\s*deployAppServicePlan\s*\)",
-        r"resource\s+existingAppServicePlan\s+"
-        r"'Microsoft\.Web/serverfarms@2024-04-01'\s+existing\s*=\s*"
-        r"\{\s*name\s*:\s*appServicePlanName\s*\}",
         r"var\s+resolvedAppServicePlanResourceId\s*=\s*"
         r"deployAppServicePlan\s*\?\s*appServicePlan!\.id\s*:\s*"
-        r"existingAppServicePlan\.id",
+        r"resourceId\s*\(\s*'Microsoft\.Web/serverfarms'\s*,\s*"
+        r"appServicePlanName\s*\)",
     )
     return all(re.search(pattern, active, re.DOTALL) is not None for pattern in required)
 
