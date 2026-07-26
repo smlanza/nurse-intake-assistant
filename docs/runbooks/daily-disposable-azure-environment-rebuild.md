@@ -1,9 +1,53 @@
 # Daily Disposable Azure Environment Rebuild
 
+## Daily command summary
+
+The lightweight Bash wrapper is the preferred operator-facing interface for
+the normal daily sequence:
+
+```bash
+scripts/daily_azure.sh start
+
+# Perform Azure development, testing, or demonstrations.
+
+scripts/daily_azure.sh stop
+```
+
+`start` is the preferred beginning-of-day command. It invokes
+`scripts/rebuild_daily_azure_environment.py`; the coordinator performs its
+authoritative startup cleanup preflight. In other words, `start` already
+includes startup cleanup inspection, so the operator should not normally run
+destructive cleanup before it. A healthy exact-owned environment can be
+reused. Stale owned blockers still require the coordinator's explicit,
+default-no approval.
+
+| Command | Purpose |
+| --- | --- |
+| `scripts/daily_azure.sh start [--config FILE]` | Run the authoritative rebuild coordinator in live JSON mode. |
+| `scripts/daily_azure.sh inspect [--config FILE]` | Optionally inspect cleanup targets in live JSON mode without mutation. |
+| `scripts/daily_azure.sh stop [--config FILE]` | Run the explicit, default-no end-of-day cleanup workflow. |
+| `scripts/daily_azure.sh check [--config FILE]` | Validate cleanup and rebuild contracts offline, without Azure or HTTP calls. |
+
+`inspect` is optional and read-only. `stop` is the explicit end-of-day cleanup
+command and preserves the approval boundary implemented by
+`scripts/cleanup_daily_azure_environment.py`. `check` runs that cleanup CLI's
+offline check before the rebuild coordinator's offline check.
+
+The wrapper is only a convenience interface. The Python CLIs remain the
+authoritative fallback, audit, and implementation commands; the wrapper does
+not duplicate their cleanup, deployment, ownership, approval, or verification
+logic. It defaults to `.venv/bin/python` and `.env.daily-azure.local`;
+`PYTHON_BIN` and `--config FILE` provide explicit overrides. If the executable
+bit is missing after installation or file transfer, repair it once with:
+
+```bash
+chmod +x scripts/daily_azure.sh
+```
+
 ## Normal Daily Guided Path
 
-The repository-owned coordinator is the preferred path for a normal daily
-rebuild. Follow this sequence without skipping a step:
+The repository-owned Python coordinator is the authoritative path for a normal
+daily rebuild. Follow this sequence without skipping a step:
 
 The supported primary path is the next-day fresh build after the previous
 workday's disposable resource group was deleted:

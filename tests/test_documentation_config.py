@@ -819,6 +819,33 @@ def test_daily_azure_coordinator_docs_define_the_guided_safe_path() -> None:
     }
 
 
+def test_daily_azure_shell_wrapper_is_documented_as_a_convenience_boundary() -> None:
+    runbook = _normalized(
+        _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")
+    )
+
+    _assert_contains_all(
+        runbook,
+        {
+            "## Daily command summary",
+            "scripts/daily_azure.sh start",
+            "scripts/daily_azure.sh inspect",
+            "scripts/daily_azure.sh stop",
+            "scripts/daily_azure.sh check",
+            "startup cleanup preflight",
+            "resource_group_absent=true",
+            "foundry_tombstones_absent=true",
+            "scripts/rebuild_daily_azure_environment.py",
+            "scripts/cleanup_daily_azure_environment.py",
+            "`inspect` is optional and read-only",
+            "`start` already includes startup cleanup inspection",
+            "`stop` is the explicit end-of-day cleanup",
+            "The wrapper is only a convenience interface",
+            "Python CLIs remain the authoritative",
+        },
+    )
+
+
 def test_daily_disposable_azure_runbook_has_ordered_stage_boundaries() -> None:
     runbook = _normalized(
         _read("docs/runbooks/daily-disposable-azure-environment-rebuild.md")

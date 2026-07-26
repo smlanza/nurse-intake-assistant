@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,274 passed full suite
-- 282 focused cleanup/coordinator tests and 31 documentation tests
+- 2,298 passed full suite
+- 21 shell-wrapper tests and 32 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The ownership-scoped daily cleanup boundary is complete offline. The daily
@@ -18,20 +18,20 @@ proven stale owned state, stops on ambiguous or unowned evidence, and continues
 only after verified cleanup. READY requires both
 `startup_cleanup_inspected=true` and `startup_environment_clean=true`.
 
-End-of-day cleanup is the explicit standalone command:
+The preferred operator-facing daily path is the lightweight convenience
+wrapper:
 
 ```bash
-python scripts/cleanup_daily_azure_environment.py \
-  --config .env.daily-azure.local \
-  --cleanup \
-  --live \
-  --json
+scripts/daily_azure.sh start
+scripts/daily_azure.sh stop
 ```
 
-Success requires `resource_group_absent=true` and
-`foundry_tombstones_absent=true`. The command deletes only the exact configured
-owned resource group, purges only conclusively matching Foundry/AIServices
-tombstones, and performs final read-only absence verification.
+`start` is the preferred beginning-of-day command and delegates to the
+authoritative rebuild coordinator, including its startup cleanup preflight.
+`stop` is the preferred explicit end-of-day command and delegates to the
+default-no `scripts/cleanup_daily_azure_environment.py` CLI. Cleanup success
+still requires `resource_group_absent=true` and
+`foundry_tombstones_absent=true`.
 
 The intended permanent sequence remains:
 
@@ -131,13 +131,12 @@ End-of-day deletion remains expected; reduced readiness scope does not make the
 resources permanent. The permanent procedure is
 `docs/runbooks/daily-disposable-azure-environment-rebuild.md`.
 
-`scripts/rebuild_daily_azure_environment.py` is the preferred daily path. Its
-offline `--check --json` validates stable local configuration and orchestration
-contracts; explicit `--live --json` sequences the existing deployment and
-verification boundaries, reuses conclusively valid resources, and returns one
-sanitized aggregate result. The detailed manual runbook remains the fallback,
-recovery, and audit reference. Azure-dependent Codex prompts still require a
-fresh current-session `daily_environment_ready=true` result. READY now requires
+`scripts/daily_azure.sh start` is the preferred daily path for operators; it
+delegates to authoritative `scripts/rebuild_daily_azure_environment.py`
+`--live --json`. The wrapper's `check` runs both offline contracts, while the
+detailed Python commands and manual runbook remain the fallback, recovery, and
+audit reference. Azure-dependent Codex prompts still require a fresh
+current-session `daily_environment_ready=true` result. READY now requires
 current startup cleanup inspection and clean-state proof, resource-group,
 Foundry infrastructure, prompt-agent and immutable routing, Web App
 infrastructure/configuration, application artifact deployment or safe reuse,
