@@ -10,6 +10,7 @@ workday's disposable resource group was deleted:
 
 ```text
 missing disposable environment
+-> startup cleanup preflight
 -> infra/main.bicep initial creation
 -> Foundry and prompt-agent verification
 -> Web App deployment and configuration verification
@@ -47,9 +48,10 @@ set -o pipefail
 
 4. Review each prompt and answer `y` only for the current stage. The
    default, EOF, malformed input, or noninteractive input stops without that
-   mutation. The possible approvals are resource-group creation, Foundry
-   infrastructure deployment, Web App infrastructure deployment, and current
-   package deployment. Already verified required stages are not prompted.
+   mutation. The possible approvals are startup cleanup of proven stale owned
+   state, resource-group creation, Foundry infrastructure deployment, Web App
+   infrastructure deployment, and current package deployment. Already verified
+   required stages are not prompted.
 5. Require `daily_environment_ready=true` from the current run before recording
    the READY declaration below. The successful JSON reports the actual
    `foundry_account_name`, whether it was generated, the bounded generation
@@ -72,6 +74,24 @@ approval and immutable transient handoff. Live mode reruns the complete offline
 contract; the prior standalone check is not reused as proof. The coordinator
 then verifies the exact hosted application artifact through `/health`,
 `/version`, and `/demo/status` and returns success immediately.
+
+### Startup cleanup preflight
+
+After complete offline validation, current-run readiness-evidence revocation,
+and Azure account verification, the coordinator inspects the exact configured
+resource group, active matching Foundry accounts, and matching soft-deleted
+Foundry records. A healthy exact-owned resource group with no blocking
+tombstone remains eligible for the normal reuse path without cleanup or a
+cleanup prompt.
+
+Conclusive stale owned state produces one sanitized cleanup summary and a
+default-no approval prompt. Approval is bound to the exact private inspection;
+the service reinspects and stops without mutation if any relevant evidence
+changed. Ambiguous, malformed, unowned, wrong-location, or conflicting active
+state stops before approval and infrastructure deployment. After approved
+cleanup, the coordinator continues only when the exact group is absent and no
+matching Foundry tombstone remains. Successful READY output therefore requires
+`startup_cleanup_inspected=true` and `startup_environment_clean=true`.
 
 `AZURE_FOUNDRY_ACCOUNT_NAME` is the stable operator-selected base name. When
 Azure proves the account name is unavailable with the specific
@@ -685,17 +705,97 @@ or:
 DAILY AZURE ENVIRONMENT NOT READY
 ```
 
-## 17. End-of-session cleanup and evidence expiry
+## 17. End-of-day cleanup and evidence expiry
 
-At the end of each workday, the operator explicitly deletes only the exact
-disposable resource group and reviews completion. This nightly cleanup remains
-required even when the reduced daily-readiness boundary succeeded:
+First, a read-only inspection can confirm whether the configured owned
+environment requires cleanup. It never prompts, deletes, or purges:
 
 ```bash
+set -o pipefail
+
+python scripts/cleanup_daily_azure_environment.py \
+  --config .env.daily-azure.local \
+  --inspect \
+  --live \
+  --json |
+  python -m json.tool
+```
+
+At the end of each workday, run the explicit standalone cleanup in an
+interactive terminal:
+
+```bash
+set -o pipefail
+
+python scripts/cleanup_daily_azure_environment.py \
+  --config .env.daily-azure.local \
+  --cleanup \
+  --live \
+  --json |
+  python -m json.tool
+```
+
+The service verifies the current Azure account and subscription, inspects the
+exact configured resource group and matching Foundry records, presents one
+sanitized default-no approval summary, reinspects, deletes the exact owned
+group synchronously, purges every conclusively matching soft-deleted
+AIServices account, and performs final read-only verification. Cleanup success
+requires both:
+
+```text
+resource_group_absent=true
+foundry_tombstones_absent=true
+```
+
+Foundry purge requires sufficient Azure permission. Never purge an unrelated
+deleted account, a similar-name-only account, a record from another resource
+group, or any record with incomplete identity evidence.
+
+### Manual fallback
+
+Use manual commands only when the standalone result requires review and the
+operator has independently proved the exact configured identities. Keep the
+normal synchronous delete behavior; do not add `--no-wait`.
+
+```bash
+az account show \
+  --query '{subscription:name,state:state,isDefault:isDefault}' \
+  --output json \
+  --only-show-errors
+
+az group show \
+  --name <exact-configured-resource-group> \
+  --query '{name:name,location:location,provisioningState:properties.provisioningState,ownershipTag:tags.purpose}' \
+  --output json \
+  --only-show-errors
+
+az cognitiveservices account list-deleted \
+  --output json \
+  --only-show-errors
+
 az group delete \
-  --name <resource-group> \
+  --name <exact-configured-resource-group> \
   --yes \
-  --no-wait
+  --only-show-errors
+
+az group exists \
+  --name <exact-configured-resource-group> \
+  --output tsv \
+  --only-show-errors
+
+az cognitiveservices account list-deleted \
+  --output json \
+  --only-show-errors
+
+az cognitiveservices account purge \
+  --name <exact-proved-deleted-account-name> \
+  --resource-group <exact-configured-resource-group> \
+  --location <exact-configured-location> \
+  --only-show-errors
+
+az cognitiveservices account list-deleted \
+  --output json \
+  --only-show-errors
 ```
 
 Deletion immediately returns the environment to NOT READY. It expires every

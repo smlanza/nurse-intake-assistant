@@ -1,10 +1,14 @@
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
 import scripts.deploy_web_app_code as script
+from src.app.services import bounded_subprocess
 from src.app.services.web_app_package import (
     WebAppPackage,
     build_web_app_package,
@@ -18,6 +22,7 @@ class FakeRunner:
         self.calls: list[list[str]] = []
         self.deployment_bytes: bytes | None = None
         self.deployment_mode: int | None = None
+        self.deployment_mode: int | None = None
 
     def run(self, args: list[str]) -> script.CommandResult:
         assert isinstance(args, list)
@@ -27,6 +32,77 @@ class FakeRunner:
             self.deployment_bytes = path.read_bytes()
             self.deployment_mode = os.stat(path).st_mode & 0o777
         return self.result
+
+
+def _deployment_record(
+    deployment_id: str,
+    *,
+    status: int = 4,
+    complete: bool = True,
+    received_time: datetime | None = None,
+    deployer: str = "OneDeploy",
+    site_name: str = "fictional-web-app",
+) -> dict[str, object]:
+    received = received_time or datetime.now(timezone.utc)
+    return {
+        "id": deployment_id,
+        "status": status,
+        "complete": complete,
+        "deployer": deployer,
+        "siteName": site_name,
+        "receivedTime": received.isoformat().replace("+00:00", "Z"),
+        "startTime": received.isoformat().replace("+00:00", "Z"),
+        "endTime": (
+            (received + timedelta(seconds=1)).isoformat().replace(
+                "+00:00",
+                "Z",
+            )
+            if complete
+            else None
+        ),
+    }
+
+
+class DeploymentBoundaryRunner:
+    def __init__(
+        self,
+        deployment_result: script.CommandResult,
+        *,
+        baseline: list[dict[str, object]] | None = None,
+        status_results: list[script.CommandResult] | None = None,
+    ) -> None:
+        self.deployment_result = deployment_result
+        self.baseline = baseline or []
+        self.status_results = list(status_results or [])
+        self.calls: list[list[str]] = []
+        self.deployment_bytes: bytes | None = None
+        self._status_reads = 0
+
+    def run(self, args: list[str]) -> script.CommandResult:
+        self.calls.append(args)
+        if args[:5] == [
+            "az",
+            "webapp",
+            "log",
+            "deployment",
+            "list",
+        ]:
+            self._status_reads += 1
+            if self._status_reads == 1:
+                return script.CommandResult(
+                    0,
+                    json.dumps(self.baseline),
+                    "",
+                )
+            if self.status_results:
+                return self.status_results.pop(0)
+            return script.CommandResult(0, "[]", "")
+        if args[:3] == ["az", "webapp", "deploy"]:
+            path = Path(args[args.index("--src-path") + 1])
+            self.deployment_bytes = path.read_bytes()
+            self.deployment_mode = os.stat(path).st_mode & 0o777
+            return self.deployment_result
+        raise AssertionError(f"Unexpected command: {args}")
 
 
 @pytest.fixture
@@ -70,7 +146,7 @@ def test_live_requires_explicit_resource_group_web_app_and_json() -> None:
 def test_live_uses_one_narrow_discrete_azure_deployment_command(
     source_tree: Path,
 ) -> None:
-    runner = FakeRunner()
+    runner = DeploymentBoundaryRunner(script.CommandResult(0, "", ""))
     result = script.execute(
         script.DeploymentRequest(
             mode="live",
@@ -81,8 +157,15 @@ def test_live_uses_one_narrow_discrete_azure_deployment_command(
         source_root=source_tree,
     )
 
-    assert len(runner.calls) == 1
-    call = runner.calls[0]
+    assert len(runner.calls) == 2
+    assert runner.calls[0][:5] == [
+        "az",
+        "webapp",
+        "log",
+        "deployment",
+        "list",
+    ]
+    call = runner.calls[1]
     deployment_path = Path(call[call.index("--src-path") + 1])
     assert call[: call.index("--src-path") + 1] == [
         "az",
@@ -101,6 +184,10 @@ def test_live_uses_one_narrow_discrete_azure_deployment_command(
         "true",
         "--restart",
         "true",
+        "--track-status",
+        "false",
+        "--timeout",
+        str(script.AZURE_DEPLOYMENT_OPERATION_TIMEOUT_MS),
         "--output",
         "none",
     ]
@@ -115,6 +202,330 @@ def test_live_uses_one_narrow_discrete_azure_deployment_command(
     assert result["hosted_application_verified"] is False
 
 
+def test_timeout_recovers_from_one_exact_current_successful_onedeploy_record(
+    source_tree: Path,
+) -> None:
+    current = _deployment_record("current-deployment")
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", ""),
+        baseline=[_deployment_record("older-deployment")],
+        status_results=[
+            script.CommandResult(0, json.dumps([current]), ""),
+        ],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["ok"] is True
+    assert result["deployment_accepted"] is True
+    assert result["deployment_command_timed_out"] is True
+    assert result["deployment_status_checked"] is True
+    assert result["deployment_record_found"] is True
+    assert result["deployment_record_complete"] is True
+    assert result["deployment_record_successful"] is True
+    assert result["azure_mutation_made"] is True
+    assert len(runner.calls) == 3
+
+
+def test_timeout_without_current_authoritative_record_stays_fail_closed(
+    source_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        script,
+        "DEPLOYMENT_STATUS_MAX_ATTEMPTS",
+        1,
+        raising=False,
+    )
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", ""),
+        baseline=[_deployment_record("older-deployment")],
+        status_results=[script.CommandResult(0, "[]", "")],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["ok"] is False
+    assert result["category"] == "deployment_status_unverified"
+    assert result["deployment_accepted"] is False
+    assert result["deployment_command_timed_out"] is True
+    assert result["deployment_status_checked"] is True
+    assert result["deployment_record_found"] is False
+    assert result["azure_mutation_made"] is None
+
+
+@pytest.mark.parametrize(
+    "status_result",
+    (
+        script.CommandResult(124, "", "", timed_out=True),
+        script.CommandResult(1, "", "private inaccessible details"),
+        script.CommandResult(0, "{malformed", ""),
+        script.CommandResult(
+            0,
+            json.dumps(
+                [
+                    _deployment_record(
+                        "current-incomplete",
+                        status=2,
+                        complete=False,
+                    )
+                ]
+            ),
+            "",
+        ),
+    ),
+    ids=(
+        "status-timeout",
+        "status-inaccessible",
+        "status-malformed",
+        "status-incomplete",
+    ),
+)
+def test_timeout_reconciliation_failures_remain_bounded_and_unaccepted(
+    source_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status_result: script.CommandResult,
+) -> None:
+    monkeypatch.setattr(
+        script,
+        "DEPLOYMENT_STATUS_MAX_ATTEMPTS",
+        1,
+    )
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", "", timed_out=True),
+        status_results=[status_result],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["category"] in {
+        "deployment_status_unverified",
+        "deployment_status_malformed",
+    }
+    assert result["deployment_accepted"] is False
+    assert result["azure_mutation_made"] is None
+    assert len(runner.calls) == 3
+
+
+def test_timeout_with_current_completed_failed_record_reports_failure(
+    source_tree: Path,
+) -> None:
+    failed = _deployment_record(
+        "current-deployment",
+        status=3,
+    )
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", ""),
+        baseline=[],
+        status_results=[
+            script.CommandResult(0, json.dumps([failed]), ""),
+        ],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["ok"] is False
+    assert result["category"] == "deployment_failed"
+    assert result["deployment_accepted"] is False
+    assert result["deployment_record_found"] is True
+    assert result["deployment_record_complete"] is True
+    assert result["deployment_record_successful"] is False
+    assert result["azure_mutation_made"] is True
+
+
+def test_timeout_rejects_stale_successful_deployment_record(
+    source_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        script,
+        "DEPLOYMENT_STATUS_MAX_ATTEMPTS",
+        1,
+        raising=False,
+    )
+    stale = _deployment_record(
+        "older-deployment",
+        received_time=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", ""),
+        baseline=[stale],
+        status_results=[
+            script.CommandResult(0, json.dumps([stale]), ""),
+        ],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["category"] == "deployment_status_unverified"
+    assert result["deployment_accepted"] is False
+    assert result["deployment_record_found"] is False
+    assert result["azure_mutation_made"] is None
+
+
+def test_timeout_rejects_multiple_plausible_current_deployments(
+    source_tree: Path,
+) -> None:
+    records = [
+        _deployment_record("current-a"),
+        _deployment_record("current-b"),
+    ]
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", ""),
+        status_results=[
+            script.CommandResult(0, json.dumps(records), ""),
+        ],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["category"] == "deployment_status_unverified"
+    assert result["deployment_accepted"] is False
+    assert result["deployment_record_found"] is False
+    assert result["azure_mutation_made"] is None
+
+
+@pytest.mark.parametrize(
+    "records",
+    (
+        [{"status": 4, "complete": True}],
+        [_deployment_record("current", status=99)],
+        [
+            {
+                **_deployment_record("current"),
+                "receivedTime": None,
+                "startTime": None,
+            }
+        ],
+        [
+            {
+                **_deployment_record("current"),
+                "deployer": "unrelated-deployer",
+            }
+        ],
+        [
+            {
+                **_deployment_record("current"),
+                "siteName": "another-web-app",
+            }
+        ],
+    ),
+    ids=(
+        "missing-id",
+        "unknown-status",
+        "missing-attempt-time",
+        "wrong-deployer",
+        "wrong-web-app",
+    ),
+)
+def test_timeout_rejects_malformed_or_unattributable_deployment_records(
+    source_tree: Path,
+    records: list[dict[str, object]],
+) -> None:
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", ""),
+        status_results=[
+            script.CommandResult(0, json.dumps(records), ""),
+        ],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["category"] in {
+        "deployment_status_malformed",
+        "deployment_status_unverified",
+    }
+    assert result["deployment_accepted"] is False
+    assert result["azure_mutation_made"] is None
+
+
+def test_subprocess_runner_times_out_and_reaps_the_child_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started: list[subprocess.Popen[str]] = []
+    real_popen = subprocess.Popen
+
+    def tracking_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        started.append(process)
+        return process
+
+    monkeypatch.setattr(
+        bounded_subprocess.subprocess,
+        "Popen",
+        tracking_popen,
+    )
+    runner = script.SubprocessCommandRunner(
+        timeout_seconds=0.05,
+        cleanup_timeout_seconds=0.2,
+    )
+
+    result = runner.run(
+        [sys.executable, "-c", "import time; time.sleep(60)"]
+    )
+
+    assert result.timed_out is True
+    assert result.return_code == 124
+    assert len(started) == 1
+    assert started[0].poll() is not None
+
+
 @pytest.mark.parametrize(
     ("stderr", "category"),
     [
@@ -127,7 +538,29 @@ def test_live_failure_is_stable_and_does_not_serialize_cli_output(
     stderr: str,
     category: str,
 ) -> None:
-    runner = FakeRunner(script.CommandResult(1, "sensitive stdout", stderr))
+    status_results = (
+        []
+        if category == "authentication_or_authorization_failed"
+        else [
+            script.CommandResult(
+                0,
+                json.dumps(
+                    [
+                        _deployment_record(
+                            "current-failed",
+                            status=3,
+                            site_name="fictional-app",
+                        )
+                    ]
+                ),
+                "",
+            )
+        ]
+    )
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(1, "sensitive stdout", stderr),
+        status_results=status_results,
+    )
 
     result = script.execute(
         script.DeploymentRequest("live", "fictional-rg", "fictional-app"),

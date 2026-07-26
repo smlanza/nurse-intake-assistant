@@ -15,6 +15,7 @@ from typing import Callable, Literal, Mapping, Protocol
 from uuid import UUID
 
 from src.app.services.azure_what_if_evidence import SanitizedWhatIfChange
+from src.app.services.bounded_subprocess import run_bounded_subprocess
 from src.app.services.foundry_agent_consumer_rbac_deployment import (
     CONSUMER_ROLE_GUID,
     DEPLOYMENT_NAME as CONSUMER_RBAC_DEPLOYMENT_NAME,
@@ -95,7 +96,7 @@ FOUNDRY_ACCOUNT_NAME_MAX_LENGTH = 64
 FOUNDRY_ACCOUNT_NAME_SUFFIX_LENGTH = 6
 FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET = string.ascii_lowercase + string.digits
 MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES = 3
-READINESS_RECEIPT_SCHEMA_VERSION = 1
+READINESS_RECEIPT_SCHEMA_VERSION = 4
 READINESS_STATE_SCHEMA_VERSION = 1
 _READINESS_RUN_EPOCH = re.compile(r"[0-9a-f]{32}")
 
@@ -161,6 +162,28 @@ class RuntimeUpdates:
     immutable_agent_version: str | None = None
     stable_agent_endpoint: str | None = None
     hosted_origin: str | None = None
+
+
+FoundryAccountNameConflictBoundary = Literal["what-if", "deployment"]
+FoundryAccountNameFailureKind = Literal[
+    "custom_domain_in_use",
+    "soft_deleted_account_name",
+]
+
+
+@dataclass(frozen=True)
+class FoundryAccountNameConflictEvidence:
+    account_name: str | None = field(repr=False)
+    boundary: FoundryAccountNameConflictBoundary
+    failure_kind: FoundryAccountNameFailureKind = "custom_domain_in_use"
+    category: str = "foundry_account_name_unavailable"
+
+    def to_json_dict(self) -> dict[str, str]:
+        return {
+            "boundary": self.boundary,
+            "failure_kind": self.failure_kind,
+            "category": self.category,
+        }
 
 
 StageState = Literal["verified", "absent", "failed"]
@@ -244,6 +267,9 @@ class StageResult:
     webjob_status_read: bool = False
     managed_identity_verification_performed: bool = False
     agent_invoked: bool = False
+    foundry_account_name_failure_kind: (
+        FoundryAccountNameFailureKind | None
+    ) = None
 
     def __post_init__(self) -> None:
         if self.ok and not isinstance(self.mutation_made, bool):
@@ -288,6 +314,9 @@ class StageResult:
         mutation_made: bool | None = False,
         attempted: bool = False,
         what_if_diagnostic: WhatIfDiagnostic | None = None,
+        foundry_account_name_failure_kind: (
+            FoundryAccountNameFailureKind | None
+        ) = None,
     ) -> "StageResult":
         return cls(
             False,
@@ -296,6 +325,9 @@ class StageResult:
             mutation_made=mutation_made,
             attempted=attempted,
             what_if_diagnostic=what_if_diagnostic,
+            foundry_account_name_failure_kind=(
+                foundry_account_name_failure_kind
+            ),
         )
 
 
@@ -327,6 +359,9 @@ class PlanResult:
     change_evidence: tuple[ChangeEvidence, ...] = ()
     exact_topology_match: bool = False
     source_failure_category: str | None = None
+    foundry_account_name_failure_kind: (
+        FoundryAccountNameFailureKind | None
+    ) = None
 
     @classmethod
     def create_only(cls) -> "PlanResult":
@@ -495,6 +530,12 @@ class GuidedApprovalSession:
 
 class DailyAzureStageRunner(Protocol):
     def verify_account(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def startup_cleanup(
+        self,
+        context: DailyAzureRuntimeContext,
+        *,
+        approver: Callable[[object], bool] | None,
+    ) -> object: ...
     def inspect_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def create_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_foundry(self, context: DailyAzureRuntimeContext) -> StageResult: ...
@@ -566,15 +607,24 @@ class DailyAzureReadinessReceipt:
     foundry_account_name: str
     foundry_account_name_generated: bool
     foundry_account_name_generation_attempts: int
+    foundry_account_name_conflicts: tuple[
+        FoundryAccountNameConflictEvidence, ...
+    ]
     resource_group: str
     foundry_project_name: str
     web_app_name: str
 
     def to_json_dict(self) -> dict[str, object]:
-        return {
+        result = {
             field.name: getattr(self, field.name)
             for field in fields(self)
+            if field.name != "foundry_account_name_conflicts"
         }
+        result["foundry_account_name_conflicts"] = [
+            conflict.to_json_dict()
+            for conflict in self.foundry_account_name_conflicts
+        ]
+        return result
 
 
 @dataclass(frozen=True)
@@ -600,6 +650,11 @@ class DailyAzureEnvironmentRebuildResult:
     local_orchestration_ready: bool = False
     daily_environment_ready: bool = False
     account_verified: bool = False
+    startup_cleanup_inspected: bool = False
+    startup_cleanup_required: bool = False
+    startup_cleanup_approved: bool = False
+    startup_cleanup_completed: bool = False
+    startup_environment_clean: bool = False
     resource_group_ready: bool = False
     foundry_infrastructure_verified: bool = False
     prompt_agent_verified: bool = False
@@ -629,6 +684,9 @@ class DailyAzureEnvironmentRebuildResult:
     foundry_account_name: str | None = None
     foundry_account_name_generated: bool = False
     foundry_account_name_generation_attempts: int = 0
+    foundry_account_name_conflicts: tuple[
+        FoundryAccountNameConflictEvidence, ...
+    ] = ()
     rbac_handoff: RbacHandoff | None = None
     _ready_authority: InitVar[object | None] = None
 
@@ -651,11 +709,16 @@ class DailyAzureEnvironmentRebuildResult:
         foundry_account_name: str | None = None,
         foundry_account_name_generated: bool = False,
         foundry_account_name_generation_attempts: int = 0,
+        foundry_account_name_conflicts: tuple[
+            FoundryAccountNameConflictEvidence, ...
+        ] = (),
         rbac_handoff: RbacHandoff | None = None,
     ) -> "DailyAzureEnvironmentRebuildResult":
         required = (
             "local_orchestration_ready",
             "account_verified",
+            "startup_cleanup_inspected",
+            "startup_environment_clean",
             "resource_group_ready",
             "foundry_infrastructure_verified",
             "prompt_agent_verified",
@@ -700,6 +763,7 @@ class DailyAzureEnvironmentRebuildResult:
             foundry_account_name_generation_attempts=(
                 foundry_account_name_generation_attempts
             ),
+            foundry_account_name_conflicts=foundry_account_name_conflicts,
             rbac_handoff=rbac_handoff,
             _ready_authority=_READY_CONSTRUCTION_SENTINEL,
             **progress,
@@ -714,6 +778,11 @@ class DailyAzureEnvironmentRebuildResult:
             "local_orchestration_ready": self.local_orchestration_ready,
             "daily_environment_ready": self.daily_environment_ready,
             "account_verified": self.account_verified,
+            "startup_cleanup_inspected": self.startup_cleanup_inspected,
+            "startup_cleanup_required": self.startup_cleanup_required,
+            "startup_cleanup_approved": self.startup_cleanup_approved,
+            "startup_cleanup_completed": self.startup_cleanup_completed,
+            "startup_environment_clean": self.startup_environment_clean,
             "resource_group_ready": self.resource_group_ready,
             "foundry_infrastructure_verified": self.foundry_infrastructure_verified,
             "prompt_agent_verified": self.prompt_agent_verified,
@@ -757,7 +826,7 @@ class DailyAzureEnvironmentRebuildResult:
             )
         if self.what_if_diagnostic is not None:
             result["what_if_diagnostic"] = self.what_if_diagnostic.to_json_dict()
-        if self.foundry_account_name is not None:
+        if self.ok and self.foundry_account_name is not None:
             result.update(
                 {
                     "requested_foundry_account_name": (
@@ -770,6 +839,25 @@ class DailyAzureEnvironmentRebuildResult:
                     "foundry_account_name_generation_attempts": (
                         self.foundry_account_name_generation_attempts
                     ),
+                    "foundry_account_name_conflicts": [
+                        conflict.to_json_dict()
+                        for conflict in self.foundry_account_name_conflicts
+                    ],
+                }
+            )
+        elif self.foundry_account_name_conflicts:
+            result.update(
+                {
+                    "foundry_account_name_generated": (
+                        self.foundry_account_name_generated
+                    ),
+                    "foundry_account_name_generation_attempts": (
+                        self.foundry_account_name_generation_attempts
+                    ),
+                    "foundry_account_name_conflicts": [
+                        conflict.to_json_dict()
+                        for conflict in self.foundry_account_name_conflicts
+                    ],
                 }
             )
         if self.rbac_handoff is not None:
@@ -2014,6 +2102,9 @@ def _readiness_receipt_correlation(
     foundry_account_name: str,
     foundry_account_name_generated: bool,
     foundry_account_name_generation_attempts: int,
+    foundry_account_name_conflicts: tuple[
+        FoundryAccountNameConflictEvidence, ...
+    ],
     resource_group: str,
     foundry_project_name: str,
     web_app_name: str,
@@ -2027,6 +2118,10 @@ def _readiness_receipt_correlation(
         "foundry_account_name_generation_attempts": (
             foundry_account_name_generation_attempts
         ),
+        "foundry_account_name_conflicts": [
+            conflict.to_json_dict()
+            for conflict in foundry_account_name_conflicts
+        ],
         "resource_group": resource_group,
         "foundry_project_name": foundry_project_name,
         "web_app_name": web_app_name,
@@ -2040,6 +2135,10 @@ def build_daily_azure_readiness_receipt(
     config: DailyAzureConfig,
     context: DailyAzureRuntimeContext,
     run_epoch: str,
+    *,
+    foundry_account_name_conflicts: tuple[
+        FoundryAccountNameConflictEvidence, ...
+    ] = (),
 ) -> DailyAzureReadinessReceipt:
     if _READINESS_RUN_EPOCH.fullmatch(run_epoch) is None:
         raise ValueError("Invalid readiness run epoch.")
@@ -2047,6 +2146,12 @@ def build_daily_azure_readiness_receipt(
         context.configured_foundry_account_name
         or config.configured_foundry_account_name
     )
+    if not _valid_internal_foundry_conflict_evidence(
+        configured_name,
+        context,
+        foundry_account_name_conflicts,
+    ):
+        raise ValueError("Invalid internal Foundry conflict evidence.")
     configuration_fingerprint = daily_azure_configuration_fingerprint(config)
     values = {
         "configuration_fingerprint": configuration_fingerprint,
@@ -2059,6 +2164,7 @@ def build_daily_azure_readiness_receipt(
         "foundry_account_name_generation_attempts": (
             context.foundry_account_name_generation_attempts
         ),
+        "foundry_account_name_conflicts": foundry_account_name_conflicts,
         "resource_group": context.resource_group,
         "foundry_project_name": context.foundry_project_name,
         "web_app_name": context.web_app_name,
@@ -2069,6 +2175,39 @@ def build_daily_azure_readiness_receipt(
         ready=True,
         correlation_fingerprint=_readiness_receipt_correlation(**values),
         **values,
+    )
+
+
+def _valid_internal_foundry_conflict_evidence(
+    configured_name: str,
+    context: DailyAzureRuntimeContext,
+    conflicts: tuple[FoundryAccountNameConflictEvidence, ...],
+) -> bool:
+    names = [conflict.account_name for conflict in conflicts]
+    return bool(
+        len(conflicts) == context.foundry_account_name_generation_attempts
+        and all(
+            conflict.category == "foundry_account_name_unavailable"
+            and conflict.boundary in {"what-if", "deployment"}
+            and conflict.failure_kind == "custom_domain_in_use"
+            and isinstance(conflict.account_name, str)
+            and valid_foundry_account_name(conflict.account_name)
+            for conflict in conflicts
+        )
+        and len(set(names)) == len(names)
+        and (not names or names[0] == configured_name)
+        and all(
+            name == configured_name
+            or (
+                isinstance(name, str)
+                and _foundry_account_candidate_matches_base(
+                    name,
+                    configured_name,
+                )
+            )
+            for name in names
+        )
+        and context.effective_foundry_account_name not in names
     )
 
 
@@ -2207,8 +2346,32 @@ def load_matching_daily_azure_readiness_receipt(
     expected_fields = {field.name for field in fields(DailyAzureReadinessReceipt)}
     if not isinstance(payload, dict) or set(payload) != expected_fields:
         return None
+    conflict_payloads = payload.get("foundry_account_name_conflicts")
+    if not isinstance(conflict_payloads, list):
+        return None
+    conflicts: list[FoundryAccountNameConflictEvidence] = []
+    for item in conflict_payloads:
+        if not isinstance(item, dict) or set(item) != {
+            "boundary",
+            "failure_kind",
+            "category",
+        }:
+            return None
+        try:
+            conflict = FoundryAccountNameConflictEvidence(
+                account_name=None,
+                **item,
+            )
+        except TypeError:
+            return None
+        conflicts.append(conflict)
     try:
-        receipt = DailyAzureReadinessReceipt(**payload)
+        receipt = DailyAzureReadinessReceipt(
+            **{
+                **payload,
+                "foundry_account_name_conflicts": tuple(conflicts),
+            }
+        )
     except TypeError:
         return None
     string_values = (
@@ -2227,13 +2390,21 @@ def load_matching_daily_azure_readiness_receipt(
         or receipt.operation != REBUILD_OPERATION
         or receipt.ready is not True
         or receipt.run_epoch != state.run_epoch
-        or _READINESS_RUN_EPOCH.fullmatch(receipt.run_epoch) is None
-        or type(receipt.foundry_account_name_generated) is not bool
-        or type(receipt.foundry_account_name_generation_attempts) is not int
         or not all(
             isinstance(value, str) and value and value == value.strip()
             for value in string_values
         )
+        or _READINESS_RUN_EPOCH.fullmatch(receipt.run_epoch) is None
+        or type(receipt.foundry_account_name_generated) is not bool
+        or type(receipt.foundry_account_name_generation_attempts) is not int
+        or any(
+            conflict.category != "foundry_account_name_unavailable"
+            or conflict.boundary not in {"what-if", "deployment"}
+            or conflict.failure_kind != "custom_domain_in_use"
+            for conflict in receipt.foundry_account_name_conflicts
+        )
+        or len(receipt.foundry_account_name_conflicts)
+        != receipt.foundry_account_name_generation_attempts
         or not valid_foundry_account_name(receipt.foundry_account_name)
         or receipt.requested_foundry_account_name
         != config.configured_foundry_account_name
@@ -2273,6 +2444,9 @@ def load_matching_daily_azure_readiness_receipt(
         foundry_account_name_generated=receipt.foundry_account_name_generated,
         foundry_account_name_generation_attempts=(
             receipt.foundry_account_name_generation_attempts
+        ),
+        foundry_account_name_conflicts=(
+            receipt.foundry_account_name_conflicts
         ),
         resource_group=receipt.resource_group,
         foundry_project_name=receipt.foundry_project_name,
@@ -2390,6 +2564,7 @@ class DailyAzureEnvironmentRebuild:
             return self._live(
                 runner,
                 approvals,
+                approver,
                 progress,
                 mutation,
                 run_epoch,
@@ -2404,12 +2579,16 @@ class DailyAzureEnvironmentRebuild:
         self,
         runner: DailyAzureStageRunner,
         approvals: GuidedApprovalSession,
+        cleanup_approver: Callable[[object], bool] | None,
         progress: dict[str, object],
         mutation: list[bool | None],
         run_epoch: str,
         readiness_state_path: Path,
     ) -> DailyAzureEnvironmentRebuildResult:
         context = self._initial_context()
+        foundry_account_name_conflicts: list[
+            FoundryAccountNameConflictEvidence
+        ] = []
 
         def apply(result: StageResult) -> bool:
             nonlocal context
@@ -2423,6 +2602,46 @@ class DailyAzureEnvironmentRebuild:
         if not apply(account):
             return self._failure(account.category, progress, mutation[0])
         progress["account_verified"] = True
+        cleanup = runner.startup_cleanup(
+            context,
+            approver=cleanup_approver,
+        )
+        cleanup_mutation = getattr(cleanup, "azure_mutation_made", None)
+        mutation[0] = _combine_mutation_state(
+            mutation[0],
+            cleanup_mutation,
+        )
+        progress["startup_cleanup_inspected"] = (
+            getattr(cleanup, "inspection_completed", False) is True
+        )
+        progress["startup_cleanup_required"] = (
+            getattr(cleanup, "cleanup_required", False) is True
+        )
+        progress["startup_cleanup_approved"] = (
+            getattr(cleanup, "cleanup_approved", False) is True
+        )
+        progress["startup_cleanup_completed"] = (
+            getattr(cleanup, "category", None) == "cleanup_completed"
+        )
+        progress["startup_environment_clean"] = (
+            getattr(cleanup, "daily_environment_clean", False) is True
+        )
+        if (
+            getattr(cleanup, "ok", False) is not True
+            or progress["startup_cleanup_inspected"] is not True
+            or progress["startup_environment_clean"] is not True
+        ):
+            return self._failure(
+                str(
+                    getattr(
+                        cleanup,
+                        "category",
+                        "startup_cleanup_incomplete",
+                    )
+                ),
+                progress,
+                mutation[0],
+            )
         group = runner.inspect_resource_group(context)
         if group.state == "absent":
             group_summary = ApprovalSummary(
@@ -2463,6 +2682,48 @@ class DailyAzureEnvironmentRebuild:
                     == "foundry_account_name_unavailable"
                 )
                 if conflict_from_plan:
+                    failure_kind = (
+                        plan.foundry_account_name_failure_kind
+                    )
+                    if failure_kind not in {
+                        "custom_domain_in_use",
+                        "soft_deleted_account_name",
+                    }:
+                        return self._failure(
+                            "foundry_account_name_unavailable",
+                            progress,
+                            mutation[0],
+                            foundry_plan_diagnostic=GuidedPlanDiagnostic(
+                                plan,
+                                expected_boundary="foundry",
+                                require_create=True,
+                            ),
+                        )
+                    foundry_account_name_conflicts.append(
+                        FoundryAccountNameConflictEvidence(
+                            account_name=(
+                                context.effective_foundry_account_name
+                            ),
+                            boundary="what-if",
+                            failure_kind=failure_kind,
+                        )
+                    )
+                    if failure_kind == "soft_deleted_account_name":
+                        progress["startup_environment_clean"] = False
+                        return self._failure(
+                            "foundry_tombstone_still_present",
+                            progress,
+                            mutation[0],
+                            foundry_plan_diagnostic=GuidedPlanDiagnostic(
+                                plan,
+                                expected_boundary="foundry",
+                                require_create=True,
+                            ),
+                            context=context,
+                            foundry_account_name_conflicts=tuple(
+                                foundry_account_name_conflicts
+                            ),
+                        )
                     recovery = self._next_foundry_account_context(
                         context,
                         attempted_names,
@@ -2476,6 +2737,10 @@ class DailyAzureEnvironmentRebuild:
                                 plan,
                                 expected_boundary="foundry",
                                 require_create=True,
+                            ),
+                            context=context,
+                            foundry_account_name_conflicts=tuple(
+                                foundry_account_name_conflicts
                             ),
                         )
                     context = recovery
@@ -2494,6 +2759,10 @@ class DailyAzureEnvironmentRebuild:
                             ),
                             progress,
                             mutation[0],
+                            context=context,
+                            foundry_account_name_conflicts=tuple(
+                                foundry_account_name_conflicts
+                            ),
                         )
                     continue
                 if plan.source_failure_category is not None:
@@ -2505,6 +2774,10 @@ class DailyAzureEnvironmentRebuild:
                             plan,
                             expected_boundary="foundry",
                             require_create=True,
+                        ),
+                        context=context,
+                        foundry_account_name_conflicts=tuple(
+                            foundry_account_name_conflicts
                         ),
                     )
                 if not safe_guided_plan(
@@ -2521,6 +2794,10 @@ class DailyAzureEnvironmentRebuild:
                             expected_boundary="foundry",
                             require_create=True,
                         ),
+                        context=context,
+                        foundry_account_name_conflicts=tuple(
+                            foundry_account_name_conflicts
+                        ),
                     )
                 if not approvals.request(
                     _plan_approval_summary(
@@ -2536,6 +2813,10 @@ class DailyAzureEnvironmentRebuild:
                         "foundry_deployment_approval_required",
                         progress,
                         mutation[0],
+                        context=context,
+                        foundry_account_name_conflicts=tuple(
+                            foundry_account_name_conflicts
+                        ),
                     )
                 deployed = runner.deploy_foundry(context)
                 mutation[0] = _combine_mutation_state(
@@ -2548,12 +2829,52 @@ class DailyAzureEnvironmentRebuild:
                             deployed.category,
                             progress,
                             mutation[0],
+                            context=context,
+                            foundry_account_name_conflicts=tuple(
+                                foundry_account_name_conflicts
+                            ),
+                        )
+                    failure_kind = (
+                        deployed.foundry_account_name_failure_kind
+                    )
+                    if failure_kind not in {
+                        "custom_domain_in_use",
+                        "soft_deleted_account_name",
+                    }:
+                        return self._failure(
+                            "foundry_account_name_unavailable",
+                            progress,
+                            mutation[0],
+                        )
+                    foundry_account_name_conflicts.append(
+                        FoundryAccountNameConflictEvidence(
+                            account_name=(
+                                context.effective_foundry_account_name
+                            ),
+                            boundary="deployment",
+                            failure_kind=failure_kind,
+                        )
+                    )
+                    if failure_kind == "soft_deleted_account_name":
+                        progress["startup_environment_clean"] = False
+                        return self._failure(
+                            "foundry_tombstone_still_present",
+                            progress,
+                            mutation[0],
+                            context=context,
+                            foundry_account_name_conflicts=tuple(
+                                foundry_account_name_conflicts
+                            ),
                         )
                     if deployed.mutation_made is not False:
                         return self._failure(
                             "foundry_account_name_recovery_unsafe_partial_state",
                             progress,
                             mutation[0],
+                            context=context,
+                            foundry_account_name_conflicts=tuple(
+                                foundry_account_name_conflicts
+                            ),
                         )
                     recovery = self._next_foundry_account_context(
                         context,
@@ -2564,6 +2885,10 @@ class DailyAzureEnvironmentRebuild:
                             recovery,
                             progress,
                             mutation[0],
+                            context=context,
+                            foundry_account_name_conflicts=tuple(
+                                foundry_account_name_conflicts
+                            ),
                         )
                     context = recovery
                     attempted_names.add(context.effective_foundry_account_name)
@@ -2581,6 +2906,10 @@ class DailyAzureEnvironmentRebuild:
                             ),
                             progress,
                             mutation[0],
+                            context=context,
+                            foundry_account_name_conflicts=tuple(
+                                foundry_account_name_conflicts
+                            ),
                         )
                     continue
                 if (
@@ -2592,18 +2921,34 @@ class DailyAzureEnvironmentRebuild:
                         "foundry_deployment_identity_mismatch",
                         progress,
                         mutation[0],
+                        context=context,
+                        foundry_account_name_conflicts=tuple(
+                            foundry_account_name_conflicts
+                        ),
                     )
                 context = _apply_updates(context, deployed.updates)
                 foundry = runner.verify_foundry(context)
                 break
             else:
                 return self._failure(
-                    "foundry_account_name_candidates_exhausted",
+                    "foundry_account_name_recovery_exhausted",
                     progress,
                     mutation[0],
+                    context=context,
+                    foundry_account_name_conflicts=tuple(
+                        foundry_account_name_conflicts
+                    ),
                 )
         if not apply(foundry):
-            return self._failure(foundry.category, progress, mutation[0])
+            return self._failure(
+                foundry.category,
+                progress,
+                mutation[0],
+                context=context,
+                foundry_account_name_conflicts=tuple(
+                    foundry_account_name_conflicts
+                ),
+            )
         progress["foundry_infrastructure_verified"] = True
 
         agent = runner.provision_agent(context)
@@ -2684,7 +3029,6 @@ class DailyAzureEnvironmentRebuild:
         progress["application_deployment_reused"] = code.reused
         if not apply(code):
             return self._failure(code.category, progress, mutation[0])
-        progress["application_deployment_accepted"] = code.accepted
         deployment_completed = bool(
             code.attempted and code.accepted and not code.reused
         )
@@ -2704,11 +3048,15 @@ class DailyAzureEnvironmentRebuild:
             )
         progress["hosted_readiness_verified"] = True
         progress["application_artifact_current"] = True
+        progress["application_deployment_accepted"] = code.accepted
 
         receipt = build_daily_azure_readiness_receipt(
             self.config,
             context,
             run_epoch,
+            foundry_account_name_conflicts=tuple(
+                foundry_account_name_conflicts
+            ),
         )
         try:
             write_daily_azure_readiness_receipt(
@@ -2759,6 +3107,9 @@ class DailyAzureEnvironmentRebuild:
             foundry_account_name_generation_attempts=(
                 receipt.foundry_account_name_generation_attempts
             ),
+            foundry_account_name_conflicts=(
+                receipt.foundry_account_name_conflicts
+            ),
             rbac_handoff=handoff,
         )
 
@@ -2771,7 +3122,7 @@ class DailyAzureEnvironmentRebuild:
             context.foundry_account_name_generation_attempts
             >= MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
         ):
-            return "foundry_account_name_candidates_exhausted"
+            return "foundry_account_name_recovery_exhausted"
         try:
             candidate = self.foundry_name_generator(
                 self.config.configured_foundry_account_name,
@@ -2840,6 +3191,10 @@ class DailyAzureEnvironmentRebuild:
         *,
         foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None,
         what_if_diagnostic: WhatIfDiagnostic | None = None,
+        context: DailyAzureRuntimeContext | None = None,
+        foundry_account_name_conflicts: tuple[
+            FoundryAccountNameConflictEvidence, ...
+        ] = (),
     ) -> DailyAzureEnvironmentRebuildResult:
         allowed = {field.name for field in fields(DailyAzureEnvironmentRebuildResult)}
         safe_progress = {
@@ -2859,13 +3214,17 @@ class DailyAzureEnvironmentRebuild:
                 "Azure proved the Foundry base name unavailable; rerun the "
                 "coordinator to start a new bounded recovery run."
             ),
-            "foundry_account_name_candidates_exhausted": (
+            "foundry_account_name_recovery_exhausted": (
                 "The three generated Foundry account-name candidates were "
                 "exhausted; stop and review the sanitized conflict category."
             ),
             "foundry_account_name_recovery_unsafe_partial_state": (
                 "Automatic renaming stopped because mutation state was not "
                 "conclusively absent."
+            ),
+            "foundry_tombstone_still_present": (
+                "Startup cleanup did not eliminate an exact owned Foundry "
+                "soft-delete blocker; stop and rerun from a fresh preflight."
             ),
             "web_app_deployment_approval_required": (
                 "Rerun guided live mode and review the fresh Web App preview."
@@ -2898,6 +3257,21 @@ class DailyAzureEnvironmentRebuild:
             recommended_next_step=next_steps.get(category, FAILURE_NEXT_STEP),
             foundry_plan_diagnostic=foundry_plan_diagnostic,
             what_if_diagnostic=what_if_diagnostic,
+            requested_foundry_account_name=None,
+            foundry_account_name=None,
+            foundry_account_name_generated=(
+                context.foundry_account_name_generated
+                if context is not None
+                else False
+            ),
+            foundry_account_name_generation_attempts=(
+                context.foundry_account_name_generation_attempts
+                if context is not None
+                else 0
+            ),
+            foundry_account_name_conflicts=(
+                foundry_account_name_conflicts
+            ),
             **safe_progress,
         )
 
@@ -2962,24 +3336,36 @@ class _CommandResult:
     return_code: int
     stdout: str
     stderr: str
+    timed_out: bool = False
 
 
 class _SubprocessRunner:
+    def __init__(
+        self,
+        *,
+        timeout_seconds: float = 300.0,
+        cleanup_timeout_seconds: float = 5.0,
+    ) -> None:
+        self.timeout_seconds = timeout_seconds
+        self.cleanup_timeout_seconds = cleanup_timeout_seconds
+
     def run(self, args: list[str]) -> _CommandResult:
-        try:
-            completed = subprocess.run(
-                args,
-                shell=False,
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError:
-            return _CommandResult(127, "", "")
+        timeout_seconds = (
+            10.0
+            if args[:5]
+            == ["az", "webapp", "log", "deployment", "list"]
+            else self.timeout_seconds
+        )
+        completed = run_bounded_subprocess(
+            args,
+            timeout_seconds=timeout_seconds,
+            cleanup_timeout_seconds=self.cleanup_timeout_seconds,
+        )
         return _CommandResult(
-            completed.returncode,
+            completed.return_code,
             completed.stdout,
             completed.stderr,
+            completed.timed_out,
         )
 
 
@@ -3028,6 +3414,7 @@ class RepositoryDailyAzureStageRunner:
         self._consumer_rbac_preview_authorization: (
             tuple[str, str, ConsumerRbacPlan] | None
         ) = None
+        self._verified_cleanup_account: object | None = None
 
     def verify_account(self, context: DailyAzureRuntimeContext) -> StageResult:
         outcome = self.command_runner.run(
@@ -3036,7 +3423,10 @@ class RepositoryDailyAzureStageRunner:
                 "account",
                 "show",
                 "--query",
-                "{subscription:name,state:state,isDefault:isDefault}",
+                (
+                    "{id:id,tenantId:tenantId,subscription:name,"
+                    "state:state,isDefault:isDefault}"
+                ),
                 "--output",
                 "json",
                 "--only-show-errors",
@@ -3045,6 +3435,10 @@ class RepositoryDailyAzureStageRunner:
         payload = _json_object(outcome.stdout) if outcome.return_code == 0 else None
         if (
             payload is None
+            or set(payload)
+            != {"id", "tenantId", "subscription", "state", "isDefault"}
+            or not _valid_uuid(payload.get("id"))
+            or not _valid_uuid(payload.get("tenantId"))
             or payload.get("subscription") != self.config.subscription_name
             or payload.get("state") != "Enabled"
             or payload.get("isDefault") is not True
@@ -3054,7 +3448,47 @@ class RepositoryDailyAzureStageRunner:
                 if outcome.return_code == 0
                 else "authentication_or_authorization_failed"
             )
+        from src.app.services.daily_azure_environment_cleanup import (
+            VerifiedAzureAccount,
+        )
+
+        self._verified_cleanup_account = VerifiedAzureAccount(
+            subscription_id=str(payload["id"]),
+            tenant_id=str(payload["tenantId"]),
+            subscription_name=str(payload["subscription"]),
+        )
         return StageResult.success(reused=True)
+
+    def startup_cleanup(
+        self,
+        context: DailyAzureRuntimeContext,
+        *,
+        approver: Callable[[object], bool] | None,
+    ) -> object:
+        from src.app.services.daily_azure_environment_cleanup import (
+            CleanupPurpose,
+            CleanupResult,
+            DailyAzureEnvironmentCleanup,
+            VerifiedAzureAccount,
+        )
+
+        account = self._verified_cleanup_account
+        if not isinstance(account, VerifiedAzureAccount):
+            return CleanupResult(
+                ok=False,
+                category="account_verification_failed",
+                purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+            )
+        service = DailyAzureEnvironmentCleanup(
+            self.config,
+            repository_root=self.repository_root,
+            local_contract_checker=lambda _root: (),
+        )
+        return service.startup_preflight(
+            self.command_runner,
+            account,
+            approver=approver,
+        )
 
     def inspect_resource_group(self, context: DailyAzureRuntimeContext) -> StageResult:
         exists = self.command_runner.run(
@@ -3244,7 +3678,16 @@ class RepositoryDailyAzureStageRunner:
             ensure_resource_group=False,
         )
         endpoint = result.get("project_endpoint")
-        if not result.get("ok") or endpoint != context.project_endpoint:
+        if (
+            not result.get("ok")
+            or result.get("foundry_resource_name")
+            != context.effective_foundry_account_name
+            or result.get("foundry_project_name")
+            != context.foundry_project_name
+            or result.get("model_deployment_name")
+            != context.model_deployment_name
+            or endpoint != context.project_endpoint
+        ):
             category = str(
                 result.get("category", "foundry_deployment_failed")
             )
@@ -3260,6 +3703,13 @@ class RepositoryDailyAzureStageRunner:
                 category,
                 mutation_made=mutation_made,
                 attempted=True,
+                foundry_account_name_failure_kind=(
+                    _foundry_account_failure_kind(
+                        result.get("deployment_failure_diagnostic")
+                    )
+                    if category == "foundry_account_name_unavailable"
+                    else None
+                ),
             )
         return StageResult.success(mutation_made=True)
 
@@ -3471,6 +3921,18 @@ class RepositoryDailyAzureStageRunner:
 
         if self._package is None:
             return StageResult.failure("package_missing")
+        if self._expected_application_artifact_digest is None:
+            return StageResult.failure("package_missing")
+        current = self._readiness_result(context)
+        if (
+            current.ok
+            and current.safe_hosted_posture_verified
+            and current.application_artifact_matches
+        ):
+            return StageResult.success(
+                reused=True,
+                artifact_current=True,
+            )
         result = execute(
             DeploymentRequest("live", context.resource_group, context.web_app_name),
             runner=self.command_runner,
@@ -3480,9 +3942,12 @@ class RepositoryDailyAzureStageRunner:
         )
         if not result.get("ok") or not result.get("deployment_accepted"):
             attempted = result.get("azure_command_attempted") is True
+            mutation_made = result.get("azure_mutation_made")
+            if mutation_made is not None and type(mutation_made) is not bool:
+                mutation_made = None if attempted else False
             return StageResult.failure(
                 str(result.get("category", "deployment_failed")),
-                mutation_made=None if attempted else False,
+                mutation_made=mutation_made,
                 attempted=attempted,
             )
         return StageResult.success(
@@ -4016,8 +4481,37 @@ def _json_object(value: str) -> dict[str, object] | None:
     return parsed if isinstance(parsed, dict) else None
 
 
+def _valid_uuid(value: object) -> bool:
+    if not isinstance(value, str) or value != value.strip():
+        return False
+    try:
+        return str(UUID(value)) == value.casefold()
+    except ValueError:
+        return False
+
+
 def _location_matches(value: object, expected: str) -> bool:
     return isinstance(value, str) and value.casefold().replace(" ", "") == expected.casefold()
+
+
+def _foundry_account_failure_kind(
+    value: object,
+) -> FoundryAccountNameFailureKind | None:
+    if not isinstance(value, dict):
+        return None
+    failure_kind = value.get("failure_kind")
+    azure_error_class = value.get("azure_error_class")
+    expected_class = {
+        "custom_domain_in_use": "custom_domain_in_use",
+        "soft_deleted_account_name": "FlagMustBeSetForRestore",
+    }
+    return (
+        failure_kind
+        if isinstance(failure_kind, str)
+        and failure_kind in expected_class
+        and azure_error_class == expected_class[failure_kind]
+        else None
+    )
 
 
 def _plan_from_mapping(value: dict[str, object]) -> PlanResult:
@@ -4048,6 +4542,13 @@ def _plan_from_mapping(value: dict[str, object]) -> PlanResult:
                 if isinstance(category, str)
                 and category in allowed_failure_categories
                 else "foundry_plan_failed"
+            ),
+            foundry_account_name_failure_kind=(
+                _foundry_account_failure_kind(
+                    value.get("what_if_failure_diagnostic")
+                )
+                if category == "foundry_account_name_unavailable"
+                else None
             ),
         )
     if not all(_valid_count(value.get(name)) for name in names):

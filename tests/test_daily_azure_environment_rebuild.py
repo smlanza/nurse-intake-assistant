@@ -2,6 +2,7 @@ import json
 import os
 import inspect
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +13,10 @@ from src.app.services import foundry_agent_consumer_rbac_deployment
 from src.app.services import foundry_agent_consumer_rbac_verification
 from src.app.services import hosted_foundry_agent_webjob_execution
 from src.app.services import web_app_infra_deployment as web_app_deployment
+from src.app.services.daily_azure_environment_cleanup import (
+    CleanupPurpose,
+    CleanupResult,
+)
 from src.app.services.daily_azure_environment_rebuild import (
     ApprovalSummary,
     FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET,
@@ -149,6 +154,8 @@ def test_verified_ready_does_not_require_optional_hosted_workflows() -> None:
     proofs = {
         "local_orchestration_ready": True,
         "account_verified": True,
+        "startup_cleanup_inspected": True,
+        "startup_environment_clean": True,
         "resource_group_ready": True,
         "foundry_infrastructure_verified": True,
         "prompt_agent_verified": True,
@@ -334,6 +341,9 @@ class FakeRunner:
         self.rbac_preview_binding = "preview-a"
         self.fresh_rbac_preview_binding: str | None = None
         self.fresh_package_binding: str | None = None
+        self.startup_cleanup_result = CleanupResult.already_clean(
+            CleanupPurpose.STARTUP_PREFLIGHT
+        )
 
     def _stage(self, name: str, context: DailyAzureRuntimeContext) -> StageResult:
         self.calls.append(name)
@@ -347,6 +357,11 @@ class FakeRunner:
 
     def verify_account(self, context):
         return self._stage("verify_account", context)
+
+    def startup_cleanup(self, context, *, approver):
+        self.calls.append("startup_cleanup")
+        self.contexts["startup_cleanup"] = context
+        return self.startup_cleanup_result
 
     def inspect_resource_group(self, context):
         result = self._stage("inspect_resource_group", context)
@@ -745,6 +760,7 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
 
     assert runner.calls == [
         "verify_account",
+        "startup_cleanup",
         "inspect_resource_group",
         "create_resource_group",
         "verify_foundry",
@@ -766,6 +782,8 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
     payload = result.to_json_dict()
     assert payload["ok"] is True
     assert payload["daily_environment_ready"] is True
+    assert payload["startup_cleanup_inspected"] is True
+    assert payload["startup_environment_clean"] is True
     assert payload["application_artifact_current"] is True
     assert payload["application_deployment_attempted"] is True
     assert payload["application_deployment_accepted"] is True
@@ -806,6 +824,17 @@ def test_existing_environment_reuses_without_optional_hosted_workflows(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner()
+    runner.startup_cleanup_result = CleanupResult(
+        ok=True,
+        category="healthy_environment_reusable",
+        purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+        account_verified=True,
+        inspection_completed=True,
+        resource_group_present=True,
+        resource_group_owned=True,
+        foundry_tombstones_absent=True,
+        daily_environment_clean=True,
+    )
     runner.foundry_absent = False
     runner.web_app_absent = False
     runner.rbac_absent = False
@@ -818,6 +847,15 @@ def test_existing_environment_reuses_without_optional_hosted_workflows(
     ).live(runner, approver=lambda _summary: True)
 
     assert result.ok is True
+    assert result.startup_cleanup_inspected is True
+    assert result.startup_cleanup_required is False
+    assert result.startup_cleanup_completed is False
+    assert result.startup_environment_clean is True
+    assert runner.calls[:3] == [
+        "verify_account",
+        "startup_cleanup",
+        "inspect_resource_group",
+    ]
     assert "plan_foundry" not in runner.calls
     assert "deploy_foundry" not in runner.calls
     assert "plan_web_app" not in runner.calls
@@ -923,8 +961,155 @@ def test_absent_resource_group_without_approval_never_mutates(tmp_path: Path) ->
     ).live(runner)
 
     assert result.category == "resource_group_approval_required"
-    assert runner.calls == ["verify_account", "inspect_resource_group"]
+    assert runner.calls == [
+        "verify_account",
+        "startup_cleanup",
+        "inspect_resource_group",
+    ]
     assert result.azure_mutation_made is False
+
+
+def test_startup_cleanup_runs_after_account_and_before_infrastructure(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner)
+
+    assert result.category == "resource_group_approval_required"
+    assert runner.calls.index("verify_account") < runner.calls.index(
+        "startup_cleanup"
+    )
+    assert runner.calls.index("startup_cleanup") < runner.calls.index(
+        "inspect_resource_group"
+    )
+    assert "plan_foundry" not in runner.calls
+    assert result.startup_cleanup_inspected is True
+    assert result.startup_environment_clean is True
+
+
+@pytest.mark.parametrize(
+    "cleanup_result",
+    [
+        CleanupResult(
+            ok=False,
+            category="cleanup_approval_declined",
+            purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+            account_verified=True,
+            inspection_completed=True,
+            cleanup_required=True,
+        ),
+        CleanupResult(
+            ok=False,
+            category="deleted_foundry_account_ambiguous",
+            purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+            account_verified=True,
+            inspection_completed=True,
+            manual_review_required=True,
+        ),
+        CleanupResult(
+            ok=False,
+            category="resource_group_delete_failed",
+            purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+            account_verified=True,
+            inspection_completed=True,
+            cleanup_required=True,
+            cleanup_approved=True,
+            cleanup_attempted=True,
+            azure_mutation_made=None,
+        ),
+    ],
+)
+def test_failed_startup_cleanup_stops_before_infrastructure_and_ready(
+    tmp_path: Path,
+    cleanup_result: CleanupResult,
+) -> None:
+    runner = FakeRunner()
+    runner.startup_cleanup_result = cleanup_result
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == cleanup_result.category
+    assert result.startup_cleanup_inspected is True
+    assert result.startup_environment_clean is False
+    assert result.daily_environment_ready is False
+    assert "inspect_resource_group" not in runner.calls
+    assert "plan_foundry" not in runner.calls
+    assert "deploy_foundry" not in runner.calls
+
+
+def test_approved_startup_cleanup_continues_only_after_verified_clean_state(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.startup_cleanup_result = CleanupResult(
+        ok=True,
+        category="cleanup_completed",
+        purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+        account_verified=True,
+        inspection_completed=True,
+        cleanup_required=True,
+        cleanup_approved=True,
+        cleanup_attempted=True,
+        resource_group_deletion_required=True,
+        resource_group_delete_attempted=True,
+        resource_group_absent=True,
+        foundry_purge_required=True,
+        foundry_purge_attempted=True,
+        foundry_tombstones_absent=True,
+        daily_environment_clean=True,
+        azure_mutation_made=True,
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner)
+
+    assert result.category == "resource_group_approval_required"
+    assert result.startup_cleanup_required is True
+    assert result.startup_cleanup_approved is True
+    assert result.startup_cleanup_completed is True
+    assert result.startup_environment_clean is True
+    assert runner.calls[:3] == [
+        "verify_account",
+        "startup_cleanup",
+        "inspect_resource_group",
+    ]
+
+
+def test_ready_factory_rejects_unclean_startup_environment() -> None:
+    proofs = {
+        "local_orchestration_ready": True,
+        "account_verified": True,
+        "startup_cleanup_inspected": True,
+        "startup_environment_clean": False,
+        "resource_group_ready": True,
+        "foundry_infrastructure_verified": True,
+        "prompt_agent_verified": True,
+        "immutable_routing_verified": True,
+        "web_app_configuration_verified": True,
+        "application_package_created": True,
+        "application_artifact_current": True,
+        "application_deployment_attempted": True,
+        "application_deployment_accepted": True,
+        "hosted_readiness_verified": True,
+    }
+
+    with pytest.raises(ValueError):
+        DailyAzureEnvironmentRebuildResult._verified_ready(
+            proofs,
+            azure_mutation_made=False,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1258,43 +1443,63 @@ def test_plan_mapping_does_not_expose_unrecognized_adapter_failure_category() ->
     assert "private-rg" not in serialized
 
 
-def test_foundry_name_conflicts_exhaust_bounded_candidates_without_deployment(
+def test_soft_deleted_what_if_conflict_stops_without_candidate_recovery(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner()
     runner.plan_overrides["plan_foundry"] = PlanResult(
         malformed=True,
         source_failure_category="foundry_account_name_unavailable",
+        foundry_account_name_failure_kind="soft_deleted_account_name",
     )
     prompts: list[str] = []
+    generated = False
+
+    def forbidden_generator(_base, _attempted):
+        nonlocal generated
+        generated = True
+        raise AssertionError("Soft-delete conflict generated a candidate")
 
     result = DailyAzureEnvironmentRebuild(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
+        foundry_name_generator=forbidden_generator,
     ).live(
         runner,
         approver=lambda summary: prompts.append(summary.stage) is None,
     )
 
-    assert result.category == "foundry_account_name_candidates_exhausted"
-    assert result.resource_group_ready is True
+    assert result.category == "foundry_tombstone_still_present"
+    assert result.ok is False
     assert result.daily_environment_ready is False
+    assert result.foundry_account_name_generated is False
+    assert result.foundry_account_name_generation_attempts == 0
+    assert len(result.foundry_account_name_conflicts) == 1
+    assert result.foundry_account_name_conflicts[0].account_name == CONFIG[
+        "AZURE_FOUNDRY_ACCOUNT_NAME"
+    ]
+    assert result.foundry_account_name_conflicts[0].boundary == "what-if"
+    assert (
+        result.foundry_account_name_conflicts[0].failure_kind
+        == "soft_deleted_account_name"
+    )
+    assert result.resource_group_ready is True
     assert result.azure_mutation_made is True
     assert prompts == ["resource_group"]
-    assert runner.calls[:5] == [
-        "verify_account",
-        "inspect_resource_group",
-        "create_resource_group",
-        "verify_foundry",
-        "plan_foundry",
-    ]
-    assert runner.calls.count("check_foundry") == 3
-    assert runner.calls.count("plan_foundry") == 4
+    assert generated is False
+    assert runner.calls.count("check_foundry") == 0
+    assert runner.calls.count("plan_foundry") == 1
     assert "deploy_foundry" not in runner.calls
-    assert result.to_json_dict()["foundry_plan_diagnostic"][
-        "safe_guided_plan"
-    ] is False
+    payload = result.to_json_dict()
+    serialized = json.dumps(payload)
+    assert CONFIG["AZURE_FOUNDRY_ACCOUNT_NAME"] not in serialized
+    assert "requested_foundry_account_name" not in payload
+    assert "foundry_account_name" not in payload
+    assert all(
+        "account_name" not in conflict
+        for conflict in payload["foundry_account_name_conflicts"]
+    )
 
 
 def test_foundry_account_name_builder_normalizes_truncates_and_validates() -> None:
@@ -1346,6 +1551,7 @@ def test_proven_name_conflict_recovers_with_fresh_candidate_boundaries(
             return PlanResult(
                 malformed=True,
                 source_failure_category="foundry_account_name_unavailable",
+                foundry_account_name_failure_kind="custom_domain_in_use",
             )
         return PlanResult(
             create_count=1,
@@ -1388,6 +1594,10 @@ def test_proven_name_conflict_recovers_with_fresh_candidate_boundaries(
         "configure_agent_routing",
         "verify_agent",
         "verify_web_app_configuration",
+        "plan_web_app",
+        "deploy_web_app",
+        "build_package",
+        "deploy_code",
         "verify_readiness",
     ):
         assert runner.contexts[stage].foundry_account_name == effective
@@ -1402,6 +1612,13 @@ def test_proven_name_conflict_recovers_with_fresh_candidate_boundaries(
 
     payload = result.to_json_dict()
     assert payload["foundry_account_name"] == effective
+    assert payload["foundry_account_name_conflicts"] == [
+        {
+            "boundary": "what-if",
+            "category": "foundry_account_name_unavailable",
+            "failure_kind": "custom_domain_in_use",
+        }
+    ]
     assert payload["rbac_handoff"]["foundry_account_name"] == effective
     receipt_path = tmp_path / READINESS_RECEIPT_FILE
     receipt = load_matching_daily_azure_readiness_receipt(
@@ -1411,9 +1628,335 @@ def test_proven_name_conflict_recovers_with_fresh_candidate_boundaries(
     assert receipt is not None
     assert receipt.requested_foundry_account_name == config.foundry_account_name
     assert receipt.foundry_account_name == effective
+    assert [
+        conflict.to_json_dict()
+        for conflict in receipt.foundry_account_name_conflicts
+    ] == payload["foundry_account_name_conflicts"]
     assert receipt.resource_group == config.resource_group
     assert receipt.foundry_project_name == config.foundry_project_name
+    runtime_session = (
+        tmp_path / ".artifacts/daily-azure-rebuild/current-session.env"
+    ).read_text()
+    assert (
+        f"AZURE_REQUESTED_FOUNDRY_ACCOUNT_NAME={config.foundry_account_name}\n"
+        in runtime_session
+    )
+    assert f"AZURE_FOUNDRY_ACCOUNT_NAME={effective}\n" in runtime_session
     assert os.stat(receipt_path).st_mode & 0o777 == 0o600
+
+
+def test_generated_soft_deleted_what_if_conflict_stops_and_sanitizes_names(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    planned_contexts: list[DailyAzureRuntimeContext] = []
+
+    def plan_foundry(context):
+        runner.calls.append("plan_foundry")
+        planned_contexts.append(context)
+        if len(planned_contexts) == 1:
+            return PlanResult(
+                malformed=True,
+                source_failure_category="foundry_account_name_unavailable",
+                foundry_account_name_failure_kind="custom_domain_in_use",
+            )
+        return PlanResult(
+            malformed=True,
+            source_failure_category="foundry_account_name_unavailable",
+            foundry_account_name_failure_kind="soft_deleted_account_name",
+        )
+
+    runner.plan_foundry = plan_foundry
+    generated_name = "fictional-intake-foundry-aa0001"
+    generator_calls = 0
+
+    def generator(_base, _attempted):
+        nonlocal generator_calls
+        generator_calls += 1
+        return generated_name
+
+    approvals: list[ApprovalSummary] = []
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=generator,
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary) is None,
+    )
+
+    expected_names = [CONFIG["AZURE_FOUNDRY_ACCOUNT_NAME"], generated_name]
+    assert result.ok is False
+    assert result.category == "foundry_tombstone_still_present"
+    assert result.daily_environment_ready is False
+    assert [context.foundry_account_name for context in planned_contexts] == (
+        expected_names
+    )
+    assert generator_calls == 1
+    assert result.foundry_account_name_generation_attempts == 1
+    assert runner.calls.count("check_foundry") == 1
+    assert runner.calls.count("plan_foundry") == 2
+    assert "deploy_foundry" not in runner.calls
+    assert [
+        (
+            conflict.account_name,
+            conflict.boundary,
+            conflict.failure_kind,
+        )
+        for conflict in result.foundry_account_name_conflicts
+    ] == [
+        (
+            expected_names[0],
+            "what-if",
+            "custom_domain_in_use",
+        ),
+        (
+            expected_names[1],
+            "what-if",
+            "soft_deleted_account_name",
+        ),
+    ]
+    assert not [
+        summary
+        for summary in approvals
+        if summary.stage == "foundry_deployment"
+    ]
+    payload = result.to_json_dict()
+    serialized = json.dumps(payload)
+    assert CONFIG["AZURE_FOUNDRY_ACCOUNT_NAME"] not in serialized
+    assert generated_name not in serialized
+    assert "requested_foundry_account_name" not in payload
+    assert "foundry_account_name" not in payload
+    assert all(
+        "account_name" not in conflict
+        for conflict in payload["foundry_account_name_conflicts"]
+    )
+
+
+def test_soft_deleted_stderr_stops_through_repository_stage_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.deploy_foundry_infra as foundry_script
+
+    config = _config(tmp_path)
+    template = tmp_path / "infra" / "foundry-only.bicep"
+    module = tmp_path / "infra" / "modules" / "foundry.bicep"
+    template.parent.mkdir(parents=True)
+    module.parent.mkdir(parents=True)
+    template.write_text("param foundryAccountName string\n")
+    module.write_text("targetScope = 'resourceGroup'\n")
+    monkeypatch.setattr(
+        foundry_script,
+        "TEMPLATES",
+        {"foundry-only": template},
+    )
+    monkeypatch.setattr(foundry_script, "FOUNDRY_MODULE", module)
+    class BoundaryCommandRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+            self.what_if_parameters: list[tuple[Path, str]] = []
+
+        def run(self, args: list[str]):
+            self.calls.append(args)
+            if args[:4] == ["az", "deployment", "group", "what-if"]:
+                parameters = Path(args[args.index("--parameters") + 1])
+                content = parameters.read_text()
+                self.what_if_parameters.append((parameters, content))
+                if (
+                    f"param foundryAccountName = '{config.foundry_account_name}'"
+                    in content
+                ):
+                    resource_id = (
+                        "/subscriptions/00000000-0000-0000-0000-000000000001/"
+                        f"resourceGroups/{config.resource_group}/providers/"
+                        "Microsoft.CognitiveServices/accounts/"
+                        f"{config.foundry_account_name}"
+                    )
+                    return foundry_script.CommandResult(
+                        1,
+                        "",
+                        (
+                            "ERROR: (InvalidTemplateDeployment) The template "
+                            "deployment failed.\n"
+                            "Details: (FlagMustBeSetForRestore) "
+                            "FlagMustBeSetForRestore - An existing resource "
+                            f"with ID '{resource_id}' has been soft-deleted. "
+                            "To restore the resource, set restore to true."
+                        ),
+                    )
+                raise AssertionError("Soft-delete conflict planned another name")
+            return foundry_script.CommandResult(0, "{}", "")
+
+    command_runner = BoundaryCommandRunner()
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=tmp_path,
+        command_runner=command_runner,
+    )
+
+    class CoordinatorRunner(FakeRunner):
+        def plan_foundry(self, context):
+            self._stage("plan_foundry", context)
+            return repository_runner.plan_foundry(context)
+
+        def check_foundry(self, context):
+            self._stage("check_foundry", context)
+            return repository_runner.check_foundry(context)
+
+    runner = CoordinatorRunner()
+    approvals: list[ApprovalSummary] = []
+    generated = False
+
+    def forbidden_generator(_base, _attempted):
+        nonlocal generated
+        generated = True
+        raise AssertionError("Soft-delete conflict generated a candidate")
+
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=forbidden_generator,
+    ).live(
+        runner,
+        approver=lambda summary: approvals.append(summary) is None,
+    )
+
+    assert result.ok is False
+    assert result.category == "foundry_tombstone_still_present"
+    assert result.daily_environment_ready is False
+    assert generated is False
+    assert result.foundry_account_name_generation_attempts == 0
+    assert result.foundry_account_name_conflicts[0].to_json_dict() == {
+        "boundary": "what-if",
+        "category": "foundry_account_name_unavailable",
+        "failure_kind": "soft_deleted_account_name",
+    }
+    assert len(command_runner.what_if_parameters) == 1
+    _base_path, base_content = command_runner.what_if_parameters[0]
+    assert f"param foundryAccountName = '{config.foundry_account_name}'" in base_content
+    assert not [
+        summary
+        for summary in approvals
+        if summary.stage == "foundry_deployment"
+    ]
+    assert runner.calls.count("plan_foundry") == 1
+    assert runner.calls.count("check_foundry") == 0
+    assert "deploy_foundry" not in runner.calls
+    payload = result.to_json_dict()
+    serialized = json.dumps(payload)
+    assert config.foundry_account_name not in serialized
+    assert "requested_foundry_account_name" not in payload
+    assert "foundry_account_name" not in payload
+    assert all(
+        "account_name" not in conflict
+        for conflict in payload["foundry_account_name_conflicts"]
+    )
+    assert not (tmp_path / READINESS_RECEIPT_FILE).exists()
+
+
+def test_soft_deleted_deployment_conflict_stops_without_candidate_recovery(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    deployment_contexts: list[DailyAzureRuntimeContext] = []
+
+    def deploy_foundry(context):
+        runner.calls.append("deploy_foundry")
+        deployment_contexts.append(context)
+        return StageResult.failure(
+            "foundry_account_name_unavailable",
+            mutation_made=False,
+            attempted=True,
+            foundry_account_name_failure_kind="soft_deleted_account_name",
+        )
+
+    runner.deploy_foundry = deploy_foundry
+    generated = False
+
+    def forbidden_generator(_base, _attempted):
+        nonlocal generated
+        generated = True
+        raise AssertionError("Soft-delete conflict generated a candidate")
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=forbidden_generator,
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "foundry_tombstone_still_present"
+    assert result.daily_environment_ready is False
+    assert generated is False
+    assert len(deployment_contexts) == 1
+    assert runner.calls.count("plan_foundry") == 1
+    assert runner.calls.count("deploy_foundry") == 1
+    assert runner.calls.count("check_foundry") == 0
+    assert result.foundry_account_name_conflicts[0].to_json_dict() == {
+        "boundary": "deployment",
+        "category": "foundry_account_name_unavailable",
+        "failure_kind": "soft_deleted_account_name",
+    }
+    payload = result.to_json_dict()
+    serialized = json.dumps(payload)
+    assert CONFIG["AZURE_FOUNDRY_ACCOUNT_NAME"] not in serialized
+    assert "requested_foundry_account_name" not in payload
+    assert "foundry_account_name" not in payload
+    assert all(
+        "account_name" not in conflict
+        for conflict in payload["foundry_account_name_conflicts"]
+    )
+
+
+def test_custom_domain_deployment_conflict_keeps_bounded_recovery(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    deployment_contexts: list[DailyAzureRuntimeContext] = []
+
+    def deploy_foundry(context):
+        runner.calls.append("deploy_foundry")
+        deployment_contexts.append(context)
+        if len(deployment_contexts) == 1:
+            return StageResult.failure(
+                "foundry_account_name_unavailable",
+                mutation_made=False,
+                attempted=True,
+                foundry_account_name_failure_kind="custom_domain_in_use",
+            )
+        runner.foundry_absent = False
+        return StageResult.success(mutation_made=True, attempted=True)
+
+    runner.deploy_foundry = deploy_foundry
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+        foundry_name_generator=lambda base, _attempted: (
+            build_foundry_account_name(base, "def456")
+        ),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is True
+    assert result.daily_environment_ready is True
+    assert [item.foundry_account_name for item in deployment_contexts] == [
+        CONFIG["AZURE_FOUNDRY_ACCOUNT_NAME"],
+        "fictional-intake-foundry-def456",
+    ]
+    assert runner.calls.count("check_foundry") == 1
+    assert runner.calls.count("plan_foundry") == 2
+    assert runner.calls.count("deploy_foundry") == 2
+    assert result.to_json_dict()["foundry_account_name_conflicts"] == [
+        {
+            "boundary": "deployment",
+            "category": "foundry_account_name_unavailable",
+            "failure_kind": "custom_domain_in_use",
+        }
+    ]
 
 
 def test_foundry_parameters_are_rebuilt_for_the_effective_candidate(
@@ -1456,6 +1999,70 @@ def test_foundry_parameters_are_rebuilt_for_the_effective_candidate(
     )
 
 
+def test_effective_candidate_is_consumed_by_what_if_and_deployment_inputs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(tmp_path)
+    runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=tmp_path,
+        command_runner=CommandRunner([]),
+    )
+    initial = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+    )._initial_context()
+    effective = build_foundry_account_name(
+        config.foundry_account_name,
+        "abc123",
+    )
+    generated = daily_rebuild_service._context_with_foundry_account_name(
+        initial,
+        effective,
+        generation_attempts=1,
+    )
+    consumed: list[tuple[str, str]] = []
+
+    def execute(request, *_args, **_kwargs):
+        consumed.append((request.action, request.parameters.read_text()))
+        if request.action == "what-if":
+            return {
+                "ok": True,
+                "create_count": 0,
+                "modify_count": 0,
+                "no_change_count": 0,
+                "delete_count": 0,
+                "ignore_count": 0,
+                "deploy_count": 0,
+                "unsupported_count": 0,
+                "change_evidence": [],
+                "exact_topology_match": True,
+            }
+        return {
+            "ok": True,
+            "category": "success",
+            "foundry_resource_name": effective,
+            "foundry_project_name": generated.foundry_project_name,
+            "project_endpoint": generated.project_endpoint,
+            "model_deployment_name": generated.model_deployment_name,
+        }
+
+    monkeypatch.setattr("scripts.deploy_foundry_infra.execute", execute)
+
+    runner.plan_foundry(generated)
+    deployed = runner.deploy_foundry(generated)
+
+    assert deployed.ok is True
+    assert [action for action, _content in consumed] == ["what-if", "live"]
+    for _action, content in consumed:
+        assert f"param foundryAccountName = '{effective}'" in content
+        assert (
+            f"param foundryAccountName = '{config.foundry_account_name}'"
+            not in content
+        )
+
+
 def test_live_name_conflict_never_reuses_rejected_approval(
     tmp_path: Path,
 ) -> None:
@@ -1470,6 +2077,9 @@ def test_live_name_conflict_never_reuses_rejected_approval(
                 "foundry_account_name_unavailable",
                 mutation_made=False,
                 attempted=True,
+                foundry_account_name_failure_kind=(
+                    "custom_domain_in_use"
+                ),
             )
         runner.foundry_absent = False
         return StageResult.success(mutation_made=True, attempted=True)
@@ -1501,6 +2111,16 @@ def test_live_name_conflict_never_reuses_rejected_approval(
     assert foundry_approvals[0].evidence_binding != foundry_approvals[1].evidence_binding
     assert runner.calls.count("check_foundry") == 1
     assert runner.calls.count("plan_foundry") == 2
+    assert [
+        conflict.to_json_dict()
+        for conflict in result.foundry_account_name_conflicts
+    ] == [
+        {
+            "boundary": "deployment",
+            "category": "foundry_account_name_unavailable",
+            "failure_kind": "custom_domain_in_use",
+        }
+    ]
 
 
 def test_name_conflict_with_ambiguous_mutation_stops_without_generation(
@@ -1516,6 +2136,7 @@ def test_name_conflict_with_ambiguous_mutation_stops_without_generation(
             "foundry_account_name_unavailable",
             mutation_made=None,
             attempted=True,
+            foundry_account_name_failure_kind="custom_domain_in_use",
         )
 
     runner.deploy_foundry = deploy_foundry
@@ -1587,6 +2208,7 @@ def test_generated_candidate_failure_is_local_and_fail_closed(
     runner.plan_overrides["plan_foundry"] = PlanResult(
         malformed=True,
         source_failure_category="foundry_account_name_unavailable",
+        foundry_account_name_failure_kind="custom_domain_in_use",
     )
 
     result = DailyAzureEnvironmentRebuild(
@@ -1609,6 +2231,7 @@ def test_generated_candidate_must_pass_fresh_offline_check(
     runner.plan_overrides["plan_foundry"] = PlanResult(
         malformed=True,
         source_failure_category="foundry_account_name_unavailable",
+        foundry_account_name_failure_kind="custom_domain_in_use",
     )
 
     def failed_check(context):
@@ -1647,6 +2270,7 @@ def test_generated_candidate_unsafe_what_if_stops_before_approval(
             return PlanResult(
                 malformed=True,
                 source_failure_category="foundry_account_name_unavailable",
+                foundry_account_name_failure_kind="custom_domain_in_use",
             )
         return PlanResult(
             modify_count=1,
@@ -1692,6 +2316,7 @@ def test_operator_declining_generated_candidate_stops_without_deployment(
             return PlanResult(
                 malformed=True,
                 source_failure_category="foundry_account_name_unavailable",
+                foundry_account_name_failure_kind="custom_domain_in_use",
             )
         return PlanResult(
             create_count=1,
@@ -1727,6 +2352,7 @@ def test_generated_candidates_are_distinct_and_bounded(
     runner.plan_overrides["plan_foundry"] = PlanResult(
         malformed=True,
         source_failure_category="foundry_account_name_unavailable",
+        foundry_account_name_failure_kind="custom_domain_in_use",
     )
     suffixes = iter(("aa0001", "aa0002", "aa0003"))
     generated: list[str] = []
@@ -1744,7 +2370,14 @@ def test_generated_candidates_are_distinct_and_bounded(
         foundry_name_generator=generator,
     ).live(runner, approver=lambda _summary: True)
 
-    assert result.category == "foundry_account_name_candidates_exhausted"
+    assert result.category == "foundry_account_name_recovery_exhausted"
+    assert (
+        result.foundry_account_name_generation_attempts
+        == MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
+    )
+    assert len(result.foundry_account_name_conflicts) == (
+        MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES + 1
+    )
     assert len(generated) == MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
     assert len(set(generated)) == MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
     assert runner.calls.count("check_foundry") == MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES
@@ -3234,7 +3867,7 @@ def test_accepted_deployment_with_old_hosted_worker_cannot_be_ready(
         local_contract_checker=lambda _root: (),
     ).live(runner, approver=lambda _summary: True)
 
-    assert result.application_deployment_accepted is True
+    assert result.application_deployment_accepted is False
     assert result.category == "application_artifact_mismatch"
     assert result.application_artifact_current is False
     assert result.daily_environment_ready is False
@@ -3868,7 +4501,18 @@ def test_repository_rbac_preview_rejects_malformed_delete_unrelated_or_unknown(
 
 def test_repository_runner_verifies_exact_active_subscription(tmp_path: Path) -> None:
     command_runner = CommandRunner(
-        [(0, '{"subscription":"Fictional Development","state":"Enabled","isDefault":true}', "")]
+        [
+            (
+                0,
+                (
+                    '{"id":"00000000-0000-0000-0000-000000000001",'
+                    '"tenantId":"00000000-0000-0000-0000-000000000002",'
+                    '"subscription":"Fictional Development",'
+                    '"state":"Enabled","isDefault":true}'
+                ),
+                "",
+            )
+        ]
     )
     runner = RepositoryDailyAzureStageRunner(
         _config(tmp_path), repository_root=tmp_path, command_runner=command_runner
@@ -4101,6 +4745,164 @@ def test_repository_package_adapter_returns_validated_package_binding(
     assert runner._expected_application_artifact_digest is not None
     assert len(runner._expected_application_artifact_digest) == 64
     assert command_runner.calls == []
+
+
+def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.deploy_web_app_code as deployment_script
+
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    current_time = datetime.now(timezone.utc)
+    record = {
+        "id": "current-onedeploy",
+        "status": 4,
+        "complete": True,
+        "deployer": "OneDeploy",
+        "siteName": config.web_app_name,
+        "receivedTime": current_time.isoformat().replace("+00:00", "Z"),
+        "startTime": current_time.isoformat().replace("+00:00", "Z"),
+        "endTime": (current_time + timedelta(seconds=1))
+        .isoformat()
+        .replace("+00:00", "Z"),
+    }
+
+    class RecoveryCommandRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+            self.status_reads = 0
+
+        def run(self, args: list[str]):
+            self.calls.append(args)
+            if args[:5] == [
+                "az",
+                "webapp",
+                "log",
+                "deployment",
+                "list",
+            ]:
+                self.status_reads += 1
+                return deployment_script.CommandResult(
+                    0,
+                    "[]" if self.status_reads == 1 else json.dumps([record]),
+                    "",
+                )
+            if args[:3] == ["az", "webapp", "deploy"]:
+                return SimpleNamespace(
+                    return_code=124,
+                    stdout="",
+                    stderr="",
+                    timed_out=True,
+                )
+            raise AssertionError(f"Unexpected command: {args}")
+
+    command_runner = RecoveryCommandRunner()
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=command_runner,
+    )
+    readiness_results = iter(
+        (
+            SimpleNamespace(
+                ok=False,
+                category="application_artifact_mismatch",
+                safe_hosted_posture_verified=False,
+                application_artifact_matches=False,
+            ),
+            SimpleNamespace(
+                ok=True,
+                category="success",
+                safe_hosted_posture_verified=True,
+                application_artifact_matches=True,
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        repository_runner,
+        "_readiness_result",
+        lambda _context: next(readiness_results),
+    )
+
+    class CoordinatorRunner(FakeRunner):
+        def build_package(self, context):
+            self._stage("build_package", context)
+            return repository_runner.build_package(context)
+
+        def deploy_code(self, context):
+            self._stage("deploy_code", context)
+            return repository_runner.deploy_code(context)
+
+        def verify_readiness(self, context):
+            self._stage("verify_readiness", context)
+            return repository_runner.verify_readiness(context)
+
+    runner = CoordinatorRunner()
+    runner.rbac_absent = False
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is True
+    assert result.category == "success"
+    assert result.application_deployment_attempted is True
+    assert result.application_deployment_accepted is True
+    assert result.application_artifact_current is True
+    assert result.azure_mutation_made is True
+    assert command_runner.status_reads == 2
+    assert sum(
+        call[:3] == ["az", "webapp", "deploy"]
+        for call in command_runner.calls
+    ) == 1
+    assert runner.calls.count("deploy_foundry") == 1
+
+
+def test_repository_code_adapter_reuses_exact_current_authorized_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+
+    class ForbiddenCommandRunner:
+        def run(self, args: list[str]):
+            raise AssertionError(f"Deployment command not expected: {args}")
+
+    runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=ForbiddenCommandRunner(),
+    )
+    context = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    )._initial_context()
+    package = runner.build_package(context)
+    assert package.ok is True
+    monkeypatch.setattr(
+        runner,
+        "_readiness_result",
+        lambda _context: SimpleNamespace(
+            ok=True,
+            category="success",
+            safe_hosted_posture_verified=True,
+            application_artifact_matches=True,
+        ),
+    )
+
+    result = runner.deploy_code(context)
+
+    assert result.ok is True
+    assert result.reused is True
+    assert result.attempted is False
+    assert result.accepted is False
+    assert result.artifact_current is True
+    assert result.mutation_made is False
 
 
 def test_repository_package_adapter_preserves_package_safety_category(

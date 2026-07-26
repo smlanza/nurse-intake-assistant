@@ -5,17 +5,33 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,174 passed full suite
-- 370 focused coordinator/RBAC tests and 31 documentation tests
+- 2,274 passed full suite
+- 282 focused cleanup/coordinator tests and 31 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The final coordinator receipt correction is complete offline. Every new live
-run atomically publishes a configuration-bound revoked run epoch before
-cleanup or Azure work, so a prior handoff is unloadable even if receipt
-deletion fails. Only a receipt matching the atomically published current
-`ready` epoch is accepted. RBAC What-If tests now begin from a complete accepted
-baseline and independently reject each named identity or topology mutation.
-The focused `--live` command remains the one-command post-`READY` boundary.
+The ownership-scoped daily cleanup boundary is complete offline. The daily
+coordinator performs startup cleanup inspection after local validation,
+current-run receipt revocation, and current Azure account verification but
+before resource-group creation or Foundry deployment. It reuses a conclusively
+healthy exact-owned environment, requires separate default-no approval for
+proven stale owned state, stops on ambiguous or unowned evidence, and continues
+only after verified cleanup. READY requires both
+`startup_cleanup_inspected=true` and `startup_environment_clean=true`.
+
+End-of-day cleanup is the explicit standalone command:
+
+```bash
+python scripts/cleanup_daily_azure_environment.py \
+  --config .env.daily-azure.local \
+  --cleanup \
+  --live \
+  --json
+```
+
+Success requires `resource_group_absent=true` and
+`foundry_tombstones_absent=true`. The command deletes only the exact configured
+owned resource group, purges only conclusively matching Foundry/AIServices
+tombstones, and performs final read-only absence verification.
 
 The intended permanent sequence remains:
 
@@ -32,8 +48,11 @@ Consumer RBAC is complete only when the command reports successful exact reuse
 or `assignment_verified=true` after deployment. WebJob execution/recovery,
 managed-identity verification, metadata access, and fixed-fictional hosted
 invocation remain standalone optional workflows. No live Azure, HTTP,
-deployment, cleanup, configuration rewrite, commit, or push operation occurred
-during this correction.
+cleanup, deletion, purge, deployment, RBAC, WebJob, managed-identity, metadata,
+invocation, configuration rewrite, commit, or push operation occurred during
+implementation or verification.
+
+Architecture impact: updated Infrastructure Architecture because the daily coordinator now owns a separately approved startup cleanup-preflight boundary while end-of-day cleanup remains an explicit standalone operation.
 
 **Active implementation direction:** move the local mock capstone toward an
 Azure-first Microsoft Foundry Agent implementation through disposable Foundry,
@@ -103,12 +122,13 @@ Authoritative Foundry infrastructure for future TDD slices:
 
 ## Daily Disposable Azure Environment Gate
 
-Because the operator deletes the resource group to control cost, every new Azure
-session starts **NOT READY**: assume the resource group and all dependent
-resources are absent until fresh current session proof exists. Create or rebuild it at the start of the workday, use
-it for development, testing, and demonstrations, and delete it at day's end.
-Nightly deletion remains expected; reduced readiness scope does not make the
-resources permanent or remove cleanup. The permanent procedure is
+Every new Azure session starts **NOT READY** until fresh current-session proof
+exists. The coordinator's startup preflight determines whether the exact owned
+environment is absent, conclusively healthy and reusable, or stale and eligible
+for separately approved cleanup. Use the environment for development, testing,
+and demonstrations, then run the explicit standalone cleanup at day's end.
+End-of-day deletion remains expected; reduced readiness scope does not make the
+resources permanent. The permanent procedure is
 `docs/runbooks/daily-disposable-azure-environment-rebuild.md`.
 
 `scripts/rebuild_daily_azure_environment.py` is the preferred daily path. Its
@@ -118,18 +138,18 @@ verification boundaries, reuses conclusively valid resources, and returns one
 sanitized aggregate result. The detailed manual runbook remains the fallback,
 recovery, and audit reference. Azure-dependent Codex prompts still require a
 fresh current-session `daily_environment_ready=true` result. READY now requires
-current resource-group, Foundry infrastructure, prompt-agent and immutable
-routing, Web App infrastructure/configuration, application artifact deployment
-or safe reuse, and hosted readiness proof. The coordinator returns immediately
-at that boundary. It does not perform Consumer RBAC, WebJob discovery or
-execution, managed-identity verification, metadata access, or hosted agent
-invocation. It also does not process intake, send notifications, or delete the
-resource group. Its primary path is `missing disposable environment` ->
-`infra/main.bicep` -> Foundry/agent verification -> Web App/configuration ->
-application deployment -> hosted readiness -> `DAILY AZURE ENVIRONMENT READY`.
-Next-day reconciliation is unnecessary after nightly deletion. Same-day unsafe
-or ambiguous Web App drift remains fail-closed; continue using the verified
-environment, recreate the group, or use the supervised deployment workflow.
+current startup cleanup inspection and clean-state proof, resource-group,
+Foundry infrastructure, prompt-agent and immutable routing, Web App
+infrastructure/configuration, application artifact deployment or safe reuse,
+and hosted readiness proof. The coordinator returns immediately at that
+boundary. It does not perform Consumer RBAC, WebJob discovery or execution,
+managed-identity verification, metadata access, hosted agent invocation,
+end-of-day cleanup, intake processing, or notifications. Its primary fresh path
+is startup preflight -> missing disposable environment -> `infra/main.bicep` ->
+Foundry/agent verification -> Web App/configuration -> application deployment
+-> hosted readiness -> `DAILY AZURE ENVIRONMENT READY`. A healthy verified
+environment follows the existing reuse path without deletion. Same-day unsafe
+or ambiguous Web App drift remains fail-closed.
 
 Deleting the resource group expires all prior evidence for the resource group,
 Foundry AIServices account, child project and model deployment, prompt agent and
@@ -157,8 +177,8 @@ The coordinator preserves the independent contracts: Keep infrastructure
 deployment separate from prompt-agent creation. Consumer RBAC, WebJob
 trigger/status, managed-identity proof, metadata verification, and invocation
 remain optional, standalone, separate, and explicitly authorized. Keep cleanup
-manual and explicit, and complete the expected whole-resource-group deletion at
-the end of the workday.
+separately approved and ownership-scoped, and complete the expected standalone
+end-of-day cleanup after the workday.
 Never commit session identifiers, endpoints, credentials, tokens, secrets,
 real contact information, or patient data.
 

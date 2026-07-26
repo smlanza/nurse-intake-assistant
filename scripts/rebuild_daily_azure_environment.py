@@ -17,6 +17,9 @@ from src.app.services.daily_azure_environment_rebuild import (
     RepositoryDailyAzureStageRunner,
     load_daily_azure_config,
 )
+from src.app.services.daily_azure_environment_cleanup import (
+    CleanupApprovalSummary,
+)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -42,11 +45,21 @@ def _create_live_runner(config):
 
 
 def prompt_for_stage_approval(
-    summary: ApprovalSummary,
+    summary: ApprovalSummary | CleanupApprovalSummary,
     *,
     input_stream: TextIO | None = None,
     output_stream: TextIO | None = None,
 ) -> bool:
+    if isinstance(summary, CleanupApprovalSummary):
+        from scripts.cleanup_daily_azure_environment import (
+            prompt_for_cleanup_approval,
+        )
+
+        return prompt_for_cleanup_approval(
+            summary,
+            input_stream=input_stream,
+            output_stream=output_stream,
+        )
     source = input_stream or sys.stdin
     destination = output_stream or sys.stderr
     try:

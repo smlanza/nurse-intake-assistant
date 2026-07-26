@@ -442,14 +442,19 @@ deployment name; it does not edit an environment file or create the Nurse
 Intake Agent. Update `.env.foundry-agent.local` manually before running the
 separate agent deployment CLI.
 
-Cleanup is manual and explicit:
+Daily disposable cleanup is a separate, default-no operator boundary. Use the
+repository-owned command and follow the authoritative runbook:
 
 ```bash
-az group delete \
-  --name <resource-group-name> \
-  --yes \
-  --no-wait
+python scripts/cleanup_daily_azure_environment.py \
+  --config .env.daily-azure.local \
+  --cleanup \
+  --live \
+  --json
 ```
+
+See `docs/runbooks/daily-disposable-azure-environment-rebuild.md` for read-only
+inspection, success criteria, and manual fallback commands.
 
 Pytest uses fake runners and never calls Azure. No secrets are stored in Bicep
 or examples. Mandatory nurse review remains unchanged, and this is not
@@ -586,14 +591,17 @@ For the full local-to-Cosmos verification checklist, see
 
 ## Delete Resources
 
-Cleanup is manual and explicit; no script or template automatically deletes a
-resource group. After reviewing the resource names carefully, delete the whole
-group when the demo is finished to avoid ongoing charges:
+Cleanup remains explicit and separately approved; no Bicep template deletes a
+resource group. For the configured daily disposable environment, use the
+ownership-scoped cleanup service so resource-group absence and matching Foundry
+tombstone absence are both verified:
 
 ```bash
-az group delete \
-  --name "$RESOURCE_GROUP" \
-  --yes
+python scripts/cleanup_daily_azure_environment.py \
+  --config .env.daily-azure.local \
+  --cleanup \
+  --live \
+  --json
 ```
 
 ## Notes

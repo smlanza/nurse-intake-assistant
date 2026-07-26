@@ -73,6 +73,87 @@ def _structured_name_conflict(
     )
 
 
+def _wrapped_structured_name_conflict(
+    *,
+    resource_group: str = "existing-rg",
+    resource_name: str = "private-account",
+) -> str:
+    return json.dumps(
+        {
+            "status": "Failed",
+            "error": {
+                "code": "InvalidTemplateDeployment",
+                "target": "foundry-deployment",
+                "message": "private outer message",
+                "details": [
+                    {
+                        "code": "CustomDomainInUse",
+                        "target": (
+                            "/subscriptions/00000000-0000-0000-0000-000000000001/"
+                            f"resourceGroups/{resource_group}/providers/"
+                            "Microsoft.CognitiveServices/accounts/"
+                            f"{resource_name}"
+                        ),
+                        "message": "private account conflict message",
+                    }
+                ],
+            },
+        }
+    )
+
+
+def _soft_deleted_account_stderr(
+    *,
+    subscription_id: str = "00000000-0000-0000-0000-000000000001",
+    resource_group: str = "existing-rg",
+    provider: str = "Microsoft.CognitiveServices",
+    resource_type: str = "accounts",
+    resource_name: str = "private-account",
+) -> str:
+    resource_id = (
+        f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}/"
+        f"providers/{provider}/{resource_type}/{resource_name}"
+    )
+    return (
+        "ERROR: (InvalidTemplateDeployment) The template deployment failed.\n"
+        "Code: InvalidTemplateDeployment\n"
+        "Message: Deployment validation failed.\n"
+        "Details: (FlagMustBeSetForRestore) FlagMustBeSetForRestore - "
+        f"An existing resource with ID '{resource_id}' has been soft-deleted. "
+        "To restore the resource, set the restore property to true. "
+        "If you do not want to restore it, purge the resource first."
+    )
+
+
+def _structured_soft_deleted_account(
+    *,
+    resource_group: str = "existing-rg",
+    resource_name: str = "private-account",
+    wrapped: bool = False,
+) -> str:
+    target = (
+        "/subscriptions/00000000-0000-0000-0000-000000000001/"
+        f"resourceGroups/{resource_group}/providers/"
+        "Microsoft.CognitiveServices/accounts/"
+        f"{resource_name}"
+    )
+    leaf = {
+        "code": "FlagMustBeSetForRestore",
+        "target": target,
+        "message": "private soft-delete details",
+    }
+    error = (
+        {
+            "code": "InvalidTemplateDeployment",
+            "message": "private wrapper details",
+            "details": [leaf],
+        }
+        if wrapped
+        else leaf
+    )
+    return json.dumps({"error": error})
+
+
 def test_check_runs_only_local_cli_and_build_commands(
     monkeypatch: pytest.MonkeyPatch,
     files: tuple[Path, Path, Path],
@@ -416,6 +497,170 @@ def test_internal_what_if_requires_structured_exact_name_conflict(
     assert "private-subscription" not in json.dumps(result)
 
 
+def test_internal_what_if_classifies_wrapped_structured_name_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        FakeRunner(
+            [
+                script.CommandResult(
+                    1,
+                    "",
+                    _wrapped_structured_name_conflict(),
+                )
+            ]
+        ),
+        verify_resource_group=False,
+    )
+
+    assert result["category"] == "foundry_account_name_unavailable"
+    assert result["what_if_failure_diagnostic"] == {
+        "azure_error_class": "custom_domain_in_use",
+        "failure_kind": "custom_domain_in_use",
+        "same_configuration_retry_safe": False,
+    }
+    assert "private outer message" not in json.dumps(result)
+    assert "private account conflict message" not in json.dumps(result)
+
+
+def test_internal_what_if_classifies_exact_soft_deleted_account_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        FakeRunner(
+            [
+                script.CommandResult(
+                    1,
+                    "",
+                    _soft_deleted_account_stderr(),
+                )
+            ]
+        ),
+        verify_resource_group=False,
+    )
+
+    assert result["category"] == "foundry_account_name_unavailable"
+    assert result["what_if_failure_diagnostic"] == {
+        "azure_error_class": "FlagMustBeSetForRestore",
+        "failure_kind": "soft_deleted_account_name",
+        "same_configuration_retry_safe": False,
+    }
+    serialized = json.dumps(result)
+    assert "subscriptions/" not in serialized
+    assert "soft-deleted" not in serialized
+    assert "purge" not in serialized
+
+
+@pytest.mark.parametrize("wrapped", (False, True))
+@pytest.mark.parametrize("stream", ("stdout", "stderr"))
+def test_internal_what_if_classifies_structured_soft_deleted_account(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+    wrapped: bool,
+    stream: str,
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    structured = _structured_soft_deleted_account(wrapped=wrapped)
+    outcome = script.CommandResult(
+        1,
+        structured if stream == "stdout" else "",
+        structured if stream == "stderr" else "",
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        FakeRunner([outcome]),
+        verify_resource_group=False,
+    )
+
+    assert result["category"] == "foundry_account_name_unavailable"
+    assert result["what_if_failure_diagnostic"] == {
+        "azure_error_class": "FlagMustBeSetForRestore",
+        "failure_kind": "soft_deleted_account_name",
+        "same_configuration_retry_safe": False,
+    }
+    assert "private soft-delete details" not in json.dumps(result)
+    assert "private wrapper details" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    (
+        _soft_deleted_account_stderr(resource_group="wrong-rg"),
+        _soft_deleted_account_stderr(resource_name="wrong-account"),
+        _soft_deleted_account_stderr(provider="Microsoft.Web"),
+        _soft_deleted_account_stderr(resource_type="projects"),
+        _soft_deleted_account_stderr(subscription_id="not-a-subscription-id"),
+        (
+            "ERROR: (FlagMustBeSetForRestore) A resource was soft-deleted; "
+            "restore or purge it."
+        ),
+        _soft_deleted_account_stderr().replace(
+            "An existing resource with ID '", "An existing resource '"
+        ),
+        _soft_deleted_account_stderr()
+        + "\n"
+        + _soft_deleted_account_stderr(resource_name="another-account"),
+        "ERROR: (AuthorizationFailed) FlagMustBeSetForRestore login required",
+        "ERROR: quota exceeded while checking a soft-deleted deployment",
+        "ERROR: (InvalidTemplateDeployment) FlagMustBeSetForRestore - An existing",
+        _soft_deleted_account_stderr() + ("x" * 16_384),
+        _soft_deleted_account_stderr() + ("\nnoise" * 65),
+        (
+            _soft_deleted_account_stderr()
+            + " unrelated /subscriptions/"
+            "00000000-0000-0000-0000-000000000002/resourceGroups/other"
+        ),
+    ),
+    ids=(
+        "wrong-resource-group",
+        "wrong-account",
+        "wrong-provider",
+        "wrong-resource-type",
+        "invalid-subscription",
+        "generic-restore-language",
+        "missing-target-phrase",
+        "multiple-errors",
+        "authorization",
+        "quota",
+        "truncated",
+        "oversized",
+        "too-many-lines",
+        "additional-resource-id",
+    ),
+)
+def test_soft_deleted_stderr_requires_one_exact_attributable_account(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+    stderr: str,
+) -> None:
+    parameters = _paths(monkeypatch, files)
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "what-if", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        FakeRunner([script.CommandResult(1, "", stderr)]),
+        verify_resource_group=False,
+    )
+
+    assert result["category"] != "foundry_account_name_unavailable"
+    assert "what_if_failure_diagnostic" not in result
+
+
 def test_internal_what_if_does_not_overclassify_other_template_failures(
     monkeypatch: pytest.MonkeyPatch,
     files: tuple[Path, Path, Path],
@@ -507,6 +752,71 @@ def test_live_classifies_only_custom_domain_name_conflict_safely(
     assert "private account details" not in json.dumps(result)
 
 
+def test_live_classifies_wrapped_structured_name_conflict_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    result = script.execute(
+        script.DeploymentRequest(
+            "live", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        FakeRunner(
+            [
+                script.CommandResult(
+                    1,
+                    "",
+                    _wrapped_structured_name_conflict(),
+                )
+            ]
+        ),
+        ensure_resource_group=False,
+    )
+
+    assert result["category"] == "foundry_account_name_unavailable"
+    assert result["deployment_failure_diagnostic"] == {
+        "azure_error_class": "custom_domain_in_use",
+        "failure_kind": "custom_domain_in_use",
+        "account_name_conflict_proven": True,
+    }
+    assert "private outer message" not in json.dumps(result)
+    assert "private account conflict message" not in json.dumps(result)
+
+
+def test_live_classifies_exact_soft_deleted_account_safely(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live", "foundry-only", parameters, "existing-rg", "eastus2"
+        ),
+        FakeRunner(
+            [
+                script.CommandResult(
+                    1,
+                    "",
+                    _soft_deleted_account_stderr(),
+                )
+            ]
+        ),
+        ensure_resource_group=False,
+    )
+
+    assert result["category"] == "foundry_account_name_unavailable"
+    assert result["deployment_failure_diagnostic"] == {
+        "azure_error_class": "FlagMustBeSetForRestore",
+        "failure_kind": "soft_deleted_account_name",
+        "account_name_conflict_proven": True,
+    }
+    serialized = json.dumps(result)
+    assert "subscriptions/" not in serialized
+    assert "soft-deleted" not in serialized
+    assert "restore" not in serialized
+
+
 @pytest.mark.parametrize(
     "structured",
     (
@@ -514,6 +824,52 @@ def test_live_classifies_only_custom_domain_name_conflict_safely(
         "{malformed",
         _structured_name_conflict(resource_type="Microsoft.Web/sites"),
         _structured_name_conflict(resource_name="another-account"),
+        _wrapped_structured_name_conflict(resource_name="another-account"),
+        _structured_soft_deleted_account(resource_group="wrong-rg"),
+        _structured_soft_deleted_account(resource_name="another-account"),
+        _structured_soft_deleted_account(
+            wrapped=True,
+            resource_name="another-account",
+        ),
+        json.dumps(
+            {
+                "error": {
+                    "code": "FlagMustBeSetForRestore",
+                    "message": (
+                        "A resource was soft-deleted; restore or purge it."
+                    ),
+                }
+            }
+        ),
+        json.dumps(
+            {
+                "error": {
+                    **json.loads(
+                        _structured_soft_deleted_account()
+                    )["error"],
+                    "message": (
+                        "Unrelated /subscriptions/"
+                        "00000000-0000-0000-0000-000000000002/"
+                        "resourceGroups/other"
+                    ),
+                }
+            }
+        ),
+        json.dumps(
+            {
+                "status": "Failed",
+                "error": {
+                    "code": "InvalidTemplateDeployment",
+                    "details": [
+                        json.loads(_structured_name_conflict())["error"],
+                        {
+                            "code": "QuotaExceeded",
+                            "target": "model-deployment",
+                        },
+                    ],
+                },
+            }
+        ),
         json.dumps(
             {
                 "error": {
@@ -528,6 +884,28 @@ def test_live_classifies_only_custom_domain_name_conflict_safely(
                             "code": "Conflict",
                             "target": "another-operation",
                         }
+                    ],
+                }
+            }
+        ),
+        json.dumps(
+            {
+                "error": {
+                    "code": "InvalidTemplateDeployment",
+                    "details": [
+                        json.loads(
+                            _structured_soft_deleted_account()
+                        )["error"],
+                        {
+                            "code": "FlagMustBeSetForRestore",
+                            "target": (
+                                "/subscriptions/"
+                                "00000000-0000-0000-0000-000000000001/"
+                                "resourceGroups/existing-rg/providers/"
+                                "Microsoft.CognitiveServices/accounts/"
+                                "another-account"
+                            ),
+                        },
                     ],
                 }
             }
@@ -559,12 +937,12 @@ def test_name_conflict_requires_one_unambiguous_structured_account_failure(
 def _deployment_output() -> str:
     return json.dumps(
         {
-            "foundryResourceName": {"value": "fictional-foundry"},
-            "foundryProjectName": {"value": "fictional-project"},
+            "foundryResourceName": {"value": "private-account"},
+            "foundryProjectName": {"value": "private-project"},
             "foundryProjectEndpoint": {
-                "value": "https://fictional-foundry.services.ai.azure.com/api/projects/fictional-project"
+                "value": "https://private-account.services.ai.azure.com/api/projects/private-project"
             },
-            "modelDeploymentName": {"value": "fictional-model-deployment"},
+            "modelDeploymentName": {"value": "private-deployment"},
         }
     )
 
@@ -603,11 +981,15 @@ def test_live_creates_group_then_one_deployment_and_returns_only_safe_fields(
     assert set(result) == {
         "ok", "mode", "operation", "template_mode", "category",
         "resource_group_ready", "foundry_resource_created", "foundry_project_created",
-        "model_deployment_created", "project_endpoint", "model_deployment_name",
+        "model_deployment_created", "foundry_resource_name",
+        "foundry_project_name", "project_endpoint", "model_deployment_name",
             "recommended_next_step",
             "change_evidence",
             "exact_topology_match",
         }
+    assert result["foundry_resource_name"] == "private-account"
+    assert result["foundry_project_name"] == "private-project"
+    assert result["model_deployment_name"] == "private-deployment"
     rendered = json.dumps(result)
     for forbidden in ("stderr", "private-value", "subscription", "tenant", "resourceId", "deploy_foundry_agent.py --live"):
         assert forbidden not in rendered
@@ -633,6 +1015,31 @@ def test_internal_live_reuse_skips_duplicate_resource_group_creation(
     assert result["ok"] is True
     assert len(runner.calls) == 1
     assert runner.calls[0][:4] == ["az", "deployment", "group", "create"]
+
+
+def test_live_rejects_authoritative_output_for_a_different_foundry_identity(
+    monkeypatch: pytest.MonkeyPatch,
+    files: tuple[Path, Path, Path],
+) -> None:
+    parameters = _paths(monkeypatch, files)
+    wrong_output = json.loads(_deployment_output())
+    wrong_output["foundryResourceName"]["value"] = "different-account"
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live", "foundry-only", parameters, "daily-rg", "eastus2"
+        ),
+        FakeRunner(
+            [script.CommandResult(0, json.dumps(wrong_output), "private stderr")]
+        ),
+        ensure_resource_group=False,
+    )
+
+    assert result["ok"] is False
+    assert result["category"] == "foundry_deployment_identity_mismatch"
+    assert result["foundry_resource_name"] is None
+    assert "different-account" not in json.dumps(result)
+    assert "private stderr" not in json.dumps(result)
 
 
 @pytest.mark.parametrize(

@@ -6,6 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from uuid import UUID
 
 from src.app.services.azure_what_if_evidence import (
     ExpectedWhatIfResource,
@@ -28,6 +29,16 @@ REQUIRED_MODEL_PARAMETERS = {
     "modelskuname",
     "modelcapacity",
 }
+_FOUNDRY_CONFLICT_WRAPPER_CODES = {
+    "InvalidTemplateDeployment",
+    "DeploymentFailed",
+    "PreflightValidationCheckFailed",
+}
+_MAX_FOUNDRY_CONFLICT_TEXT_LENGTH = 16_384
+_MAX_FOUNDRY_CONFLICT_TEXT_LINES = 64
+_MAX_FOUNDRY_CONFLICT_CODE_OCCURRENCES = 4
+_SOFT_DELETED_RESOURCE_PREFIX = "An existing resource with ID "
+_SOFT_DELETED_RESOURCE_SUFFIX = " has been soft-deleted."
 
 
 @dataclass(frozen=True)
@@ -81,6 +92,8 @@ def _base(
         "foundry_resource_created": False,
         "foundry_project_created": False,
         "model_deployment_created": False,
+        "foundry_resource_name": None,
+        "foundry_project_name": None,
         "project_endpoint": None,
         "model_deployment_name": None,
         "recommended_next_step": "Review configuration and retry safely.",
@@ -94,6 +107,110 @@ def _authorization_failure(stderr: str) -> bool:
     return "authorization" in value or "authentication" in value or "login" in value
 
 
+def _exact_foundry_account_target(
+    target: object,
+    request: DeploymentRequest,
+    account_name: str,
+) -> bool:
+    if not isinstance(target, str) or target != target.strip():
+        return False
+    target_parts = target.split("/")
+    if (
+        len(target_parts) != 9
+        or target_parts[0] != ""
+        or target_parts[1].casefold() != "subscriptions"
+        or target_parts[3].casefold() != "resourcegroups"
+        or target_parts[4].casefold() != request.resource_group.casefold()
+        or target_parts[5].casefold() != "providers"
+        or target_parts[6].casefold() != "microsoft.cognitiveservices"
+        or target_parts[7].casefold() != "accounts"
+        or target_parts[8].casefold() != account_name.casefold()
+    ):
+        return False
+    try:
+        return str(UUID(target_parts[2])) == target_parts[2].casefold()
+    except (AttributeError, TypeError, ValueError):
+        return False
+
+
+def _bounded_conflict_text(value: object) -> str | None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > _MAX_FOUNDRY_CONFLICT_TEXT_LENGTH
+    ):
+        return None
+    lines = value.splitlines()
+    if not lines or len(lines) > _MAX_FOUNDRY_CONFLICT_TEXT_LINES:
+        return None
+    return " ".join(line.strip() for line in lines)
+
+
+def _soft_deleted_target_from_text(
+    value: object,
+    *,
+    require_cli_codes: bool,
+) -> str | None:
+    normalized = _bounded_conflict_text(value)
+    if normalized is None:
+        return None
+    if require_cli_codes:
+        wrapper_count = normalized.count("InvalidTemplateDeployment")
+        leaf_count = normalized.count("FlagMustBeSetForRestore")
+        if (
+            not 1 <= wrapper_count <= _MAX_FOUNDRY_CONFLICT_CODE_OCCURRENCES
+            or not 1 <= leaf_count <= _MAX_FOUNDRY_CONFLICT_CODE_OCCURRENCES
+        ):
+            return None
+        marker = (
+            "FlagMustBeSetForRestore - "
+            + _SOFT_DELETED_RESOURCE_PREFIX
+        )
+    else:
+        marker = _SOFT_DELETED_RESOURCE_PREFIX
+    if normalized.count(marker) != 1:
+        return None
+    remainder = normalized.split(marker, 1)[1]
+    if not remainder or remainder[0] not in {"'", '"'}:
+        return None
+    quote = remainder[0]
+    end = remainder.find(quote, 1)
+    if end < 2 or end > 513:
+        return None
+    target = remainder[1:end]
+    if not remainder[end + 1 :].startswith(_SOFT_DELETED_RESOURCE_SUFFIX):
+        return None
+    if normalized.count(_SOFT_DELETED_RESOURCE_PREFIX) != 1:
+        return None
+    if normalized.count(_SOFT_DELETED_RESOURCE_SUFFIX) != 1:
+        return None
+    if normalized.casefold().count("/subscriptions/") != 1:
+        return None
+    return target
+
+
+def _structured_conflict_errors(outcome: CommandResult) -> list[dict[str, object]]:
+    structured_errors: list[dict[str, object]] = []
+    for raw in (outcome.stdout, outcome.stderr):
+        try:
+            payload = json.loads(raw)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        error = payload.get("error")
+        if not isinstance(error, dict):
+            continue
+        if set(payload) == {"error"}:
+            structured_errors.append(error)
+        elif (
+            set(payload) == {"status", "error"}
+            and payload.get("status") == "Failed"
+        ):
+            structured_errors.append(error)
+    return structured_errors
+
+
 def _foundry_account_name_conflict(
     outcome: CommandResult,
     request: DeploymentRequest,
@@ -104,41 +221,82 @@ def _foundry_account_name_conflict(
     )
     if account_name is None:
         return None
-    structured_errors: list[dict[str, object]] = []
-    for raw in (outcome.stdout, outcome.stderr):
-        try:
-            payload = json.loads(raw)
-        except (TypeError, json.JSONDecodeError):
-            continue
+    structured_errors = _structured_conflict_errors(outcome)
+    if len(structured_errors) == 1:
+        error = structured_errors[0]
+        for _ in range(4):
+            code = error.get("code")
+            if code in {"CustomDomainInUse", "FlagMustBeSetForRestore"}:
+                break
+            details = error.get("details")
+            if (
+                code not in _FOUNDRY_CONFLICT_WRAPPER_CODES
+                or not isinstance(details, list)
+                or len(details) != 1
+                or not isinstance(details[0], dict)
+            ):
+                return None
+            error = details[0]
+        else:
+            return None
+        if error.get("details") not in (None, []):
+            return None
+        code = error.get("code")
+        if code == "CustomDomainInUse":
+            if _exact_foundry_account_target(
+                error.get("target"),
+                request,
+                account_name,
+            ):
+                return "custom_domain_in_use", "custom_domain_in_use"
+            return None
+        if code != "FlagMustBeSetForRestore":
+            return None
+        target = error.get("target")
+        normalized_message = _bounded_conflict_text(error.get("message"))
+        message_target = _soft_deleted_target_from_text(
+            error.get("message"),
+            require_cli_codes=False,
+        )
         if (
-            isinstance(payload, dict)
-            and set(payload) == {"error"}
-            and isinstance(payload.get("error"), dict)
+            normalized_message is not None
+            and "/subscriptions/" in normalized_message.casefold()
+            and message_target is None
         ):
-            structured_errors.append(payload["error"])
-    if len(structured_errors) != 1:
+            return None
+        if isinstance(target, str) and target.startswith("/subscriptions/"):
+            if not _exact_foundry_account_target(
+                target,
+                request,
+                account_name,
+            ):
+                return None
+            if (
+                message_target is not None
+                and message_target.casefold() != target.casefold()
+            ):
+                return None
+            return "FlagMustBeSetForRestore", "soft_deleted_account_name"
+        if message_target is not None and _exact_foundry_account_target(
+            message_target,
+            request,
+            account_name,
+        ):
+            return "FlagMustBeSetForRestore", "soft_deleted_account_name"
         return None
-    error = structured_errors[0]
-    if (
-        error.get("code") != "CustomDomainInUse"
-        or error.get("details") != []
-        or not isinstance(error.get("target"), str)
+    if structured_errors:
+        return None
+    target = _soft_deleted_target_from_text(
+        outcome.stderr,
+        require_cli_codes=True,
+    )
+    if target is not None and _exact_foundry_account_target(
+        target,
+        request,
+        account_name,
     ):
-        return None
-    target_parts = error["target"].split("/")
-    if (
-        len(target_parts) != 9
-        or target_parts[1].casefold() != "subscriptions"
-        or not target_parts[2]
-        or target_parts[3].casefold() != "resourcegroups"
-        or target_parts[4].casefold() != request.resource_group.casefold()
-        or target_parts[5].casefold() != "providers"
-        or target_parts[6].casefold() != "microsoft.cognitiveservices"
-        or target_parts[7].casefold() != "accounts"
-        or target_parts[8].casefold() != account_name.casefold()
-    ):
-        return None
-    return "custom_domain_in_use", "custom_domain_in_use"
+        return "FlagMustBeSetForRestore", "soft_deleted_account_name"
+    return None
 
 
 def _what_if_failure(
@@ -366,12 +524,40 @@ def execute(
         result = _base(request, "deployment_output_invalid")
         result["resource_group_ready"] = True
         return result
+    expected_values = {
+        "foundryResourceName": _parameter_string(
+            request.parameters,
+            "foundryAccountName",
+        ),
+        "foundryProjectName": _parameter_string(
+            request.parameters,
+            "foundryProjectName",
+        ),
+        "modelDeploymentName": _parameter_string(
+            request.parameters,
+            "modelDeploymentName",
+        ),
+    }
+    expected_endpoint = (
+        f"https://{expected_values['foundryResourceName']}.services.ai.azure.com/"
+        f"api/projects/{expected_values['foundryProjectName']}"
+    )
+    if (
+        any(value is None for value in expected_values.values())
+        or any(values[name] != value for name, value in expected_values.items())
+        or values["foundryProjectEndpoint"] != expected_endpoint
+    ):
+        result = _base(request, "foundry_deployment_identity_mismatch")
+        result["resource_group_ready"] = True
+        return result
     result = _base(request, "success", True)
     result.update({
         "resource_group_ready": True,
         "foundry_resource_created": True,
         "foundry_project_created": True,
         "model_deployment_created": True,
+        "foundry_resource_name": values["foundryResourceName"],
+        "foundry_project_name": values["foundryProjectName"],
         "project_endpoint": values["foundryProjectEndpoint"],
         "model_deployment_name": values["modelDeploymentName"],
         "recommended_next_step": "Update .env.foundry-agent.local and run deploy_foundry_agent.py --check.",

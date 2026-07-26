@@ -20,7 +20,7 @@ def test_progress_has_one_current_hosted_verifier_state_and_baseline() -> None:
     assert "standalone optional workflows" in _normalized(progress)
     assert "preferred daily path" in progress.casefold()
     assert "fixed fictional invocation" in progress.casefold()
-    assert len(progress.splitlines()) <= 500
+    assert len(progress.splitlines()) <= 525
 
 
 def test_current_coordinator_documentation_has_new_readiness_boundary() -> None:
@@ -625,8 +625,10 @@ def test_infrastructure_docs_keep_operator_boundaries_manual_and_explicit() -> N
             "No live hosted verification was run in this slice",
             "hosted readiness does not prove RBAC, managed-identity authentication, Foundry access, or agent invocation",
             "Only `--live` creates or reuses the group and deploys Foundry",
-            "Cleanup is manual and explicit",
-            "no script or template automatically deletes a resource group",
+            "Cleanup remains explicit and separately approved",
+            "no Bicep template deletes a resource group",
+            "scripts/cleanup_daily_azure_environment.py",
+            "matching Foundry tombstone absence",
             "deployApp`: optionally create the Web App runtime; defaults to `false`",
             "Do not commit `.env` or real Cosmos keys",
             "Mandatory nurse review remains unchanged",
@@ -638,7 +640,9 @@ def test_infrastructure_docs_keep_operator_boundaries_manual_and_explicit() -> N
         {
             "foundry-only.bicepparam` is ignored, operator-local, and must not be committed",
             "Keep infrastructure deployment separate from prompt-agent creation",
-            "Keep cleanup manual and explicit",
+            "Keep cleanup separately approved and ownership-scoped",
+            "scripts/cleanup_daily_azure_environment.py",
+            "foundry_tombstones_absent=true",
             "scripts/deploy_web_app_infra.py",
             "succeeded July 15, 2026, and created no resources",
             "live Web App infrastructure deployment request succeeded",
@@ -662,7 +666,7 @@ def test_progress_is_active_resume_with_honest_safety_and_history_boundaries() -
     archive = _read("docs/archive/progress-2026-06.md")
     normalized = _normalized(progress)
 
-    assert len(progress.splitlines()) <= 500
+    assert len(progress.splitlines()) <= 525
     assert len(progress.splitlines()) < len(archive.splitlines())
     _assert_contains_all(
         normalized,
@@ -743,9 +747,9 @@ def test_progress_enforces_the_daily_disposable_azure_environment_gate() -> None
             "docs/runbooks/daily-disposable-azure-environment-rebuild.md",
             "offline-only",
             "Azure-dependent",
-            "assume the resource group and all dependent resources are absent",
+            "startup preflight determines whether the exact owned environment is absent",
             "Deleting the resource group expires all prior evidence",
-            "current session",
+            "fresh current-session proof",
             "must not be recommended or started",
             "do not issue the dependent prompt",
             "repeated blocked slices",
@@ -836,7 +840,7 @@ def test_daily_disposable_azure_runbook_has_ordered_stage_boundaries() -> None:
         "## 14. Optional standalone Consumer RBAC verification",
         "## 15. Optional standalone Consumer RBAC and WebJob troubleshooting",
         "## 16. Daily environment-ready declaration",
-        "## 17. End-of-session cleanup and evidence expiry",
+        "## 17. End-of-day cleanup and evidence expiry",
         "## 18. Fail-fast rules",
         "## 19. Cost control",
     ]

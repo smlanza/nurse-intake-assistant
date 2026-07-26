@@ -91,6 +91,8 @@ def test_ready_factory_requires_application_hosting_proofs_only() -> None:
     proofs = {
         "local_orchestration_ready": True,
         "account_verified": True,
+        "startup_cleanup_inspected": True,
+        "startup_environment_clean": True,
         "resource_group_ready": True,
         "foundry_infrastructure_verified": True,
         "prompt_agent_verified": True,

@@ -86,9 +86,11 @@ def test_live_json_output_is_sanitized_and_exit_code_is_deterministic(
             assert callable(approver)
             return DailyAzureEnvironmentRebuildResult._verified_ready(
                 {
-                    "local_orchestration_ready": True,
-                    "account_verified": True,
-                    "resource_group_ready": True,
+                        "local_orchestration_ready": True,
+                        "account_verified": True,
+                        "startup_cleanup_inspected": True,
+                        "startup_environment_clean": True,
+                        "resource_group_ready": True,
                     "foundry_infrastructure_verified": True,
                     "prompt_agent_verified": True,
                     "immutable_routing_verified": True,

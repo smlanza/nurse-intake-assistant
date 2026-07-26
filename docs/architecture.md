@@ -299,11 +299,17 @@ orchestration layer for the disposable environment. It owns stable
 configuration validation, stage ordering, typed runtime-value propagation,
 verification-driven reuse, sanitized approval summaries, stage-specific
 operator approval, fail-fast behavior, and one sanitized aggregate readiness
-result. It never supplies unattended approval. Resource-group creation,
-Foundry infrastructure deployment, Web App infrastructure deployment, and
-current package deployment each require approval for the current run and exact
-current evidence. An approval is stage-specific and one-use; changed evidence
-cannot reuse it.
+result. It never supplies unattended approval. After offline validation,
+readiness-receipt revocation, and current-account verification, it invokes the
+repository cleanup service in startup-preflight mode before resource-group
+creation or Foundry deployment. That boundary reuses a conclusively healthy
+owned environment, stops on ambiguous or unowned state, and requires a
+separate current-run, one-use approval before deleting proven stale owned state
+or purging matching deleted Foundry records. Cleanup must finish with verified
+absence before the coordinator continues. Resource-group creation, Foundry
+infrastructure deployment, Web App infrastructure deployment, and current
+package deployment retain their own current-evidence approvals; changed
+evidence cannot reuse an approval.
 
 The daily disposable coordinator ends at verified application-hosting
 readiness. It verifies Foundry infrastructure, prompt-agent identity and
@@ -314,9 +320,18 @@ managed-identity access, metadata verification, and hosted agent invocation
 remain separate, explicitly invoked optional workflows and are not daily
 readiness requirements. The independent deployment, packaging, read-only
 verification, RBAC, readiness, and WebJob lifecycle boundaries below remain
-authoritative for their resource-specific parsing and proof. Intake processing,
-notifications, and resource-group cleanup remain separately authorized. These
-capabilities do not claim that a corrected live run occurred.
+authoritative for their resource-specific parsing and proof. Intake processing
+and notifications remain outside infrastructure orchestration.
+
+The same cleanup service owns the explicit standalone end-of-day boundary. It
+is limited to the exact configured subscription context, resource group,
+location, repository ownership tag, and bounded daily Foundry naming contract.
+It deletes no unowned or ambiguous resource, never adopts by name, and never
+acts on an active exact-name conflict outside the owned group. End-of-day
+cleanup requires separate default-no approval, synchronous group deletion,
+matching Foundry tombstone purge, and final read-only absence proof. Operational
+commands and manual fallback procedures remain in the daily disposable
+environment runbook.
 
 Two resource-group-scoped entry points reuse the
 `infra/modules/foundry.bicep` module. `main.bicep` preserves Cosmos DB, Storage,
