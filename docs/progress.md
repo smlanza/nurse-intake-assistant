@@ -9,10 +9,13 @@ Latest verified test baseline:
 - 21 shell-wrapper tests and 32 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-Application-code deployment reconciliation keeps exact current-run OneDeploy
-correlation for six monotonic minutes (37 read-only checks, 10-second backoff),
-covering five-minute pending deployment. Invalid or ambiguous evidence still
-fails closed; READY still requires safe hosted proof of the exact package.
+The bounded application-code deployment reconciliation correction is complete.
+Offline regression coverage proves the same correlated current-run OneDeploy
+can remain pending for five minutes and reach success within the 37-read,
+10-second-backoff, six-minute policy while exhaustion and invalid evidence fail
+closed. A subsequent supervised live coordinator run safely reused the current
+hosted package, proved health, version, safe posture, and its exact digest, and
+returned `daily_environment_ready=true` without deployment or Azure mutation.
 
 The ownership-scoped daily cleanup boundary is complete offline. The daily
 coordinator performs startup cleanup inspection after local validation,
@@ -49,13 +52,10 @@ daily coordinator READY
 -> ready for the next hosted managed-identity slice
 ```
 
-Consumer RBAC is complete only when the command reports successful exact reuse
-or `assignment_verified=true` after deployment. WebJob execution/recovery,
-managed-identity verification, metadata access, and fixed-fictional hosted
-invocation remain standalone optional workflows. No live Azure, HTTP,
-cleanup, deletion, purge, deployment, RBAC, WebJob, managed-identity, metadata,
-invocation, configuration rewrite, commit, or push operation occurred during
-implementation or verification.
+Consumer RBAC still requires successful exact reuse or
+`assignment_verified=true` after deployment. Consumer RBAC, WebJob
+execution/recovery, managed-identity and metadata verification, and
+fixed-fictional hosted invocation remain standalone optional workflows.
 
 Architecture impact: updated Infrastructure Architecture because the daily coordinator now owns a separately approved startup cleanup-preflight boundary while end-of-day cleanup remains an explicit standalone operation.
 
@@ -83,11 +83,11 @@ Important constraints:
 
 ## Current Resume Point
 
-Resume Nurse Intake Assistant application and AI-103 feature development. The
-bounded application-code deployment reconciliation correction is complete
-offline; do not add deployment replay or historical deployment adoption. Any
-later hosted managed-identity slice must start only after a current coordinator
-`READY` and successful focused Consumer RBAC result.
+The current READY receipt may support the next Azure-dependent slice only while
+the disposable environment and matching configuration remain valid. Resource
+group deletion or rebuild invalidates this evidence. Do not add deployment
+replay or historical adoption; Consumer RBAC, WebJobs, managed identity,
+metadata verification, and invocation remain separate optional workflows.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point
