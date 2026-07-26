@@ -144,6 +144,17 @@ def _deleted(
     }
 
 
+def _azure_deleted(
+    name: str = "fictional-intake-foundry",
+    **identity: str,
+) -> dict[str, object]:
+    record = _deleted(name, **identity)
+    record["resourceGroup"] = None
+    record["subscriptionId"] = None
+    record["type"] = None
+    return record
+
+
 def _inspection(
     *,
     group: dict[str, object] | None = None,
@@ -285,13 +296,151 @@ def test_matching_deleted_accounts_are_bounded_and_unrelated_are_ignored(
 
 
 @pytest.mark.parametrize(
+    "name",
+    [
+        "fictional-intake-foundry",
+        "fictional-intake-foundry-aa0001",
+    ],
+)
+def test_canonical_deleted_id_supplies_null_resource_group_identity(
+    tmp_path: Path,
+    name: str,
+) -> None:
+    runner = ScriptedRunner(_inspection(deleted=[_azure_deleted(name)]))
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.category == "cleanup_required"
+    assert result.soft_deleted_foundry_account_count == 1
+    assert result.foundry_purge_required is True
+
+
+def test_multiple_canonical_null_group_tombstones_share_one_cleanup_plan(
+    tmp_path: Path,
+) -> None:
+    runner = ScriptedRunner(
+        _inspection(
+            deleted=[
+                _azure_deleted(),
+                _azure_deleted("fictional-intake-foundry-aa0001"),
+            ]
+        )
+    )
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.soft_deleted_foundry_account_count == 2
+    assert result.foundry_purge_required is True
+
+
+@pytest.mark.parametrize(
     "record",
     [
-        {**_deleted(), "location": None},
-        {**_deleted(), "subscriptionId": None},
+        _azure_deleted(resource_group="unrelated-rg"),
+        _azure_deleted(location="westus2"),
+        _azure_deleted(
+            subscription_id="00000000-0000-0000-0000-000000000099"
+        ),
+    ],
+)
+def test_canonical_deleted_id_outside_configured_scope_is_not_selected(
+    tmp_path: Path,
+    record: dict[str, object],
+) -> None:
+    runner = ScriptedRunner(_inspection(deleted=[record]))
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.category == "already_clean"
+    assert result.soft_deleted_foundry_account_count == 0
+    assert result.foundry_purge_required is False
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {
+            **_azure_deleted(),
+            "id": _azure_deleted()["id"].replace(
+                "Microsoft.CognitiveServices",
+                "Microsoft.Web",
+            ),
+        },
+        {
+            **_azure_deleted(),
+            "id": _azure_deleted()["id"].replace(
+                "/deletedAccounts/",
+                "/accounts/",
+            ),
+        },
+        {
+            **_azure_deleted(),
+            "id": _azure_deleted()["id"].replace(
+                "/fictional-intake-foundry",
+                "/fictional-intake-foundry-aa0001",
+            ),
+        },
+        {**_azure_deleted(), "resourceGroup": "conflicting-rg"},
+        {**_azure_deleted(), "location": "westus2"},
+        {
+            **_azure_deleted(),
+            "subscriptionId": (
+                "00000000-0000-0000-0000-000000000099"
+            ),
+        },
+        {**_azure_deleted(), "kind": "CognitiveServices"},
+        {**_azure_deleted(), "id": None},
+        {**_azure_deleted(), "id": "not-an-arm-id"},
+        {
+            **_azure_deleted(),
+            "id": (
+                f"/subscriptions/{SUBSCRIPTION_ID}/subscriptions/"
+                f"{SUBSCRIPTION_ID}/providers/Microsoft.CognitiveServices/"
+                "locations/eastus2/resourceGroups/fictional-daily-rg/"
+                "deletedAccounts/fictional-intake-foundry"
+            ),
+        },
+    ],
+)
+def test_apparent_owned_deleted_account_with_ambiguous_id_fails_closed(
+    tmp_path: Path,
+    record: dict[str, object],
+) -> None:
+    runner = ScriptedRunner(_inspection(deleted=[record]))
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is False
+    assert result.category == "deleted_foundry_account_ambiguous"
+    assert result.manual_review_required is True
+    assert result.azure_mutation_made is False
+
+
+def test_similar_name_only_canonical_deleted_account_is_ignored(
+    tmp_path: Path,
+) -> None:
+    runner = ScriptedRunner(
+        _inspection(
+            deleted=[_azure_deleted("fictional-intake-foundry-similar")]
+        )
+    )
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.category == "already_clean"
+    assert result.soft_deleted_foundry_account_count == 0
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
         {**_deleted(), "kind": None},
         {**_deleted(), "type": "Microsoft.Web/sites"},
-        {**_deleted(), "resourceGroup": None},
+        {**_deleted(), "resourceGroup": "conflicting-rg"},
     ],
 )
 def test_malformed_apparent_deleted_account_fails_closed(
@@ -433,6 +582,66 @@ def test_cleanup_deletes_then_purges_and_verifies_absence(tmp_path: Path) -> Non
         assert call[call.index("--location") + 1] == CONFIG["AZURE_LOCATION"]
 
 
+def test_end_of_day_cleanup_purges_null_group_tombstones_and_verifies_absence(
+    tmp_path: Path,
+) -> None:
+    generated = _azure_deleted("fictional-intake-foundry-aa0001")
+    runner = ScriptedRunner(
+        _inspection(
+            group=_group(state="Failed"),
+            active=[_active()],
+            deleted=[generated],
+        )
+        + _inspection(
+            group=_group(state="Failed"),
+            active=[_active()],
+            deleted=[generated],
+            include_account=False,
+        )
+        + [
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([_azure_deleted(), generated]),
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([]),
+        ]
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is True
+    assert result.category == "cleanup_completed"
+    assert result.resource_group_absent is True
+    assert result.foundry_tombstones_absent is True
+    assert result.daily_environment_clean is True
+    purge_calls = [
+        call
+        for call in runner.calls
+        if call[:4] == ["az", "cognitiveservices", "account", "purge"]
+    ]
+    assert len(purge_calls) == 2
+    assert {
+        call[call.index("--name") + 1]
+        for call in purge_calls
+    } == {
+        "fictional-intake-foundry",
+        "fictional-intake-foundry-aa0001",
+    }
+    assert all(
+        call[call.index("--resource-group") + 1]
+        == CONFIG["AZURE_RESOURCE_GROUP"]
+        for call in purge_calls
+    )
+
+
 def test_startup_purges_blocker_without_deleting_healthy_owned_group(
     tmp_path: Path,
 ) -> None:
@@ -472,6 +681,45 @@ def test_startup_purges_blocker_without_deleting_healthy_owned_group(
     assert not any(
         call[:3] == ["az", "group", "delete"] for call in runner.calls
     )
+    assert sum("purge" in call for call in runner.calls) == 1
+
+
+def test_startup_cleanup_purges_null_group_tombstone_and_returns_clean_proof(
+    tmp_path: Path,
+) -> None:
+    tombstone = _azure_deleted("fictional-intake-foundry-aa0001")
+    inspected = _inspection(
+        group=_group(),
+        active=[_active()],
+        deleted=[tombstone],
+        include_account=False,
+    )
+    runner = ScriptedRunner(
+        inspected
+        + inspected
+        + [
+            _ok([_active()]),
+            _ok([tombstone]),
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "true\n", ""),
+            _ok(_group()),
+            _ok([_active()]),
+            _ok([]),
+        ]
+    )
+
+    result = _service(tmp_path, runner).startup_preflight(
+        runner,
+        _verified_account(),
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is True
+    assert result.category == "cleanup_completed"
+    assert result.cleanup_approved is True
+    assert result.foundry_purge_attempted is True
+    assert result.foundry_tombstones_absent is True
+    assert result.daily_environment_clean is True
     assert sum("purge" in call for call in runner.calls) == 1
 
 
@@ -620,7 +868,10 @@ def test_serialized_result_contains_only_sanitized_bounded_facts(
         _inspection(
             group=_group(),
             active=[_active()],
-            deleted=[_deleted()],
+            deleted=[
+                _azure_deleted(),
+                _azure_deleted("fictional-intake-foundry-aa0001"),
+            ],
         )
     )
 
@@ -632,6 +883,7 @@ def test_serialized_result_contains_only_sanitized_bounded_facts(
     for forbidden in (
         CONFIG["AZURE_RESOURCE_GROUP"],
         CONFIG["AZURE_FOUNDRY_ACCOUNT_NAME"],
+        "fictional-intake-foundry-aa0001",
         CONFIG["AZURE_LOCATION"],
         SUBSCRIPTION_ID,
         TENANT_ID,

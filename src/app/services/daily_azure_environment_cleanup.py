@@ -1169,34 +1169,69 @@ def _deleted_account_evidence(
     }
     if set(payload) != expected:
         return None
-    values = tuple(payload.get(name) for name in expected)
+    required_values = tuple(
+        payload.get(field) for field in ("id", "name", "kind")
+    )
+    optional_values = tuple(
+        payload.get(field)
+        for field in (
+            "resourceGroup",
+            "location",
+            "subscriptionId",
+            "type",
+        )
+    )
     if not all(
         isinstance(value, str) and value and value == value.strip()
-        for value in values
+        for value in required_values
+    ) or not all(
+        value is None
+        or (
+            isinstance(value, str)
+            and value
+            and value == value.strip()
+        )
+        for value in optional_values
     ):
         return None
     resource_id = str(payload["id"])
     name = str(payload["name"])
-    group = str(payload["resourceGroup"])
-    location = str(payload["location"])
-    subscription_id = str(payload["subscriptionId"])
     parts = resource_id.split("/")
     if (
         len(parts) != 11
         or parts[0] != ""
-        or parts[1].casefold() != "subscriptions"
-        or not _uuid_string(subscription_id)
-        or parts[2].casefold() != subscription_id.casefold()
-        or parts[3].casefold() != "providers"
-        or parts[4].casefold() != "microsoft.cognitiveservices"
-        or parts[5].casefold() != "locations"
-        or parts[6] != location
-        or parts[7].casefold() != "resourcegroups"
-        or parts[8] != group
-        or parts[9].casefold() != "deletedaccounts"
+        or parts[1] != "subscriptions"
+        or not _uuid_string(parts[2])
+        or parts[3] != "providers"
+        or parts[4] != "Microsoft.CognitiveServices"
+        or parts[5] != "locations"
+        or not parts[6]
+        or parts[7] != "resourceGroups"
+        or not parts[8]
+        or parts[9] != "deletedAccounts"
         or parts[10] != name
         or payload["kind"] not in _SUPPORTED_FOUNDRY_KINDS
-        or payload["type"] != _COGNITIVE_ACCOUNT_TYPE
+    ):
+        return None
+    subscription_id = parts[2]
+    location = parts[6]
+    group = parts[8]
+    if (
+        payload["resourceGroup"] is not None
+        and payload["resourceGroup"] != group
+    ) or (
+        payload["location"] is not None
+        and payload["location"] != location
+    ) or (
+        payload["subscriptionId"] is not None
+        and (
+            not _uuid_string(payload["subscriptionId"])
+            or str(payload["subscriptionId"]).casefold()
+            != subscription_id.casefold()
+        )
+    ) or (
+        payload["type"] is not None
+        and payload["type"] != _COGNITIVE_ACCOUNT_TYPE
     ):
         return None
     return _FoundryAccountEvidence(
@@ -1206,7 +1241,7 @@ def _deleted_account_evidence(
         location=location,
         subscription_id=subscription_id,
         kind=str(payload["kind"]),
-        resource_type=str(payload["type"]),
+        resource_type=_COGNITIVE_ACCOUNT_TYPE,
     )
 
 
