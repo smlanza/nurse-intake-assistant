@@ -4756,7 +4756,7 @@ def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
     repository_root = _package_source_tree(tmp_path)
     config = _config(tmp_path)
     current_time = datetime.now(timezone.utc)
-    record = {
+    successful_record = {
         "id": "current-onedeploy",
         "status": 4,
         "complete": True,
@@ -4768,6 +4768,23 @@ def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
         .isoformat()
         .replace("+00:00", "Z"),
     }
+    pending_record = {
+        **successful_record,
+        "status": 2,
+        "complete": False,
+        "endTime": None,
+    }
+    elapsed_seconds = 0.0
+
+    def monotonic() -> float:
+        return elapsed_seconds
+
+    def sleep(seconds: float) -> None:
+        nonlocal elapsed_seconds
+        elapsed_seconds += seconds
+
+    monkeypatch.setattr(deployment_script.time, "monotonic", monotonic)
+    monkeypatch.setattr(deployment_script.time, "sleep", sleep)
 
     class RecoveryCommandRunner:
         def __init__(self) -> None:
@@ -4784,9 +4801,15 @@ def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
                 "list",
             ]:
                 self.status_reads += 1
+                if self.status_reads == 1:
+                    records = []
+                elif self.status_reads <= 31:
+                    records = [pending_record]
+                else:
+                    records = [successful_record]
                 return deployment_script.CommandResult(
                     0,
-                    "[]" if self.status_reads == 1 else json.dumps([record]),
+                    json.dumps(records),
                     "",
                 )
             if args[:3] == ["az", "webapp", "deploy"]:
@@ -4852,8 +4875,11 @@ def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
     assert result.application_deployment_attempted is True
     assert result.application_deployment_accepted is True
     assert result.application_artifact_current is True
+    assert result.hosted_readiness_verified is True
+    assert result.daily_environment_ready is True
     assert result.azure_mutation_made is True
-    assert command_runner.status_reads == 2
+    assert elapsed_seconds == pytest.approx(300.0)
+    assert command_runner.status_reads == 32
     assert sum(
         call[:3] == ["az", "webapp", "deploy"]
         for call in command_runner.calls

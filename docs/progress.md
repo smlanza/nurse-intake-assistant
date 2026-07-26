@@ -5,9 +5,14 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,298 passed full suite
+- 2,317 passed full suite
 - 21 shell-wrapper tests and 32 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
+
+Application-code deployment reconciliation keeps exact current-run OneDeploy
+correlation for six monotonic minutes (37 read-only checks, 10-second backoff),
+covering five-minute pending deployment. Invalid or ambiguous evidence still
+fails closed; READY still requires safe hosted proof of the exact package.
 
 The ownership-scoped daily cleanup boundary is complete offline. The daily
 coordinator performs startup cleanup inspection after local validation,
@@ -78,10 +83,11 @@ Important constraints:
 
 ## Current Resume Point
 
-Resume Nurse Intake Assistant application and AI-103 feature development. Do
-not resume the prior existing-Web-App reconciliation loop. Any later hosted
-managed-identity slice must start only after a current coordinator `READY` and
-successful focused Consumer RBAC result.
+Resume Nurse Intake Assistant application and AI-103 feature development. The
+bounded application-code deployment reconciliation correction is complete
+offline; do not add deployment replay or historical deployment adoption. Any
+later hosted managed-identity slice must start only after a current coordinator
+`READY` and successful focused Consumer RBAC result.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point

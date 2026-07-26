@@ -105,6 +105,19 @@ class DeploymentBoundaryRunner:
         raise AssertionError(f"Unexpected command: {args}")
 
 
+class FakeReconciliationClock:
+    def __init__(self) -> None:
+        self.elapsed_seconds = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.elapsed_seconds
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.elapsed_seconds += seconds
+
+
 @pytest.fixture
 def source_tree(tmp_path: Path) -> Path:
     for relative_path, content in {
@@ -235,6 +248,61 @@ def test_timeout_recovers_from_one_exact_current_successful_onedeploy_record(
     assert len(runner.calls) == 3
 
 
+def test_timeout_reconciles_same_current_deployment_pending_for_five_minutes(
+    source_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeReconciliationClock()
+    monkeypatch.setattr(script.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(script.time, "sleep", clock.sleep)
+    received = datetime.now(timezone.utc)
+    pending = _deployment_record(
+        "current-five-minute-deployment",
+        status=2,
+        complete=False,
+        received_time=received,
+    )
+    successful = _deployment_record(
+        "current-five-minute-deployment",
+        received_time=received,
+    )
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", "", timed_out=True),
+        baseline=[_deployment_record("older-deployment")],
+        status_results=[
+            *[
+                script.CommandResult(0, json.dumps([pending]), "")
+                for _ in range(30)
+            ],
+            script.CommandResult(0, json.dumps([successful]), ""),
+        ],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["ok"] is True
+    assert result["category"] == "success"
+    assert result["deployment_accepted"] is True
+    assert result["deployment_record_found"] is True
+    assert result["deployment_record_complete"] is True
+    assert result["deployment_record_successful"] is True
+    assert result["azure_mutation_made"] is True
+    assert clock.elapsed_seconds == pytest.approx(300.0)
+    assert len(clock.sleeps) == 30
+    assert sum(
+        call[:3] == ["az", "webapp", "deploy"]
+        for call in runner.calls
+    ) == 1
+
+
 def test_timeout_without_current_authoritative_record_stays_fail_closed(
     source_tree: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -268,6 +336,55 @@ def test_timeout_without_current_authoritative_record_stays_fail_closed(
     assert result["deployment_status_checked"] is True
     assert result["deployment_record_found"] is False
     assert result["azure_mutation_made"] is None
+
+
+def test_timeout_pending_current_deployment_exhausts_bounded_deadline(
+    source_tree: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = FakeReconciliationClock()
+    monkeypatch.setattr(script.time, "monotonic", clock.monotonic)
+    monkeypatch.setattr(script.time, "sleep", clock.sleep)
+    pending = _deployment_record(
+        "current-still-pending",
+        status=2,
+        complete=False,
+    )
+    runner = DeploymentBoundaryRunner(
+        script.CommandResult(124, "", "", timed_out=True),
+        status_results=[
+            script.CommandResult(0, json.dumps([pending]), "")
+            for _ in range(script.DEPLOYMENT_STATUS_MAX_ATTEMPTS)
+        ],
+    )
+
+    result = script.execute(
+        script.DeploymentRequest(
+            "live",
+            "fictional-rg",
+            "fictional-web-app",
+        ),
+        runner=runner,
+        source_root=source_tree,
+    )
+
+    assert result["ok"] is False
+    assert result["category"] == "deployment_status_unverified"
+    assert result["deployment_accepted"] is False
+    assert result["deployment_record_found"] is True
+    assert result["deployment_record_complete"] is False
+    assert result["deployment_record_successful"] is False
+    assert result["azure_mutation_made"] is None
+    assert clock.elapsed_seconds == pytest.approx(
+        script.DEPLOYMENT_STATUS_MAX_ELAPSED_SECONDS
+    )
+    assert len(clock.sleeps) == (
+        script.DEPLOYMENT_STATUS_MAX_ATTEMPTS - 1
+    )
+    assert sum(
+        call[:3] == ["az", "webapp", "deploy"]
+        for call in runner.calls
+    ) == 1
 
 
 @pytest.mark.parametrize(
@@ -363,6 +480,7 @@ def test_timeout_with_current_completed_failed_record_reports_failure(
     assert result["deployment_record_complete"] is True
     assert result["deployment_record_successful"] is False
     assert result["azure_mutation_made"] is True
+    assert len(runner.calls) == 3
 
 
 def test_timeout_rejects_stale_successful_deployment_record(
