@@ -341,45 +341,43 @@ class FoundryAgentEndpointRouting:
                     agent_name=request.agent_name,
                 )
             )
-            if not endpoint_present:
-                return FoundryAgentEndpointRoutingResult.failure(
-                    "not_found",
-                    mode="live",
-                    azure_call_made=True,
-                    stable_endpoint_matches_configuration=endpoint_matches,
-                )
             if not endpoint_matches:
                 return FoundryAgentEndpointRoutingResult.failure(
                     "endpoint_mismatch",
                     mode="live",
                     azure_call_made=True,
-                    stable_endpoint_present=True,
+                    stable_endpoint_present=endpoint_present,
                 )
 
-            protocol_status = _preserved_protocols(endpoint)
-            if protocol_status is None:
-                return FoundryAgentEndpointRoutingResult.failure(
-                    "responses_protocol_missing",
-                    mode="live",
-                    azure_call_made=True,
-                    stable_endpoint_present=True,
-                    stable_endpoint_matches_configuration=True,
-                )
-            preserved_protocols, authorization_schemes = protocol_status
-            routing = _routing_state(endpoint, request.agent_version)
-            if not routing.valid:
-                return FoundryAgentEndpointRoutingResult.failure(
-                    "version_routing_mismatch",
-                    mode="live",
-                    azure_call_made=True,
-                    stable_endpoint_present=True,
-                    stable_endpoint_matches_configuration=True,
-                    version_selector_present=routing.selector_present,
-                    configured_version_traffic_percentage=(
-                        routing.configured_traffic
-                    ),
-                    responses_protocol_present=True,
-                )
+            if endpoint_present:
+                protocol_status = _preserved_protocols(endpoint)
+                if protocol_status is None:
+                    return FoundryAgentEndpointRoutingResult.failure(
+                        "responses_protocol_missing",
+                        mode="live",
+                        azure_call_made=True,
+                        stable_endpoint_present=True,
+                        stable_endpoint_matches_configuration=True,
+                    )
+                preserved_protocols, authorization_schemes = protocol_status
+                routing = _routing_state(endpoint, request.agent_version)
+                if not routing.valid:
+                    return FoundryAgentEndpointRoutingResult.failure(
+                        "version_routing_mismatch",
+                        mode="live",
+                        azure_call_made=True,
+                        stable_endpoint_present=True,
+                        stable_endpoint_matches_configuration=True,
+                        version_selector_present=routing.selector_present,
+                        configured_version_traffic_percentage=(
+                            routing.configured_traffic
+                        ),
+                        responses_protocol_present=True,
+                    )
+            else:
+                preserved_protocols = {}
+                authorization_schemes = None
+                routing = _RoutingState(True, False, False, None)
 
             if not callable(getattr(agents, "get_version", None)):
                 return FoundryAgentEndpointRoutingResult.failure(

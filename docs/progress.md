@@ -5,17 +5,17 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,337 passed full suite
+- 2,338 passed full suite
 - 21 shell-wrapper tests and 32 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The bounded application-code deployment reconciliation correction is complete.
-Offline regression coverage proves the same correlated current-run OneDeploy
-can remain pending for five minutes and reach success within the 37-read,
-10-second-backoff, six-minute policy while exhaustion and invalid evidence fail
-closed. A subsequent supervised live coordinator run safely reused the current
-hosted package, proved health, version, safe posture, and its exact digest, and
-returned `daily_environment_ready=true` without deployment or Azure mutation.
+The first-run prompt-agent endpoint routing correction is complete offline.
+An exact successfully read agent whose endpoint is absent now verifies the
+requested immutable version, initializes one builder-owned Responses endpoint
+with one exclusive 100-percent rule, and verifies the mutation response.
+Existing exclusive routing remains a no-mutation reuse path; 404s, identity or
+version mismatches, malformed endpoint metadata, update failures, and the
+separate final read-only verification boundary remain fail-closed.
 
 The ownership-scoped daily cleanup boundary now reconciles one approved group
 delete for 30 monotonic minutes (61 exact reads, 30-second backoff). Timeout

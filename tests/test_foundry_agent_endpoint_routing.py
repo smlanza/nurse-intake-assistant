@@ -75,6 +75,7 @@ class FakeAgents:
         get_error: Exception | None = None,
         version: object | None = None,
         version_error: Exception | None = None,
+        update_error: Exception | None = None,
         details_name: str = "configured-agent",
     ) -> None:
         self.endpoint = endpoint
@@ -84,6 +85,7 @@ class FakeAgents:
             {"name": "configured-agent", "version": "7", "definition": {}}
         )
         self.version_error = version_error
+        self.update_error = update_error
         self.details_name = details_name
         self.get_calls: list[str] = []
         self.get_version_calls: list[tuple[str, str]] = []
@@ -103,6 +105,8 @@ class FakeAgents:
 
     def update_details(self, agent_name: str, **kwargs: object) -> object:
         self.update_calls.append({"agent_name": agent_name, **kwargs})
+        if self.update_error is not None:
+            raise self.update_error
         if self.update_response is not None:
             return self.update_response
         return _details(kwargs["agent_endpoint"])
@@ -230,6 +234,31 @@ def test_live_reuses_already_exclusive_routing_without_mutation() -> None:
     assert agents.update_calls == []
 
 
+def test_live_initializes_missing_endpoint_for_exact_existing_agent_once() -> None:
+    agents = FakeAgents(None)
+
+    result = _service(agents).configure(_request())
+
+    assert result.ok is True
+    assert result.routing_reused is False
+    assert result.routing_updated is True
+    assert result.azure_mutation_made is True
+    assert result.configured_version_exclusive is True
+    assert result.configured_version_traffic_percentage == 100
+    assert result.responses_protocol_present is True
+    assert result.agent_invoked is False
+    assert agents.get_calls == ["configured-agent"]
+    assert agents.get_version_calls == [("configured-agent", "7")]
+    assert len(agents.update_calls) == 1
+    payload = agents.update_calls[0]["agent_endpoint"]
+    rules = payload["version_selector"]["version_selection_rules"]
+    assert len(rules) == 1
+    assert rules[0]["type"] == "FixedRatio"
+    assert rules[0]["agent_version"] == "7"
+    assert rules[0]["traffic_percentage"] == 100
+    assert "responses" in payload["protocol_configuration"]
+
+
 def test_live_updates_known_nonexclusive_routing_once_and_preserves_endpoint() -> None:
     from azure.ai.projects.models import FixedRatioVersionSelectionRule
 
@@ -284,7 +313,6 @@ def test_live_corrects_unpinned_or_empty_selector(rules: object) -> None:
 @pytest.mark.parametrize(
     "endpoint",
     [
-        None,
         UserDict({"version_selector": object(), "protocol_configuration": {}}),
         _endpoint([UserDict({"type": "Unknown", "agent_version": "7", "traffic_percentage": 100})]),
         _endpoint([UserDict({"type": "FixedRatio", "agent_version": "7"})]),
@@ -302,7 +330,7 @@ def test_live_corrects_unpinned_or_empty_selector(rules: object) -> None:
         ),
     ],
 )
-def test_live_fails_closed_for_missing_or_ambiguous_endpoint_shapes(
+def test_live_fails_closed_for_malformed_or_ambiguous_endpoint_shapes(
     endpoint: object,
 ) -> None:
     agents = FakeAgents(endpoint)
@@ -375,6 +403,26 @@ def test_ambiguous_mutation_response_fails_without_retry() -> None:
     assert result.azure_mutation_made is True
     assert result.routing_updated is False
     assert len(agents.update_calls) == 1
+
+
+def test_missing_endpoint_update_failure_is_sanitized_without_retry() -> None:
+    class UnsafeError(Exception):
+        status_code = 403
+
+    agents = FakeAgents(
+        None,
+        update_error=UnsafeError("Bearer secret endpoint update failed"),
+    )
+
+    result = _service(agents).configure(_request())
+
+    assert result.ok is False
+    assert result.category == "authentication_or_authorization_failed"
+    assert result.azure_mutation_made is None
+    assert result.routing_updated is False
+    assert result.agent_invoked is False
+    assert len(agents.update_calls) == 1
+    assert "secret" not in json.dumps(result.to_json_dict()).lower()
 
 
 def test_mutation_response_for_different_agent_fails_without_retry() -> None:
