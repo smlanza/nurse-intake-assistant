@@ -155,7 +155,7 @@ def _deleted(
         "location": location,
         "subscriptionId": subscription_id,
         "kind": "AIServices",
-        "type": "Microsoft.CognitiveServices/accounts",
+        "type": "Microsoft.CognitiveServices/deletedAccounts",
     }
 
 
@@ -168,6 +168,17 @@ def _azure_deleted(
     record["subscriptionId"] = None
     record["type"] = None
     return record
+
+
+def _without(
+    record: dict[str, object],
+    field: str,
+) -> dict[str, object]:
+    return {
+        key: value
+        for key, value in record.items()
+        if key != field
+    }
 
 
 def _inspection(
@@ -339,6 +350,53 @@ def test_canonical_deleted_id_supplies_null_resource_group_identity(
     assert result.foundry_purge_required is True
 
 
+def test_live_shaped_deleted_account_uses_canonical_id_for_null_or_absent_identity(
+    tmp_path: Path,
+) -> None:
+    record = {
+        "id": (
+            f"/subscriptions/{SUBSCRIPTION_ID}/providers/"
+            "Microsoft.CognitiveServices/locations/eastus2/resourceGroups/"
+            "fictional-daily-rg/deletedAccounts/fictional-intake-foundry"
+        ),
+        "name": "fictional-intake-foundry",
+        "location": "eastus2",
+        "resourceGroup": None,
+        "kind": "AIServices",
+        "type": "Microsoft.CognitiveServices/deletedAccounts",
+    }
+    runner = ScriptedRunner(_inspection(deleted=[record]))
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.category == "cleanup_required"
+    assert result.soft_deleted_foundry_account_count == 1
+    assert result.soft_deleted_foundry_accounts_found is True
+    assert result.foundry_purge_required is True
+    assert result.manual_review_required is False
+
+
+@pytest.mark.parametrize(
+    "missing_field",
+    ("name", "resourceGroup", "location", "subscriptionId", "type"),
+)
+def test_canonical_deleted_id_supplies_absent_projected_identity(
+    tmp_path: Path,
+    missing_field: str,
+) -> None:
+    runner = ScriptedRunner(
+        _inspection(deleted=[_without(_deleted(), missing_field)])
+    )
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.category == "cleanup_required"
+    assert result.soft_deleted_foundry_account_count == 1
+    assert result.foundry_purge_required is True
+
+
 def test_multiple_canonical_null_group_tombstones_share_one_cleanup_plan(
     tmp_path: Path,
 ) -> None:
@@ -356,6 +414,19 @@ def test_multiple_canonical_null_group_tombstones_share_one_cleanup_plan(
     assert result.ok is True
     assert result.soft_deleted_foundry_account_count == 2
     assert result.foundry_purge_required is True
+
+
+def test_duplicate_exact_canonical_tombstones_remain_ambiguous(
+    tmp_path: Path,
+) -> None:
+    record = _azure_deleted()
+    runner = ScriptedRunner(_inspection(deleted=[record, record]))
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is False
+    assert result.category == "deleted_foundry_account_ambiguous"
+    assert result.manual_review_required is True
 
 
 @pytest.mark.parametrize(
@@ -415,7 +486,15 @@ def test_canonical_deleted_id_outside_configured_scope_is_not_selected(
             ),
         },
         {**_azure_deleted(), "kind": "CognitiveServices"},
+        {
+            **_azure_deleted(),
+            "type": "Microsoft.CognitiveServices/accounts",
+        },
+        _without(_azure_deleted(), "id"),
         {**_azure_deleted(), "id": None},
+        {**_azure_deleted(), "id": ""},
+        {**_azure_deleted(), "id": "   "},
+        {**_azure_deleted(), "id": 7},
         {**_azure_deleted(), "id": "not-an-arm-id"},
         {
             **_azure_deleted(),
@@ -426,6 +505,35 @@ def test_canonical_deleted_id_outside_configured_scope_is_not_selected(
                 "deletedAccounts/fictional-intake-foundry"
             ),
         },
+        {
+            **_azure_deleted(),
+            "id": _azure_deleted()["id"].replace(
+                "/providers/",
+                "/providers/Microsoft.CognitiveServices/providers/",
+            ),
+        },
+        {
+            **_azure_deleted(),
+            "id": _azure_deleted()["id"].replace(
+                "/locations/",
+                "/locations/eastus2/locations/",
+            ),
+        },
+        {
+            **_azure_deleted(),
+            "id": _azure_deleted()["id"].replace(
+                "/resourceGroups/",
+                "/resourceGroups/fictional-daily-rg/resourceGroups/",
+            ),
+        },
+        {
+            **_azure_deleted(),
+            "id": _azure_deleted()["id"].replace(
+                "/deletedAccounts/",
+                "/deletedAccounts/fictional-intake-foundry/deletedAccounts/",
+            ),
+        },
+        {**_azure_deleted(), "unknownIdentity": "fictional"},
     ],
 )
 def test_apparent_owned_deleted_account_with_ambiguous_id_fails_closed(

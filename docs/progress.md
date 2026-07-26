@@ -5,7 +5,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,320 passed full suite
+- 2,337 passed full suite
 - 21 shell-wrapper tests and 32 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
@@ -21,9 +21,10 @@ The ownership-scoped daily cleanup boundary now reconciles one approved group
 delete for 30 monotonic minutes (61 exact reads, 30-second backoff). Timeout
 remains ambiguous until exact absence proof; conclusive rejection stops,
 deadline exhaustion fails closed, deletion never replays, and Foundry purge
-waits for group absence. The coordinator still runs startup cleanup after local
-validation, receipt revocation, and account verification, and reuses only a
-healthy exact-owned environment. READY requires both
+waits for group absence. One strictly canonical ARM ID now supplies tombstone
+identity when projections are null or absent; non-null projections must agree.
+The coordinator still runs startup cleanup after validation, receipt revocation, and account verification, and reuses only
+a healthy exact-owned environment. READY requires both
 `startup_cleanup_inspected=true` and `startup_environment_clean=true`.
 
 The preferred operator-facing daily path is the lightweight convenience
@@ -83,10 +84,9 @@ Important constraints:
 
 ## Current Resume Point
 
-The bounded cleanup correction is complete offline; a later approved cleanup
-must still prove group and tombstone absence. The current READY receipt may
-support the next Azure-dependent slice only while the disposable environment
-and matching configuration remain valid; deletion or rebuild invalidates it.
+The bounded cleanup and canonical tombstone parser corrections are complete offline; later cleanup must still prove group and tombstone absence. The current
+READY receipt remains valid only while environment and configuration match;
+deletion or rebuild invalidates it.
 Consumer RBAC, WebJobs, managed identity, metadata verification, and invocation remain separate optional workflows.
 
 Safe to demo today:

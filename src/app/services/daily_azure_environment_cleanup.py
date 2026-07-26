@@ -21,6 +21,9 @@ from src.app.services.daily_azure_environment_rebuild import (
 CLEANUP_OPERATION = "cleanup_daily_azure_environment"
 _SUPPORTED_FOUNDRY_KINDS = frozenset({"AIServices", "OpenAI"})
 _COGNITIVE_ACCOUNT_TYPE = "Microsoft.CognitiveServices/accounts"
+_COGNITIVE_DELETED_ACCOUNT_TYPE = (
+    "Microsoft.CognitiveServices/deletedAccounts"
+)
 _REUSABLE_RESOURCE_GROUP_STATE = "Succeeded"
 _STALE_RESOURCE_GROUP_STATES = frozenset({"Canceled", "Deleting", "Failed"})
 
@@ -1044,14 +1047,11 @@ class DailyAzureEnvironmentCleanup:
         for record in records:
             if not isinstance(record, dict):
                 return "cleanup_inspection_failed"
-            name = record.get("name")
-            if not isinstance(name, str) or not name:
-                return "cleanup_inspection_failed"
-            if not self._daily_foundry_name(name):
-                continue
             evidence = _deleted_account_evidence(record)
             if evidence is None:
                 return "deleted_foundry_account_ambiguous"
+            if not self._daily_foundry_name(evidence.name):
+                continue
             if (
                 evidence.subscription_id.casefold()
                 != account.subscription_id.casefold()
@@ -1216,7 +1216,7 @@ def _active_account_evidence(
 def _deleted_account_evidence(
     payload: dict[str, object],
 ) -> _FoundryAccountEvidence | None:
-    expected = {
+    projected_fields = {
         "id",
         "name",
         "resourceGroup",
@@ -1225,14 +1225,16 @@ def _deleted_account_evidence(
         "kind",
         "type",
     }
-    if set(payload) != expected:
+    if (
+        not set(payload).issubset(projected_fields)
+        or not {"id", "kind"}.issubset(payload)
+    ):
         return None
-    required_values = tuple(
-        payload.get(field) for field in ("id", "name", "kind")
-    )
+    required_values = tuple(payload.get(field) for field in ("id", "kind"))
     optional_values = tuple(
         payload.get(field)
         for field in (
+            "name",
             "resourceGroup",
             "location",
             "subscriptionId",
@@ -1253,7 +1255,6 @@ def _deleted_account_evidence(
     ):
         return None
     resource_id = str(payload["id"])
-    name = str(payload["name"])
     parts = resource_id.split("/")
     if (
         len(parts) != 11
@@ -1267,29 +1268,33 @@ def _deleted_account_evidence(
         or parts[7] != "resourceGroups"
         or not parts[8]
         or parts[9] != "deletedAccounts"
-        or parts[10] != name
+        or not parts[10]
         or payload["kind"] not in _SUPPORTED_FOUNDRY_KINDS
     ):
         return None
     subscription_id = parts[2]
     location = parts[6]
     group = parts[8]
+    name = parts[10]
     if (
-        payload["resourceGroup"] is not None
+        payload.get("name") is not None
+        and payload["name"] != name
+    ) or (
+        payload.get("resourceGroup") is not None
         and payload["resourceGroup"] != group
     ) or (
-        payload["location"] is not None
+        payload.get("location") is not None
         and payload["location"] != location
     ) or (
-        payload["subscriptionId"] is not None
+        payload.get("subscriptionId") is not None
         and (
             not _uuid_string(payload["subscriptionId"])
             or str(payload["subscriptionId"]).casefold()
             != subscription_id.casefold()
         )
     ) or (
-        payload["type"] is not None
-        and payload["type"] != _COGNITIVE_ACCOUNT_TYPE
+        payload.get("type") is not None
+        and payload["type"] != _COGNITIVE_DELETED_ACCOUNT_TYPE
     ):
         return None
     return _FoundryAccountEvidence(
@@ -1299,7 +1304,7 @@ def _deleted_account_evidence(
         location=location,
         subscription_id=subscription_id,
         kind=str(payload["kind"]),
-        resource_type=_COGNITIVE_ACCOUNT_TYPE,
+        resource_type=_COGNITIVE_DELETED_ACCOUNT_TYPE,
     )
 
 
