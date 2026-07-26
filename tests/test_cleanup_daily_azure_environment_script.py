@@ -1,10 +1,33 @@
 import json
 from io import StringIO
+from types import SimpleNamespace
 
 import pytest
 
 from scripts import cleanup_daily_azure_environment as script
 from src.app.services.daily_azure_environment_cleanup import CleanupResult
+
+
+def test_cleanup_runner_preserves_subprocess_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TimedOutRunner:
+        def run(self, args):
+            return SimpleNamespace(
+                return_code=124,
+                stdout="",
+                stderr="",
+                timed_out=True,
+            )
+
+    monkeypatch.setattr(script, "_SubprocessRunner", TimedOutRunner)
+
+    outcome = script._CleanupSubprocessRunner().run(
+        ["az", "group", "delete"]
+    )
+
+    assert outcome.return_code == 124
+    assert outcome.timed_out is True
 
 
 @pytest.mark.parametrize(

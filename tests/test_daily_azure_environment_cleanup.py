@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -8,6 +9,7 @@ from src.app.services.daily_azure_environment_cleanup import (
     CleanupPurpose,
     DailyAzureEnvironmentCleanup,
     VerifiedAzureAccount,
+    _RESOURCE_GROUP_DELETE_RECONCILIATION_POLICY,
 )
 from src.app.services.daily_azure_environment_rebuild import (
     RESOURCE_GROUP_PURPOSE,
@@ -59,6 +61,19 @@ class ScriptedRunner:
         if not self.outcomes:
             raise AssertionError(f"Unexpected command: {args}")
         return self.outcomes.pop(0)
+
+
+class FakeCleanupClock:
+    def __init__(self) -> None:
+        self.elapsed_seconds = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.elapsed_seconds
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.elapsed_seconds += seconds
 
 
 def _ok(payload: object) -> CleanupCommandResult:
@@ -170,12 +185,20 @@ def _inspection(
     return outcomes
 
 
-def _service(tmp_path: Path, runner: ScriptedRunner) -> DailyAzureEnvironmentCleanup:
+def _service(
+    tmp_path: Path,
+    runner: ScriptedRunner,
+    *,
+    monotonic_clock=None,
+    sleeper=None,
+) -> DailyAzureEnvironmentCleanup:
     return DailyAzureEnvironmentCleanup(
         _config(tmp_path),
         repository_root=tmp_path,
         runner_factory=lambda: runner,
         local_contract_checker=lambda _root: (),
+        monotonic_clock=monotonic_clock,
+        sleeper=sleeper,
     )
 
 
@@ -582,6 +605,85 @@ def test_cleanup_deletes_then_purges_and_verifies_absence(tmp_path: Path) -> Non
         assert call[call.index("--location") + 1] == CONFIG["AZURE_LOCATION"]
 
 
+def test_timed_out_group_delete_reconciles_twenty_minutes_then_completes(
+    tmp_path: Path,
+) -> None:
+    clock = FakeCleanupClock()
+    tombstone = _deleted("fictional-intake-foundry-aa0001")
+    runner = ScriptedRunner(
+        _inspection(
+            group=_group(state="Failed"),
+            active=[_active()],
+            deleted=[tombstone],
+        )
+        + _inspection(
+            group=_group(state="Failed"),
+            active=[_active()],
+            deleted=[tombstone],
+            include_account=False,
+        )
+        + [
+            SimpleNamespace(
+                return_code=124,
+                stdout="",
+                stderr="",
+                timed_out=True,
+            ),
+            *[
+                outcome
+                for _ in range(40)
+                for outcome in (
+                    CleanupCommandResult(0, "true\n", ""),
+                    _ok(_group(state="Deleting")),
+                )
+            ],
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([tombstone]),
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([]),
+        ]
+    )
+
+    result = _service(
+        tmp_path,
+        runner,
+        monotonic_clock=clock.monotonic,
+        sleeper=clock.sleep,
+    ).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is True
+    assert result.category == "cleanup_completed"
+    assert result.resource_group_delete_attempted is True
+    assert result.resource_group_absent is True
+    assert result.foundry_purge_attempted is True
+    assert result.foundry_tombstones_absent is True
+    assert result.daily_environment_clean is True
+    assert result.azure_mutation_made is True
+    assert clock.elapsed_seconds == pytest.approx(1_200.0)
+    assert len(clock.sleeps) == 40
+    delete_calls = [
+        call for call in runner.calls
+        if call[:3] == ["az", "group", "delete"]
+    ]
+    assert len(delete_calls) == 1
+    purge_index = next(
+        index
+        for index, call in enumerate(runner.calls)
+        if call[:4] == ["az", "cognitiveservices", "account", "purge"]
+    )
+    assert sum(
+        call[:3] == ["az", "group", "exists"]
+        for call in runner.calls[:purge_index]
+    ) == 43
+
+
 def test_end_of_day_cleanup_purges_null_group_tombstones_and_verifies_absence(
     tmp_path: Path,
 ) -> None:
@@ -746,9 +848,40 @@ def test_group_delete_failure_stops_before_purge(tmp_path: Path) -> None:
     assert "private failure" not in json.dumps(result.to_json_dict())
 
 
+def test_group_delete_process_not_started_is_conclusive_no_mutation(
+    tmp_path: Path,
+) -> None:
+    runner = ScriptedRunner(
+        _inspection(group=_group(state="Failed"), active=[_active()])
+        + _inspection(
+            group=_group(state="Failed"),
+            active=[_active()],
+            include_account=False,
+        )
+        + [CleanupCommandResult(127, "", "private")]
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.category == "resource_group_delete_failed"
+    assert result.resource_group_delete_attempted is True
+    assert result.azure_mutation_made is False
+    assert sum(
+        call[:3] == ["az", "group", "delete"]
+        for call in runner.calls
+    ) == 1
+    assert not any("purge" in call for call in runner.calls)
+
+
 def test_accepted_group_delete_requires_separate_absence_proof(
     tmp_path: Path,
 ) -> None:
+    policy = _RESOURCE_GROUP_DELETE_RECONCILIATION_POLICY
+    clock = FakeCleanupClock()
     initial = _inspection(group=_group(state="Failed"), active=[_active()])
     runner = ScriptedRunner(
         initial
@@ -759,12 +892,23 @@ def test_accepted_group_delete_requires_separate_absence_proof(
         )
         + [
             CleanupCommandResult(0, "", ""),
-            CleanupCommandResult(0, "true\n", ""),
-            _ok(_group(state="Deleting")),
+            *[
+                outcome
+                for _ in range(policy.max_attempts)
+                for outcome in (
+                    CleanupCommandResult(0, "true\n", ""),
+                    _ok(_group(state="Deleting")),
+                )
+            ],
         ]
     )
 
-    result = _service(tmp_path, runner).cleanup(
+    result = _service(
+        tmp_path,
+        runner,
+        monotonic_clock=clock.monotonic,
+        sleeper=clock.sleep,
+    ).cleanup(
         CleanupPurpose.END_OF_DAY,
         runner=runner,
         approver=lambda _summary: True,
@@ -772,7 +916,19 @@ def test_accepted_group_delete_requires_separate_absence_proof(
 
     assert result.category == "resource_group_still_present"
     assert result.resource_group_delete_attempted is True
+    assert result.resource_group_absent is False
+    assert result.foundry_purge_attempted is False
+    assert result.daily_environment_clean is False
     assert result.azure_mutation_made is True
+    assert clock.elapsed_seconds == pytest.approx(
+        policy.max_elapsed_seconds
+    )
+    assert len(clock.sleeps) == policy.max_attempts - 1
+    assert "rerun" in result.next_step.casefold()
+    assert sum(
+        call[:3] == ["az", "group", "delete"]
+        for call in runner.calls
+    ) == 1
     assert not any("purge" in call for call in runner.calls)
 
 
@@ -846,7 +1002,7 @@ def test_empty_unknown_or_nonzero_group_output_never_proves_absence(
     assert result.daily_environment_clean is False
 
 
-def test_cleanup_implementation_has_no_retry_poll_sleep_or_background_work() -> None:
+def test_cleanup_implementation_has_only_bounded_foreground_reconciliation() -> None:
     source = Path(
         DailyAzureEnvironmentCleanup.__module__.replace(".", "/") + ".py"
     )
@@ -855,10 +1011,10 @@ def test_cleanup_implementation_has_no_retry_poll_sleep_or_background_work() -> 
         / source
     ).read_text()
 
-    assert "time.sleep" not in repository_source
     assert "asyncio" not in repository_source
     assert "Thread" not in repository_source
     assert "--no-wait" not in repository_source
+    assert "while True" not in repository_source
 
 
 def test_serialized_result_contains_only_sanitized_bounded_facts(

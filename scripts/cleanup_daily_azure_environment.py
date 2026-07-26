@@ -33,6 +33,7 @@ class _CleanupSubprocessRunner:
             outcome.return_code,
             outcome.stdout,
             outcome.stderr,
+            outcome.timed_out,
         )
 
 

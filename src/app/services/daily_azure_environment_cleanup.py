@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import time
 from typing import Callable, Protocol
 from uuid import UUID
 
@@ -24,6 +25,22 @@ _REUSABLE_RESOURCE_GROUP_STATE = "Succeeded"
 _STALE_RESOURCE_GROUP_STATES = frozenset({"Canceled", "Deleting", "Failed"})
 
 
+@dataclass(frozen=True)
+class _ResourceGroupDeleteReconciliationPolicy:
+    max_attempts: int
+    max_elapsed_seconds: float
+    backoff_seconds: float
+
+
+_RESOURCE_GROUP_DELETE_RECONCILIATION_POLICY = (
+    _ResourceGroupDeleteReconciliationPolicy(
+        max_attempts=61,
+        max_elapsed_seconds=1_800.0,
+        backoff_seconds=30.0,
+    )
+)
+
+
 class CleanupPurpose(str, Enum):
     STARTUP_PREFLIGHT = "startup_preflight"
     END_OF_DAY = "end_of_day"
@@ -34,6 +51,7 @@ class CleanupCommandResult:
     return_code: int
     stdout: str
     stderr: str
+    timed_out: bool = False
 
 
 class CleanupCommandRunner(Protocol):
@@ -288,11 +306,15 @@ class DailyAzureEnvironmentCleanup:
         local_contract_checker: Callable[[Path], tuple[str, ...]] = (
             validate_local_orchestration_contract
         ),
+        monotonic_clock: Callable[[], float] | None = None,
+        sleeper: Callable[[float], None] | None = None,
     ) -> None:
         self.config = config
         self.repository_root = repository_root
         self.runner_factory = runner_factory
         self.local_contract_checker = local_contract_checker
+        self.monotonic_clock = monotonic_clock or time.monotonic
+        self.sleeper = sleeper or time.sleep
 
     def check(self) -> CleanupResult:
         try:
@@ -627,7 +649,10 @@ class DailyAzureEnvironmentCleanup:
                     "--only-show-errors",
                 ]
             )
-            if deleted.return_code != 0:
+            delete_timed_out = bool(
+                getattr(deleted, "timed_out", False)
+            )
+            if deleted.return_code != 0 and not delete_timed_out:
                 return replace(
                     inspection.result,
                     ok=False,
@@ -635,12 +660,16 @@ class DailyAzureEnvironmentCleanup:
                     cleanup_approved=True,
                     cleanup_attempted=True,
                     resource_group_delete_attempted=True,
-                    azure_mutation_made=None,
+                    azure_mutation_made=(
+                        False if deleted.return_code == 127 else None
+                    ),
                 )
-            mutation_made = True
-            group_after, group_category = self._inspect_resource_group(
-                runner,
-                account,
+            mutation_made = None if delete_timed_out else True
+            group_absent, group_category = (
+                self._reconcile_resource_group_absence(
+                    runner,
+                    account,
+                )
             )
             if group_category is not None:
                 return replace(
@@ -652,7 +681,7 @@ class DailyAzureEnvironmentCleanup:
                     resource_group_delete_attempted=True,
                     azure_mutation_made=mutation_made,
                 )
-            if group_after is not None:
+            if not group_absent:
                 return replace(
                     inspection.result,
                     ok=False,
@@ -661,7 +690,12 @@ class DailyAzureEnvironmentCleanup:
                     cleanup_attempted=True,
                     resource_group_delete_attempted=True,
                     azure_mutation_made=mutation_made,
+                    next_step=(
+                        "Inspect the exact resource group later; rerun cleanup "
+                        "only through a fresh explicit command."
+                    ),
                 )
+            mutation_made = True
         post_accounts = self._inspect_accounts(runner, account)
         if isinstance(post_accounts, str):
             return replace(
@@ -824,6 +858,30 @@ class DailyAzureEnvironmentCleanup:
             azure_mutation_made=mutation_made,
             next_step="The configured disposable Azure environment is absent.",
         )
+
+    def _reconcile_resource_group_absence(
+        self,
+        runner: CleanupCommandRunner,
+        account: VerifiedAzureAccount,
+    ) -> tuple[bool, str | None]:
+        policy = _RESOURCE_GROUP_DELETE_RECONCILIATION_POLICY
+        reconciliation_started = self.monotonic_clock()
+        for attempt in range(policy.max_attempts):
+            group_after, group_category = self._inspect_resource_group(
+                runner,
+                account,
+            )
+            if group_category is not None:
+                return False, group_category
+            if group_after is None:
+                return True, None
+            if attempt + 1 >= policy.max_attempts:
+                break
+            elapsed = self.monotonic_clock() - reconciliation_started
+            if elapsed + policy.backoff_seconds > policy.max_elapsed_seconds:
+                break
+            self.sleeper(policy.backoff_seconds)
+        return False, None
 
     def _inspect_resource_group(
         self,
