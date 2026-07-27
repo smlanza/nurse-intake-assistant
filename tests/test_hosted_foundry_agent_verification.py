@@ -252,6 +252,40 @@ def test_missing_or_blank_identity_header_stops_before_credential_construction(
     assert credential_calls == []
 
 
+@pytest.mark.parametrize(
+    ("marker", "value"),
+    [
+        ("WEBSITE_INSTANCE_ID", "bad\ninstance"),
+        ("IDENTITY_ENDPOINT", "not-a-url"),
+        ("IDENTITY_HEADER", "bad\nheader"),
+    ],
+)
+def test_invalid_hosted_identity_marker_shape_stops_before_dependencies(
+    verification_request, marker: str, value: str
+) -> None:
+    credential_calls: list[bool] = []
+    environment = {
+        "WEBSITE_INSTANCE_ID": "secret-instance-id",
+        "IDENTITY_ENDPOINT": "http://secret.identity.endpoint",
+        "IDENTITY_HEADER": "secret-identity-header",
+    }
+    environment[marker] = value
+    verifier = _verifier(
+        environment=environment,
+        credential_factory=lambda: credential_calls.append(True),
+        project_client_factory=lambda *_args: pytest.fail(
+            "invalid hosted environment must stop before client creation"
+        ),
+    )
+
+    result = verifier.verify(verification_request)
+
+    assert result.category == "not_running_in_hosted_environment"
+    assert result.hosted_environment_present is False
+    assert result.managed_identity_attempted is False
+    assert credential_calls == []
+
+
 def test_complete_hosted_environment_continues_without_serializing_identity_header(
     verification_request,
 ) -> None:

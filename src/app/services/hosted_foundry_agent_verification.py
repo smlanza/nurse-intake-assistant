@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from importlib.util import find_spec
 import os
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from src.app.services.foundry_agent_client import (
     is_valid_stable_agent_endpoint,
@@ -254,7 +255,7 @@ class HostedFoundryAgentVerification:
                 "sdk_unavailable",
                 local_contract_validated=True,
             )
-        if not all(_present(self._environment_reader(name)) for name in HOSTED_ENVIRONMENT_MARKERS):
+        if not _hosted_environment_valid(self._environment_reader):
             return HostedFoundryAgentVerificationResult.failure(
                 request.mode,
                 "not_running_in_hosted_environment",
@@ -445,6 +446,40 @@ def _request_contract_valid(
 
 def _present(value: object) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def _hosted_environment_valid(reader: Callable[[str], object]) -> bool:
+    return bool(
+        _safe_marker(reader("WEBSITE_INSTANCE_ID"))
+        and _valid_identity_endpoint(reader("IDENTITY_ENDPOINT"))
+        and _safe_marker(reader("IDENTITY_HEADER"))
+    )
+
+
+def _safe_marker(value: object) -> bool:
+    return bool(
+        isinstance(value, str)
+        and value.strip()
+        and not any(
+            ord(character) < 32 or ord(character) == 127 for character in value
+        )
+    )
+
+
+def _valid_identity_endpoint(value: object) -> bool:
+    if not _safe_marker(value):
+        return False
+    try:
+        parsed = urlsplit(value.strip())
+        parsed.port
+    except ValueError:
+        return False
+    return bool(
+        parsed.scheme.lower() in {"http", "https"}
+        and parsed.hostname
+        and parsed.username is None
+        and parsed.password is None
+    )
 
 
 def _raw_value(value: object, name: str) -> object:
