@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import re
 import sys
 import time
 from typing import Protocol
@@ -37,8 +38,11 @@ AZURE_DEPLOYMENT_OPERATION_TIMEOUT_MS = 240_000
 DEPLOYMENT_COMMAND_TIMEOUT_SECONDS = 300.0
 DEPLOYMENT_COMMAND_CLEANUP_TIMEOUT_SECONDS = 5.0
 DEPLOYMENT_STATUS_COMMAND_TIMEOUT_SECONDS = 10.0
-DEPLOYMENT_STATUS_MAX_ATTEMPTS = 37
-DEPLOYMENT_STATUS_MAX_ELAPSED_SECONDS = 360.0
+DEPLOYMENT_BASELINE_MAX_ATTEMPTS = 31
+DEPLOYMENT_BASELINE_MAX_ELAPSED_SECONDS = 300.0
+DEPLOYMENT_BASELINE_BACKOFF_SECONDS = 10.0
+DEPLOYMENT_STATUS_MAX_ATTEMPTS = 61
+DEPLOYMENT_STATUS_MAX_ELAPSED_SECONDS = 600.0
 DEPLOYMENT_STATUS_BACKOFF_SECONDS = 10.0
 DEPLOYMENT_ATTEMPT_CLOCK_SKEW_SECONDS = 120
 _KUDU_DEPLOYMENT_IN_PROGRESS_STATUSES = {0, 1, 2}
@@ -64,15 +68,28 @@ class SubprocessCommandRunner:
         self.cleanup_timeout_seconds = cleanup_timeout_seconds
 
     def run(self, args: list[str]) -> CommandResult:
-        timeout_seconds = (
+        return self.run_with_timeout(args)
+
+    def run_with_timeout(
+        self,
+        args: list[str],
+        *,
+        timeout_seconds: float | None = None,
+    ) -> CommandResult:
+        configured_timeout = (
             DEPLOYMENT_STATUS_COMMAND_TIMEOUT_SECONDS
             if args[:5]
             == ["az", "webapp", "log", "deployment", "list"]
             else self.timeout_seconds
         )
+        effective_timeout = (
+            configured_timeout
+            if timeout_seconds is None
+            else min(configured_timeout, timeout_seconds)
+        )
         return run_bounded_subprocess(
             args,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=effective_timeout,
             cleanup_timeout_seconds=self.cleanup_timeout_seconds,
         )
 
@@ -82,6 +99,20 @@ class DeploymentRequest:
     mode: str
     resource_group: str | None = None
     web_app_name: str | None = None
+
+
+@dataclass(frozen=True)
+class DeploymentReconciliation:
+    category: str
+    retry_permitted: bool = False
+
+
+@dataclass(frozen=True)
+class DeploymentBaselineResult:
+    category: str
+    ids: frozenset[str] | None
+    checked: bool
+    attempt_count: int
 
 
 def _base(request: DeploymentRequest, category: str, ok: bool = False) -> dict[str, object]:
@@ -97,6 +128,10 @@ def _base(request: DeploymentRequest, category: str, ok: bool = False) -> dict[s
         "azure_command_attempted": False,
         "azure_mutation_made": False,
         "deployment_accepted": False,
+        "deployment_retry_attempted": False,
+        "deployment_baseline_checked": False,
+        "deployment_baseline_ready": False,
+        "deployment_baseline_attempt_count": 0,
         "deployment_command_timed_out": False,
         "deployment_status_checked": False,
         "deployment_record_found": False,
@@ -110,6 +145,75 @@ def _base(request: DeploymentRequest, category: str, ok: bool = False) -> dict[s
 def _authorization_failure(stderr: str) -> bool:
     lowered = stderr.lower()
     return any(marker in lowered for marker in ("authentication", "authorization", "az login"))
+
+
+def _deployment_baseline_failure_is_transient(
+    outcome: CommandResult,
+) -> bool:
+    if (
+        outcome.return_code == 0
+        or outcome.return_code == 127
+        or _authorization_failure(outcome.stderr)
+    ):
+        return False
+    lowered = outcome.stderr.lower()
+    if any(
+        marker in lowered
+        for marker in (
+            "unrecognized argument",
+            "invalid argument",
+            "invalid resource",
+            "resourcegroupnotfound",
+            "resourcenotfound",
+            "bad request",
+        )
+    ):
+        return False
+    if _command_timed_out(outcome):
+        return True
+
+    def has_status_code(status: int) -> bool:
+        return any(
+            marker in lowered
+            for marker in (
+                f"http {status}",
+                f"http status {status}",
+                f"status code {status}",
+                f"status code: {status}",
+                f"returned {status}",
+            )
+        )
+
+    if (
+        has_status_code(404)
+        and ("scm" in lowered or "kudu" in lowered)
+        and ("not found" in lowered or "notfound" in lowered)
+    ):
+        return True
+    if has_status_code(409) and "conflict" in lowered:
+        return True
+    if has_status_code(429) and (
+        "too many requests" in lowered or "rate limit" in lowered
+    ):
+        return True
+    if any(has_status_code(status) for status in range(500, 600)):
+        return True
+    if any(
+        marker in lowered
+        for marker in (
+            "internal server error",
+            "bad gateway",
+            "service unavailable",
+            "gateway timeout",
+            "connection reset",
+            "connection refused",
+            "connection timed out",
+            "read timed out",
+            "temporarily unavailable",
+        )
+    ):
+        return True
+    return False
 
 
 def _deployment_status_command(request: DeploymentRequest) -> list[str]:
@@ -133,6 +237,62 @@ def _deployment_status_command(request: DeploymentRequest) -> list[str]:
         "json",
         "--only-show-errors",
     ]
+
+
+def _deployment_command(
+    request: DeploymentRequest,
+    deployment_path: Path,
+) -> list[str]:
+    return [
+        "az",
+        "webapp",
+        "deploy",
+        "--resource-group",
+        request.resource_group or "",
+        "--name",
+        request.web_app_name or "",
+        "--src-path",
+        str(deployment_path),
+        "--type",
+        "zip",
+        "--clean",
+        "true",
+        "--restart",
+        "true",
+        "--track-status",
+        "false",
+        "--timeout",
+        str(AZURE_DEPLOYMENT_OPERATION_TIMEOUT_MS),
+        "--query",
+        "id",
+        "--output",
+        "tsv",
+    ]
+
+
+def _deployment_submission_identifier(outcome: CommandResult) -> str | None:
+    if outcome.return_code != 0:
+        return None
+    identifier = outcome.stdout.strip()
+    if (
+        not identifier
+        or len(identifier) > 256
+        or re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", identifier) is None
+    ):
+        return None
+    return identifier
+
+
+def _run_with_timeout(
+    runner: CommandRunner,
+    args: list[str],
+    *,
+    timeout_seconds: float,
+) -> CommandResult:
+    bounded_run = getattr(runner, "run_with_timeout", None)
+    if callable(bounded_run):
+        return bounded_run(args, timeout_seconds=timeout_seconds)
+    return runner.run(args)
 
 
 def _deployment_records(outcome: CommandResult) -> list[dict[str, object]] | None:
@@ -168,6 +328,74 @@ def _deployment_record_ids(
     return frozenset(identifiers)
 
 
+def _acquire_deployment_baseline(
+    request: DeploymentRequest,
+    *,
+    runner: CommandRunner,
+) -> DeploymentBaselineResult:
+    started_at = time.monotonic()
+    attempt_count = 0
+    for attempt in range(DEPLOYMENT_BASELINE_MAX_ATTEMPTS):
+        outcome = runner.run(_deployment_status_command(request))
+        attempt_count += 1
+        if outcome.return_code == 0:
+            records = _deployment_records(outcome)
+            identifiers = (
+                _deployment_record_ids(records)
+                if records is not None
+                else None
+            )
+            if identifiers is None:
+                return DeploymentBaselineResult(
+                    "deployment_status_malformed",
+                    None,
+                    True,
+                    attempt_count,
+                )
+            return DeploymentBaselineResult(
+                "success",
+                identifiers,
+                True,
+                attempt_count,
+            )
+        if _authorization_failure(outcome.stderr):
+            return DeploymentBaselineResult(
+                "authentication_or_authorization_failed",
+                None,
+                True,
+                attempt_count,
+            )
+        if outcome.return_code == 127:
+            return DeploymentBaselineResult(
+                "cli_unavailable",
+                None,
+                True,
+                attempt_count,
+            )
+        if not _deployment_baseline_failure_is_transient(outcome):
+            return DeploymentBaselineResult(
+                "deployment_baseline_failed",
+                None,
+                True,
+                attempt_count,
+            )
+        if attempt + 1 >= DEPLOYMENT_BASELINE_MAX_ATTEMPTS:
+            break
+        elapsed = time.monotonic() - started_at
+        if (
+            elapsed + DEPLOYMENT_BASELINE_BACKOFF_SECONDS
+            > DEPLOYMENT_BASELINE_MAX_ELAPSED_SECONDS
+        ):
+            break
+        time.sleep(DEPLOYMENT_BASELINE_BACKOFF_SECONDS)
+    return DeploymentBaselineResult(
+        "deployment_baseline_unavailable",
+        None,
+        attempt_count > 0,
+        attempt_count,
+    )
+
+
 def _azure_datetime(value: object) -> datetime | None:
     if not isinstance(value, str) or not value or value != value.strip():
         return None
@@ -187,6 +415,7 @@ def _current_deployment_record_state(
     request: DeploymentRequest,
     attempt_started_at: datetime,
     checked_at: datetime,
+    expected_deployment_id: str | None,
 ) -> str:
     identifier = record.get("id")
     status = record.get("status")
@@ -211,9 +440,12 @@ def _current_deployment_record_state(
         or started_at is None
     ):
         return "malformed"
-    earliest = attempt_started_at - timedelta(
-        seconds=DEPLOYMENT_ATTEMPT_CLOCK_SKEW_SECONDS
-    )
+    if (
+        expected_deployment_id is not None
+        and identifier != expected_deployment_id
+    ):
+        return "unrelated"
+    earliest = attempt_started_at
     latest = checked_at + timedelta(
         seconds=DEPLOYMENT_ATTEMPT_CLOCK_SKEW_SECONDS
     )
@@ -244,62 +476,136 @@ def _reconcile_ambiguous_deployment(
     baseline_ids: frozenset[str],
     attempt_started_at: datetime,
     result: dict[str, object],
-) -> str:
-    reconciliation_started = time.monotonic()
+    deadline: float,
+    expected_deployment_id: str | None = None,
+) -> DeploymentReconciliation:
+    baseline_unchanged = True
+    possible_current_record_observed = False
+    valid_status_observations = 0
     for attempt in range(DEPLOYMENT_STATUS_MAX_ATTEMPTS):
-        outcome = runner.run(_deployment_status_command(request))
+        now = time.monotonic()
+        if now >= deadline:
+            break
+        remaining = deadline - now
+        outcome = _run_with_timeout(
+            runner,
+            _deployment_status_command(request),
+            timeout_seconds=min(
+                DEPLOYMENT_STATUS_COMMAND_TIMEOUT_SECONDS,
+                remaining,
+            ),
+        )
+        returned_at = time.monotonic()
         result["deployment_status_checked"] = True
+        if returned_at >= deadline:
+            result["azure_mutation_made"] = None
+            return DeploymentReconciliation(
+                "deployment_status_unverified"
+            )
         if outcome.return_code != 0:
-            return (
-                "authentication_or_authorization_failed"
-                if _authorization_failure(outcome.stderr)
-                else "deployment_status_unverified"
+            return DeploymentReconciliation(
+                (
+                    "authentication_or_authorization_failed"
+                    if _authorization_failure(outcome.stderr)
+                    else "deployment_status_unverified"
+                )
             )
         records = _deployment_records(outcome)
         if records is None:
-            return "deployment_status_malformed"
+            return DeploymentReconciliation("deployment_status_malformed")
         identifiers = _deployment_record_ids(records)
         if identifiers is None:
-            return "deployment_status_malformed"
+            return DeploymentReconciliation("deployment_status_malformed")
+        valid_status_observations += 1
+        if not baseline_ids.issubset(identifiers):
+            baseline_unchanged = False
         current = [
             record
             for record in records
             if record.get("id") not in baseline_ids
         ]
+        if current:
+            possible_current_record_observed = True
+        if (
+            current
+            and expected_deployment_id is None
+            and not baseline_unchanged
+        ):
+            return DeploymentReconciliation("deployment_status_unverified")
         if len(current) > 1:
-            return "deployment_status_unverified"
+            return DeploymentReconciliation("deployment_status_unverified")
         if len(current) == 1:
             state = _current_deployment_record_state(
                 current[0],
                 request=request,
                 attempt_started_at=attempt_started_at,
                 checked_at=datetime.now(timezone.utc),
+                expected_deployment_id=expected_deployment_id,
             )
             if state == "malformed":
-                return "deployment_status_malformed"
+                return DeploymentReconciliation(
+                    "deployment_status_malformed"
+                )
             if state == "stale":
-                return "deployment_status_unverified"
+                return DeploymentReconciliation(
+                    "deployment_status_unverified"
+                )
+            if state == "unrelated":
+                return DeploymentReconciliation(
+                    "deployment_status_unverified"
+                )
             result["deployment_record_found"] = True
             if state == "success":
                 result["deployment_record_complete"] = True
                 result["deployment_record_successful"] = True
                 result["azure_mutation_made"] = True
-                return "success"
+                return DeploymentReconciliation("success")
             if state == "failed":
                 result["deployment_record_complete"] = True
                 result["azure_mutation_made"] = True
-                return "deployment_failed"
+                return DeploymentReconciliation("deployment_failed")
         if attempt + 1 >= DEPLOYMENT_STATUS_MAX_ATTEMPTS:
             break
-        elapsed = time.monotonic() - reconciliation_started
-        if (
-            elapsed + DEPLOYMENT_STATUS_BACKOFF_SECONDS
-            > DEPLOYMENT_STATUS_MAX_ELAPSED_SECONDS
-        ):
+        now = time.monotonic()
+        if now >= deadline:
             break
-        time.sleep(DEPLOYMENT_STATUS_BACKOFF_SECONDS)
+        time.sleep(
+            min(
+                DEPLOYMENT_STATUS_BACKOFF_SECONDS,
+                deadline - now,
+            )
+        )
     result["azure_mutation_made"] = None
-    return "deployment_status_unverified"
+    return DeploymentReconciliation(
+        "deployment_status_unverified",
+        retry_permitted=(
+            valid_status_observations > 0
+            and baseline_unchanged
+            and not possible_current_record_observed
+        ),
+    )
+
+
+def _command_timed_out(outcome: CommandResult) -> bool:
+    return bool(
+        getattr(outcome, "timed_out", False)
+        or outcome.return_code == TIMEOUT_RETURN_CODE
+    )
+
+
+def _apply_reconciliation(
+    result: dict[str, object],
+    reconciliation: DeploymentReconciliation,
+) -> dict[str, object]:
+    result["category"] = reconciliation.category
+    result["ok"] = reconciliation.category == "success"
+    if reconciliation.category == "success":
+        result["deployment_accepted"] = True
+        result["recommended_next_step"] = (
+            "OneDeploy completion was reconciled after an ambiguous local "
+            "command result; verify the exact hosted artifact."
+        )
+    return result
 
 
 def execute(
@@ -364,98 +670,57 @@ def execute(
 
     command_runner = runner or SubprocessCommandRunner()
     try:
-        baseline_outcome = command_runner.run(
-            _deployment_status_command(request)
+        baseline = _acquire_deployment_baseline(
+            request,
+            runner=command_runner,
         )
-        result["deployment_status_checked"] = True
-        if baseline_outcome.return_code != 0:
-            result["ok"] = False
-            result["category"] = (
-                "authentication_or_authorization_failed"
-                if _authorization_failure(baseline_outcome.stderr)
-                else "deployment_status_unverified"
-            )
-            return result
-        baseline_records = _deployment_records(baseline_outcome)
-        baseline_ids = (
-            _deployment_record_ids(baseline_records)
-            if baseline_records is not None
-            else None
+        result["deployment_baseline_checked"] = baseline.checked
+        result["deployment_baseline_attempt_count"] = (
+            baseline.attempt_count
         )
-        if baseline_ids is None:
+        result["deployment_status_checked"] = baseline.checked
+        if baseline.ids is None:
             result["ok"] = False
-            result["category"] = "deployment_status_malformed"
+            result["category"] = baseline.category
             return result
+        baseline_ids = baseline.ids
+        result["deployment_baseline_ready"] = True
 
         result["azure_command_attempted"] = True
         attempt_started_at = datetime.now(timezone.utc)
-        outcome = command_runner.run(
-            [
-                "az",
-                "webapp",
-                "deploy",
-                "--resource-group",
-                request.resource_group or "",
-                "--name",
-                request.web_app_name or "",
-                "--src-path",
-                str(deployment_artifact.path),
-                "--type",
-                "zip",
-                "--clean",
-                "true",
-                "--restart",
-                "true",
-                "--track-status",
-                "false",
-                "--timeout",
-                str(AZURE_DEPLOYMENT_OPERATION_TIMEOUT_MS),
-                "--output",
-                "none",
-            ]
+        deployment_command = _deployment_command(
+            request,
+            deployment_artifact.path,
         )
+        reconciliation_deadline = (
+            time.monotonic() + DEPLOYMENT_STATUS_MAX_ELAPSED_SECONDS
+        )
+        outcome = command_runner.run(deployment_command)
+        result["deployment_command_timed_out"] = _command_timed_out(outcome)
+        if outcome.return_code == 127:
+            result["ok"] = False
+            result["category"] = "cli_unavailable"
+            return result
+        if _authorization_failure(outcome.stderr):
+            result["ok"] = False
+            result["category"] = "authentication_or_authorization_failed"
+            return result
+
+        result["azure_mutation_made"] = None
+        expected_deployment_id = _deployment_submission_identifier(outcome)
+        reconciliation = _reconcile_ambiguous_deployment(
+            request,
+            runner=command_runner,
+            baseline_ids=baseline_ids,
+            attempt_started_at=attempt_started_at,
+            result=result,
+            deadline=reconciliation_deadline,
+            expected_deployment_id=expected_deployment_id,
+        )
+        return _apply_reconciliation(result, reconciliation)
     finally:
         if deployment_artifact is not None:
             discard_immutable_deployment_artifact(deployment_artifact)
-    timed_out = bool(
-        getattr(outcome, "timed_out", False)
-        or outcome.return_code == TIMEOUT_RETURN_CODE
-    )
-    result["deployment_command_timed_out"] = timed_out
-    if outcome.return_code == 0:
-        result["azure_mutation_made"] = True
-        result["deployment_accepted"] = True
-        result["recommended_next_step"] = (
-            "Deployment was accepted but not verified; check /health, "
-            "/version, and /demo/status separately."
-        )
-        return result
-    if outcome.return_code == 127:
-        result["ok"] = False
-        result["category"] = "cli_unavailable"
-        return result
-    if _authorization_failure(outcome.stderr):
-        result["ok"] = False
-        result["category"] = "authentication_or_authorization_failed"
-        return result
-
-    result["azure_mutation_made"] = None
-    category = _reconcile_ambiguous_deployment(
-        request,
-        runner=command_runner,
-        baseline_ids=baseline_ids,
-        attempt_started_at=attempt_started_at,
-        result=result,
-    )
-    result["category"] = category
-    result["ok"] = category == "success"
-    result["deployment_accepted"] = category == "success"
-    if category == "success":
-        result["recommended_next_step"] = (
-            "OneDeploy completion was reconciled after an ambiguous local "
-            "command result; verify the exact hosted artifact."
-        )
-    return result
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:

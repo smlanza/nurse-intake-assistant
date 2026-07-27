@@ -707,14 +707,26 @@ and invocation remain separate proof boundaries.
 
 The coordinator keeps infrastructure deployment, code deployment, hosted
 readiness, and their preceding verification boundaries as distinct required
-proofs. Deployment acceptance never substitutes for hosted readiness. Consumer
-RBAC, generation-bound WebJob execution, managed-identity metadata verification,
-and fixed fictional invocation remain separate optional workflows whose false
-result fields mean they were not part of the coordinator run. Hosted defaults
-remain mock-only with notifications suppressed. Code deployment does not
-provision infrastructure, and human nurse review remains mandatory for every
-fictional result. The project remains a capstone/demo rather than production
-clinical software.
+proofs. It may perform bounded repeated deployment-record reconciliation and
+bounded repeated calls to the one-shot hosted-readiness verifier to tolerate
+Azure control-plane and App Service startup convergence. The coordinator owns
+one absolute deadline for each convergence stage and bounds each dependency
+call by the stage's remaining budget. It supplies the required absolute
+deployment-reconciliation deadline to every reconciliation path and checks it
+before and after each bounded Azure history read; evidence returned at or after
+the deadline cannot establish terminal deployment proof. A
+deployment-submission response is not terminal deployment proof; READY requires
+terminal evidence attributable to the current deployment command and exact
+current-artifact readiness proof.
+Every convergence read remains fail-closed, and deployment acceptance never
+substitutes for hosted readiness. Consumer RBAC, generation-bound WebJob
+execution, managed-identity metadata verification, and fixed fictional
+invocation remain separate optional workflows whose false result fields mean
+they were not part of the coordinator run. Hosted defaults remain mock-only
+with notifications suppressed. Code deployment does not provision
+infrastructure, and human nurse review remains mandatory for every fictional
+result. The project remains a capstone/demo rather than production clinical
+software.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:

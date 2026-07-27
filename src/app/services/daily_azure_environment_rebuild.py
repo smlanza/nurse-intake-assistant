@@ -11,6 +11,7 @@ import secrets
 import string
 import subprocess
 import tempfile
+import time
 from typing import Callable, Literal, Mapping, Protocol
 from uuid import UUID
 
@@ -49,6 +50,13 @@ RESOURCE_GROUP_PURPOSE = "fictional-daily-validation"
 NESTED_DEPLOYMENT_RESOURCE_TYPE = "Microsoft.Resources/deployments"
 CONSUMER_ROLE_NAME = "Foundry Agent Consumer"
 _READY_CONSTRUCTION_SENTINEL = object()
+HOSTED_READINESS_MAX_ATTEMPTS = 31
+HOSTED_READINESS_MAX_ELAPSED_SECONDS = 300.0
+HOSTED_READINESS_BACKOFF_SECONDS = 10.0
+
+
+def _wait_for_hosted_readiness(seconds: float) -> None:
+    getattr(time, "sleep")(seconds)
 
 _REQUIRED_SETTINGS = (
     "AZURE_SUBSCRIPTION_NAME",
@@ -259,6 +267,8 @@ class StageResult:
     attempted: bool = False
     accepted: bool = False
     artifact_current: bool = False
+    hosted_readiness_attempt_count: int = 0
+    hosted_readiness_retry_performed: bool = False
     approval_binding: str | None = None
     consumer_rbac_plan: ConsumerRbacPlan | None = field(default=None, repr=False)
     consumer_rbac_preview: ConsumerRbacPreviewProof | None = None
@@ -285,6 +295,8 @@ class StageResult:
         attempted: bool = False,
         accepted: bool = False,
         artifact_current: bool = False,
+        hosted_readiness_attempt_count: int = 0,
+        hosted_readiness_retry_performed: bool = False,
         approval_binding: str | None = None,
         consumer_rbac_preview: ConsumerRbacPreviewProof | None = None,
     ) -> "StageResult":
@@ -298,6 +310,12 @@ class StageResult:
             attempted=attempted,
             accepted=accepted,
             artifact_current=artifact_current,
+            hosted_readiness_attempt_count=(
+                hosted_readiness_attempt_count
+            ),
+            hosted_readiness_retry_performed=(
+                hosted_readiness_retry_performed
+            ),
             approval_binding=approval_binding,
             consumer_rbac_preview=consumer_rbac_preview,
         )
@@ -313,6 +331,8 @@ class StageResult:
         *,
         mutation_made: bool | None = False,
         attempted: bool = False,
+        hosted_readiness_attempt_count: int = 0,
+        hosted_readiness_retry_performed: bool = False,
         what_if_diagnostic: WhatIfDiagnostic | None = None,
         foundry_account_name_failure_kind: (
             FoundryAccountNameFailureKind | None
@@ -324,6 +344,12 @@ class StageResult:
             category,
             mutation_made=mutation_made,
             attempted=attempted,
+            hosted_readiness_attempt_count=(
+                hosted_readiness_attempt_count
+            ),
+            hosted_readiness_retry_performed=(
+                hosted_readiness_retry_performed
+            ),
             what_if_diagnostic=what_if_diagnostic,
             foundry_account_name_failure_kind=(
                 foundry_account_name_failure_kind
@@ -3026,6 +3052,7 @@ class DailyAzureEnvironmentRebuild:
             )
         code = runner.deploy_code(context)
         progress["application_deployment_attempted"] = code.attempted
+        progress["application_deployment_accepted"] = code.accepted
         progress["application_deployment_reused"] = code.reused
         if not apply(code):
             return self._failure(code.category, progress, mutation[0])
@@ -3048,7 +3075,6 @@ class DailyAzureEnvironmentRebuild:
             )
         progress["hosted_readiness_verified"] = True
         progress["application_artifact_current"] = True
-        progress["application_deployment_accepted"] = code.accepted
 
         receipt = build_daily_azure_readiness_receipt(
             self.config,
@@ -3350,15 +3376,36 @@ class _SubprocessRunner:
         self.cleanup_timeout_seconds = cleanup_timeout_seconds
 
     def run(self, args: list[str]) -> _CommandResult:
-        timeout_seconds = (
+        return self._run(args, timeout_seconds=None)
+
+    def run_with_timeout(
+        self,
+        args: list[str],
+        *,
+        timeout_seconds: float,
+    ) -> _CommandResult:
+        return self._run(args, timeout_seconds=timeout_seconds)
+
+    def _run(
+        self,
+        args: list[str],
+        *,
+        timeout_seconds: float | None,
+    ) -> _CommandResult:
+        configured_timeout = (
             10.0
             if args[:5]
             == ["az", "webapp", "log", "deployment", "list"]
             else self.timeout_seconds
         )
+        effective_timeout = (
+            configured_timeout
+            if timeout_seconds is None
+            else min(configured_timeout, timeout_seconds)
+        )
         completed = run_bounded_subprocess(
             args,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=effective_timeout,
             cleanup_timeout_seconds=self.cleanup_timeout_seconds,
         )
         return _CommandResult(
@@ -3923,7 +3970,12 @@ class RepositoryDailyAzureStageRunner:
             return StageResult.failure("package_missing")
         if self._expected_application_artifact_digest is None:
             return StageResult.failure("package_missing")
-        current = self._readiness_result(context)
+        current = self._readiness_result(
+            context,
+            operation_timeout_seconds=(
+                HOSTED_READINESS_MAX_ELAPSED_SECONDS
+            ),
+        )
         if (
             current.ok
             and current.safe_hosted_posture_verified
@@ -3959,16 +4011,70 @@ class RepositoryDailyAzureStageRunner:
     def verify_readiness(self, context: DailyAzureRuntimeContext) -> StageResult:
         if self._expected_application_artifact_digest is None:
             return StageResult.failure("package_missing")
-        result = self._readiness_result(context)
-        if (
-            not result.ok
-            or not result.safe_hosted_posture_verified
-            or not result.application_artifact_matches
-        ):
-            return StageResult.failure(result.category)
-        return StageResult.success(reused=True, artifact_current=True)
+        deadline = time.monotonic() + HOSTED_READINESS_MAX_ELAPSED_SECONDS
+        attempt_count = 0
+        last_failure_category = "http_request_failed"
+        for attempt in range(HOSTED_READINESS_MAX_ATTEMPTS):
+            now = time.monotonic()
+            if now >= deadline:
+                break
+            result = self._readiness_result(
+                context,
+                operation_timeout_seconds=deadline - now,
+            )
+            attempt_count += 1
+            last_failure_category = result.category
+            retry_performed = attempt_count > 1
+            if time.monotonic() > deadline:
+                break
+            if (
+                result.ok
+                and result.safe_hosted_posture_verified
+                and result.application_artifact_matches
+            ):
+                return StageResult.success(
+                    reused=True,
+                    artifact_current=True,
+                    hosted_readiness_attempt_count=attempt_count,
+                    hosted_readiness_retry_performed=retry_performed,
+                )
+            transient = bool(
+                getattr(
+                    result,
+                    "transient_startup_failure",
+                    False,
+                )
+                or result.category == "application_artifact_mismatch"
+            )
+            if not transient:
+                return StageResult.failure(
+                    result.category,
+                    hosted_readiness_attempt_count=attempt_count,
+                    hosted_readiness_retry_performed=retry_performed,
+                )
+            if attempt + 1 >= HOSTED_READINESS_MAX_ATTEMPTS:
+                break
+            now = time.monotonic()
+            if now >= deadline:
+                break
+            _wait_for_hosted_readiness(
+                min(
+                    HOSTED_READINESS_BACKOFF_SECONDS,
+                    deadline - now,
+                )
+            )
+        return StageResult.failure(
+            last_failure_category,
+            hosted_readiness_attempt_count=attempt_count,
+            hosted_readiness_retry_performed=attempt_count > 1,
+        )
 
-    def _readiness_result(self, context: DailyAzureRuntimeContext):
+    def _readiness_result(
+        self,
+        context: DailyAzureRuntimeContext,
+        *,
+        operation_timeout_seconds: float,
+    ):
         from src.app.services.web_app_readiness_verification import (
             UrllibWebAppReadinessTransport,
             verify_web_app_readiness,
@@ -3980,6 +4086,7 @@ class RepositoryDailyAzureStageRunner:
             expected_application_artifact_digest=(
                 self._expected_application_artifact_digest
             ),
+            operation_timeout_seconds=operation_timeout_seconds,
         )
 
     def verify_rbac(self, context: DailyAzureRuntimeContext) -> StageResult:

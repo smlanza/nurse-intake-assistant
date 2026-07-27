@@ -1,6 +1,10 @@
 from dataclasses import dataclass
+import errno
 import json
 import re
+import socket
+import ssl
+import time
 from typing import Callable, Literal, Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -60,7 +64,13 @@ class MissingBaseUrlError(ValueError):
 
 
 class HttpRequestError(Exception):
-    pass
+    def __init__(
+        self,
+        *args: object,
+        transient: bool = False,
+    ) -> None:
+        super().__init__(*args)
+        self.transient = transient
 
 
 @dataclass(frozen=True)
@@ -87,6 +97,7 @@ class WebAppReadinessVerificationResult:
     demo_status_verified: bool
     safe_hosted_posture_verified: bool
     application_artifact_matches: bool
+    transient_startup_failure: bool
     recommended_next_step: str
 
     @classmethod
@@ -112,6 +123,7 @@ class WebAppReadinessVerificationResult:
             application_artifact_matches=(
                 live and application_artifact_matches
             ),
+            transient_startup_failure=False,
             recommended_next_step=LIVE_NEXT_STEP if live else CHECK_NEXT_STEP,
         )
 
@@ -126,6 +138,7 @@ class WebAppReadinessVerificationResult:
         health_verified: bool = False,
         version_verified: bool = False,
         demo_status_verified: bool = False,
+        transient_startup_failure: bool = False,
     ) -> "WebAppReadinessVerificationResult":
         return cls(
             ok=False,
@@ -140,6 +153,7 @@ class WebAppReadinessVerificationResult:
             demo_status_verified=demo_status_verified,
             safe_hosted_posture_verified=False,
             application_artifact_matches=False,
+            transient_startup_failure=transient_startup_failure,
             recommended_next_step=FAILURE_NEXT_STEP,
         )
 
@@ -157,6 +171,7 @@ class WebAppReadinessVerificationResult:
             "demo_status_verified": self.demo_status_verified,
             "safe_hosted_posture_verified": self.safe_hosted_posture_verified,
             "application_artifact_matches": self.application_artifact_matches,
+            "transient_startup_failure": self.transient_startup_failure,
             "recommended_next_step": self.recommended_next_step,
         }
 
@@ -194,7 +209,59 @@ class UrllibWebAppReadinessTransport:
         except HTTPError as error:
             return HttpResponse(status_code=error.code, body=b"")
         except (URLError, TimeoutError, OSError) as error:
-            raise HttpRequestError() from error
+            raise HttpRequestError(
+                transient=_hosted_request_error_is_transient(error)
+            ) from error
+
+
+def _hosted_request_error_is_transient(
+    error: BaseException,
+) -> bool:
+    if isinstance(error, ssl.SSLError):
+        return False
+    if isinstance(
+        error,
+        (ConnectionRefusedError, ConnectionResetError, TimeoutError),
+    ):
+        return True
+    if isinstance(error, socket.gaierror):
+        return error.errno == socket.EAI_AGAIN
+    if isinstance(error, URLError):
+        reason = error.reason
+        if isinstance(reason, BaseException):
+            return _hosted_request_error_is_transient(reason)
+        if isinstance(reason, str):
+            lowered = reason.casefold()
+            if any(
+                marker in lowered
+                for marker in (
+                    "certificate verify failed",
+                    "hostname mismatch",
+                    "unknown ca",
+                )
+            ):
+                return False
+            return any(
+                marker in lowered
+                for marker in (
+                    "connection refused",
+                    "connection reset",
+                    "connection timed out",
+                    "read timed out",
+                    "temporary failure in name resolution",
+                    "temporarily unavailable",
+                )
+            )
+        return False
+    if isinstance(error, OSError):
+        return error.errno in {
+            errno.ECONNREFUSED,
+            errno.ECONNRESET,
+            errno.ETIMEDOUT,
+            errno.EHOSTUNREACH,
+            errno.ENETUNREACH,
+        }
+    return False
 
 
 def normalize_web_app_base_url(base_url: str | None) -> str:
@@ -253,6 +320,7 @@ def verify_web_app_readiness(
     transport_factory: Callable[[str], WebAppReadinessTransport],
     timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
     expected_application_artifact_digest: str | None = None,
+    operation_timeout_seconds: float | None = None,
 ) -> WebAppReadinessVerificationResult:
     try:
         normalized_base_url = normalize_web_app_base_url(base_url)
@@ -284,6 +352,12 @@ def verify_web_app_readiness(
         "demo_status_verified": False,
     }
     application_artifact_matches = False
+    application_artifact_mismatch = False
+    operation_deadline = (
+        time.monotonic() + operation_timeout_seconds
+        if operation_timeout_seconds is not None
+        else None
+    )
     validators = (
         ("/health", _health_contract_valid, "health_verified"),
         ("/version", _version_contract_valid, "version_verified"),
@@ -291,13 +365,28 @@ def verify_web_app_readiness(
     )
 
     for path, validator, progress_field in validators:
+        request_timeout_seconds = timeout_seconds
+        if operation_deadline is not None:
+            remaining = operation_deadline - time.monotonic()
+            if remaining <= 0:
+                return WebAppReadinessVerificationResult.failure(
+                    "live",
+                    "http_request_failed",
+                    transient_startup_failure=True,
+                    **progress,
+                )
+            request_timeout_seconds = min(
+                request_timeout_seconds,
+                remaining,
+            )
         progress["hosted_request_attempted"] = True
         try:
-            response = transport.get(path, timeout_seconds)
-        except HttpRequestError:
+            response = transport.get(path, request_timeout_seconds)
+        except HttpRequestError as error:
             return WebAppReadinessVerificationResult.failure(
                 "live",
                 "http_request_failed",
+                transient_startup_failure=error.transient,
                 **progress,
             )
         except Exception:
@@ -311,6 +400,9 @@ def verify_web_app_readiness(
             return WebAppReadinessVerificationResult.failure(
                 "live",
                 "unexpected_http_status",
+                transient_startup_failure=(
+                    response.status_code in {408, 429, 502, 503, 504}
+                ),
                 **progress,
             )
         try:
@@ -336,11 +428,7 @@ def verify_web_app_readiness(
                 == expected_application_artifact_digest
             )
             if not application_artifact_matches:
-                return WebAppReadinessVerificationResult.failure(
-                    "live",
-                    "application_artifact_mismatch",
-                    **progress,
-                )
+                application_artifact_mismatch = True
 
         if path == "/demo/status" and not _safe_hosted_posture(payload):
             return WebAppReadinessVerificationResult.failure(
@@ -349,6 +437,12 @@ def verify_web_app_readiness(
                 **progress,
             )
 
+    if application_artifact_mismatch:
+        return WebAppReadinessVerificationResult.failure(
+            "live",
+            "application_artifact_mismatch",
+            **progress,
+        )
     return WebAppReadinessVerificationResult.success(
         "live",
         application_artifact_matches=application_artifact_matches,

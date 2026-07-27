@@ -147,6 +147,42 @@ def test_live_failure_is_nonzero_and_does_not_expose_exception(
         assert unsafe not in output
 
 
+def test_live_transient_failure_remains_one_shot(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import scripts.verify_web_app_readiness as script
+
+    class TemporarilyUnavailableTransport:
+        def __init__(self) -> None:
+            self.paths: list[str] = []
+
+        def get(self, path: str, _timeout_seconds: float):
+            from src.app.services.web_app_readiness_verification import (
+                HttpResponse,
+            )
+
+            self.paths.append(path)
+            return HttpResponse(503, b"temporary secret response")
+
+    transport = TemporarilyUnavailableTransport()
+    monkeypatch.setattr(
+        script,
+        "_create_live_transport",
+        lambda _base_url: transport,
+    )
+
+    exit_code = script.main(["--base-url", BASE_URL, "--live", "--json"])
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert exit_code != 0
+    assert payload["category"] == "unexpected_http_status"
+    assert payload["transient_startup_failure"] is True
+    assert transport.paths == ["/health"]
+    assert "temporary secret response" not in output
+
+
 def test_cli_requires_explicit_exclusive_mode_and_live_json() -> None:
     import scripts.verify_web_app_readiness as script
 

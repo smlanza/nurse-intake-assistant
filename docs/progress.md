@@ -5,27 +5,26 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,338 passed full suite
+- 2,446 passed full suite
 - 21 shell-wrapper tests and 32 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
-The first-run prompt-agent endpoint routing correction is complete offline.
-An exact successfully read agent whose endpoint is absent now verifies the
-requested immutable version, initializes one builder-owned Responses endpoint
-with one exclusive 100-percent rule, and verifies the mutation response.
-Existing exclusive routing remains a no-mutation reuse path; 404s, identity or
-version mismatches, malformed endpoint metadata, update failures, and the
-separate final read-only verification boundary remain fail-closed.
-
-The ownership-scoped daily cleanup boundary now reconciles one approved group
-delete for 30 monotonic minutes (61 exact reads, 30-second backoff). Timeout
-remains ambiguous until exact absence proof; conclusive rejection stops,
-deadline exhaustion fails closed, deletion never replays, and Foundry purge
-waits for group absence. One strictly canonical ARM ID now supplies tombstone
-identity when projections are null or absent; non-null projections must agree.
-The coordinator still runs startup cleanup after validation, receipt revocation, and account verification, and reuses only
-a healthy exact-owned environment. READY requires both
-`startup_cleanup_inspected=true` and `startup_environment_clean=true`.
+The daily coordinator's Azure App Service convergence policy is complete
+offline. A supervised run showed a matching OneDeploy operation taking about
+four minutes before terminal success and the hosted application requiring
+additional startup time. One required absolute ten-minute monotonic deadline
+covers the complete deployment flow and is supplied to every reconciliation
+path; no helper can create a new timing budget. Deployment-history reads are
+bounded by the remaining time, and the deadline is checked before and after
+each read. Evidence returned at or after the deadline is discarded and cannot
+establish terminal success or failure. Submission-command acceptance is not
+terminal deployment proof; READY requires terminal history evidence
+attributable to the current command. After acceptance or safe reuse, one absolute five-minute
+budget covers coordinator calls to the one-shot hosted-readiness proof, with
+HTTP timeouts bounded by the remaining budget. A valid older artifact exercises
+all three endpoints and may be retried, but it is never accepted until
+`/version` exactly matches the current package. Malformed, unsafe, unrelated,
+ambiguous, or deterministic failures remain immediate and fail-closed.
 
 The preferred operator-facing daily path is the lightweight convenience
 wrapper:
@@ -58,8 +57,6 @@ Consumer RBAC still requires successful exact reuse or
 execution/recovery, managed-identity and metadata verification, and
 fixed-fictional hosted invocation remain standalone optional workflows.
 
-Architecture impact: updated Infrastructure Architecture because the daily coordinator now owns a separately approved startup cleanup-preflight boundary while end-of-day cleanup remains an explicit standalone operation.
-
 **Active implementation direction:** move the local mock capstone toward an
 Azure-first Microsoft Foundry Agent implementation through disposable Foundry,
 immutable agents, evaluation, managed-identity-ready hosting, deterministic
@@ -84,9 +81,13 @@ Important constraints:
 
 ## Current Resume Point
 
-The bounded cleanup and canonical tombstone parser corrections are complete offline; later cleanup must still prove group and tombstone absence. The current
-READY receipt remains valid only while environment and configuration match;
-deletion or rebuild invalidates it.
+Bounded OneDeploy and hosted-readiness convergence are complete offline. One
+required absolute deadline governs each convergence stage, submission
+acceptance is separate from terminal deployment proof, and exact
+current-command attribution, safe hosted posture, and current-artifact equality
+remain mandatory. A READY
+receipt remains valid only while environment and configuration match; deletion
+or rebuild invalidates it.
 Consumer RBAC, WebJobs, managed identity, metadata verification, and invocation remain separate optional workflows.
 
 Safe to demo today:
@@ -398,7 +399,7 @@ Completed work by feature area:
 - Azure Speech/voice intake
 - live Azure AI Foundry extraction
 - ACS SMS delivery tracking
-- Retry logic
+- Application-level durable retry processing
 - Production frontend
 - Production clinical UI or autonomous medical decision-making
 
@@ -411,32 +412,31 @@ coordinator-to-RBAC boundary.
 
 ## Current Slice Status
 
-- Verified: secure distinct candidate generation is bounded to three names
-  after the configured base; effective-name context reaches Foundry
-  verification, agent routing, Web App settings, READY JSON, receipt, and
-  handoff; local configuration remains unchanged.
-- Verified: the receipt is gitignored, permission-restricted, atomically
-  replaced, schema-checked, configuration-fingerprinted, correlation-checked,
-  rejects malformed or differently configured content, and is invalidated
-  before every new live-run Azure read.
-- Verified: account-name conflicts require structured exact code/resource/name
-  evidence; malformed, ambiguous, or substring-only output does not trigger
-  automatic recovery.
-- Verified: exact Create and exact Ignore-plus-Unsupported previews prove the
-  assignment identity and topology. Unrelated, incomplete, duplicate, or
-  mismatched evidence fails before approval.
-- Verified: the focused live command reuses one exact direct assignment without
-  prompting, otherwise previews, prompts once, refreshes evidence, deploys only
-  through repository Bicep, and immediately verifies exactly one direct
-  assignment.
-- Final independent review: focused GREEN is 370, documentation GREEN is 31,
-  and full GREEN is 2,174 with one existing warning.
-- No Azure, HTTP, deployment, cleanup, configuration rewrite, staging, commit, or push operation occurred.
-- Architecture impact: none; `docs/architecture.md` remains unchanged.
-- Historical Web App reconciliation remains separate: one Web App Deploy and
-  nine unidentified Ignore records were rejected without mutation. The wrapper
-  is removed; no live direct-module preview has yet succeeded, and this review
-  performed no live reconciliation preview or deployment.
+- Verified: one required absolute ten-minute reconciliation deadline covers the
+  complete deployment flow and is supplied to every reconciliation path.
+  Every history-read timeout is capped by remaining budget, the deadline is
+  checked before and after each read, and evidence returned at or after the
+  deadline is discarded without establishing terminal success or failure. No
+  helper creates another timing budget, no read begins at the deadline, and
+  ambiguous submission never redeploys.
+- Verified: a zero-exit submission is not terminal proof. Acceptance requires a
+  terminal record matching the internally retained current-command identifier,
+  or the strict post-submission baseline fallback when no identifier is
+  available. Pre-request, unrelated, duplicate, and ambiguous records fail
+  closed, and no correlation evidence is serialized.
+- Verified: one absolute five-minute readiness deadline caps the one-shot HTTP
+  operation by remaining budget. A valid older artifact exercises `/health`,
+  `/version`, and `/demo/status`, remains retryable, and is never READY.
+- Production-adapter RED was 1 failed; strict GREEN reaches the runner with the
+  original deadline and remaining-time bound. Focused GREEN is 379 and full
+  GREEN is 2,446 with one existing warning.
+- No Azure, HTTP, deployment, cleanup, staging, commit, or push operation
+  occurred.
+- Architecture impact: updated the existing infrastructure orchestration section because the durable coordinator contract now explicitly requires one absolute convergence deadline and terminal deployment evidence attributable to the current command.
+- Historical standalone reconciliation rejected one Web App Deploy and nine
+  unidentified Ignore records; the wrapper is removed, no live direct-module
+  preview has yet succeeded, and this slice performed no live reconciliation
+  preview or deployment.
 
 ### Historical Slice Results
 

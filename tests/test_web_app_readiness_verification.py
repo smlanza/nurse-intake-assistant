@@ -1,4 +1,6 @@
 import json
+import socket
+import ssl
 from urllib.error import HTTPError
 
 import pytest
@@ -171,6 +173,7 @@ def test_live_verifies_exact_read_only_endpoints_and_safe_hosted_posture() -> No
     assert result.demo_status_verified is True
     assert result.safe_hosted_posture_verified is True
     assert result.application_artifact_matches is True
+    assert result.transient_startup_failure is False
     serialized = json.dumps(result.to_json_dict())
     assert "secret-host" not in serialized
     assert "https://" not in serialized
@@ -190,8 +193,49 @@ def test_old_hosted_artifact_fails_after_accepted_deployment() -> None:
     assert result.ok is False
     assert result.category == "application_artifact_mismatch"
     assert result.application_artifact_matches is False
+    assert result.transient_startup_failure is False
+    assert [path for path, _timeout in transport.calls] == [
+        "/health",
+        "/version",
+        "/demo/status",
+    ]
     assert "a" * 64 not in json.dumps(result.to_json_dict())
     assert "b" * 64 not in json.dumps(result.to_json_dict())
+
+
+def test_one_shot_operation_timeout_caps_each_remaining_http_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.app.services.web_app_readiness_verification as verification
+
+    elapsed = 0.0
+    calls: list[tuple[str, float]] = []
+
+    def monotonic() -> float:
+        return elapsed
+
+    class SlowTransport:
+        def get(self, path: str, timeout_seconds: float):
+            nonlocal elapsed
+            calls.append((path, timeout_seconds))
+            elapsed += timeout_seconds
+            payload = _health() if path == "/health" else _version()
+            return verification.HttpResponse(200, json.dumps(payload).encode())
+
+    monkeypatch.setattr(verification.time, "monotonic", monotonic)
+
+    result = verification.verify_web_app_readiness(
+        BASE_URL,
+        transport_factory=lambda _: SlowTransport(),
+        expected_application_artifact_digest=ARTIFACT_DIGEST,
+        operation_timeout_seconds=2.0,
+    )
+
+    assert result.ok is False
+    assert result.category == "http_request_failed"
+    assert result.transient_startup_failure is True
+    assert calls == [("/health", 2.0)]
+    assert elapsed == pytest.approx(2.0)
 
 
 @pytest.mark.parametrize(
@@ -286,6 +330,116 @@ def test_live_classifies_request_and_internal_failures_safely(
     assert "secret-host" not in serialized
     assert "Bearer" not in serialized
     assert "token" not in serialized
+
+
+@pytest.mark.parametrize("status_code", (408, 429, 502, 503, 504))
+def test_live_marks_only_supported_startup_http_statuses_transient(
+    status_code: int,
+) -> None:
+    from src.app.services.web_app_readiness_verification import (
+        verify_web_app_readiness,
+    )
+
+    transport = FakeTransport(
+        {"/health": (status_code, {"secret": "raw-body"})}
+    )
+
+    result = verify_web_app_readiness(
+        BASE_URL,
+        transport_factory=lambda _: transport,
+        expected_application_artifact_digest=ARTIFACT_DIGEST,
+    )
+
+    assert result.ok is False
+    assert result.category == "unexpected_http_status"
+    assert result.transient_startup_failure is True
+
+
+@pytest.mark.parametrize("status_code", (400, 401, 403, 404, 500))
+def test_live_marks_stable_or_unsupported_http_statuses_nontransient(
+    status_code: int,
+) -> None:
+    from src.app.services.web_app_readiness_verification import (
+        verify_web_app_readiness,
+    )
+
+    transport = FakeTransport(
+        {"/health": (status_code, {"secret": "raw-body"})}
+    )
+
+    result = verify_web_app_readiness(
+        BASE_URL,
+        transport_factory=lambda _: transport,
+        expected_application_artifact_digest=ARTIFACT_DIGEST,
+    )
+
+    assert result.ok is False
+    assert result.category == "unexpected_http_status"
+    assert result.transient_startup_failure is False
+
+
+@pytest.mark.parametrize(
+    ("transient", "expected"),
+    ((True, True), (False, False)),
+)
+def test_live_preserves_sanitized_transport_transience(
+    transient: bool,
+    expected: bool,
+) -> None:
+    from src.app.services.web_app_readiness_verification import (
+        HttpRequestError,
+        verify_web_app_readiness,
+    )
+
+    transport = FakeTransport(
+        {"/health": HttpRequestError(transient=transient)}
+    )
+
+    result = verify_web_app_readiness(
+        BASE_URL,
+        transport_factory=lambda _: transport,
+        expected_application_artifact_digest=ARTIFACT_DIGEST,
+    )
+
+    assert result.category == "http_request_failed"
+    assert result.transient_startup_failure is expected
+    serialized = json.dumps(result.to_json_dict())
+    assert "secret-host" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    (
+        (ConnectionRefusedError(), True),
+        (ConnectionResetError(), True),
+        (TimeoutError(), True),
+        (socket.gaierror(socket.EAI_AGAIN, ""), True),
+        (socket.gaierror(socket.EAI_NONAME, ""), False),
+        (
+            ssl.SSLCertVerificationError("certificate verify failed"),
+            False,
+        ),
+        (RuntimeError("programmer error"), False),
+    ),
+    ids=(
+        "connection-refused",
+        "connection-reset",
+        "timeout",
+        "temporary-dns",
+        "stable-dns",
+        "tls-certificate",
+        "programmer-error",
+    ),
+)
+def test_transport_error_transience_classifier_is_narrow(
+    error: BaseException,
+    expected: bool,
+) -> None:
+    from src.app.services.web_app_readiness_verification import (
+        _hosted_request_error_is_transient,
+    )
+
+    assert _hosted_request_error_is_transient(error) is expected
 
 
 def _http_error() -> Exception:

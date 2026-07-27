@@ -3867,7 +3867,7 @@ def test_accepted_deployment_with_old_hosted_worker_cannot_be_ready(
         local_contract_checker=lambda _root: (),
     ).live(runner, approver=lambda _summary: True)
 
-    assert result.application_deployment_accepted is False
+    assert result.application_deployment_accepted is True
     assert result.category == "application_artifact_mismatch"
     assert result.application_artifact_current is False
     assert result.daily_environment_ready is False
@@ -4747,6 +4747,859 @@ def test_repository_package_adapter_returns_validated_package_binding(
     assert command_runner.calls == []
 
 
+def _prepared_repository_readiness_runner(tmp_path: Path):
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=CommandRunner([]),
+    )
+    context = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    )._initial_context()
+    package = runner.build_package(context)
+    assert package.ok is True
+    return runner, context
+
+
+def _adapter_readiness_result(
+    *,
+    ok: bool,
+    category: str,
+    transient: bool = False,
+):
+    return SimpleNamespace(
+        ok=ok,
+        category=category,
+        safe_hosted_posture_verified=ok,
+        application_artifact_matches=ok,
+        transient_startup_failure=transient,
+    )
+
+
+def _terminal_deployment_record(
+    web_app_name: str,
+    deployment_id: str = "current-command-deployment",
+) -> dict[str, object]:
+    received = datetime.now(timezone.utc) + timedelta(seconds=1)
+    return {
+        "id": deployment_id,
+        "status": 4,
+        "complete": True,
+        "deployer": "OneDeploy",
+        "siteName": web_app_name,
+        "receivedTime": received.isoformat().replace("+00:00", "Z"),
+        "startTime": received.isoformat().replace("+00:00", "Z"),
+        "endTime": (received + timedelta(seconds=1))
+        .isoformat()
+        .replace("+00:00", "Z"),
+    }
+
+
+class FakeReadinessClock:
+    def __init__(self) -> None:
+        self.elapsed_seconds = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        return self.elapsed_seconds
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.elapsed_seconds += seconds
+
+
+def test_repository_readiness_adapter_succeeds_first_attempt_without_sleep(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    attempts = 0
+
+    def readiness(_context, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        return _adapter_readiness_result(ok=True, category="success")
+
+    monkeypatch.setattr(runner, "_readiness_result", readiness)
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        lambda _seconds: pytest.fail("readiness must not sleep"),
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.ok is True
+    assert result.artifact_current is True
+    assert result.hosted_readiness_attempt_count == 1
+    assert result.hosted_readiness_retry_performed is False
+    assert attempts == 1
+
+
+@pytest.mark.parametrize(
+    ("case_name", "category"),
+    (
+        ("connection-refused", "http_request_failed"),
+        ("connection-timeout", "http_request_failed"),
+        ("read-timeout", "http_request_failed"),
+        ("http-408", "unexpected_http_status"),
+        ("http-429", "unexpected_http_status"),
+        ("http-502", "unexpected_http_status"),
+        ("http-503", "unexpected_http_status"),
+        ("http-504", "unexpected_http_status"),
+    ),
+)
+def test_repository_readiness_adapter_retries_transient_then_succeeds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    case_name: str,
+    category: str,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    clock = FakeReadinessClock()
+    results = iter(
+        (
+            _adapter_readiness_result(
+                ok=False,
+                category=category,
+                transient=True,
+            ),
+            _adapter_readiness_result(ok=True, category="success"),
+        )
+    )
+    monkeypatch.setattr(
+        runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: next(results),
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert case_name
+    assert result.ok is True
+    assert result.artifact_current is True
+    assert result.hosted_readiness_attempt_count == 2
+    assert result.hosted_readiness_retry_performed is True
+    assert clock.sleeps == [
+        daily_rebuild_service.HOSTED_READINESS_BACKOFF_SECONDS
+    ]
+
+
+def test_repository_readiness_adapter_retries_multiple_times_then_succeeds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    clock = FakeReadinessClock()
+    transient = _adapter_readiness_result(
+        ok=False,
+        category="http_request_failed",
+        transient=True,
+    )
+    results = iter(
+        (
+            transient,
+            transient,
+            transient,
+            _adapter_readiness_result(ok=True, category="success"),
+        )
+    )
+    monkeypatch.setattr(
+        runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: next(results),
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.ok is True
+    assert result.hosted_readiness_attempt_count == 4
+    assert result.hosted_readiness_retry_performed is True
+    assert clock.sleeps == [
+        daily_rebuild_service.HOSTED_READINESS_BACKOFF_SECONDS
+    ] * 3
+
+
+def test_repository_readiness_adapter_retries_old_valid_artifact_until_exact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    clock = FakeReadinessClock()
+    results = iter(
+        (
+            _adapter_readiness_result(
+                ok=False,
+                category="application_artifact_mismatch",
+            ),
+            _adapter_readiness_result(ok=True, category="success"),
+        )
+    )
+    monkeypatch.setattr(
+        runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: next(results),
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.ok is True
+    assert result.artifact_current is True
+    assert result.hosted_readiness_attempt_count == 2
+    assert result.hosted_readiness_retry_performed is True
+    assert clock.sleeps == [
+        daily_rebuild_service.HOSTED_READINESS_BACKOFF_SECONDS
+    ]
+
+
+def test_repository_readiness_adapter_exhausts_attempt_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    clock = FakeReadinessClock()
+    attempts = 0
+
+    def transient(_context, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        return _adapter_readiness_result(
+            ok=False,
+            category="http_request_failed",
+            transient=True,
+        )
+
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "HOSTED_READINESS_MAX_ATTEMPTS",
+        3,
+    )
+    monkeypatch.setattr(runner, "_readiness_result", transient)
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.ok is False
+    assert result.category == "http_request_failed"
+    assert result.artifact_current is False
+    assert result.hosted_readiness_attempt_count == 3
+    assert result.hosted_readiness_retry_performed is True
+    assert attempts == 3
+    assert clock.sleeps == [
+        daily_rebuild_service.HOSTED_READINESS_BACKOFF_SECONDS
+    ] * 2
+
+
+def test_repository_readiness_adapter_exhausts_elapsed_limit_without_final_sleep(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    clock = FakeReadinessClock()
+    attempts = 0
+
+    def transient(_context, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        return _adapter_readiness_result(
+            ok=False,
+            category="unexpected_http_status",
+            transient=True,
+        )
+
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "HOSTED_READINESS_MAX_ATTEMPTS",
+        10,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "HOSTED_READINESS_MAX_ELAPSED_SECONDS",
+        15.0,
+    )
+    monkeypatch.setattr(runner, "_readiness_result", transient)
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.category == "unexpected_http_status"
+    assert result.hosted_readiness_attempt_count == 2
+    assert result.hosted_readiness_retry_performed is True
+    assert attempts == 2
+    assert clock.sleeps == [
+        daily_rebuild_service.HOSTED_READINESS_BACKOFF_SECONDS,
+        5.0,
+    ]
+
+
+def test_repository_readiness_slow_attempt_consumes_total_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    clock = FakeReadinessClock()
+    attempts = 0
+
+    def slow_transient(_context, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        clock.elapsed_seconds += 295.0
+        return _adapter_readiness_result(
+            ok=False,
+            category="http_request_failed",
+            transient=True,
+        )
+
+    monkeypatch.setattr(runner, "_readiness_result", slow_transient)
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.ok is False
+    assert result.category == "http_request_failed"
+    assert result.hosted_readiness_attempt_count == 1
+    assert result.hosted_readiness_retry_performed is False
+    assert attempts == 1
+    assert clock.sleeps == [5.0]
+    assert clock.elapsed_seconds == pytest.approx(300.0)
+
+
+def test_repository_readiness_absolute_deadline_caps_slow_attempts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    clock = FakeReadinessClock()
+    starts: list[float] = []
+    timeouts: list[float] = []
+
+    def slow_transient(_context, *, operation_timeout_seconds: float):
+        starts.append(clock.elapsed_seconds)
+        timeouts.append(operation_timeout_seconds)
+        clock.elapsed_seconds += min(2.0, operation_timeout_seconds)
+        return _adapter_readiness_result(
+            ok=False,
+            category="http_request_failed",
+            transient=True,
+        )
+
+    monkeypatch.setattr(runner, "_readiness_result", slow_transient)
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.category == "http_request_failed"
+    assert clock.elapsed_seconds <= (
+        daily_rebuild_service.HOSTED_READINESS_MAX_ELAPSED_SECONDS
+    )
+    assert starts
+    assert all(
+        start < daily_rebuild_service.HOSTED_READINESS_MAX_ELAPSED_SECONDS
+        for start in starts
+    )
+    assert all(
+        timeout
+        <= daily_rebuild_service.HOSTED_READINESS_MAX_ELAPSED_SECONDS - start
+        for start, timeout in zip(starts, timeouts, strict=True)
+    )
+
+
+def test_repository_readiness_sleep_to_deadline_starts_no_extra_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    clock = FakeReadinessClock()
+    attempts = 0
+
+    def transient(_context, *, operation_timeout_seconds: float):
+        nonlocal attempts
+        attempts += 1
+        assert operation_timeout_seconds == pytest.approx(10.0)
+        return _adapter_readiness_result(
+            ok=False,
+            category="http_request_failed",
+            transient=True,
+        )
+
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "HOSTED_READINESS_MAX_ELAPSED_SECONDS",
+        10.0,
+    )
+    monkeypatch.setattr(runner, "_readiness_result", transient)
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.category == "http_request_failed"
+    assert attempts == 1
+    assert clock.elapsed_seconds == pytest.approx(10.0)
+    assert clock.sleeps == [10.0]
+
+
+@pytest.mark.parametrize(
+        "category",
+        (
+            "malformed_json",
+            "response_contract_mismatch",
+            "unsafe_hosted_posture",
+        "unexpected_http_status",
+        "invalid_configuration",
+        "unexpected_error",
+    ),
+)
+def test_repository_readiness_adapter_never_retries_deterministic_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    category: str,
+) -> None:
+    runner, context = _prepared_repository_readiness_runner(tmp_path)
+    attempts = 0
+
+    def deterministic(_context, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        return _adapter_readiness_result(
+            ok=False,
+            category=category,
+            transient=False,
+        )
+
+    monkeypatch.setattr(runner, "_readiness_result", deterministic)
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        lambda _seconds: pytest.fail("deterministic failure must not sleep"),
+    )
+
+    result = runner.verify_readiness(context)
+
+    assert result.ok is False
+    assert result.category == category
+    assert result.artifact_current is False
+    assert result.hosted_readiness_attempt_count == 1
+    assert result.hosted_readiness_retry_performed is False
+    assert attempts == 1
+
+
+def test_coordinator_accepted_deployment_polls_readiness_to_exact_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.deploy_web_app_code as deployment_script
+
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    clock = FakeReadinessClock()
+
+    class AcceptedDeploymentCommandRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+            self.submitted = False
+
+        def run(self, args: list[str]):
+            self.calls.append(args)
+            if args[:5] == [
+                "az",
+                "webapp",
+                "log",
+                "deployment",
+                "list",
+            ]:
+                records = (
+                    [_terminal_deployment_record(config.web_app_name)]
+                    if self.submitted
+                    else []
+                )
+                return deployment_script.CommandResult(
+                    0,
+                    json.dumps(records),
+                    "",
+                )
+            if args[:3] == ["az", "webapp", "deploy"]:
+                self.submitted = True
+                return deployment_script.CommandResult(
+                    0,
+                    "current-command-deployment",
+                    "",
+                )
+            raise AssertionError(f"Unexpected command: {args}")
+
+    command_runner = AcceptedDeploymentCommandRunner()
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=command_runner,
+    )
+    readiness_results = iter(
+        (
+            _adapter_readiness_result(
+                ok=False,
+                category="application_artifact_mismatch",
+            ),
+            _adapter_readiness_result(
+                ok=False,
+                category="http_request_failed",
+                transient=True,
+            ),
+            _adapter_readiness_result(ok=True, category="success"),
+        )
+    )
+    monkeypatch.setattr(
+        repository_runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: next(readiness_results),
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    class CoordinatorRunner(FakeRunner):
+        def build_package(self, context):
+            self._stage("build_package", context)
+            return repository_runner.build_package(context)
+
+        def deploy_code(self, context):
+            self._stage("deploy_code", context)
+            return repository_runner.deploy_code(context)
+
+        def verify_readiness(self, context):
+            self._stage("verify_readiness", context)
+            return repository_runner.verify_readiness(context)
+
+    runner = CoordinatorRunner()
+    runner.rbac_absent = False
+
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is True
+    assert result.application_deployment_attempted is True
+    assert result.application_deployment_accepted is True
+    assert result.hosted_readiness_verified is True
+    assert result.application_artifact_current is True
+    assert result.daily_environment_ready is True
+    assert sum(
+        call[:3] == ["az", "webapp", "deploy"]
+        for call in command_runner.calls
+    ) == 1
+    assert clock.sleeps == [
+        daily_rebuild_service.HOSTED_READINESS_BACKOFF_SECONDS
+    ]
+
+
+def test_coordinator_reused_deployment_still_polls_exact_readiness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    clock = FakeReadinessClock()
+
+    class ForbiddenCommandRunner:
+        def run(self, args: list[str]):
+            raise AssertionError(f"Deployment command not expected: {args}")
+
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=ForbiddenCommandRunner(),
+    )
+    readiness_results = iter(
+        (
+            _adapter_readiness_result(ok=True, category="success"),
+            _adapter_readiness_result(
+                ok=False,
+                category="unexpected_http_status",
+                transient=True,
+            ),
+            _adapter_readiness_result(ok=True, category="success"),
+        )
+    )
+    monkeypatch.setattr(
+        repository_runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: next(readiness_results),
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    class CoordinatorRunner(FakeRunner):
+        def build_package(self, context):
+            self._stage("build_package", context)
+            return repository_runner.build_package(context)
+
+        def deploy_code(self, context):
+            self._stage("deploy_code", context)
+            return repository_runner.deploy_code(context)
+
+        def verify_readiness(self, context):
+            self._stage("verify_readiness", context)
+            return repository_runner.verify_readiness(context)
+
+    runner = CoordinatorRunner()
+    runner.rbac_absent = False
+
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is True
+    assert result.application_deployment_reused is True
+    assert result.application_deployment_attempted is False
+    assert result.application_deployment_accepted is False
+    assert result.hosted_readiness_verified is True
+    assert result.application_artifact_current is True
+    assert result.daily_environment_ready is True
+    assert clock.sleeps == [
+        daily_rebuild_service.HOSTED_READINESS_BACKOFF_SECONDS
+    ]
+
+
+def test_coordinator_readiness_exhaustion_preserves_deployment_proofs_and_stops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.deploy_web_app_code as deployment_script
+
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    clock = FakeReadinessClock()
+
+    class AcceptedDeploymentCommandRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+            self.submitted = False
+
+        def run(self, args: list[str]):
+            self.calls.append(args)
+            if args[:5] == [
+                "az",
+                "webapp",
+                "log",
+                "deployment",
+                "list",
+            ]:
+                records = (
+                    [_terminal_deployment_record(config.web_app_name)]
+                    if self.submitted
+                    else []
+                )
+                return deployment_script.CommandResult(
+                    0,
+                    json.dumps(records),
+                    "",
+                )
+            if args[:3] == ["az", "webapp", "deploy"]:
+                self.submitted = True
+                return deployment_script.CommandResult(
+                    0,
+                    "current-command-deployment",
+                    "",
+                )
+            raise AssertionError(f"Unexpected command: {args}")
+
+    command_runner = AcceptedDeploymentCommandRunner()
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=command_runner,
+    )
+    readiness_results = iter(
+        (
+            _adapter_readiness_result(
+                ok=False,
+                category="application_artifact_mismatch",
+            ),
+            *[
+                _adapter_readiness_result(
+                    ok=False,
+                    category="http_request_failed",
+                    transient=True,
+                )
+                for _ in range(2)
+            ],
+        )
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "HOSTED_READINESS_MAX_ATTEMPTS",
+        2,
+    )
+    monkeypatch.setattr(
+        repository_runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: next(readiness_results),
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        daily_rebuild_service.time,
+        "sleep",
+        clock.sleep,
+    )
+
+    class CoordinatorRunner(FakeRunner):
+        def build_package(self, context):
+            self._stage("build_package", context)
+            return repository_runner.build_package(context)
+
+        def deploy_code(self, context):
+            self._stage("deploy_code", context)
+            return repository_runner.deploy_code(context)
+
+        def verify_readiness(self, context):
+            self._stage("verify_readiness", context)
+            return repository_runner.verify_readiness(context)
+
+    runner = CoordinatorRunner()
+    runner.rbac_absent = False
+
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "http_request_failed"
+    assert result.application_deployment_attempted is True
+    assert result.application_deployment_accepted is True
+    assert result.hosted_readiness_verified is False
+    assert result.application_artifact_current is False
+    assert result.daily_environment_ready is False
+    assert sum(
+        call[:3] == ["az", "webapp", "deploy"]
+        for call in command_runner.calls
+    ) == 1
+    assert runner.calls[-1] == "verify_readiness"
+    for forbidden in (
+        "verify_rbac",
+        "preview_rbac",
+        "deploy_rbac",
+        "discover_webjob",
+        "trigger_webjob",
+        "verify_hosted_agent",
+    ):
+        assert forbidden not in runner.calls
+
+    serialized = json.dumps(result.to_json_dict())
+    for hidden in (
+        "https://",
+        "azurewebsites.net",
+        "artifactDigest",
+        PACKAGE_DIGEST,
+        "az webapp deploy",
+        "Traceback",
+        "current-deployment",
+        "2026-07-27",
+    ):
+        assert hidden not in serialized
+
+
 def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4755,7 +5608,7 @@ def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
 
     repository_root = _package_source_tree(tmp_path)
     config = _config(tmp_path)
-    current_time = datetime.now(timezone.utc)
+    current_time = datetime.now(timezone.utc) + timedelta(seconds=1)
     successful_record = {
         "id": "current-onedeploy",
         "status": 4,
@@ -4846,7 +5699,7 @@ def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
     monkeypatch.setattr(
         repository_runner,
         "_readiness_result",
-        lambda _context: next(readiness_results),
+        lambda _context, **_kwargs: next(readiness_results),
     )
 
     class CoordinatorRunner(FakeRunner):
@@ -4887,6 +5740,345 @@ def test_coordinator_recovers_timed_out_code_deployment_at_repository_boundary(
     assert runner.calls.count("deploy_foundry") == 1
 
 
+def test_coordinator_waits_for_baseline_then_deploys_and_can_produce_ready(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.deploy_web_app_code as deployment_script
+
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    elapsed_seconds = 0.0
+
+    def monotonic() -> float:
+        return elapsed_seconds
+
+    def sleep(seconds: float) -> None:
+        nonlocal elapsed_seconds
+        elapsed_seconds += seconds
+
+    monkeypatch.setattr(deployment_script.time, "monotonic", monotonic)
+    monkeypatch.setattr(deployment_script.time, "sleep", sleep)
+
+    class BaselineRecoveryCommandRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+            self.status_reads = 0
+            self.submitted = False
+
+        def run(self, args: list[str]):
+            self.calls.append(args)
+            if args[:5] == [
+                "az",
+                "webapp",
+                "log",
+                "deployment",
+                "list",
+            ]:
+                self.status_reads += 1
+                if self.status_reads == 1:
+                    return deployment_script.CommandResult(
+                        1,
+                        "",
+                        (
+                            "SCM deployment history returned "
+                            "503 Service Unavailable"
+                        ),
+                    )
+                records = (
+                    [_terminal_deployment_record(config.web_app_name)]
+                    if self.submitted
+                    else []
+                )
+                return deployment_script.CommandResult(
+                    0,
+                    json.dumps(records),
+                    "",
+                )
+            if args[:3] == ["az", "webapp", "deploy"]:
+                package_path = Path(args[args.index("--src-path") + 1])
+                assert package_path.is_file()
+                self.submitted = True
+                return deployment_script.CommandResult(
+                    0,
+                    "current-command-deployment",
+                    "",
+                )
+            raise AssertionError(f"Unexpected command: {args}")
+
+    command_runner = BaselineRecoveryCommandRunner()
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=command_runner,
+    )
+    readiness_results = iter(
+        (
+            SimpleNamespace(
+                ok=False,
+                category="application_artifact_mismatch",
+                safe_hosted_posture_verified=False,
+                application_artifact_matches=False,
+            ),
+            SimpleNamespace(
+                ok=True,
+                category="success",
+                safe_hosted_posture_verified=True,
+                application_artifact_matches=True,
+            ),
+        )
+    )
+    monkeypatch.setattr(
+        repository_runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: next(readiness_results),
+    )
+
+    class CoordinatorRunner(FakeRunner):
+        def build_package(self, context):
+            self._stage("build_package", context)
+            return repository_runner.build_package(context)
+
+        def deploy_code(self, context):
+            self._stage("deploy_code", context)
+            return repository_runner.deploy_code(context)
+
+        def verify_readiness(self, context):
+            self._stage("verify_readiness", context)
+            return repository_runner.verify_readiness(context)
+
+    runner = CoordinatorRunner()
+    runner.rbac_absent = False
+
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is True
+    assert result.category == "success"
+    assert result.application_deployment_attempted is True
+    assert result.application_deployment_accepted is True
+    assert result.application_artifact_current is True
+    assert result.hosted_readiness_verified is True
+    assert result.daily_environment_ready is True
+    assert command_runner.status_reads == 3
+    assert elapsed_seconds == pytest.approx(
+        deployment_script.DEPLOYMENT_BASELINE_BACKOFF_SECONDS
+    )
+    assert sum(
+        call[:3] == ["az", "webapp", "deploy"]
+        for call in command_runner.calls
+    ) == 1
+    assert runner.calls.count("verify_readiness") == 1
+
+
+def test_coordinator_baseline_exhaustion_is_unattempted_and_stops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.deploy_web_app_code as deployment_script
+
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    elapsed_seconds = 0.0
+
+    def monotonic() -> float:
+        return elapsed_seconds
+
+    def sleep(seconds: float) -> None:
+        nonlocal elapsed_seconds
+        elapsed_seconds += seconds
+
+    monkeypatch.setattr(
+        deployment_script,
+        "DEPLOYMENT_BASELINE_MAX_ATTEMPTS",
+        2,
+    )
+    monkeypatch.setattr(deployment_script.time, "monotonic", monotonic)
+    monkeypatch.setattr(deployment_script.time, "sleep", sleep)
+
+    class UnavailableBaselineCommandRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, args: list[str]):
+            self.calls.append(args)
+            if args[:5] == [
+                "az",
+                "webapp",
+                "log",
+                "deployment",
+                "list",
+            ]:
+                return deployment_script.CommandResult(
+                    1,
+                    "",
+                    "SCM deployment history connection refused",
+                )
+            if args[:3] == ["az", "webapp", "deploy"]:
+                raise AssertionError("Deployment command not expected")
+            raise AssertionError(f"Unexpected command: {args}")
+
+    command_runner = UnavailableBaselineCommandRunner()
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=command_runner,
+    )
+    monkeypatch.setattr(
+        repository_runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: SimpleNamespace(
+            ok=False,
+            category="application_artifact_mismatch",
+            safe_hosted_posture_verified=False,
+            application_artifact_matches=False,
+        ),
+    )
+
+    class CoordinatorRunner(FakeRunner):
+        def build_package(self, context):
+            self._stage("build_package", context)
+            return repository_runner.build_package(context)
+
+        def deploy_code(self, context):
+            self._stage("deploy_code", context)
+            return repository_runner.deploy_code(context)
+
+    runner = CoordinatorRunner()
+    runner.rbac_absent = False
+
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "deployment_baseline_unavailable"
+    assert result.application_deployment_attempted is False
+    assert result.application_deployment_accepted is False
+    assert result.daily_environment_ready is False
+    assert sum(
+        call[:5]
+        == ["az", "webapp", "log", "deployment", "list"]
+        for call in command_runner.calls
+    ) == 2
+    assert not any(
+        call[:3] == ["az", "webapp", "deploy"]
+        for call in command_runner.calls
+    )
+    assert runner.calls[-1] == "deploy_code"
+    for forbidden in (
+        "verify_readiness",
+        "verify_rbac",
+        "preview_rbac",
+        "deploy_rbac",
+        "discover_webjob",
+        "trigger_webjob",
+        "verify_hosted_agent",
+    ):
+        assert forbidden not in runner.calls
+
+
+def test_coordinator_ambiguous_code_submission_never_redeploys_and_stops(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.deploy_web_app_code as deployment_script
+
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    monkeypatch.setattr(
+        deployment_script,
+        "DEPLOYMENT_STATUS_MAX_ATTEMPTS",
+        1,
+    )
+
+    class UnverifiedRecoveryCommandRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, args: list[str]):
+            self.calls.append(args)
+            if args[:5] == [
+                "az",
+                "webapp",
+                "log",
+                "deployment",
+                "list",
+            ]:
+                return deployment_script.CommandResult(0, "[]", "")
+            if args[:3] == ["az", "webapp", "deploy"]:
+                package_path = Path(args[args.index("--src-path") + 1])
+                assert package_path.is_file()
+                return deployment_script.CommandResult(
+                    124,
+                    "",
+                    "",
+                    timed_out=True,
+                )
+            raise AssertionError(f"Unexpected command: {args}")
+
+    command_runner = UnverifiedRecoveryCommandRunner()
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=command_runner,
+    )
+    monkeypatch.setattr(
+        repository_runner,
+        "_readiness_result",
+        lambda _context, **_kwargs: SimpleNamespace(
+            ok=False,
+            category="application_artifact_mismatch",
+            safe_hosted_posture_verified=False,
+            application_artifact_matches=False,
+        ),
+    )
+
+    class CoordinatorRunner(FakeRunner):
+        def build_package(self, context):
+            self._stage("build_package", context)
+            return repository_runner.build_package(context)
+
+        def deploy_code(self, context):
+            self._stage("deploy_code", context)
+            return repository_runner.deploy_code(context)
+
+    runner = CoordinatorRunner()
+    runner.rbac_absent = False
+
+    result = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "deployment_status_unverified"
+    assert result.application_deployment_attempted is True
+    assert result.application_deployment_accepted is False
+    assert result.daily_environment_ready is False
+    assert sum(
+        call[:3] == ["az", "webapp", "deploy"]
+        for call in command_runner.calls
+    ) == 1
+    assert runner.calls[-1] == "deploy_code"
+    for forbidden in (
+        "verify_readiness",
+        "verify_rbac",
+        "preview_rbac",
+        "deploy_rbac",
+        "discover_webjob",
+        "trigger_webjob",
+        "verify_hosted_agent",
+    ):
+        assert forbidden not in runner.calls
+
+
 def test_repository_code_adapter_reuses_exact_current_authorized_artifact(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -4913,7 +6105,7 @@ def test_repository_code_adapter_reuses_exact_current_authorized_artifact(
     monkeypatch.setattr(
         runner,
         "_readiness_result",
-        lambda _context: SimpleNamespace(
+        lambda _context, **_kwargs: SimpleNamespace(
             ok=True,
             category="success",
             safe_hosted_posture_verified=True,
@@ -4929,6 +6121,168 @@ def test_repository_code_adapter_reuses_exact_current_authorized_artifact(
     assert result.accepted is False
     assert result.artifact_current is True
     assert result.mutation_made is False
+
+
+def test_repository_code_adapter_reaches_strict_production_runner_with_one_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.deploy_web_app_code as deployment_script
+
+    repository_root = _package_source_tree(tmp_path)
+    config = _config(tmp_path)
+    context = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=repository_root,
+        local_contract_checker=lambda _root: (),
+    )._initial_context()
+    clock = FakeReadinessClock()
+    runner_entries: list[tuple[list[str], float | None]] = []
+    submitted = False
+
+    class StrictProductionRunner:
+        def run(
+            self,
+            args: list[str],
+        ) -> daily_rebuild_service._CommandResult:
+            nonlocal submitted
+            runner_entries.append((args, None))
+            if args[:5] == [
+                "az",
+                "webapp",
+                "log",
+                "deployment",
+                "list",
+            ]:
+                assert submitted is False
+                return daily_rebuild_service._CommandResult(0, "[]", "")
+            if args[:3] == ["az", "webapp", "deploy"]:
+                submitted = True
+                clock.elapsed_seconds += 2.0
+                return daily_rebuild_service._CommandResult(
+                    0,
+                    "current-command-deployment",
+                    "",
+                )
+            raise AssertionError(f"Unexpected command: {args}")
+
+        def run_with_timeout(
+            self,
+            args: list[str],
+            *,
+            timeout_seconds: float,
+        ) -> daily_rebuild_service._CommandResult:
+            runner_entries.append((args, timeout_seconds))
+            assert submitted is True
+            return daily_rebuild_service._CommandResult(
+                0,
+                json.dumps(
+                    [_terminal_deployment_record(context.web_app_name)]
+                ),
+                "",
+            )
+
+    repository_runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=repository_root,
+        command_runner=StrictProductionRunner(),
+    )
+    package = repository_runner.build_package(context)
+    assert package.ok is True
+
+    readiness_timeouts: list[float] = []
+
+    def strict_readiness(
+        _context: DailyAzureRuntimeContext,
+        *,
+        operation_timeout_seconds: float,
+    ):
+        readiness_timeouts.append(operation_timeout_seconds)
+        return _adapter_readiness_result(
+            ok=False,
+            category="application_artifact_mismatch",
+        )
+
+    monkeypatch.setattr(
+        repository_runner,
+        "_readiness_result",
+        strict_readiness,
+    )
+    monkeypatch.setattr(
+        deployment_script.time,
+        "monotonic",
+        clock.monotonic,
+    )
+    monkeypatch.setattr(
+        deployment_script.time,
+        "sleep",
+        lambda _seconds: pytest.fail("deployment must not sleep"),
+    )
+    observed_deadlines: list[float] = []
+    real_reconcile = deployment_script._reconcile_ambiguous_deployment
+
+    def reconcile(
+        request,
+        *,
+        runner,
+        baseline_ids,
+        attempt_started_at,
+        result,
+        deadline,
+        expected_deployment_id=None,
+    ):
+        observed_deadlines.append(deadline)
+        return real_reconcile(
+            request,
+            runner=runner,
+            baseline_ids=baseline_ids,
+            attempt_started_at=attempt_started_at,
+            result=result,
+            deadline=deadline,
+            expected_deployment_id=expected_deployment_id,
+        )
+
+    monkeypatch.setattr(
+        deployment_script,
+        "_reconcile_ambiguous_deployment",
+        reconcile,
+    )
+
+    result = repository_runner.deploy_code(context)
+
+    assert result.ok is True
+    assert result.attempted is True
+    assert result.accepted is True
+    assert result.reused is False
+    assert readiness_timeouts == [
+        daily_rebuild_service.HOSTED_READINESS_MAX_ELAPSED_SECONDS
+    ]
+    assert observed_deadlines == [
+        deployment_script.DEPLOYMENT_STATUS_MAX_ELAPSED_SECONDS
+    ]
+    deployment_entries = [
+        (args, timeout)
+        for args, timeout in runner_entries
+        if args[:3] == ["az", "webapp", "deploy"]
+    ]
+    assert len(deployment_entries) == 1
+    deployment_command, deployment_runner_timeout = deployment_entries[0]
+    assert deployment_runner_timeout is None
+    assert deployment_command[
+        deployment_command.index("--timeout") + 1
+    ] == str(deployment_script.AZURE_DEPLOYMENT_OPERATION_TIMEOUT_MS)
+    history_entries = [
+        (args, timeout)
+        for args, timeout in runner_entries
+        if args[:5]
+        == ["az", "webapp", "log", "deployment", "list"]
+    ]
+    assert len(history_entries) == 2
+    assert history_entries[0][1] is None
+    assert history_entries[1][1] == pytest.approx(
+        deployment_script.DEPLOYMENT_STATUS_COMMAND_TIMEOUT_SECONDS
+    )
+    assert clock.elapsed_seconds == pytest.approx(2.0)
 
 
 def test_repository_package_adapter_preserves_package_safety_category(
