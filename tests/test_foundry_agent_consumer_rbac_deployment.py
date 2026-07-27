@@ -212,34 +212,26 @@ def _exact_change(request, *, include_properties: bool = True) -> dict[str, obje
 def _known_ignore_changes(request) -> list[dict[str, object]]:
     evidence = request.approved_evidence
     assert evidence is not None
-    identity = "\x00".join(
-        (
-            request.resource_group.casefold(),
-            "nurse-intake",
-            "daily",
-        )
-    ).encode()
-    suffix = hashlib.sha256(identity).hexdigest()[:13]
+    suffix = deployment._daily_resource_name_suffix(request.resource_group)
     project_environment = "nurse-intake-daily"
     cosmos_name = f"{project_environment}-{suffix}"
+    app_insights_name = f"{project_environment}-appi-{suffix}"
     plan_name = f"{project_environment}-plan-{suffix}"[:40]
     root = (
         f"/subscriptions/{evidence.subscription_id}/resourceGroups/"
         f"{request.resource_group}/providers"
     )
-    cosmos = f"{root}/Microsoft.DocumentDB/databaseAccounts/{cosmos_name}"
     resources = (
         (
+            "Microsoft.AlertsManagement/smartDetectorAlertRules",
+            (
+                f"{root}/Microsoft.AlertsManagement/smartDetectorAlertRules/"
+                f"Failure Anomalies - {app_insights_name}"
+            ),
+        ),
+        (
             "Microsoft.DocumentDB/databaseAccounts",
-            cosmos,
-        ),
-        (
-            "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
-            f"{cosmos}/sqlDatabases/nurse-intake",
-        ),
-        (
-            "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
-            f"{cosmos}/sqlDatabases/nurse-intake/containers/cases",
+            f"{root}/Microsoft.DocumentDB/databaseAccounts/{cosmos_name}",
         ),
         (
             "Microsoft.Storage/storageAccounts",
@@ -253,11 +245,15 @@ def _known_ignore_changes(request) -> list[dict[str, object]]:
             ),
         ),
         (
-            "Microsoft.Insights/components",
+            "Microsoft.Insights/actionGroups",
             (
-                f"{root}/Microsoft.Insights/components/"
-                f"{project_environment}-appi-{suffix}"
+                f"{root}/Microsoft.Insights/actionGroups/"
+                "Application Insights Smart Detection"
             ),
+        ),
+        (
+            "Microsoft.Insights/components",
+            f"{root}/Microsoft.Insights/components/{app_insights_name}",
         ),
         (
             "Microsoft.Web/serverfarms",
@@ -300,6 +296,14 @@ def _live_shape_changes(request) -> list[dict[str, object]]:
     assignment = _exact_change(request)
     assignment["changeType"] = "Unsupported"
     changes.append(assignment)
+    return changes
+
+
+def _observed_extension_shape_changes(request) -> list[dict[str, object]]:
+    changes = _live_shape_changes(request)
+    changes[-3].pop("resourceType", None)
+    changes[-2].pop("resourceType", None)
+    changes[-1].pop("resourceType", None)
     return changes
 
 
@@ -357,18 +361,207 @@ def test_known_ignore_plus_unsupported_topology_requires_manual_review(
     assert assignment.expected_multiplicity_match is True
 
 
-def test_live_shape_without_resource_types_is_not_independent_topology_proof(
+def test_symbolic_unsupported_id_is_diagnostic_only_and_never_serialized(
     rbac_request,
 ) -> None:
-    changes = _live_shape_changes(rbac_request)
-    for change in changes:
-        change.pop("resourceType")
+    expression = (
+        "[extensionResourceId('private-project-scope', "
+        "'Microsoft.Authorization/roleAssignments', "
+        "guid('private-principal', 'private-role'))]"
+    )
+    unsupported = _unsupported_change(rbac_request)
+    unsupported.pop("resourceType")
+    unsupported["resourceId"] = expression
 
-    result = _preview_result(rbac_request, changes)
+    result = _preview_result(
+        rbac_request,
+        [*_known_ignore_changes(rbac_request), unsupported],
+    )
 
     assert result.ok is False
     assert result.category == "what_if_parse_failed"
     assert result.deployment_request_accepted is False
+    diagnostic = result.what_if_diagnostic
+    assert diagnostic is not None
+    assert dict(diagnostic.action_counts)["Ignore"] == 10
+    assert dict(diagnostic.action_counts)["Unsupported"] == 1
+    assert diagnostic.record_shapes[-1].safe_resource_type == "unidentified"
+    serialized = json.dumps(result.to_json_dict())
+    assert expression not in serialized
+    assert "private-project-scope" not in serialized
+    assert "private-principal" not in serialized
+    assert "private-role" not in serialized
+
+
+def test_observed_extension_shape_derives_missing_redundant_resource_types(
+    rbac_request,
+) -> None:
+    changes = _observed_extension_shape_changes(rbac_request)
+
+    result = _preview_result(rbac_request, changes)
+
+    assert result.ok is True
+    assert result.category == "success"
+    assert result.preview_topology == "expected_ignore_plus_unsupported"
+    assert result.assignment_contents_proved is True
+    assert result.ignore_count == 10
+    assert result.unsupported_count == 1
+    assert result.deployment_request_accepted is False
+    assert result.what_if_diagnostic is None
+    assert result.change_evidence[-3].logical_category == (
+        "foundry_account_reference"
+    )
+    assert result.change_evidence[-2].logical_category == (
+        "foundry_project_reference"
+    )
+    assert result.change_evidence[-1].logical_category == (
+        "consumer_role_assignment"
+    )
+    serialized = json.dumps(result.to_json_dict())
+    evidence = rbac_request.approved_evidence
+    assert evidence is not None
+    for private_value in (
+        evidence.subscription_id,
+        evidence.web_app_principal_id,
+        evidence.role_definition_id,
+        evidence.role_assignment_name,
+        evidence.foundry_project_resource_id,
+    ):
+        assert private_value not in serialized
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "wrong_second_provider",
+        "wrong_extension_collection",
+        "wrong_subscription",
+        "wrong_resource_group",
+        "wrong_account",
+        "wrong_project",
+        "wrong_assignment_name",
+        "broader_account_scope",
+        "extra_segment",
+        "missing_segment",
+        "duplicate_provider_marker",
+        "conflicting_resource_type",
+        "wrong_principal",
+        "wrong_role",
+        "missing_properties",
+    ),
+)
+def test_observed_extension_shape_rejects_noncanonical_or_conflicting_assignment(
+    rbac_request,
+    case: str,
+) -> None:
+    changes = _observed_extension_shape_changes(rbac_request)
+    assignment = changes[-1]
+    resource_id = str(assignment["resourceId"])
+    evidence = rbac_request.approved_evidence
+    assert evidence is not None
+    if case == "wrong_second_provider":
+        assignment["resourceId"] = resource_id.replace(
+            "/providers/Microsoft.Authorization/",
+            "/providers/Microsoft.Storage/",
+        )
+    elif case == "wrong_extension_collection":
+        assignment["resourceId"] = resource_id.replace(
+            "/roleAssignments/",
+            "/locks/",
+        )
+    elif case == "wrong_subscription":
+        assignment["resourceId"] = resource_id.replace(
+            evidence.subscription_id,
+            "00000000-0000-0000-0000-000000000099",
+            1,
+        )
+    elif case == "wrong_resource_group":
+        assignment["resourceId"] = resource_id.replace(
+            f"/resourceGroups/{rbac_request.resource_group}/",
+            "/resourceGroups/unrelated-resource-group/",
+        )
+    elif case == "wrong_account":
+        assignment["resourceId"] = resource_id.replace(
+            f"/accounts/{rbac_request.foundry_account_name}/",
+            "/accounts/unrelated-account/",
+        )
+    elif case == "wrong_project":
+        assignment["resourceId"] = resource_id.replace(
+            f"/projects/{rbac_request.foundry_project_name}/",
+            "/projects/unrelated-project/",
+        )
+    elif case == "wrong_assignment_name":
+        assignment["resourceId"] = f"{resource_id}-other"
+    elif case == "broader_account_scope":
+        assignment["resourceId"] = resource_id.replace(
+            f"/projects/{rbac_request.foundry_project_name}",
+            "",
+        )
+    elif case == "extra_segment":
+        assignment["resourceId"] = f"{resource_id}/extra"
+    elif case == "missing_segment":
+        assignment["resourceId"] = resource_id.rsplit("/", 1)[0]
+    elif case == "duplicate_provider_marker":
+        assignment["resourceId"] = resource_id.replace(
+            "/providers/Microsoft.Authorization/",
+            (
+                "/providers/Microsoft.Authorization/"
+                "providers/Microsoft.Authorization/"
+            ),
+        )
+    elif case == "conflicting_resource_type":
+        assignment["resourceType"] = "Microsoft.Storage/storageAccounts"
+    elif case == "wrong_principal":
+        assignment["after"]["properties"]["principalId"] = "wrong-principal"
+    elif case == "wrong_role":
+        assignment["after"]["properties"]["roleDefinitionId"] = "wrong-role"
+    else:
+        assignment["after"] = {}
+
+    result = _preview_result(rbac_request, changes)
+
+    assert result.category == "what_if_parse_failed"
+    assert result.deployment_request_accepted is False
+    assert result.change_evidence == ()
+    serialized = json.dumps(result.to_json_dict())
+    for private_value in (
+        evidence.subscription_id,
+        evidence.web_app_principal_id,
+        evidence.role_definition_id,
+        evidence.role_assignment_name,
+        evidence.foundry_project_resource_id,
+    ):
+        assert private_value not in serialized
+
+
+def test_observed_counts_do_not_allow_an_unidentified_ignore_record(
+    rbac_request,
+) -> None:
+    changes = _observed_extension_shape_changes(rbac_request)
+    evidence = rbac_request.approved_evidence
+    assert evidence is not None
+    changes[0].pop("resourceType")
+    changes[0]["resourceId"] = (
+        f"/subscriptions/{evidence.subscription_id}/resourceGroups/"
+        f"{rbac_request.resource_group}/providers/"
+        "Microsoft.Network/virtualNetworks/unrelated-network"
+    )
+
+    result = _preview_result(rbac_request, changes)
+
+    assert result.category == "what_if_parse_failed"
+    diagnostic = result.what_if_diagnostic
+    assert diagnostic is not None
+    public = diagnostic.to_json_dict()
+    assert public["action_counts"]["Ignore"] == 10
+    assert public["action_counts"]["Unsupported"] == 1
+    assert "ignore_set_incomplete" in diagnostic.failure_reasons
+    assert "ignore_set_has_extra_record" in diagnostic.failure_reasons
+    assert "unexpected_record" in diagnostic.failure_reasons
+    shape = public["record_shapes"][0]
+    assert shape["resource_id_shape_valid"] is True
+    assert shape["safe_resource_type"] == "unidentified"
+    assert "unrelated-network" not in json.dumps(public)
 
 
 def test_bounded_action_only_live_topology_is_rejected(
@@ -592,6 +785,45 @@ def test_incomplete_assignment_path_is_authoritatively_malformed(
     assert result.change_evidence == ()
 
 
+def test_monitoring_ignore_types_receive_diagnostic_only_categories(
+    rbac_request,
+) -> None:
+    evidence = rbac_request.approved_evidence
+    assert evidence is not None
+    root = (
+        f"/subscriptions/{evidence.subscription_id}/resourceGroups/"
+        f"{rbac_request.resource_group}/providers"
+    )
+    changes = _observed_extension_shape_changes(rbac_request)
+    changes[0] = {
+        "changeType": "Ignore",
+        "resourceId": (
+            f"{root}/Microsoft.AlertsManagement/"
+            "smartDetectorAlertRules/private-alert-rule"
+        ),
+    }
+    changes[4] = {
+        "changeType": "Ignore",
+        "resourceId": (
+            f"{root}/Microsoft.Insights/actionGroups/private-action-group"
+        ),
+    }
+
+    result = _preview_result(rbac_request, changes)
+
+    assert result.ok is False
+    assert result.category == "what_if_parse_failed"
+    assert result.preview_topology is None
+    diagnostic = result.what_if_diagnostic
+    assert diagnostic is not None
+    assert diagnostic.record_shapes[0].safe_resource_type == (
+        "smart_detector_alert_rule"
+    )
+    assert diagnostic.record_shapes[4].safe_resource_type == "action_group"
+    assert "private-alert-rule" not in json.dumps(result.to_json_dict())
+    assert "private-action-group" not in json.dumps(result.to_json_dict())
+
+
 def test_live_runs_exactly_one_safe_resource_group_deployment(rbac_request) -> None:
     runner = FakeRunner(deployment.CommandResult(0, "sensitive stdout", ""))
 
@@ -758,7 +990,9 @@ def test_rejected_preview_reports_closed_action_and_resource_structure(
     assert public["resource_type_counts"]["foundry_project"] == 1
     assert public["resource_type_counts"]["web_app"] == 1
     assert public["resource_type_counts"]["app_service_plan"] == 1
-    assert public["resource_type_counts"]["other_known"] == 6
+    assert public["resource_type_counts"]["smart_detector_alert_rule"] == 1
+    assert public["resource_type_counts"]["action_group"] == 1
+    assert public["resource_type_counts"]["other_known"] == 4
     assert public["resembles_expected_ignore_plus_unsupported"] is True
     assert "ignore_set_incomplete" in public["failure_reasons"]
     assert "unexpected_record" in public["failure_reasons"]

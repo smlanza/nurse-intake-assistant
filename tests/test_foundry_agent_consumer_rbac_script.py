@@ -3,6 +3,8 @@ from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 import scripts.deploy_foundry_agent_consumer_rbac as script
 from src.app.services.foundry_agent_consumer_rbac_deployment import (
     deterministic_role_assignment_name,
@@ -54,8 +56,8 @@ def _evidence(*, principal: str = "principal-a"):
     )
 
 
-def _preview(*, ok: bool = True):
-    return SimpleNamespace(
+def _diagnostic_preview(*, ok: bool = False):
+    result = SimpleNamespace(
         ok=ok,
         category="success" if ok else "what_if_parse_failed",
         mode="what-if",
@@ -74,6 +76,13 @@ def _preview(*, ok: bool = True):
         unsupported_count=0 if ok else None,
         change_evidence=(object(),) if ok else (),
     )
+    result.to_json_dict = lambda: {
+        "ok": result.ok,
+        "category": result.category,
+        "mode": result.mode,
+        "deployment_request_accepted": result.deployment_request_accepted,
+    }
+    return result
 
 
 def _deployment(*, accepted: bool = True):
@@ -161,8 +170,9 @@ def test_check_request_uses_effective_account_only_from_matching_receipt(
     assert request.foundry_account_name != "operator-base"
     payload = json.loads(capsys.readouterr().out)
     assert payload["rbac_handoff_validated"] is True
-    assert payload["requested_foundry_account_name"] == "operator-base"
-    assert payload["foundry_account_name"] == "operator-base-abc123"
+    assert "requested_foundry_account_name" not in payload
+    assert "foundry_account_name" not in payload
+    assert "operator-base" not in json.dumps(payload)
 
 
 def test_live_reuse_skips_preview_prompt_and_deployment(
@@ -176,8 +186,8 @@ def test_live_reuse_skips_preview_prompt_and_deployment(
         script,
         "_fresh_evidence",
         lambda *args, **kwargs: (
-            None,
-            "consumer_rbac_assignment_already_present",
+            _evidence(),
+            "assignment_present",
         ),
     )
     monkeypatch.setattr(
@@ -219,7 +229,12 @@ def test_missing_assignment_runs_complete_approved_pipeline_in_order(
         lambda *args, **kwargs: events.append("account") is None or True,
     )
     evidence = _evidence()
-    evidence_reads = iter(((evidence, None), (evidence, None)))
+    evidence_reads = iter(
+        (
+            (evidence, "assignment_missing"),
+            (evidence, "assignment_missing"),
+        )
+    )
     monkeypatch.setattr(
         script,
         "_fresh_evidence",
@@ -231,13 +246,22 @@ def test_missing_assignment_runs_complete_approved_pipeline_in_order(
 
     def deploy(request, runner):
         events.append(request.mode)
-        return _preview() if request.mode == "what-if" else _deployment()
+        assert request.mode == "live"
+        return _deployment()
 
     monkeypatch.setattr(script, "deploy_foundry_agent_consumer_rbac", deploy)
+    approval_calls = 0
+
+    def approve():
+        nonlocal approval_calls
+        approval_calls += 1
+        events.append("approval")
+        return True
+
     monkeypatch.setattr(
         script,
         "prompt_for_rbac_approval",
-        lambda: events.append("approval") is None or True,
+        approve,
         raising=False,
     )
     monkeypatch.setattr(
@@ -256,7 +280,6 @@ def test_missing_assignment_runs_complete_approved_pipeline_in_order(
     assert events == [
         "account",
         "evidence",
-        "what-if",
         "approval",
         "account",
         "evidence",
@@ -267,9 +290,71 @@ def test_missing_assignment_runs_complete_approved_pipeline_in_order(
     assert payload["assignment_verified"] is True
     assert payload["azure_mutation_made"] is True
     assert payload["deployment_request_accepted"] is True
+    assert approval_calls == 1
+    serialized = json.dumps(payload)
+    for private_value in (
+        evidence.subscription_id,
+        evidence.foundry_project_resource_id,
+        evidence.web_app_principal_id,
+        evidence.role_definition_id,
+        evidence.role_assignment_name,
+        _receipt().foundry_account_name,
+    ):
+        assert private_value not in serialized
 
 
-def test_unsafe_preview_fails_before_prompt_or_mutation(
+@pytest.mark.parametrize(
+    "unsafe_state",
+    [
+        "assignment_ambiguous",
+        "response_parse_failed",
+        "role_mismatch",
+        "principal_mismatch",
+        "assignment_scope_mismatch",
+        "unexpected_error",
+    ],
+)
+def test_unsafe_preverification_fails_before_prompt_or_mutation(
+    monkeypatch,
+    capsys,
+    unsafe_state,
+) -> None:
+    _patch_handoff(monkeypatch)
+    monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: Runner([]))
+    monkeypatch.setattr(script, "_account_matches_handoff", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        script,
+        "_fresh_evidence",
+        lambda *args, **kwargs: (None, unsafe_state),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        script,
+        "deploy_foundry_agent_consumer_rbac",
+        lambda request, runner: (
+            calls.append(request.mode),
+            _deployment(),
+        )[1],
+    )
+    monkeypatch.setattr(
+        script,
+        "prompt_for_rbac_approval",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("unsafe pre-verification prompted")
+        ),
+        raising=False,
+    )
+
+    status = script.main(["--live", "--config", "ignored.env", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 2
+    assert calls == []
+    assert payload["category"] == "consumer_rbac_preverification_failed"
+    assert payload["azure_mutation_made"] is False
+
+
+def test_local_bicep_contract_mismatch_fails_before_verification_or_approval(
     monkeypatch,
     capsys,
 ) -> None:
@@ -278,31 +363,29 @@ def test_unsafe_preview_fails_before_prompt_or_mutation(
     monkeypatch.setattr(script, "_account_matches_handoff", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         script,
-        "_fresh_evidence",
-        lambda *args, **kwargs: (_evidence(), None),
+        "validate_foundry_agent_consumer_rbac_request",
+        lambda request: SimpleNamespace(category="template_contract_invalid"),
     )
-    calls: list[str] = []
     monkeypatch.setattr(
         script,
-        "deploy_foundry_agent_consumer_rbac",
-        lambda request, runner: (
-            calls.append(request.mode),
-            _preview(ok=False),
-        )[1],
+        "_fresh_evidence",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("invalid local contract must not verify")
+        ),
     )
     monkeypatch.setattr(
         script,
         "prompt_for_rbac_approval",
-        lambda: (_ for _ in ()).throw(AssertionError("unsafe preview prompted")),
-        raising=False,
+        lambda: (_ for _ in ()).throw(
+            AssertionError("invalid local contract must not prompt")
+        ),
     )
 
     status = script.main(["--live", "--config", "ignored.env", "--json"])
 
     payload = json.loads(capsys.readouterr().out)
     assert status == 2
-    assert calls == ["what-if"]
-    assert payload["category"] == "consumer_rbac_preview_unsafe"
+    assert payload["category"] == "template_contract_invalid"
     assert payload["azure_mutation_made"] is False
 
 
@@ -316,7 +399,7 @@ def test_declined_approval_makes_no_mutation(
     monkeypatch.setattr(
         script,
         "_fresh_evidence",
-        lambda *args, **kwargs: (_evidence(), None),
+        lambda *args, **kwargs: (_evidence(), "assignment_missing"),
     )
     calls: list[str] = []
     monkeypatch.setattr(
@@ -324,7 +407,7 @@ def test_declined_approval_makes_no_mutation(
         "deploy_foundry_agent_consumer_rbac",
         lambda request, runner: (
             calls.append(request.mode),
-            _preview(),
+            _deployment(),
         )[1],
     )
     monkeypatch.setattr(
@@ -338,7 +421,7 @@ def test_declined_approval_makes_no_mutation(
 
     payload = json.loads(capsys.readouterr().out)
     assert status == 2
-    assert calls == ["what-if"]
+    assert calls == []
     assert payload["category"] == "consumer_rbac_operator_declined"
     assert payload["azure_mutation_made"] is False
 
@@ -350,7 +433,12 @@ def test_changed_approved_evidence_fails_before_deployment(
     _patch_handoff(monkeypatch)
     monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: Runner([]))
     monkeypatch.setattr(script, "_account_matches_handoff", lambda *args, **kwargs: True)
-    reads = iter(((_evidence(), None), (_evidence(principal="principal-b"), None)))
+    reads = iter(
+        (
+            (_evidence(), "assignment_missing"),
+            (_evidence(principal="principal-b"), "assignment_missing"),
+        )
+    )
     monkeypatch.setattr(
         script,
         "_fresh_evidence",
@@ -360,8 +448,7 @@ def test_changed_approved_evidence_fails_before_deployment(
 
     def deploy(request, runner):
         calls.append(request.mode)
-        assert request.mode == "what-if"
-        return _preview()
+        return _deployment()
 
     monkeypatch.setattr(script, "deploy_foundry_agent_consumer_rbac", deploy)
     monkeypatch.setattr(
@@ -375,7 +462,85 @@ def test_changed_approved_evidence_fails_before_deployment(
 
     payload = json.loads(capsys.readouterr().out)
     assert status == 2
-    assert calls == ["what-if"]
+    assert calls == []
+    assert payload["category"] == "approval_evidence_stale"
+    assert payload["azure_mutation_made"] is False
+
+
+def test_changed_handoff_rejects_the_current_run_approval(
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(
+        script,
+        "load_daily_azure_config",
+        lambda path, repository_root: SimpleNamespace(
+            foundry_account_name="operator-base"
+        ),
+    )
+    changed = _receipt()
+    changed.foundry_project_name = "different-project"
+    receipts = iter((_receipt(), changed))
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda path, config: next(receipts),
+    )
+    monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: Runner([]))
+    monkeypatch.setattr(script, "_account_matches_handoff", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        script,
+        "_fresh_evidence",
+        lambda *args, **kwargs: (_evidence(), "assignment_missing"),
+    )
+    monkeypatch.setattr(script, "prompt_for_rbac_approval", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "deploy_foundry_agent_consumer_rbac",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("stale handoff must not deploy")
+        ),
+    )
+
+    status = script.main(["--live", "--config", "ignored.env", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 2
+    assert payload["category"] == "approval_evidence_stale"
+    assert payload["azure_mutation_made"] is False
+
+
+def test_changed_bicep_contract_rejects_the_current_run_approval(
+    monkeypatch,
+    capsys,
+) -> None:
+    _patch_handoff(monkeypatch)
+    monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: Runner([]))
+    monkeypatch.setattr(script, "_account_matches_handoff", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        script,
+        "_fresh_evidence",
+        lambda *args, **kwargs: (_evidence(), "assignment_missing"),
+    )
+    snapshots = iter(((b"entry-a", b"module-a"), (b"entry-b", b"module-a")))
+    monkeypatch.setattr(
+        script,
+        "_bicep_contract_snapshot",
+        lambda: next(snapshots),
+    )
+    monkeypatch.setattr(script, "prompt_for_rbac_approval", lambda: True)
+    monkeypatch.setattr(
+        script,
+        "deploy_foundry_agent_consumer_rbac",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("changed contract must not deploy")
+        ),
+    )
+
+    status = script.main(["--live", "--config", "ignored.env", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 2
     assert payload["category"] == "approval_evidence_stale"
     assert payload["azure_mutation_made"] is False
 
@@ -390,15 +555,15 @@ def test_deployment_acceptance_requires_successful_post_verification(
     monkeypatch.setattr(
         script,
         "_fresh_evidence",
-        lambda *args, **kwargs: (_evidence(), None),
+        lambda *args, **kwargs: (_evidence(), "assignment_missing"),
     )
-    monkeypatch.setattr(
-        script,
-        "deploy_foundry_agent_consumer_rbac",
-        lambda request, runner: (
-            _preview() if request.mode == "what-if" else _deployment()
-        ),
-    )
+    deployment_modes: list[str] = []
+
+    def deploy(request, runner):
+        deployment_modes.append(request.mode)
+        return _deployment()
+
+    monkeypatch.setattr(script, "deploy_foundry_agent_consumer_rbac", deploy)
     monkeypatch.setattr(
         script,
         "prompt_for_rbac_approval",
@@ -419,6 +584,7 @@ def test_deployment_acceptance_requires_successful_post_verification(
     assert payload["deployment_request_accepted"] is True
     assert payload["assignment_verified"] is False
     assert payload["ok"] is False
+    assert deployment_modes == ["live"]
 
 
 def test_approval_prompt_is_sanitized_and_uses_stderr_channel() -> None:
@@ -431,15 +597,12 @@ def test_approval_prompt_is_sanitized_and_uses_stderr_channel() -> None:
     )
     output = destination.getvalue()
     for expected in (
-        "FOUNDRY AGENT CONSUMER RBAC",
-        "Coordinator readiness verified: yes",
-        "Web App system identity verified: yes",
-        "Foundry project scope verified: yes",
-        "Existing exact direct assignment: no",
-        "Assignment required: yes",
-        "Exact assignment independently proved: yes",
-        "Other unsupported records: 0",
-        "Destructive or unrelated changes: no",
+        "Action: create one Foundry Agent Consumer role assignment",
+        "Principal verified: yes",
+        "Project scope verified: yes",
+        "Fixed role verified: yes",
+        "Deterministic assignment verified: yes",
+        "Mutation required: yes",
         "Proceed? [y/N]",
     ):
         assert expected in output
@@ -450,6 +613,50 @@ def test_approval_prompt_is_sanitized_and_uses_stderr_channel() -> None:
         "00000000-0000-0000-0000-000000000001",
     ):
         assert sensitive not in output
+
+
+def test_approval_prompt_defaults_to_no() -> None:
+    assert not script.prompt_for_rbac_approval(
+        input_stream=StringIO("\n"),
+        output_stream=StringIO(),
+    )
+
+
+def test_explicit_what_if_remains_diagnostic_only(
+    monkeypatch,
+    capsys,
+) -> None:
+    _patch_handoff(monkeypatch)
+    monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: Runner([]))
+    monkeypatch.setattr(script, "_account_matches_handoff", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        script,
+        "_fresh_evidence",
+        lambda *args, **kwargs: (_evidence(), "assignment_missing"),
+    )
+    calls: list[str] = []
+
+    def deploy(request, runner):
+        calls.append(request.mode)
+        return _diagnostic_preview()
+
+    monkeypatch.setattr(script, "deploy_foundry_agent_consumer_rbac", deploy)
+    monkeypatch.setattr(
+        script,
+        "prompt_for_rbac_approval",
+        lambda: (_ for _ in ()).throw(
+            AssertionError("diagnostic mode must not prompt")
+        ),
+        raising=False,
+    )
+
+    status = script.main(["--what-if", "--config", "ignored.env", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 2
+    assert calls == ["what-if"]
+    assert payload["category"] == "what_if_parse_failed"
+    assert payload["deployment_request_accepted"] is False
 
 
 def test_focused_rbac_command_rejects_missing_or_stale_receipt(
@@ -580,7 +787,7 @@ def test_fresh_rbac_evidence_resolves_child_under_effective_account(
         "verify_foundry_agent_consumer_rbac",
         verify,
     )
-    evidence, failure = script._fresh_evidence(
+    evidence, state = script._fresh_evidence(
         Runner([]),
         resource_group="fictional-rg",
         web_app_name="fictional-web",
@@ -588,7 +795,7 @@ def test_fresh_rbac_evidence_resolves_child_under_effective_account(
         foundry_project_name="fictional-project",
     )
 
-    assert failure is None
+    assert state == "assignment_missing"
     assert evidence is not None
     assert captured["request"].foundry_account_name == "operator-base-abc123"
     assert (

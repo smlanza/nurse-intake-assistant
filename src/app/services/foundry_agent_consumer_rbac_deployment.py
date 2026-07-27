@@ -37,6 +37,8 @@ SafeWhatIfResourceType = Literal[
     "foundry_project",
     "web_app",
     "app_service_plan",
+    "smart_detector_alert_rule",
+    "action_group",
     "other_known",
     "unidentified",
 ]
@@ -94,8 +96,6 @@ ROLE_ASSIGNMENT_RESOURCE_TYPE = "Microsoft.Authorization/roleAssignments"
 _ARM_GUID_NAMESPACE = UUID("11fb06fb-712d-4ddd-98c7-e71bbd588830")
 _DAILY_ENVIRONMENT_NAME = "daily"
 _DAILY_PROJECT_NAME = "nurse-intake"
-_DAILY_COSMOS_DATABASE_NAME = "nurse-intake"
-_DAILY_COSMOS_CONTAINER_NAME = "cases"
 _MAX_DIAGNOSTIC_RECORD_SHAPES = 20
 _SAFE_ACTIONS: tuple[SafeWhatIfAction, ...] = (
     "Create",
@@ -115,6 +115,8 @@ _SAFE_RESOURCE_TYPES: tuple[SafeWhatIfResourceType, ...] = (
     "foundry_project",
     "web_app",
     "app_service_plan",
+    "smart_detector_alert_rule",
+    "action_group",
     "other_known",
     "unidentified",
 )
@@ -540,7 +542,6 @@ def _result(
             and (
                 summary.delete_count
                 or summary.deploy_count
-                or summary.unsupported_count
                 or not all(
                     change.approved_boundary for change in summary.change_evidence
                 )
@@ -880,7 +881,6 @@ def _evaluate_what_if_summary(
             and all(
                 record.shape.resource_id_present
                 and record.shape.resource_id_shape_valid
-                and record.shape.resource_type_present
                 and record.canonical_resource_type_present
                 and record.resource_type_consistent
                 and record.expected_ignore_index is not None
@@ -893,7 +893,6 @@ def _evaluate_what_if_summary(
             and len(assignment_records) == 1
             and assignment_records[0].shape.resource_id_present
             and assignment_records[0].shape.resource_id_shape_valid
-            and assignment_records[0].shape.resource_type_present
             and assignment_records[0].canonical_resource_type_present
             and assignment_records[0].resource_type_consistent
             and assignment_records[0].assignment_resource_id_match
@@ -912,6 +911,7 @@ def _evaluate_what_if_summary(
             and not assignment_records[0].role_value_is_none
             and not assignment_records[0].principal_value_malformed
             and not assignment_records[0].role_value_malformed
+            and assignment_records[0].unsupported_values_compatible
         )
         if not exact_unsupported_topology:
             return None
@@ -1098,8 +1098,10 @@ def _normalize_what_if_record(
         ),
         None,
     )
-    assignment_resource_id_match = facts.resource_id_matches(
-        expected_resource_id
+    assignment_resource_id_match = _canonical_assignment_resource_id_matches(
+        facts,
+        evidence=evidence,
+        expected_resource_id=expected_resource_id,
     )
     authoritative_assignment_type_match = bool(
         isinstance(facts.resource_type, str)
@@ -1156,14 +1158,15 @@ def _normalize_what_if_record(
     properties_present = isinstance(after, dict) and "properties" in after
     principal = properties.get("principalId") if isinstance(properties, dict) else None
     role = properties.get("roleDefinitionId") if isinstance(properties, dict) else None
+    safe_resource_type = _safe_resource_type(
+        facts.resource_type,
+        expected_ignored,
+    )
     return _NormalizedWhatIfRecord(
         shape=WhatIfRecordShape(
             ordinal=ordinal,
             action=action,
-            safe_resource_type=_safe_resource_type(
-                facts.resource_type,
-                expected_ignored,
-            ),
+            safe_resource_type=safe_resource_type,
             resource_id_present=facts.resource_id_present,
             resource_id_shape_valid=facts.resource_id_shape_valid,
             resource_type_present=facts.resource_type_present,
@@ -1242,6 +1245,56 @@ def _normalize_what_if_record(
     )
 
 
+def _canonical_assignment_resource_id_matches(
+    facts,
+    *,
+    evidence: FoundryAgentConsumerRbacDeploymentEvidence,
+    expected_resource_id: str,
+) -> bool:
+    identity = facts.identity
+    if identity is None:
+        return False
+    subscription_id, resource_group, account_name, project_name = (
+        _project_parts(evidence.foundry_project_resource_id)
+    )
+    expected_provider_segments = (
+        (
+            "Microsoft.CognitiveServices",
+            "accounts",
+            account_name,
+            "projects",
+            project_name,
+        ),
+        (
+            "Microsoft.Authorization",
+            "roleAssignments",
+            evidence.role_assignment_name,
+        ),
+    )
+    actual_provider_segments = tuple(
+        tuple(part.casefold() for part in segment)
+        for segment in identity.provider_segments
+    )
+    return bool(
+        facts.resource_id_matches(expected_resource_id)
+        and identity.extension_resource
+        and identity.subscription.casefold() == subscription_id.casefold()
+        and identity.resource_group.casefold() == resource_group.casefold()
+        and actual_provider_segments
+        == tuple(
+            tuple(part.casefold() for part in segment)
+            for segment in expected_provider_segments
+        )
+        and identity.resource_type.casefold()
+        == ROLE_ASSIGNMENT_RESOURCE_TYPE.casefold()
+        and identity.name_segments == (evidence.role_assignment_name,)
+        and identity.parent_resource_id.casefold()
+        == evidence.foundry_project_resource_id.casefold()
+        and identity.scope_resource_id.casefold()
+        == evidence.foundry_project_resource_id.casefold()
+    )
+
+
 def _safe_resource_type(
     raw_type: object,
     expected_ignored: tuple[ExpectedWhatIfResource, ...],
@@ -1256,6 +1309,10 @@ def _safe_resource_type(
         "microsoft.cognitiveservices/accounts/projects": "foundry_project",
         "microsoft.web/sites": "web_app",
         "microsoft.web/serverfarms": "app_service_plan",
+        "microsoft.alertsmanagement/smartdetectoralertrules": (
+            "smart_detector_alert_rule"
+        ),
+        "microsoft.insights/actiongroups": "action_group",
     }
     if normalized in fixed:
         return fixed[normalized]
@@ -1498,26 +1555,18 @@ def _expected_daily_ignore_resources(
     suffix = _daily_resource_name_suffix(resource_group)
     project_environment = f"{_DAILY_PROJECT_NAME}-{_DAILY_ENVIRONMENT_NAME}"
     cosmos_account = f"{project_environment}-{suffix}"
+    app_insights_name = f"{project_environment}-appi-{suffix}"
     plan_name = f"{project_environment}-plan-{suffix}"[:40]
     definitions = (
+        (
+            "Microsoft.AlertsManagement/smartDetectorAlertRules",
+            "smart_detector_alert_rule",
+            (f"Failure Anomalies - {app_insights_name}",),
+        ),
         (
             "Microsoft.DocumentDB/databaseAccounts",
             "cosmos_account",
             (cosmos_account,),
-        ),
-        (
-            "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
-            "cosmos_database",
-            (cosmos_account, _DAILY_COSMOS_DATABASE_NAME),
-        ),
-        (
-            "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
-            "cosmos_container",
-            (
-                cosmos_account,
-                _DAILY_COSMOS_DATABASE_NAME,
-                _DAILY_COSMOS_CONTAINER_NAME,
-            ),
         ),
         ("Microsoft.Storage/storageAccounts", "storage_account", (f"st{suffix}",)),
         (
@@ -1526,9 +1575,14 @@ def _expected_daily_ignore_resources(
             (f"{project_environment}-logs-{suffix}",),
         ),
         (
+            "Microsoft.Insights/actionGroups",
+            "action_group",
+            ("Application Insights Smart Detection",),
+        ),
+        (
             "Microsoft.Insights/components",
             "application_insights",
-            (f"{project_environment}-appi-{suffix}",),
+            (app_insights_name,),
         ),
         ("Microsoft.Web/serverfarms", "app_service_plan", (plan_name,)),
         (
@@ -1589,6 +1643,19 @@ def _unsupported_values_compatible(
         return False
     principal = properties.get("principalId")
     role = properties.get("roleDefinitionId")
+    project_scope = evidence.foundry_project_resource_id
+    projected_scopes = tuple(
+        container[key]
+        for container in (raw, after, properties)
+        for key in ("scope", "resourceScope", "projectScope")
+        if key in container
+    )
+    projected_assignment_names = tuple(
+        container[key]
+        for container in (raw, after, properties)
+        for key in ("name", "assignmentName", "roleAssignmentName")
+        if key in container
+    )
     return bool(
         (principal is None or principal == evidence.web_app_principal_id)
         and (
@@ -1597,6 +1664,11 @@ def _unsupported_values_compatible(
                 isinstance(role, str)
                 and role.casefold() == evidence.role_definition_id.casefold()
             )
+        )
+        and all(scope == project_scope for scope in projected_scopes)
+        and all(
+            name == evidence.role_assignment_name
+            for name in projected_assignment_names
         )
     )
 

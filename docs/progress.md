@@ -5,7 +5,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,446 passed full suite
+- 2,474 passed full suite
 - 21 shell-wrapper tests and 32 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
@@ -419,19 +419,14 @@ coordinator-to-RBAC boundary.
   deadline is discarded without establishing terminal success or failure. No
   helper creates another timing budget, no read begins at the deadline, and
   ambiguous submission never redeploys.
-- Verified: a zero-exit submission is not terminal proof. Acceptance requires a
-  terminal record matching the internally retained current-command identifier,
-  or the strict post-submission baseline fallback when no identifier is
-  available. Pre-request, unrelated, duplicate, and ambiguous records fail
-  closed, and no correlation evidence is serialized.
+- Verified: Azure What-If has no stable canonical role-assignment identity for this template. Explicit `--what-if` is diagnostic-only, may return `what_if_parse_failed`, and never authorizes or invokes live deployment.
+- Verified: live validates the current handoff and repository Bicep contract, performs exact read-only pre-verification, reuses one proven direct assignment, and offers default-no approval only for a conclusively missing assignment. Ambiguous, duplicate, inherited-only, mismatched, malformed, or unknown evidence fails before approval or deployment.
+- Verified: approval permits one existing Bicep deployment and immediate exact post-verification. Request acceptance alone is insufficient; stale evidence is rejected, with no retry, repair, manual role assignment, or ad hoc Azure role command.
 - Verified: one absolute five-minute readiness deadline caps the one-shot HTTP
   operation by remaining budget. A valid older artifact exercises `/health`,
   `/version`, and `/demo/status`, remains retryable, and is never READY.
-- Production-adapter RED was 1 failed; strict GREEN reaches the runner with the
-  original deadline and remaining-time bound. Focused GREEN is 379 and full
-  GREEN is 2,446 with one existing warning.
-- No Azure, HTTP, deployment, cleanup, staging, commit, or push operation
-  occurred.
+- Verify-approve-deploy-verify RED was 14 failed and 4 passed before the live What-If authorization gate was removed. GREEN is 117 deployment/Bicep, 71 verifier, 302 handoff/CLI/coordinator, 32 documentation, and 2,474 full-suite tests.
+- No Azure, HTTP, RBAC mutation, deployment, cleanup, staging, commit, or push occurred during implementation.
 - Architecture impact: updated the existing infrastructure orchestration section because the durable coordinator contract now explicitly requires one absolute convergence deadline and terminal deployment evidence attributable to the current command.
 - Historical standalone reconciliation rejected one Web App Deploy and nine
   unidentified Ignore records; the wrapper is removed, no live direct-module

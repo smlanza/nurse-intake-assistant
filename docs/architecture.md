@@ -461,24 +461,26 @@ operator boundary around that exact entry point. `--check` validates safe names,
 the expected file location, its six exact parameters, its existing Web App
 identity lookup, its exact module reference, and the module's project-scoped
 Consumer-only assignment without constructing a runner or calling Azure.
-`--what-if` and `--live` each issue at most one argument-list resource-group
-deployment command against an existing group. Neither mode creates or deletes a
-group, retries, cleans up, verifies RBAC, obtains a token, invokes an agent,
-deploys application code, restarts the Web App, or changes infrastructure.
+Explicit `--what-if` is diagnostic-only: it issues at most one argument-list
+resource-group preview command, reduces recognized output to bounded sanitized
+counts and safe categories, and may fail parsing when Azure emits an unstable
+symbolic assignment identity. A preview never authorizes or invokes deployment,
+and `--live` never invokes What-if.
 
-What-if requests JSON and parses every documented Azure action into sanitized
-counts, but only one exact Create for the approved deterministic assignment can
-authorize the coordinator. Exact subscription, resource group, Foundry account,
-project parent, project scope, assignment name, principal, role definition,
-multiplicity, and repository boundary must all match. Missing, duplicate,
-malformed, unrelated, Delete, Modify, Ignore, Deploy, NoChange, Unsupported, or
-unknown evidence fails closed for approval. Raw output is discarded, and
-preview never continues to deployment by itself.
-Live success records only Azure CLI acceptance
-of the deployment request and directs the operator to a separate
-read-only assignment verifier. No role-definition override is exposed, and
-sanitized results contain no principal, tenant, subscription, token, credential,
-or complete resource identifier.
+Live first validates the current coordinator handoff and exact repository-owned
+Bicep contract, then uses the exact read-only assignment verifier. One proven
+direct assignment is reused without approval or mutation. Only a conclusive
+missing assignment can reach a default-no, current-run approval bound to the
+handoff, principal, project, fixed Consumer role, deterministic assignment, and
+Bicep contract. Fresh matching evidence permits exactly one existing
+resource-group Bicep deployment request, followed immediately by the same exact
+read-only verifier. Request acceptance alone is not success; success requires
+one direct assignment for the exact principal, project scope, and role.
+Ambiguous, duplicate, inherited-only, malformed, mismatched, stale, or unknown
+evidence fails closed without retry or repair. The boundary never uses an ad
+hoc role-assignment command, creates infrastructure, obtains a token, invokes an
+agent, deploys application code, restarts the Web App, or cleans up. Raw Azure
+output and identifiers are never serialized.
 
 `src/app/services/foundry_agent_consumer_rbac_verification.py` and
 `scripts/verify_foundry_agent_consumer_rbac.py` provide that distinct read-only

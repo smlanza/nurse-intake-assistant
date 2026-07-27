@@ -257,7 +257,10 @@ def test_azure_modes_lazily_use_exactly_one_injected_runner(
     monkeypatch.setattr(
         script,
         "_fresh_evidence",
-        lambda runner, **kwargs: (_approved_evidence(), None),
+        lambda runner, **kwargs: (
+            _approved_evidence(),
+            "assignment_missing",
+        ),
     )
     if mode == "--live":
         monkeypatch.setattr(
@@ -284,7 +287,10 @@ def test_azure_modes_lazily_use_exactly_one_injected_runner(
 
     output = capsys.readouterr().out
     assert exit_code == 0
-    assert len(runner.calls) == (2 if mode == "--live" else 1)
+    assert len(runner.calls) == 1
+    assert runner.calls[0][3] == (
+        "what-if" if mode == "--what-if" else "create"
+    )
     assert "raw-tenant" not in output
     assert "raw stderr" not in output
 
@@ -312,7 +318,10 @@ def test_non_json_what_if_prints_all_sanitized_counts_and_manual_review_warning(
     monkeypatch.setattr(
         script,
         "_fresh_evidence",
-        lambda runner, **kwargs: (_approved_evidence(), None),
+        lambda runner, **kwargs: (
+            _approved_evidence(),
+            "assignment_missing",
+        ),
     )
 
     exit_code = script.main(["--what-if", *VALID_ARGUMENTS])
