@@ -3,6 +3,7 @@ import importlib
 import json
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,12 @@ VALID_NAMES = [
     "--json",
 ]
 LIVE_EVIDENCE = ["--environment-fingerprint", "a" * 64]
+HANDOFF_INPUTS = [
+    "--config",
+    ".env.daily-azure.local",
+    "--readiness-receipt",
+    ".artifacts/daily-azure-rebuild/readiness-receipt.json",
+]
 
 
 def _script():
@@ -72,6 +79,36 @@ def _receipt():
         web_app_name="fictional-web-app",
         webjob_name=service.WEBJOB_NAME,
         environment_fingerprint="a" * 64,
+    )
+
+
+def _install_generation_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+    script,
+) -> None:
+    config = SimpleNamespace(
+        resource_group="fictional-rg",
+        web_app_name="fictional-web-app",
+    )
+    readiness = SimpleNamespace(
+        resource_group="fictional-rg",
+        web_app_name="fictional-web-app",
+    )
+    handoff = SimpleNamespace(environment_fingerprint="a" * 64)
+    monkeypatch.setattr(
+        script,
+        "load_daily_azure_config",
+        lambda *_args, **_kwargs: config,
+    )
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_args: readiness,
+    )
+    monkeypatch.setattr(
+        script,
+        "load_hosted_foundry_agent_webjob_handoff",
+        lambda *_args, **_kwargs: handoff,
     )
 
 
@@ -148,6 +185,7 @@ def test_live_modes_lazily_construct_one_runner_and_print_sanitized_json(
 
     runner = FakeRunner()
     created: list[bool] = []
+    _install_generation_handoff(monkeypatch, script)
 
     def factory():
         created.append(True)
@@ -155,7 +193,7 @@ def test_live_modes_lazily_construct_one_runner_and_print_sanitized_json(
 
     monkeypatch.setattr(script, "_create_azure_cli_runner", factory)
 
-    exit_code = script.main([mode, *VALID_NAMES, *LIVE_EVIDENCE])
+    exit_code = script.main([mode, *VALID_NAMES, *HANDOFF_INPUTS])
 
     output = capsys.readouterr().out
     payload = json.loads(output)
@@ -179,6 +217,7 @@ def test_status_without_receipt_fails_before_runner_factory(
     script = _script()
     service = _service()
     monkeypatch.setattr(service, "FileTriggerReceiptStore", lambda _root: MemoryStore())
+    _install_generation_handoff(monkeypatch, script)
     created: list[bool] = []
     monkeypatch.setattr(
         script,
@@ -186,11 +225,186 @@ def test_status_without_receipt_fails_before_runner_factory(
         lambda: created.append(True),
     )
 
-    exit_code = script.main(["--live-status", *VALID_NAMES, *LIVE_EVIDENCE])
+    exit_code = script.main(["--live-status", *VALID_NAMES, *HANDOFF_INPUTS])
 
     assert exit_code == 2
     assert json.loads(capsys.readouterr().out)["category"] == "trigger_receipt_missing"
     assert created == []
+
+
+@pytest.mark.parametrize(
+    ("mode", "stdout"),
+    [
+        ("--live-discover", '[{"name":"verify-hosted-foundry-agent"}]'),
+        ("--live-trigger", "{}"),
+        (
+            "--live-status",
+            '[{"status":"Success","start_time":"2026-07-19T10:00:00Z"}]',
+        ),
+    ],
+)
+def test_live_modes_consume_private_handoff_without_operator_fingerprint(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+    stdout: str,
+) -> None:
+    script = _script()
+    service = _service()
+    store = MemoryStore(_receipt() if mode == "--live-status" else None)
+    monkeypatch.setattr(service, "FileTriggerReceiptStore", lambda _root: store)
+    config = SimpleNamespace(
+        resource_group="fictional-rg",
+        web_app_name="fictional-web-app",
+    )
+    readiness = SimpleNamespace(
+        resource_group="fictional-rg",
+        web_app_name="fictional-web-app",
+    )
+    handoff = SimpleNamespace(environment_fingerprint="a" * 64)
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_args: readiness,
+    )
+    monkeypatch.setattr(
+        script,
+        "load_hosted_foundry_agent_webjob_handoff",
+        lambda *_args, **_kwargs: handoff,
+    )
+
+    class Runner:
+        def run(self, _args):
+            return service.CommandResult(0, stdout, "")
+
+    monkeypatch.setattr(script, "_create_azure_cli_runner", Runner)
+
+    code = script.main(
+        [
+            mode,
+            *VALID_NAMES,
+            "--config",
+            ".env.daily-azure.local",
+            "--readiness-receipt",
+            ".artifacts/daily-azure-rebuild/readiness-receipt.json",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert code == 0
+    assert "a" * 64 not in output
+    assert "environment_fingerprint" not in output
+
+
+def test_invalid_readiness_or_handoff_stops_before_runner_factory(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    config = SimpleNamespace(
+        resource_group="fictional-rg",
+        web_app_name="fictional-web-app",
+    )
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_args: None,
+    )
+    monkeypatch.setattr(
+        script,
+        "_create_azure_cli_runner",
+        lambda: pytest.fail("invalid handoff must stop before runner"),
+    )
+
+    code = script.main(
+        [
+            "--live-discover",
+            *VALID_NAMES,
+            "--config",
+            ".env.daily-azure.local",
+            "--readiness-receipt",
+            ".artifacts/daily-azure-rebuild/readiness-receipt.json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert payload["category"] == "generation_handoff_invalid"
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["--live-discover", "--live-trigger", "--live-status"],
+)
+def test_operator_fingerprint_cannot_bypass_receipt_and_private_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    mode: str,
+) -> None:
+    script = _script()
+    monkeypatch.setattr(
+        script,
+        "_create_azure_cli_runner",
+        lambda: pytest.fail("missing receipt and handoff must stop before runner"),
+    )
+
+    code = script.main([mode, *VALID_NAMES, *LIVE_EVIDENCE])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert payload["category"] == "generation_handoff_invalid"
+    assert payload["azure_operation_attempted"] is False
+
+
+def test_conflicting_direct_and_handoff_fingerprints_fail_before_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    config = SimpleNamespace(
+        resource_group="fictional-rg",
+        web_app_name="fictional-web-app",
+    )
+    readiness = SimpleNamespace(
+        resource_group="fictional-rg",
+        web_app_name="fictional-web-app",
+    )
+    handoff = SimpleNamespace(environment_fingerprint="a" * 64)
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_args, **_kwargs: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_args: readiness,
+    )
+    monkeypatch.setattr(
+        script,
+        "load_hosted_foundry_agent_webjob_handoff",
+        lambda *_args, **_kwargs: handoff,
+    )
+    monkeypatch.setattr(
+        script,
+        "_create_azure_cli_runner",
+        lambda: pytest.fail("conflict must stop before runner"),
+    )
+
+    code = script.main(
+        [
+            "--live-discover",
+            *VALID_NAMES,
+            "--config",
+            ".env.daily-azure.local",
+            "--readiness-receipt",
+            ".artifacts/daily-azure-rebuild/readiness-receipt.json",
+            "--environment-fingerprint",
+            "b" * 64,
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert payload["category"] == "generation_handoff_invalid"
 
 
 def test_subprocess_runner_uses_safe_argument_list_and_never_prints(

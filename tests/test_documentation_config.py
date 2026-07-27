@@ -972,6 +972,38 @@ def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> Non
         assert unauthorized_command not in runbook
 
 
+def test_hosted_webjob_generation_handoff_is_receipt_bound_and_not_operator_supplied() -> None:
+    architecture = _normalized(_read("docs/architecture.md"))
+    runbook = _normalized(
+        _read("docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md")
+    )
+
+    _assert_contains_all(
+        architecture,
+        {
+            "separate explicitly invoked handoff-preparation boundary",
+            "current non-revoked readiness receipt",
+            "generation-handoff.json",
+            "without reading Consumer role assignments",
+            "does not change daily READY",
+        },
+    )
+    _assert_contains_all(
+        runbook,
+        {
+            "scripts/prepare_hosted_foundry_agent_webjob_handoff.py",
+            "generation-handoff.json",
+            "--readiness-receipt",
+            "--live-discover",
+            "--live-trigger",
+            "--live-status",
+            "same unchanged readiness receipt",
+            "Trigger acceptance is not terminal execution success",
+        },
+    )
+    assert "CURRENT_ENVIRONMENT_FINGERPRINT" not in runbook
+
+
 def test_current_hosted_docs_reject_superseded_metadata_only_meanings() -> None:
     combined = _normalized(
         _read("docs/architecture.md")

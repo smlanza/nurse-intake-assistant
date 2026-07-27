@@ -21,6 +21,11 @@ from src.app.services.hosted_foundry_agent_webjob_execution import (
     _parse_outcome,
     _parse_receipt,
 )
+from src.app.services.hosted_foundry_agent_webjob_handoff import (
+    GENERATION_HANDOFF_RELATIVE_PATH,
+    GENERATION_HANDOFF_SCHEMA_VERSION,
+    HostedFoundryAgentWebJobGenerationHandoff,
+)
 
 
 ARTIFACT_DIRECTORY_NAME = ".artifacts"
@@ -33,6 +38,7 @@ RECOVERY_OUTCOME_SUFFIX = ".recovery-outcome.json"
 RECOVERY_SCHEMA_VERSION = 1
 RecoveryState = Literal[
     "empty",
+    "prepared",
     "accepted",
     "blocked",
     "terminal-success",
@@ -65,10 +71,18 @@ _ALLOWED_FILES = frozenset(
         TRIGGER_BLOCKED_RELATIVE_PATH.name,
         TERMINAL_OUTCOME_RELATIVE_PATH.name,
         TRIGGER_RESERVATION_RELATIVE_PATH.name,
+        GENERATION_HANDOFF_RELATIVE_PATH.name,
     }
 )
 _ARCHIVABLE_STATES = frozenset(
-    {"accepted", "blocked", "terminal-success", "terminal-failure", "stale"}
+    {
+        "prepared",
+        "accepted",
+        "blocked",
+        "terminal-success",
+        "terminal-failure",
+        "stale",
+    }
 )
 _REASONS = frozenset(
     {"stale_environment_evidence", "completed_generation_retirement"}
@@ -289,6 +303,36 @@ def _valid_fingerprint(value: object) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
 
 
+def _parse_generation_handoff(
+    payload: object,
+) -> HostedFoundryAgentWebJobGenerationHandoff | None:
+    expected = {
+        field
+        for field in HostedFoundryAgentWebJobGenerationHandoff.__dataclass_fields__
+    }
+    if not isinstance(payload, dict) or set(payload) != expected:
+        return None
+    try:
+        handoff = HostedFoundryAgentWebJobGenerationHandoff(**payload)
+    except TypeError:
+        return None
+    if (
+        handoff.schema_version != GENERATION_HANDOFF_SCHEMA_VERSION
+        or handoff.state != "prepared"
+        or not _valid_fingerprint(handoff.readiness_configuration_fingerprint)
+        or not _valid_fingerprint(handoff.readiness_correlation_fingerprint)
+        or not _valid_fingerprint(handoff.environment_fingerprint)
+        or not isinstance(handoff.readiness_run_epoch, str)
+        or not handoff.readiness_run_epoch
+        or not isinstance(handoff.resource_group, str)
+        or not handoff.resource_group
+        or not isinstance(handoff.web_app_name, str)
+        or not handoff.web_app_name
+    ):
+        return None
+    return handoff
+
+
 def _manifest(
     state: RecoveryState,
     files: tuple[RecoveryFileEvidence, ...],
@@ -351,11 +395,16 @@ def _inspect_open_directory(
     receipt = _parse_receipt(payloads.get(TRIGGER_RECEIPT_RELATIVE_PATH.name))
     blocked = _parse_blocked(payloads.get(TRIGGER_BLOCKED_RELATIVE_PATH.name))
     outcome = _parse_outcome(payloads.get(TERMINAL_OUTCOME_RELATIVE_PATH.name))
+    handoff = _parse_generation_handoff(
+        payloads.get(GENERATION_HANDOFF_RELATIVE_PATH.name)
+    )
     if TRIGGER_RECEIPT_RELATIVE_PATH.name in payloads and receipt is None:
         malformed = True
     if TRIGGER_BLOCKED_RELATIVE_PATH.name in payloads and blocked is None:
         malformed = True
     if TERMINAL_OUTCOME_RELATIVE_PATH.name in payloads and outcome is None:
+        malformed = True
+    if GENERATION_HANDOFF_RELATIVE_PATH.name in payloads and handoff is None:
         malformed = True
     if TRIGGER_RESERVATION_RELATIVE_PATH.name in payloads:
         malformed = malformed or payloads[TRIGGER_RESERVATION_RELATIVE_PATH.name] != {
@@ -363,7 +412,9 @@ def _inspect_open_directory(
             "state": "in-progress",
         }
     fingerprint = (
-        receipt.environment_fingerprint
+        handoff.environment_fingerprint
+        if handoff is not None
+        else receipt.environment_fingerprint
         if receipt is not None
         else blocked.environment_fingerprint
         if blocked is not None
@@ -395,15 +446,46 @@ def _inspect_open_directory(
         and receipt.webjob_name == outcome.webjob_name
         and receipt.environment_fingerprint == outcome.environment_fingerprint
     )
-    if blocked is not None and receipt is None and outcome is None and len(names) == 1:
+    handoff_matches_receipt = bool(
+        handoff is not None
+        and receipt is not None
+        and handoff.resource_group == receipt.resource_group
+        and handoff.web_app_name == receipt.web_app_name
+        and handoff.environment_fingerprint == receipt.environment_fingerprint
+    )
+    handoff_matches_blocked = bool(
+        handoff is not None
+        and blocked is not None
+        and handoff.resource_group == blocked.resource_group
+        and handoff.web_app_name == blocked.web_app_name
+        and handoff.environment_fingerprint == blocked.environment_fingerprint
+    )
+    if (
+        handoff is not None
+        and receipt is None
+        and blocked is None
+        and outcome is None
+        and len(names) == 1
+    ):
+        state = "prepared"
+    elif blocked is not None and receipt is None and outcome is None and (
+        len(names) == 1
+        or len(names) == 2 and handoff_matches_blocked
+    ):
         state = "blocked"
-    elif receipt is not None and blocked is None and outcome is None and len(names) == 1:
+    elif receipt is not None and blocked is None and outcome is None and (
+        len(names) == 1
+        or len(names) == 2 and handoff_matches_receipt
+    ):
         state = "accepted"
     elif (
         receipt is not None
         and blocked is None
         and outcome is not None
-        and len(names) == 2
+        and (
+            len(names) == 2
+            or len(names) == 3 and handoff_matches_receipt
+        )
         and same_context
     ):
         state = outcome.state

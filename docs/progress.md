@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,477 passed full suite
-- 21 shell-wrapper tests and 32 documentation tests
+- 2,501 passed full suite
+- 21 shell-wrapper tests and 33 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -412,28 +412,27 @@ After that proof, resume Nurse Intake Assistant application and AI-103 feature d
 
 ## Current Slice Status
 
-- Frozen objective: support one supervised WebJob proof that the deployed Web App
-  system identity verifies exact immutable Foundry agent metadata, performs one
-  fixed fictional invocation, validates its contract, and emits a sanitized result.
-- Initial RED was 3 failed and 40 passed: malformed nonblank hosted identity
-  markers reached metadata-verifier dependency construction.
-- GREEN applies bounded marker/endpoint checks before dependency construction;
-  all hosted verification, invocation, WebJob execution/recovery, entrypoint,
-  CLI, package, and documentation focused tests pass (328 passed).
-- Full suite: 2,477 passed with one existing FastAPI/TestClient warning.
-- No Azure, HTTP, WebJob, identity, Foundry, RBAC, deployment, cleanup, staging,
-  commit, or push operation occurred.
-- Remaining supervised steps: obtain fresh current-session daily READY,
-  current-artifact/readiness/configuration/system-identity proofs, complete the
-  prerequisite runbook, confirm fictional data and suppressed notifications,
-  and separately reconfirm exact project-scoped Consumer RBAC.
-- Run offline check, one bounded discovery, one explicitly approved trigger,
-  then receipt-correlated status, stopping after every sanitized result.
-  Trigger acceptance is not execution; terminal execution remains distinct from
-  metadata verification, invocation, and output validation.
-- Use recovery only when the existing inspection contract requires it; inspection
-  and explicit archival remain separate offline steps.
-- Architecture impact: none.
+- Frozen objective: preserve immediate daily READY and add a separate read-only
+  handoff for standalone WebJob discovery, trigger, and status.
+- Confirmed defect: no supported post-READY handoff supplied the existing fingerprint function's opaque result to the WebJob CLI.
+- Initial RED was 17 failed and 8 passed for the absent service, private
+  artifact, CLI, and receipt-driven path; a recovery RED also proved the new
+  artifact was initially treated as conflicting state.
+- GREEN: preparation validates the current non-revoked READY receipt and hosted
+  package, performs two projected identity/project reads without role-assignment
+  listing, fingerprints with the existing function, and writes private immutable
+  `generation-handoff.json`.
+- Discovery, trigger, and status consume that unchanged handoff via `--config`
+  and `--readiness-receipt` without emitting its evidence; operator-supplied
+  fingerprint input cannot bypass the receipt and handoff.
+- Independent review found and the correction pass closed two High blockers: standalone fingerprint bypass and symlink-following permission mutation; focused GREEN is 528 and full GREEN is 2,501 with one existing FastAPI/TestClient warning.
+- No Azure, HTTP, WebJob, identity, Foundry, RBAC, deployment, cleanup, staging, commit, or push operation occurred.
+- Supervised sequence: daily READY and exact Consumer RBAC proof -> preparation
+  `--check` and `--live` -> WebJob `--check` -> one discovery -> separately
+  approved trigger and receipt-correlated status, stopping after each result.
+- Preparation, discovery, and trigger acceptance prove neither terminal
+  execution nor metadata, invocation, or output-contract success.
+- Architecture impact: updated the existing infrastructure-orchestration section because the current readiness receipt now authorizes a durable private generation handoff consumed by the standalone WebJob lifecycle.
 - Historical standalone reconciliation rejected one Web App Deploy and nine unidentified Ignore records; the wrapper is removed, no live direct-module
   preview has yet succeeded, and no live reconciliation preview or deployment
   occurred in this slice.

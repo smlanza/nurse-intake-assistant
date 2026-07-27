@@ -323,6 +323,19 @@ verification, RBAC, readiness, and WebJob lifecycle boundaries below remain
 authoritative for their resource-specific parsing and proof. Intake processing
 and notifications remain outside infrastructure orchestration.
 
+After READY, a separate explicitly invoked handoff-preparation boundary
+validates the current non-revoked readiness receipt, revalidates the hosted
+package, and performs only projected read-only Web App identity and Foundry
+project reads. It constructs the existing environment-generation evidence
+without reading Consumer role assignments and persists only its opaque
+fingerprint and readiness correlation in private immutable
+`generation-handoff.json` beneath the WebJob lifecycle directory. Discovery,
+trigger, and status validate the
+same unchanged readiness receipt and private handoff before constructing an
+Azure runner. The fingerprint and its source identifiers are never operator
+inputs or serialized command output. Preparation cannot discover, trigger, or
+inspect a WebJob and does not change daily READY.
+
 The same cleanup service owns the explicit standalone end-of-day boundary. It
 is limited to the exact configured subscription context, resource group,
 location, repository ownership tag, and bounded daily Foundry naming contract.

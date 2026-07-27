@@ -145,6 +145,18 @@ or unknown acceptance response is ambiguous and must create blocked state before
 reservation release. Only a specifically modeled local process-not-started
 failure is conclusively pre-submission and may permit a later explicit attempt.
 
+After daily READY and before discovery, the separate
+`scripts/prepare_hosted_foundry_agent_webjob_handoff.py` command validates the
+current non-revoked readiness receipt, revalidates the current hosted package,
+and performs only projected read-only Web App identity and Foundry project
+reads. It reads no role assignments and performs no WebJob operation. It writes
+one private immutable `generation-handoff.json` beneath the lifecycle
+directory. The fingerprint and its source evidence are never operator inputs or
+command output. Discovery, trigger, and status require the same unchanged
+readiness receipt and handoff. A rebuild or deletion invalidates the readiness
+receipt; retire stale lifecycle evidence through the recovery runbook rather
+than replacing it.
+
 Separate status requires the immutable accepted receipt and one projected
 history read. It never mutates the receipt. Correlated terminal success or
 failure is written separately to immutable `terminal-outcome.json`; a repeated
@@ -206,13 +218,14 @@ Operator authentication/current account
 -> exact immutable prompt-agent version verification
 -> current Web App configuration verification
 -> current hosted readiness verification
--> current fixed WebJob discovery
 -> current exact direct RBAC verification
 -> exact assignment-only what-if and preview-bound default-no approval when missing
 -> immediate fresh identity, project, subscription, role, assignment, and generation revalidation
 -> constrained RBAC deployment and separate post-deployment verification when missing
+-> read-only WebJob generation-handoff preparation
 -> offline hosted-verifier check
 -> manual review of all sanitized evidence
+-> current fixed WebJob discovery
 -> one explicitly authorized WebJob trigger request
 -> review of trigger acceptance without treating it as verification success
 -> one separately authorized receipt-correlated status read
@@ -336,3 +349,83 @@ general polling, repeated calls, or indefinite waiting.
 - [ ] After trigger acceptance, the operator separately authorizes at most one
   receipt-correlated status read; trigger acceptance itself is not verification
   success, and historical latest-run evidence is insufficient.
+
+## 12. Preferred handoff and WebJob commands
+
+Use the same current readiness receipt for preparation, discovery, trigger, and
+status. Stop and review each sanitized JSON result before the next command.
+Never substitute another fingerprint or manually reconstruct generation
+evidence.
+
+```bash
+set -o pipefail
+
+.venv/bin/python scripts/prepare_hosted_foundry_agent_webjob_handoff.py \
+  --check \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --json |
+  python -m json.tool
+
+.venv/bin/python scripts/prepare_hosted_foundry_agent_webjob_handoff.py \
+  --live \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --json |
+  python -m json.tool
+```
+
+After successful preparation, run the offline execution check:
+
+```bash
+.venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
+  --check \
+  --resource-group <resource-group> \
+  --web-app-name <web-app-name> \
+  --json |
+  python -m json.tool
+```
+
+Then perform exactly one bounded discovery and stop:
+
+```bash
+.venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
+  --live-discover \
+  --resource-group <resource-group> \
+  --web-app-name <web-app-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --json |
+  python -m json.tool
+```
+
+Only after separate approval, submit one trigger and stop. Trigger acceptance
+is not terminal execution success:
+
+```bash
+.venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
+  --live-trigger \
+  --resource-group <resource-group> \
+  --web-app-name <web-app-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --json |
+  python -m json.tool
+```
+
+Authorize one receipt-correlated status read separately:
+
+```bash
+.venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
+  --live-status \
+  --resource-group <resource-group> \
+  --web-app-name <web-app-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --json |
+  python -m json.tool
+```
+
+Terminal WebJob success must still prove the fixed sequence of exact metadata
+verification, one fictional invocation, and output-contract validation. It is
+not inferred from preparation, discovery, or trigger acceptance.
