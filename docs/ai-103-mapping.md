@@ -157,8 +157,13 @@ Scope boundaries:
   through trim-aware nested-module `minLength` validation without experimental
   Bicep features.
   The seven mock-safe application settings remain unchanged. The deterministic
-  package contains one manually triggered Python WebJob that calls only the
-  metadata verifier, forces validated `$HOME/site/wwwroot` to import precedence,
+  application package excludes `App_Data`; a separate generation-bound,
+  default-no deployment creates an exact one-file WebJob ZIP and uses the
+  supported Kudu triggered-WebJob replacement endpoint. Upload acceptance and
+  one subsequent read-only discovery are separate and neither triggers
+  execution. The WebJob calls only the metadata verifier and fixed fictional
+  invocation, forces validated `$HOME/site/wwwroot` to import precedence,
+  resolves dependencies only from the validated platform interpreter prefix,
   rejects unexpected preloaded packages, and proves the exact HOME-owned module
   file after import, independent of temporary Kudu staging. A fixed exclusive
   local reservation protects one

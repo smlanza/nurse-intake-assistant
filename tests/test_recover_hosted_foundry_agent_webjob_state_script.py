@@ -7,6 +7,28 @@ from pathlib import Path
 import pytest
 
 
+def test_cli_has_explicit_transitional_legacy_package_conflict_flag(
+    tmp_path: Path,
+) -> None:
+    script = importlib.import_module(
+        "scripts.recover_hosted_foundry_agent_webjob_state"
+    )
+
+    args = script._parse_args(
+        [
+            "--inspect",
+            "--legacy-package-conflict",
+            "--source-root",
+            str(tmp_path),
+            "--json",
+        ]
+    )
+    request = script._request(args)
+
+    assert request.mode == "inspect"
+    assert request.legacy_package_conflict is True
+
+
 @pytest.mark.parametrize("answer", ["", "\n", "n\n", "maybe\n", None])
 def test_archive_defaults_no_on_eof_empty_or_explicit_decline(
     monkeypatch, capsys, tmp_path: Path, answer: object

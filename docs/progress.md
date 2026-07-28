@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,501 passed full suite
-- 21 shell-wrapper tests and 33 documentation tests
+- 2,620 passed full suite
+- 21 shell-wrapper tests and 34 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -412,30 +412,31 @@ After that proof, resume Nurse Intake Assistant application and AI-103 feature d
 
 ## Current Slice Status
 
-- Frozen objective: preserve immediate daily READY and add a separate read-only
-  handoff for standalone WebJob discovery, trigger, and status.
-- Confirmed defect: no supported post-READY handoff supplied the existing fingerprint function's opaque result to the WebJob CLI.
-- Initial RED was 17 failed and 8 passed for the absent service, private
-  artifact, CLI, and receipt-driven path; a recovery RED also proved the new
-  artifact was initially treated as conflicting state.
-- GREEN: preparation validates the current non-revoked READY receipt and hosted
-  package, performs two projected identity/project reads without role-assignment
-  listing, fingerprints with the existing function, and writes private immutable
-  `generation-handoff.json`.
-- Discovery, trigger, and status consume that unchanged handoff via `--config`
-  and `--readiness-receipt` without emitting its evidence; operator-supplied
-  fingerprint input cannot bypass the receipt and handoff.
-- Independent review found and the correction pass closed two High blockers: standalone fingerprint bypass and symlink-following permission mutation; focused GREEN is 528 and full GREEN is 2,501 with one existing FastAPI/TestClient warning.
-- No Azure, HTTP, WebJob, identity, Foundry, RBAC, deployment, cleanup, staging, commit, or push operation occurred.
-- Supervised sequence: daily READY and exact Consumer RBAC proof -> preparation
-  `--check` and `--live` -> WebJob `--check` -> one discovery -> separately
-  approved trigger and receipt-correlated status, stopping after each result.
-- Preparation, discovery, and trigger acceptance prove neither terminal
-  execution nor metadata, invocation, or output-contract success.
-- Architecture impact: updated the existing infrastructure-orchestration section because the current readiness receipt now authorizes a durable private generation handoff consumed by the standalone WebJob lifecycle.
-- Historical standalone reconciliation rejected one Web App Deploy and nine unidentified Ignore records; the wrapper is removed, no live direct-module
-  preview has yet succeeded, and no live reconciliation preview or deployment
-  occurred in this slice.
+- Frozen objective: correct only dedicated hosted WebJob remote discovery after a successful Kudu upload.
+- Confirmed defect: Azure CLI list discovery omitted the installed fixed job
+  even though direct authenticated Kudu resource and VFS reads returned 200.
+- RED: 25 failures proved the absent authoritative adapter, attribution,
+  ambiguity, parser, first-run `latest_run`, and sanitization contracts.
+- GREEN: both callers share one exact-resource Kudu GET, require the fixed name
+  and `run.py`, permit absent/null/object `latest_run`, and discard every other
+  top-level field without serializing its value.
+- Null or absent `latest_run` proves registration but never execution. Discovery
+  does no list, poll, upload, trigger, history, status, verification, or invocation.
+- Trigger and status still use their separate Azure CLI `run` and `log`
+  operations. READY, handoff, generation, package authorization, default-no
+  upload, and immutable lifecycle contracts remain unchanged.
+- Focused parser RED was 1 failed and 24 passed; focused GREEN was 26 passed.
+  The WebJob/package/deployment/handoff/lifecycle matrix is 291 passed, and the
+  full suite is 2,620 passed with one existing Starlette warning.
+- The stale handoff was normally archived; daily refresh deployed the
+  parser-current application, re-established READY, reverified exact Consumer
+  RBAC, and prepared a replacement immutable handoff.
+- One corrected read-only live discovery returned `ok=true` and
+  `remote_webjob_discovered=true`. No WebJob upload, trigger, status/history
+  read, metadata verification, agent invocation, RBAC change, infrastructure
+  change, cleanup, commit, or push occurred.
+- Historical reconciliation rejected one Web App Deploy and nine unidentified
+  Ignore records; the wrapper is removed, `--reconcile-existing-web-app` remains standalone, no live direct-module preview has yet succeeded, and no live reconciliation preview or deployment occurred.
 
 ### Historical Slice Results
 

@@ -32,15 +32,44 @@ HandoffCategory = Literal[
     "invalid_request",
     "readiness_receipt_invalid",
     "generation_evidence_invalid",
+    "current_session_binding_invalid",
+    "local_package_binding_invalid",
+    "hosted_artifact_current_verification_failed",
+    "web_app_identity_read_failed",
+    "web_app_identity_invalid",
+    "foundry_project_read_failed",
+    "foundry_project_invalid",
+    "environment_fingerprint_invalid",
     "generation_handoff_invalid",
     "generation_handoff_conflict",
     "generation_handoff_write_failed",
     "unexpected_error",
 ]
+GenerationEvidenceFailureCategory = Literal[
+    "current_session_binding_invalid",
+    "local_package_binding_invalid",
+    "hosted_artifact_current_verification_failed",
+    "web_app_identity_read_failed",
+    "web_app_identity_invalid",
+    "foundry_project_read_failed",
+    "foundry_project_invalid",
+]
 
 
 class GenerationHandoffError(Exception):
     pass
+
+
+class GenerationEvidenceReadError(GenerationHandoffError):
+    def __init__(
+        self,
+        category: GenerationEvidenceFailureCategory,
+        *,
+        azure_read_attempted: bool,
+    ) -> None:
+        super().__init__()
+        self.category = category
+        self.azure_read_attempted = azure_read_attempted
 
 
 @dataclass(frozen=True)
@@ -269,6 +298,15 @@ def prepare_hosted_foundry_agent_webjob_handoff(
     assert readiness_receipt is not None
     try:
         evidence = evidence_reader()
+    except GenerationEvidenceReadError as error:
+        return _result(
+            request,
+            error.category,
+            local_contract_validated=True,
+            readiness_receipt_validated=True,
+            evidence_read_attempted=True,
+            azure_read_attempted=error.azure_read_attempted,
+        )
     except Exception:
         return _result(
             request,
@@ -276,18 +314,23 @@ def prepare_hosted_foundry_agent_webjob_handoff(
             local_contract_validated=True,
             readiness_receipt_validated=True,
             evidence_read_attempted=True,
-            azure_read_attempted=True,
+            azure_read_attempted=(
+                getattr(evidence_reader, "azure_read_attempted", False) is True
+            ),
         )
+    azure_read_attempted = (
+        getattr(evidence_reader, "azure_read_attempted", False) is True
+    )
     try:
         fingerprint = environment_generation_fingerprint(evidence)
     except (AttributeError, TypeError, ValueError):
         return _result(
             request,
-            "generation_evidence_invalid",
+            "environment_fingerprint_invalid",
             local_contract_validated=True,
             readiness_receipt_validated=True,
             evidence_read_attempted=True,
-            azure_read_attempted=True,
+            azure_read_attempted=azure_read_attempted,
         )
     handoff = _handoff_for(readiness_receipt, request, fingerprint)
     try:
@@ -300,7 +343,7 @@ def prepare_hosted_foundry_agent_webjob_handoff(
             readiness_receipt_validated=True,
             evidence_read_attempted=True,
             generation_evidence_validated=True,
-            azure_read_attempted=True,
+            azure_read_attempted=azure_read_attempted,
         )
     if existing is not None:
         return _result(
@@ -313,7 +356,7 @@ def prepare_hosted_foundry_agent_webjob_handoff(
             generation_evidence_validated=True,
             handoff_persisted=existing == handoff,
             handoff_reused=existing == handoff,
-            azure_read_attempted=True,
+            azure_read_attempted=azure_read_attempted,
         )
     try:
         handoff_store.write(handoff)
@@ -325,7 +368,7 @@ def prepare_hosted_foundry_agent_webjob_handoff(
             readiness_receipt_validated=True,
             evidence_read_attempted=True,
             generation_evidence_validated=True,
-            azure_read_attempted=True,
+            azure_read_attempted=azure_read_attempted,
         )
     except Exception:
         return _result(
@@ -335,7 +378,7 @@ def prepare_hosted_foundry_agent_webjob_handoff(
             readiness_receipt_validated=True,
             evidence_read_attempted=True,
             generation_evidence_validated=True,
-            azure_read_attempted=True,
+            azure_read_attempted=azure_read_attempted,
         )
     return _result(
         request,
@@ -346,7 +389,7 @@ def prepare_hosted_foundry_agent_webjob_handoff(
         evidence_read_attempted=True,
         generation_evidence_validated=True,
         handoff_persisted=True,
-        azure_read_attempted=True,
+        azure_read_attempted=azure_read_attempted,
     )
 
 
@@ -654,8 +697,7 @@ def _current_package_is_hosted(origin: str, artifact_digest: str) -> bool:
     )
     return bool(
         result.ok
-        and result.hosted_ready
-        and result.application_artifact_current
+        and result.application_artifact_matches
     )
 
 
@@ -686,22 +728,37 @@ class RepositoryEnvironmentGenerationEvidenceReader:
         self._session_reader = session_reader
         self._package_reader = package_reader
         self._hosted_package_verifier = hosted_package_verifier
+        self._azure_read_attempted = False
 
-    @staticmethod
-    def _json_read(runner: AzureCliRunner, command: list[str]) -> object:
+    @property
+    def azure_read_attempted(self) -> bool:
+        return self._azure_read_attempted
+
+    def _json_read(
+        self,
+        command: list[str],
+        category: GenerationEvidenceFailureCategory,
+    ) -> object:
         try:
-            outcome = runner.run(command)
+            self._azure_read_attempted = True
+            outcome = self._runner.run(command)
             if (
                 type(getattr(outcome, "return_code", None)) is not int
                 or outcome.return_code != 0
                 or not isinstance(getattr(outcome, "stdout", None), str)
             ):
-                raise GenerationHandoffError()
+                raise GenerationEvidenceReadError(
+                    category,
+                    azure_read_attempted=True,
+                )
             return json.loads(outcome.stdout)
-        except GenerationHandoffError:
+        except GenerationEvidenceReadError:
             raise
         except Exception as error:
-            raise GenerationHandoffError() from error
+            raise GenerationEvidenceReadError(
+                category,
+                azure_read_attempted=True,
+            ) from error
 
     def __call__(self) -> EnvironmentGenerationEvidence:
         from src.app.services.foundry_agent_consumer_rbac_verification import (
@@ -712,21 +769,50 @@ class RepositoryEnvironmentGenerationEvidenceReader:
             _system_identity,
         )
 
-        session = self._session_reader(
-            self._source_root,
-            self._config,
-            self._receipt,
-        )
-        package_digest, artifact_digest = self._package_reader(self._source_root)
+        self._azure_read_attempted = False
+        try:
+            session = self._session_reader(
+                self._source_root,
+                self._config,
+                self._receipt,
+            )
+        except Exception as error:
+            raise GenerationEvidenceReadError(
+                "current_session_binding_invalid",
+                azure_read_attempted=False,
+            ) from error
+        try:
+            package_digest, artifact_digest = self._package_reader(
+                self._source_root
+            )
+        except Exception as error:
+            raise GenerationEvidenceReadError(
+                "local_package_binding_invalid",
+                azure_read_attempted=False,
+            ) from error
         if not (
             _valid_fingerprint(package_digest)
             and _valid_fingerprint(artifact_digest)
-            and self._hosted_package_verifier(
+        ):
+            raise GenerationEvidenceReadError(
+                "local_package_binding_invalid",
+                azure_read_attempted=False,
+            )
+        try:
+            hosted_package_current = self._hosted_package_verifier(
                 session.hosted_origin,
                 artifact_digest,
             )
-        ):
-            raise GenerationHandoffError()
+        except Exception as error:
+            raise GenerationEvidenceReadError(
+                "hosted_artifact_current_verification_failed",
+                azure_read_attempted=False,
+            ) from error
+        if hosted_package_current is not True:
+            raise GenerationEvidenceReadError(
+                "hosted_artifact_current_verification_failed",
+                azure_read_attempted=False,
+            )
         request = FoundryAgentConsumerRbacVerificationRequest(
             mode="live",
             resource_group=self._receipt.resource_group,
@@ -735,7 +821,6 @@ class RepositoryEnvironmentGenerationEvidenceReader:
             foundry_project_name=self._receipt.foundry_project_name,
         )
         identity = self._json_read(
-            self._runner,
             [
                 "az",
                 "webapp",
@@ -750,13 +835,22 @@ class RepositoryEnvironmentGenerationEvidenceReader:
                 "json",
                 "--only-show-errors",
             ],
+            "web_app_identity_read_failed",
         )
-        identity_values = _system_identity(identity, request)
+        try:
+            identity_values = _system_identity(identity, request)
+        except Exception as error:
+            raise GenerationEvidenceReadError(
+                "web_app_identity_invalid",
+                azure_read_attempted=True,
+            ) from error
         if identity_values is None:
-            raise GenerationHandoffError()
+            raise GenerationEvidenceReadError(
+                "web_app_identity_invalid",
+                azure_read_attempted=True,
+            )
         principal_id, web_app_resource_id, subscription_id = identity_values
         project = self._json_read(
-            self._runner,
             [
                 "az",
                 "cognitiveservices",
@@ -775,10 +869,24 @@ class RepositoryEnvironmentGenerationEvidenceReader:
                 "json",
                 "--only-show-errors",
             ],
+            "foundry_project_read_failed",
         )
-        project_resource_id = _project_scope(project, request, subscription_id)
+        try:
+            project_resource_id = _project_scope(
+                project,
+                request,
+                subscription_id,
+            )
+        except Exception as error:
+            raise GenerationEvidenceReadError(
+                "foundry_project_invalid",
+                azure_read_attempted=True,
+            ) from error
         if project_resource_id is None:
-            raise GenerationHandoffError()
+            raise GenerationEvidenceReadError(
+                "foundry_project_invalid",
+                azure_read_attempted=True,
+            )
         resource_group_resource_id = project_resource_id.split(
             "/providers/",
             1,

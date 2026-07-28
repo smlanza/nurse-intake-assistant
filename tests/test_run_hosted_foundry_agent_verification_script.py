@@ -128,6 +128,11 @@ def test_import_and_check_construct_no_runner_or_azure_operation(
         "_create_azure_cli_runner",
         lambda: pytest.fail("check must not construct a runner"),
     )
+    monkeypatch.setattr(
+        script,
+        "_create_kudu_discoverer",
+        lambda: pytest.fail("check must not construct a discoverer"),
+    )
 
     exit_code = script.main(["--check", *VALID_NAMES])
 
@@ -183,15 +188,41 @@ def test_live_modes_lazily_construct_one_runner_and_print_sanitized_json(
             self.calls.append(args)
             return service.CommandResult(0, stdout, "raw stderr")
 
-    runner = FakeRunner()
     created: list[bool] = []
     _install_generation_handoff(monkeypatch, script)
+    if mode == "--live-discover":
+        kudu = importlib.import_module(
+            "src.app.services.hosted_foundry_agent_webjob_kudu"
+        )
 
-    def factory():
-        created.append(True)
-        return runner
+        class Discoverer:
+            def __init__(self) -> None:
+                self.calls: list[tuple[str, str]] = []
 
-    monkeypatch.setattr(script, "_create_azure_cli_runner", factory)
+            def discover(self, web_app_name: str, webjob_name: str):
+                self.calls.append((web_app_name, webjob_name))
+                return kudu.KuduWebJobDiscoveryResult.success()
+
+        dependency = Discoverer()
+
+        def factory():
+            created.append(True)
+            return dependency
+
+        monkeypatch.setattr(script, "_create_kudu_discoverer", factory)
+        monkeypatch.setattr(
+            script,
+            "_create_azure_cli_runner",
+            lambda: pytest.fail("discovery must not use CLI WebJob list"),
+        )
+    else:
+        dependency = FakeRunner()
+
+        def factory():
+            created.append(True)
+            return dependency
+
+        monkeypatch.setattr(script, "_create_azure_cli_runner", factory)
 
     exit_code = script.main([mode, *VALID_NAMES, *HANDOFF_INPUTS])
 
@@ -199,10 +230,12 @@ def test_live_modes_lazily_construct_one_runner_and_print_sanitized_json(
     payload = json.loads(output)
     assert exit_code == 0
     assert created == [True]
-    assert len(runner.calls) == 1
+    assert len(dependency.calls) == 1
     assert payload["invocation_attempted"] is (mode == "--live-status")
     if mode == "--live-discover":
-        assert runner.calls[0][:5] == ["az", "webapp", "webjob", "triggered", "list"]
+        assert dependency.calls == [
+            ("fictional-web-app", service.WEBJOB_NAME)
+        ]
         assert payload["remote_webjob_discovered"] is True
     for forbidden in (
         "fictional-rg", "fictional-web-app", "raw stderr", "discarded", "2026-07-19",
@@ -278,7 +311,22 @@ def test_live_modes_consume_private_handoff_without_operator_fingerprint(
         def run(self, _args):
             return service.CommandResult(0, stdout, "")
 
-    monkeypatch.setattr(script, "_create_azure_cli_runner", Runner)
+    if mode == "--live-discover":
+        kudu = importlib.import_module(
+            "src.app.services.hosted_foundry_agent_webjob_kudu"
+        )
+
+        class Discoverer:
+            def discover(self, _web_app_name, _webjob_name):
+                return kudu.KuduWebJobDiscoveryResult.success()
+
+        monkeypatch.setattr(
+            script,
+            "_create_kudu_discoverer",
+            Discoverer,
+        )
+    else:
+        monkeypatch.setattr(script, "_create_azure_cli_runner", Runner)
 
     code = script.main(
         [
@@ -317,6 +365,11 @@ def test_invalid_readiness_or_handoff_stops_before_runner_factory(
         "_create_azure_cli_runner",
         lambda: pytest.fail("invalid handoff must stop before runner"),
     )
+    monkeypatch.setattr(
+        script,
+        "_create_kudu_discoverer",
+        lambda: pytest.fail("invalid handoff must stop before discoverer"),
+    )
 
     code = script.main(
         [
@@ -348,6 +401,13 @@ def test_operator_fingerprint_cannot_bypass_receipt_and_private_handoff(
         script,
         "_create_azure_cli_runner",
         lambda: pytest.fail("missing receipt and handoff must stop before runner"),
+    )
+    monkeypatch.setattr(
+        script,
+        "_create_kudu_discoverer",
+        lambda: pytest.fail(
+            "missing receipt and handoff must stop before discoverer"
+        ),
     )
 
     code = script.main([mode, *VALID_NAMES, *LIVE_EVIDENCE])
@@ -388,6 +448,11 @@ def test_conflicting_direct_and_handoff_fingerprints_fail_before_runner(
         "_create_azure_cli_runner",
         lambda: pytest.fail("conflict must stop before runner"),
     )
+    monkeypatch.setattr(
+        script,
+        "_create_kudu_discoverer",
+        lambda: pytest.fail("conflict must stop before discoverer"),
+    )
 
     code = script.main(
         [
@@ -424,7 +489,7 @@ def test_subprocess_runner_uses_safe_argument_list_and_never_prints(
         return Completed()
 
     monkeypatch.setattr(script.subprocess, "run", fake_run)
-    args = ["az", "webapp", "webjob", "triggered", "list"]
+    args = ["az", "account", "show"]
 
     result = script.SubprocessAzureCliRunner().run(args)
 

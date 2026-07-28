@@ -3444,9 +3444,13 @@ class RepositoryDailyAzureStageRunner:
         *,
         repository_root: Path = REPOSITORY_ROOT,
         command_runner: _SubprocessRunner | None = None,
+        hosted_webjob_discoverer_factory: Callable[[], object] | None = None,
     ) -> None:
         from src.app.services.web_app_package import (
             create_package_authorization_session,
+        )
+        from src.app.services.hosted_foundry_agent_webjob_kudu import (
+            KuduTriggeredWebJobDiscoverer,
         )
 
         self.config = config
@@ -3454,6 +3458,14 @@ class RepositoryDailyAzureStageRunner:
         self.command_runner = command_runner or _SubprocessRunner()
         self._hosted_webjob_command_runner = _HostedWebJobCommandRunner(
             self.command_runner
+        )
+        self._hosted_webjob_discoverer_factory = (
+            hosted_webjob_discoverer_factory
+            or (
+                lambda: KuduTriggeredWebJobDiscoverer(
+                    token_runner=self._hosted_webjob_command_runner,
+                )
+            )
         )
         self._package = None
         self._package_authorization_session = create_package_authorization_session()
@@ -4427,7 +4439,7 @@ class RepositoryDailyAzureStageRunner:
                 self.repository_root,
                 context.environment_fingerprint,
             ),
-            runner=self._hosted_webjob_command_runner,
+            discoverer_factory=self._hosted_webjob_discoverer_factory,
         )
         if (
             not result.ok

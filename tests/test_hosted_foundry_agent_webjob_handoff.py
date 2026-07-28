@@ -161,9 +161,165 @@ def test_malformed_generation_evidence_fails_without_persisting() -> None:
         handoff_store=store,
     )
 
-    assert result.category == "generation_evidence_invalid"
+    assert result.category == "environment_fingerprint_invalid"
+    assert result.azure_read_attempted is False
     assert result.handoff_persisted is False
     assert store.writes == []
+
+
+@pytest.mark.parametrize(
+    ("failure_stage", "expected_category", "expected_azure_reads"),
+    [
+        ("current_session_binding", "current_session_binding_invalid", 0),
+        ("local_package_binding", "local_package_binding_invalid", 0),
+        (
+            "hosted_artifact_current_verification",
+            "hosted_artifact_current_verification_failed",
+            0,
+        ),
+        ("web_app_identity_command", "web_app_identity_read_failed", 1),
+        ("web_app_identity_validation", "web_app_identity_invalid", 1),
+        ("foundry_project_command", "foundry_project_read_failed", 2),
+        ("foundry_project_validation", "foundry_project_invalid", 2),
+        (
+            "environment_fingerprint_validation",
+            "environment_fingerprint_invalid",
+            2,
+        ),
+    ],
+)
+def test_generation_evidence_failure_stages_are_distinct_sanitized_and_fail_closed(
+    tmp_path: Path,
+    failure_stage: str,
+    expected_category: str,
+    expected_azure_reads: int,
+) -> None:
+    service = _service()
+    sensitive_exception = "secret stderr with subscription and credential"
+    identity_payload = {
+        "principalId": FINGERPRINT_EVIDENCE.principal_id,
+        "type": "SystemAssigned",
+        "webAppId": FINGERPRINT_EVIDENCE.web_app_resource_id,
+    }
+    project_payload = {
+        "name": "fictional-project",
+        "id": FINGERPRINT_EVIDENCE.foundry_project_resource_id,
+    }
+
+    class Outcome:
+        def __init__(self, return_code: int, payload: object) -> None:
+            self.return_code = return_code
+            self.stdout = (
+                payload if isinstance(payload, str) else json.dumps(payload)
+            )
+            self.stderr = sensitive_exception
+
+    class Runner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, args: list[str]) -> Outcome:
+            self.calls.append(args)
+            if (
+                failure_stage == "web_app_identity_command"
+                and len(self.calls) == 1
+            ):
+                return Outcome(1, sensitive_exception)
+            if (
+                failure_stage == "web_app_identity_validation"
+                and len(self.calls) == 1
+            ):
+                return Outcome(0, {"unexpected": sensitive_exception})
+            if len(self.calls) == 1:
+                return Outcome(0, identity_payload)
+            if failure_stage == "foundry_project_command":
+                return Outcome(1, sensitive_exception)
+            if failure_stage == "foundry_project_validation":
+                return Outcome(0, {"unexpected": sensitive_exception})
+            return Outcome(0, project_payload)
+
+    def session_reader(*_args):
+        if failure_stage == "current_session_binding":
+            raise RuntimeError(sensitive_exception)
+        return service._CurrentSessionBinding(
+            agent_name=(
+                "a" * 64
+                if failure_stage == "environment_fingerprint_validation"
+                else "fictional-agent"
+            ),
+            agent_version="7",
+            hosted_origin="https://fictional.example",
+        )
+
+    def package_reader(_root):
+        if failure_stage == "local_package_binding":
+            raise RuntimeError(sensitive_exception)
+        return "b" * 64, "f" * 64
+
+    def hosted_package_verifier(_origin, _digest):
+        if failure_stage == "hosted_artifact_current_verification":
+            return False
+        return True
+
+    runner = Runner()
+    reader = service.RepositoryEnvironmentGenerationEvidenceReader(
+        source_root=tmp_path,
+        config=object(),
+        readiness_receipt=_receipt(),
+        runner=runner,
+        session_reader=session_reader,
+        package_reader=package_reader,
+        hosted_package_verifier=hosted_package_verifier,
+    )
+    store = MemoryStore()
+
+    result = service.prepare_hosted_foundry_agent_webjob_handoff(
+        _request(source_root=tmp_path),
+        readiness_receipt=_receipt(),
+        evidence_reader=reader,
+        handoff_store=store,
+    )
+
+    assert result.ok is False
+    assert result.category == expected_category
+    assert result.azure_read_attempted is (expected_azure_reads > 0)
+    assert len(runner.calls) == expected_azure_reads
+    assert result.evidence_read_attempted is True
+    assert result.generation_evidence_validated is False
+    assert result.handoff_persisted is False
+    assert result.webjob_operation_attempted is False
+    assert store.writes == []
+    serialized = json.dumps(result.to_json_dict())
+    for forbidden in (
+        sensitive_exception,
+        FINGERPRINT_EVIDENCE.resource_group_resource_id,
+        FINGERPRINT_EVIDENCE.web_app_resource_id,
+        FINGERPRINT_EVIDENCE.principal_id,
+        FINGERPRINT_EVIDENCE.package_digest,
+        FINGERPRINT_EVIDENCE.foundry_project_resource_id,
+        FINGERPRINT_EVIDENCE.agent_name,
+        "fictional-project",
+        "fictional.example",
+        "credential",
+        "stderr",
+    ):
+        assert forbidden not in serialized
+
+
+def test_untyped_pre_azure_evidence_reader_failure_does_not_claim_azure_read() -> None:
+    def fail_before_azure():
+        raise RuntimeError("sensitive exception text")
+
+    result = _service().prepare_hosted_foundry_agent_webjob_handoff(
+        _request(),
+        readiness_receipt=_receipt(),
+        evidence_reader=fail_before_azure,
+        handoff_store=MemoryStore(),
+    )
+
+    assert result.category == "generation_evidence_invalid"
+    assert result.azure_read_attempted is False
+    assert "sensitive exception text" not in json.dumps(result.to_json_dict())
 
 
 def test_existing_different_handoff_fails_closed_without_replacement() -> None:
@@ -339,6 +495,32 @@ def test_repository_reader_uses_two_projected_reads_and_no_assignment_read(
         "show",
     ]
     assert all("role" not in call for args in runner.calls for call in args)
+
+
+def test_current_package_hosted_verifier_uses_repository_readiness_result_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    readiness = importlib.import_module(
+        "src.app.services.web_app_readiness_verification"
+    )
+
+    class Result:
+        ok = True
+        application_artifact_matches = True
+
+    monkeypatch.setattr(
+        readiness,
+        "verify_web_app_readiness",
+        lambda *_args, **_kwargs: Result(),
+    )
+
+    assert (
+        _service()._current_package_is_hosted(
+            "https://fictional.example",
+            "f" * 64,
+        )
+        is True
+    )
 
 
 def test_recovery_inspector_recognizes_prepared_and_accepted_handoff_states(

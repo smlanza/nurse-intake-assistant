@@ -72,7 +72,8 @@ alternate provisioner, or substitute portal-only instructions.
 | Prompt-agent lifecycle and immutable-version verification | `src/app/services/foundry_agent_deployment.py`, `scripts/deploy_foundry_agent.py`, `src/app/services/foundry_agent_verification.py`, and `scripts/verify_foundry_agent.py` |
 | Linux Web App infrastructure | `infra/main.bicep`, `infra/modules/web-app.bicep`, `src/app/services/web_app_infra_deployment.py`, and `scripts/deploy_web_app_infra.py` |
 | Hosted application configuration verification | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_configuration_verification.py`, and `scripts/verify_web_app_configuration.py` |
-| Deterministic packaging and code deployment | `src/app/services/web_app_package.py`, `scripts/package_web_app.py`, and `scripts/deploy_web_app_code.py` |
+| Deterministic application packaging and code deployment | `src/app/services/web_app_package.py`, `scripts/package_web_app.py`, and `scripts/deploy_web_app_code.py` |
+| Generation-bound triggered WebJob packaging and deployment | `src/app/services/hosted_foundry_agent_webjob_package.py`, `src/app/services/hosted_foundry_agent_webjob_deployment.py`, and `scripts/deploy_hosted_foundry_agent_webjob.py` |
 | Hosted readiness verification | `src/app/services/web_app_readiness_verification.py` and `scripts/verify_web_app_readiness.py` |
 | Project-scoped Consumer RBAC deployment and exact direct-assignment verification | `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_deployment.py`, `scripts/deploy_foundry_agent_consumer_rbac.py`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, and `scripts/verify_foundry_agent_consumer_rbac.py` |
 | Packaged hosted Foundry metadata verification | `src/app/services/hosted_foundry_agent_verification.py` and `src/app/operations/verify_hosted_foundry_agent.py` |
@@ -117,11 +118,32 @@ construction. Missing, stale, or historical evidence fails the gate.
 
 ## 6. Hosted execution mechanism and configuration gates
 
-The deterministic application package now includes exactly one manually
-triggered Python WebJob at
-`App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`. Its fixed entry
-point first runs hosted metadata verification and, only after exact typed proof
-success, performs one fixed-fictional invocation. It validates both complete
+The deterministic application package excludes `App_Data` and therefore
+cannot implicitly install or update a WebJob. A separate deterministic
+WebJob-only ZIP contains exactly `run.py`, sourced from
+`App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`; no `.env`, Git,
+tests, documentation, Bicep parameters, application source tree, artifacts, or
+unrelated WebJob can enter that archive. The separately approved deployment
+uses the supported Kudu replacing upload contract,
+`PUT /api/triggeredwebjobs/verify-hosted-foundry-agent`, with
+`Content-Type: application/zip`. Upload acceptance and the subsequent
+authoritative Kudu
+`GET /api/triggeredwebjobs/verify-hosted-foundry-agent` are distinct proofs.
+Both use the same validated Entra bearer-token acquisition boundary. Neither
+proof triggers the WebJob.
+
+The package builder writes only
+`.artifacts/hosted-foundry-agent-webjob-package/verify-hosted-foundry-agent.zip`.
+The separate `.artifacts/hosted-foundry-agent-webjob/` root is reserved
+exclusively for recognized immutable generation and trigger lifecycle state.
+Check, package creation, approval preparation, upload, and deployment must not
+create a package directory, ZIP, staging file, or other build artifact beneath
+that lifecycle root. If the exact transitional legacy `package/` conflict is
+present, stop before deployment and use only the explicit recovery procedure;
+never move or delete it manually.
+
+The fixed entry point first runs hosted metadata verification and, only after
+exact typed proof success, performs one fixed-fictional invocation. It validates both complete
 application-owned result schemas and emits one combined sanitized JSON result.
 Offline
 check validates the entry point, package allowlist, Bicep/configuration path,
@@ -129,9 +151,17 @@ and lazy SDK imports without constructing an Azure runner. The entry point
 resolves only the absolute App Service `HOME`, puts validated
 `$HOME/site/wwwroot` first on `sys.path`, rejects unexpected preloaded parent or
 target packages, proves the imported module is the exact HOME-owned operation
-file, and never derives imports from temporary Kudu staging, `cwd`, or
-`WEBJOBS_PATH`. Separate discovery performs one name-only
-read. Before separate trigger reads state or constructs a runner, it atomically
+file, and rebuilds dependency paths only from the platform-selected Python
+interpreter's validated `sys.prefix` and `sys.base_prefix`. It does not use
+`APP_PATH`, inferred Oryx virtual-environment names, temporary Kudu staging,
+`cwd`, or `WEBJOBS_PATH`. Missing or unsafe `pydantic`, `azure.identity`, or
+`azure.ai.projects` resolution fails before metadata verification or
+invocation. Separate discovery performs exactly one fixed-resource Kudu GET,
+requires the exact fixed name and `run.py`, and performs no list, poll, upload,
+trigger, history, or mutation operation. `latest_run` may be absent or null
+before the first trigger and is not execution proof. Additional Kudu-owned
+top-level fields are ignored and their values are neither trusted nor
+serialized. Before separate trigger reads state or constructs a runner, it atomically
 creates the fixed
 `.artifacts/hosted-foundry-agent-webjob/trigger-reservation.lock`. That local
 reservation excludes trigger processes sharing this checkout's artifact
@@ -225,7 +255,8 @@ Operator authentication/current account
 -> read-only WebJob generation-handoff preparation
 -> offline hosted-verifier check
 -> manual review of all sanitized evidence
--> current fixed WebJob discovery
+-> separately approved generation-bound WebJob-only ZIP upload
+-> read-only proof that the fixed remote WebJob is discoverable
 -> one explicitly authorized WebJob trigger request
 -> review of trigger acceptance without treating it as verification success
 -> one separately authorized receipt-correlated status read
@@ -375,7 +406,37 @@ set -o pipefail
   python -m json.tool
 ```
 
-After successful preparation, run the offline execution check:
+Preparation is fail-closed. Its output contains only fixed sanitized categories;
+it never includes names, IDs, endpoints, package digests, fingerprints,
+settings, credentials, command output, stderr, or exception text.
+`azure_read_attempted=true` means the preparation reader entered at least one
+Azure CLI runner call. It remains `false` for every failure before that exact
+boundary.
+
+| Sanitized failure category | Meaning and required operator response |
+|---|---|
+| `invalid_request` | The local request contract is invalid. Use the documented command exactly; do not infer or substitute values. |
+| `readiness_receipt_invalid` | The receipt is missing, stale, revoked, malformed, or does not match the current approved configuration. Stop and obtain a fresh successful daily READY receipt through the daily rebuild runbook. |
+| `current_session_binding_invalid` | The protected current-session file is missing, malformed, unsafe, or does not exactly match the approved config and receipt. Correct the approved daily configuration or rerun its repository-owned coordinator; never hand-edit evidence to make it match. |
+| `local_package_binding_invalid` | Current deterministic package construction or its authorized digest proof failed. Resolve the local package safety/contract failure and rerun the offline package checks. |
+| `hosted_artifact_current_verification_failed` | The hosted readiness request failed, its contracts or safe posture failed, or the hosted artifact is not the current deterministic package. Use the separate sanitized readiness verifier to distinguish those cases. For `application_artifact_mismatch`, separately authorize deployment of the current package, then re-establish hosted readiness before preparation. |
+| `web_app_identity_read_failed` | The projected read-only Web App command failed or returned unreadable JSON. Review current authentication, authorization, approved inventory, and resource usability without trying alternate credentials. |
+| `web_app_identity_invalid` | The projected identity response did not prove the exact Web App resource and system-assigned identity contract. Correct infrastructure or inventory only through the separately approved repository-owned path; do not broaden accepted response shapes. |
+| `foundry_project_read_failed` | The projected read-only Foundry project command failed or returned unreadable JSON. Review current authentication, authorization, approved inventory, and project usability without trying alternate names or credentials. |
+| `foundry_project_invalid` | The projected project response did not prove the exact subscription, resource group, account, child-project name, and resource-ID contract. Correct external inventory or infrastructure drift through a separately approved path; do not relax exact matching. |
+| `environment_fingerprint_invalid` | Final evidence failed the shared environment-generation fingerprint contract. Stop for repository/inventory review; never supply, reconstruct, print, or override a fingerprint. |
+| `generation_evidence_invalid` | An unclassified evidence-reader contract failure occurred. Stop for repository-owned diagnostic review; do not proceed to discovery. |
+| `generation_handoff_invalid` | Existing lifecycle state could not be safely read or validated. Stop and follow the evidence-preserving recovery runbook. |
+| `generation_handoff_conflict` | Immutable lifecycle state already exists but does not exactly match this generation, or concurrent creation won. Do not replace it; use the recovery runbook. |
+| `generation_handoff_write_failed` | Private immutable handoff persistence failed. Correct only the local protected-filesystem condition, preserving any existing evidence, before a new explicit preparation attempt. |
+| `unexpected_error` | An unclassified preparation failure occurred. Stop for repository-owned diagnostic review. |
+
+No preparation failure category authorizes WebJob deployment, discovery,
+trigger, status, metadata
+verification, invocation, Azure mutation, or replacement of immutable
+lifecycle evidence.
+
+After successful preparation, run both offline checks:
 
 ```bash
 .venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
@@ -384,9 +445,98 @@ After successful preparation, run the offline execution check:
   --web-app-name <web-app-name> \
   --json |
   python -m json.tool
+
+.venv/bin/python scripts/deploy_hosted_foundry_agent_webjob.py \
+  --check \
+  --resource-group <resource-group> \
+  --web-app-name <web-app-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --json |
+  python -m json.tool
 ```
 
-Then perform exactly one bounded discovery and stop:
+Only after separate approval, perform the generation-bound WebJob upload. The
+prompt is default-no. The service re-reads the complete environment generation
+after approval, consumes a current-run one-use package authorization, performs
+at most one upload, performs one authoritative fixed-resource Kudu discovery
+only after conclusive upload acceptance, and stops:
+
+```bash
+.venv/bin/python scripts/deploy_hosted_foundry_agent_webjob.py \
+  --live \
+  --resource-group <resource-group> \
+  --web-app-name <web-app-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --json |
+  python -m json.tool
+```
+
+The deployment output is sanitized. Resource and project names, IDs, endpoints,
+principal or subscription identifiers, package digests, fingerprints, raw
+command output, stderr, exception text, settings, tokens, and credentials are
+never serialized. Review these independent proof booleans:
+
+Do not repeat the lifecycle CLI's `--live-discover` immediately after this
+command: successful deployment has already performed the single allowed
+discovery and must stop for review.
+
+- `upload_attempted` means the Kudu upload transport was entered.
+- `upload_accepted` means that one upload returned a supported acceptance
+  status; it does not prove remote installation or execution.
+- `remote_discovery_attempted` means the single Kudu fixed-resource GET
+  transport was entered.
+- `remote_webjob_discovered` proves the exact fixed name and `run.py` command.
+- `trigger_attempted`, `trigger_accepted`,
+  `correlated_execution_observed`, `metadata_verification_proven`, and
+  `fictional_invocation_proven` remain `false` in every deployment result.
+
+| Sanitized deployment category | Meaning and required operator response |
+|---|---|
+| `invalid_request` | The fixed source root, approved names, mode, or WebJob name contract is invalid. Use the documented command unchanged. |
+| `readiness_receipt_invalid` | Current READY proof is absent or mismatched. Re-establish READY; do not upload. |
+| `generation_handoff_invalid` | The immutable handoff is absent, unsafe, stale, or mismatched. Use evidence-preserving recovery before preparing a replacement. |
+| `local_package_invalid` | Exact one-file package planning or construction failed. Correct repository-owned package or filesystem safety; do not upload. |
+| `generation_invalid` | Current environment evidence does not match the immutable handoff. Treat this as configuration, package, identity, project, agent, or WebJob-generation drift. |
+| `approval_required` | Approval was declined, missing, interrupted, or defaulted to no. No upload occurred. |
+| `generation_changed` | Environment evidence changed after approval. Obtain fresh prerequisite evidence and a new approval. |
+| `package_changed` | The source or archive changed after approval, or the one-use authorization could not be consumed. Review the source and restart from current proofs. |
+| `authentication_or_authorization_failed` | No usable shared Entra token was obtained, or Kudu rejected upload or discovery authentication/authorization. Correct operator access without changing the package or trying alternate credentials. |
+| `upload_request_invalid` | Kudu conclusively rejected the request contract with a recognized client/request status. Stop without discovery or retry; correct only the repository-owned request contract after diagnostic-first review. |
+| `upload_throttled` | Kudu conclusively reported throttling. Stop without discovery, retry, delay loop, or inferred acceptance; any later attempt requires fresh generation proof and separate approval. |
+| `upload_service_failed` | Kudu conclusively returned a service-side 5xx rejection. Stop without discovery or retry; do not infer installation from request submission. |
+| `upload_failed` | Kudu conclusively rejected the request with another HTTP status. Stop without discovery or retry and review only the sanitized category. |
+| `upload_acceptance_ambiguous` | Transport interruption, timeout, or another unknown post-submission outcome means acceptance is unknown. Do not retry automatically; inspect current remote state through a separately approved read-only recovery step. |
+| `remote_webjob_missing` | Upload was accepted but the one allowed discovery did not find the fixed name. Stop; do not trigger or upload again automatically. |
+| `remote_webjob_ambiguous` | Discovery did not prove exactly one authoritative fixed WebJob. Stop without inference or trigger. |
+| `discovery_throttled` | Kudu returned throttling for the single discovery GET. Stop without polling, delay loop, or retry. |
+| `discovery_service_failed` | Kudu returned a service-side 5xx discovery failure. Stop without polling or retry. |
+| `discovery_failed` | Kudu conclusively rejected the discovery GET with another status. Stop without another operation. |
+| `discovery_ambiguous` | Discovery was interrupted, timed out, or had an unknown transport outcome. Stop without retry or inference. |
+| `discovery_response_invalid` | The HTTP 200 body was malformed, collection-shaped, duplicated, missing required proof, used an invalid `latest_run` type, or did not prove the exact fixed name and `run.py`. Stop without weakening required-field validation. |
+| `unexpected_error` | An unclassified fail-closed deployment-boundary failure occurred. Stop for repository-owned review. |
+| `success` | Upload acceptance and exact fixed-name discovery are both proven. Stop; trigger still requires a later separate approval. |
+
+The Kudu endpoint behavior is documented in the
+[Kudu WebJobs API](https://github.com/projectkudu/kudu/wiki/WebJobs-API);
+Microsoft also documents ZIP upload for triggered WebJobs in
+[Create and run WebJobs](https://learn.microsoft.com/azure/app-service/webjobs-create).
+These references do not broaden the repository's required proof fields.
+Externally owned non-proof fields remain deliberately extensible and ignored.
+The upload request always uses an Entra bearer token, `application/zip`, and
+the fixed non-secret
+`Content-Disposition: attachment; filename="verify-hosted-foundry-agent.zip"`.
+It never retrieves or emits SCM publishing credentials. Current App Service
+guidance supports Entra-authenticated Kudu access for identities with the
+required App Service publish action, and Azure CLI's ARM token remains the
+repository's fixed audience. An HTTP failure category never contains the
+status, response body, headers, URL, token, exception text, or Kudu output.
+
+For the already-installed generation whose dedicated upload was accepted but
+whose former Azure CLI list discovery returned `remote_webjob_missing`, do not
+upload, replace, archive, or recreate anything. Run exactly one corrected
+read-only discovery and stop:
 
 ```bash
 .venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
@@ -398,6 +548,13 @@ Then perform exactly one bounded discovery and stop:
   --json |
   python -m json.tool
 ```
+
+This standalone mode uses the same Kudu discoverer as post-upload deployment.
+It returns only fixed categories and booleans. It does not trigger, upload,
+poll, read status or history, verify metadata, invoke the agent, mutate Azure,
+or change immutable lifecycle evidence. Trigger and receipt-correlated status
+remain the existing separate Azure CLI `run` and `log` adapters; this discovery
+slice does not change them.
 
 Only after separate approval, submit one trigger and stop. Trigger acceptance
 is not terminal execution success:

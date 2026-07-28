@@ -23,6 +23,9 @@ from src.app.services.daily_azure_environment_rebuild import (
 from src.app.services.hosted_foundry_agent_webjob_handoff import (
     load_hosted_foundry_agent_webjob_handoff,
 )
+from src.app.services.hosted_foundry_agent_webjob_kudu import (
+    KuduTriggeredWebJobDiscoverer,
+)
 
 
 class SubprocessAzureCliRunner:
@@ -46,6 +49,12 @@ class SubprocessAzureCliRunner:
 
 def _create_azure_cli_runner() -> SubprocessAzureCliRunner:
     return SubprocessAzureCliRunner()
+
+
+def _create_kudu_discoverer() -> KuduTriggeredWebJobDiscoverer:
+    return KuduTriggeredWebJobDiscoverer(
+        token_runner=SubprocessAzureCliRunner(),
+    )
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -162,6 +171,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     if mode == "check":
         result = execute_hosted_foundry_agent_webjob(request)
+    elif mode == "live-discover":
+        result = execute_hosted_foundry_agent_webjob(
+            request,
+            discoverer_factory=_create_kudu_discoverer,
+        )
     else:
         result = execute_hosted_foundry_agent_webjob(
             request,

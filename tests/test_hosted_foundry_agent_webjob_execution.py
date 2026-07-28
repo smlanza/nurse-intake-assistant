@@ -158,12 +158,33 @@ class FakeRunner:
         return self.result
 
 
-def _execute(mode: str, runner: FakeRunner, store: MemoryStore | None = None):
+class FakeDiscoverer:
+    def __init__(self, result=None, *, error: Exception | None = None) -> None:
+        service = importlib.import_module(
+            "src.app.services.hosted_foundry_agent_webjob_kudu"
+        )
+        self.result = result or service.KuduWebJobDiscoveryResult.success()
+        self.error = error
+        self.calls: list[tuple[str, str]] = []
+
+    def discover(self, web_app_name: str, webjob_name: str):
+        self.calls.append((web_app_name, webjob_name))
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+def _execute(mode: str, runner, store: MemoryStore | None = None):
+    live_dependency = (
+        {"discoverer": runner}
+        if mode == "live-discover"
+        else {"runner": runner}
+    )
     return _service().execute_hosted_foundry_agent_webjob(
         _request(mode),
-        runner=runner,
         receipt_store=store or MemoryStore(),
         clock=lambda: NOW,
+        **live_dependency,
     )
 
 
@@ -345,59 +366,49 @@ def test_terminal_outcome_fingerprint_conflict_never_replays_success() -> None:
     assert result.invocation_attempted is False
 
 
-def test_discovery_uses_exactly_one_narrow_read_and_ignores_unrelated_jobs() -> None:
+def test_discovery_uses_exactly_one_authoritative_kudu_resource_read() -> None:
     service = _service()
-    runner = FakeRunner(
-        service.CommandResult(
-            0,
-            json.dumps(
-                [{"name": "unrelated"}, {"name": service.WEBJOB_NAME}]
-            ),
-            "raw stderr",
-        )
-    )
+    discoverer = FakeDiscoverer()
 
-    result = _execute("live-discover", runner)
+    result = _execute("live-discover", discoverer)
 
-    assert runner.calls == [[
-        "az", "webapp", "webjob", "triggered", "list",
-        "--resource-group", "fictional-rg",
-        "--name", "fictional-web-app",
-        "--query", "[].{name:name}",
-        "--only-show-errors", "--output", "json",
-    ]]
+    assert discoverer.calls == [
+        ("fictional-web-app", service.WEBJOB_NAME)
+    ]
     assert result.ok is True
     assert result.remote_webjob_discovered is True
     assert result.trigger_request_accepted is False
 
 
 @pytest.mark.parametrize(
-    ("payload", "category"),
+    "category",
     [
-        ("not-json", "response_parse_failed"),
-        ("{}", "response_parse_failed"),
-        ("[]", "remote_webjob_missing"),
-        ('[{"name":"other"}]', "remote_webjob_missing"),
-        (
-            '[{"name":"verify-hosted-foundry-agent"},'
-            '{"name":"verify-hosted-foundry-agent"}]',
-            "remote_webjob_ambiguous",
-        ),
-        ('[{"name":"verify-hosted-foundry-agent","extra":true}]', "response_parse_failed"),
+        "authentication_or_authorization_failed",
+        "remote_webjob_missing",
+        "discovery_throttled",
+        "discovery_service_failed",
+        "discovery_failed",
+        "discovery_ambiguous",
+        "discovery_response_invalid",
     ],
 )
-def test_discovery_fails_closed_for_missing_ambiguous_or_malformed_results(
-    payload: str,
+def test_discovery_preserves_every_sanitized_kudu_failure_category(
     category: str,
 ) -> None:
+    kudu = importlib.import_module(
+        "src.app.services.hosted_foundry_agent_webjob_kudu"
+    )
     result = _execute(
         "live-discover",
-        FakeRunner(_service().CommandResult(0, payload, "secret")),
+        FakeDiscoverer(
+            kudu.KuduWebJobDiscoveryResult(category, True, False)
+        ),
     )
 
     assert result.ok is False
     assert result.category == category
     assert result.remote_webjob_discovered is False
+    assert result.azure_operation_attempted is True
 
 
 def test_trigger_acceptance_writes_exact_contextual_utc_receipt_atomically_bounded() -> None:
@@ -820,11 +831,13 @@ def test_file_receipt_store_rejects_malformed_receipts(
 
 
 def test_failures_are_sanitized_never_retry_and_result_projection_is_unambiguous() -> None:
-    runner = FakeRunner(error=RuntimeError("secret token path"))
+    discoverer = FakeDiscoverer(
+        error=RuntimeError("secret token path")
+    )
 
-    result = _execute("live-discover", runner)
+    result = _execute("live-discover", discoverer)
 
-    assert len(runner.calls) == 1
+    assert len(discoverer.calls) == 1
     rendered = json.dumps(result.to_json_dict())
     assert "secret" not in rendered
     assert "fictional-rg" not in rendered

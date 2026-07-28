@@ -336,6 +336,52 @@ Azure runner. The fingerprint and its source identifiers are never operator
 inputs or serialized command output. Preparation cannot discover, trigger, or
 inspect a WebJob and does not change daily READY.
 
+WebJob installation is a separate generation-bound deployment boundary. The
+ordinary deterministic Web App package excludes `App_Data` and cannot imply
+WebJob installation. A repository-owned builder creates a deterministic ZIP
+whose exact member allowlist is only `run.py`. Its single artifact root is
+`.artifacts/hosted-foundry-agent-webjob-package/`, while immutable generation
+and trigger evidence remains exclusively under
+`.artifacts/hosted-foundry-agent-webjob/`; neither boundary may create entries
+in the other. A current-run one-use
+authorization binds those bytes to the unchanged source, READY receipt,
+immutable generation handoff, fixed Web App, and fixed WebJob name. After a
+default-no operator approval, the boundary revalidates the complete shared
+environment-generation fingerprint before one Kudu
+`PUT /api/triggeredwebjobs/verify-hosted-foundry-agent` request. Upload
+acceptance is distinct from one subsequent authoritative Kudu
+`GET /api/triggeredwebjobs/verify-hosted-foundry-agent` discovery. The GET uses
+the same validated Entra bearer-token boundary as upload and accepts only the
+exact fixed name and `run.py` command. A missing or null `latest_run` is valid
+before the first trigger and proves no execution. All other externally owned
+top-level Kudu fields are discarded without becoming evidence; their presence
+or values cannot affect success or enter output. Kudu is authoritative for both
+dedicated installation and discovery; the Azure CLI triggered-WebJob list is
+not used. The boundary then stops with every trigger, execution, metadata, and
+invocation proof false. It is unreachable from application startup, case
+processing, ordinary Web App deployment, and the daily rebuild coordinator.
+
+The one-file WebJob bootstrap imports repository operations only from validated
+`$HOME/site/wwwroot`. Third-party dependencies resolve only through the
+platform-selected Python interpreter's validated `sys.prefix` or
+`sys.base_prefix`; temporary Kudu/ZipDeploy paths, the working directory,
+`APP_PATH`, and inferred Oryx environment paths are not trusted. Unsafe or
+missing runtime bindings fail before metadata verification or invocation.
+Generation changes or package changes after approval invalidate authorization,
+and immutable lifecycle evidence can be retired only through the separate
+evidence-preserving recovery boundary.
+
+One transitional recovery contract handles only the already-produced legacy
+shape consisting of a valid 0600 `generation-handoff.json` plus a 0700
+`package/` directory containing exactly one regular 0600 fixed-name ZIP. Normal
+inspection still rejects every directory beneath the active lifecycle root.
+Only an explicit legacy-conflict flag enables descriptor-relative, no-follow,
+exact-mode and exact-ZIP validation; its manifest binds the package digest
+without serializing that digest. A separately approved archive revalidates the
+same manifest and atomically retires the complete unchanged directory with an
+immutable external receipt. Extra entries, replacement, mutation, symlinks, or
+permission drift fail closed.
+
 The same cleanup service owns the explicit standalone end-of-day boundary. It
 is limited to the exact configured subscription context, resource group,
 location, repository ownership tag, and bounded daily Foundry naming contract.
@@ -558,8 +604,9 @@ compares all five without serializing either side. The exact seven mock-safe
 provider and notification settings remain unchanged, and remote build remains
 enabled; this does not enable a live provider in FastAPI.
 
-`App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py` is the sole
-allowlisted `App_Data` member in the deterministic Web App package. This thin,
+`App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py` is the sole source
+for the separate deterministic WebJob-only package; the ordinary deterministic
+Web App package excludes `App_Data`. This thin,
 manually triggered Python WebJob performs the fixed sequence of hosted metadata
 verification followed by one fixed-fictional invocation, then emits one
 combined sanitized JSON result. Invocation occurs only when the exact
@@ -578,10 +625,16 @@ ancestry, the working directory, and `WEBJOBS_PATH` cannot select the import.
 `scripts/run_hosted_foundry_agent_verification.py` provide four separate
 operator stages. Offline check validates the fixed entry point, package,
 Bicep/configuration, and lazy-SDK contracts without a runner. Explicit discovery
-performs exactly one name-only read and distinguishes remote discovery from
-local package presence. Explicit trigger submits one fixed run request and,
-before reading lifecycle state or constructing a runner, atomically creates one
-fixed exclusive reservation beneath
+performs exactly one authenticated GET of the fixed Kudu triggered-WebJob
+resource and distinguishes registered installation from local package
+presence. It does not upload, trigger, poll, mutate, or read execution history.
+HTTP rejection, throttling, service failure, transport ambiguity, and an
+unsupported exact response shape remain separate sanitized categories.
+Explicit trigger remains the separate Azure CLI triggered-WebJob `run`
+operation and status remains the separate Azure CLI triggered-WebJob `log`
+operation; neither adapter was changed by the Kudu discovery correction.
+Before trigger reads lifecycle state or constructs a runner, it atomically
+creates one fixed exclusive reservation beneath
 `.artifacts/hosted-foundry-agent-webjob/`. The reservation excludes concurrent
 trigger processes sharing that repository artifact filesystem; it is not a
 distributed lock across machines or checkouts. Accepted context is atomically

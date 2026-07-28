@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+from io import BytesIO
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,7 @@ import re
 import secrets
 import stat
 from typing import Callable, Literal
+import zipfile
 
 from src.app.services.hosted_foundry_agent_webjob_execution import (
     TERMINAL_OUTCOME_RELATIVE_PATH,
@@ -25,6 +27,13 @@ from src.app.services.hosted_foundry_agent_webjob_handoff import (
     GENERATION_HANDOFF_RELATIVE_PATH,
     GENERATION_HANDOFF_SCHEMA_VERSION,
     HostedFoundryAgentWebJobGenerationHandoff,
+)
+from src.app.services.hosted_foundry_agent_webjob_package import (
+    FIXED_ZIP_TIMESTAMP,
+    MAX_ENTRYPOINT_SIZE,
+    MAX_PACKAGE_SIZE,
+    WEBJOB_ARCHIVE_MEMBER,
+    WEBJOB_PACKAGE_FILENAME,
 )
 
 
@@ -44,6 +53,7 @@ RecoveryState = Literal[
     "terminal-success",
     "terminal-failure",
     "stale",
+    "legacy-package-conflict",
     "malformed",
     "conflicting",
     "unsafe",
@@ -82,6 +92,7 @@ _ARCHIVABLE_STATES = frozenset(
         "terminal-success",
         "terminal-failure",
         "stale",
+        "legacy-package-conflict",
     }
 )
 _REASONS = frozenset(
@@ -96,13 +107,14 @@ class HostedWebJobStateRecoveryRequest:
     expected_environment_fingerprint: str | None = None
     manifest_digest: str | None = None
     reason: str | None = None
+    legacy_package_conflict: bool = False
 
 
 @dataclass(frozen=True)
 class RecoveryFileEvidence:
     name: str
     size: int
-    sha256: str
+    sha256: str | None
     schema_version: int | None
     state: str | None
 
@@ -337,6 +349,8 @@ def _manifest(
     state: RecoveryState,
     files: tuple[RecoveryFileEvidence, ...],
     fingerprint_digest: str | None,
+    *,
+    legacy_package_digest: str | None = None,
 ) -> str:
     payload = {
         "schema_version": RECOVERY_SCHEMA_VERSION,
@@ -344,15 +358,183 @@ def _manifest(
         "environment_fingerprint_digest": fingerprint_digest,
         "files": [item.to_json_dict() for item in files],
     }
+    if legacy_package_digest is not None:
+        payload["legacy_package_digest"] = legacy_package_digest
     return hashlib.sha256(
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     ).hexdigest()
+
+
+def _read_exact_regular(
+    directory: int,
+    name: str,
+    *,
+    maximum_size: int,
+    required_mode: int,
+    required_owner: int,
+) -> bytes:
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | os.O_NOFOLLOW
+            | os.O_NONBLOCK
+            | getattr(os, "O_CLOEXEC", 0),
+            dir_fd=directory,
+        )
+        details = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or stat.S_IMODE(details.st_mode) != required_mode
+            or details.st_uid != required_owner
+            or details.st_size <= 0
+            or details.st_size > maximum_size
+        ):
+            raise _UnsafeState()
+        chunks: list[bytes] = []
+        remaining = maximum_size + 1
+        while remaining:
+            chunk = os.read(descriptor, remaining)
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        payload = b"".join(chunks)
+        if len(payload) != details.st_size or len(payload) > maximum_size:
+            raise _UnsafeState()
+        return payload
+    except _UnsafeState:
+        raise
+    except Exception as error:
+        raise _UnsafeState() from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def _inspect_legacy_package_conflict(
+    request: HostedWebJobStateRecoveryRequest,
+    directory: int,
+) -> HostedWebJobStateRecoveryResult:
+    active_details = os.fstat(directory)
+    if (
+        stat.S_IMODE(active_details.st_mode) != 0o700
+        or sorted(os.listdir(directory))
+        != [GENERATION_HANDOFF_RELATIVE_PATH.name, "package"]
+    ):
+        raise _UnsafeState()
+    owner = active_details.st_uid
+    handoff_raw = _read_exact_regular(
+        directory,
+        GENERATION_HANDOFF_RELATIVE_PATH.name,
+        maximum_size=16384,
+        required_mode=0o600,
+        required_owner=owner,
+    )
+    try:
+        handoff_payload = json.loads(handoff_raw.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise _UnsafeState() from error
+    handoff = _parse_generation_handoff(handoff_payload)
+    if handoff is None:
+        raise _UnsafeState()
+    package_descriptor: int | None = None
+    try:
+        package_descriptor = os.open(
+            "package",
+            _directory_flags(),
+            dir_fd=directory,
+        )
+        package_details = os.fstat(package_descriptor)
+        if (
+            stat.S_IMODE(package_details.st_mode) != 0o700
+            or package_details.st_uid != owner
+            or os.listdir(package_descriptor) != [WEBJOB_PACKAGE_FILENAME]
+        ):
+            raise _UnsafeState()
+        package_raw = _read_exact_regular(
+            package_descriptor,
+            WEBJOB_PACKAGE_FILENAME,
+            maximum_size=MAX_PACKAGE_SIZE,
+            required_mode=0o600,
+            required_owner=owner,
+        )
+    finally:
+        if package_descriptor is not None:
+            os.close(package_descriptor)
+    try:
+        with zipfile.ZipFile(BytesIO(package_raw)) as archive:
+            if archive.namelist() != [WEBJOB_ARCHIVE_MEMBER]:
+                raise _UnsafeState()
+            entry = archive.getinfo(WEBJOB_ARCHIVE_MEMBER)
+            entrypoint = archive.read(WEBJOB_ARCHIVE_MEMBER)
+            if (
+                entry.date_time != FIXED_ZIP_TIMESTAMP
+                or entry.is_dir()
+                or entry.compress_type != zipfile.ZIP_DEFLATED
+                or entry.create_system != 3
+                or entry.flag_bits != 0
+                or entry.extra != b""
+                or entry.comment != b""
+                or archive.comment != b""
+                or entry.file_size != len(entrypoint)
+                or not entrypoint
+                or len(entrypoint) > MAX_ENTRYPOINT_SIZE
+                or entry.external_attr >> 16 != 0o100644
+            ):
+                raise _UnsafeState()
+    except _UnsafeState:
+        raise
+    except Exception as error:
+        raise _UnsafeState() from error
+    fingerprint_digest = hashlib.sha256(
+        handoff.environment_fingerprint.encode()
+    ).hexdigest()
+    package_digest = hashlib.sha256(package_raw).hexdigest()
+    files = (
+        RecoveryFileEvidence(
+            name=GENERATION_HANDOFF_RELATIVE_PATH.name,
+            size=len(handoff_raw),
+            sha256=hashlib.sha256(handoff_raw).hexdigest(),
+            schema_version=handoff.schema_version,
+            state=handoff.state,
+        ),
+        RecoveryFileEvidence(
+            name=WEBJOB_PACKAGE_FILENAME,
+            size=len(package_raw),
+            sha256=None,
+            schema_version=None,
+            state="legacy-package",
+        ),
+    )
+    state: RecoveryState = "legacy-package-conflict"
+    return _result(
+        request,
+        "success",
+        state,
+        ok=True,
+        manifest_digest=_manifest(
+            state,
+            files,
+            fingerprint_digest,
+            legacy_package_digest=package_digest,
+        ),
+        fingerprint_digest=fingerprint_digest,
+        files=files,
+        next_step=(
+            "Use the exact manifest digest in a separate default-no "
+            "transitional archive command."
+        ),
+    )
 
 
 def _inspect_open_directory(
     request: HostedWebJobStateRecoveryRequest,
     directory: int,
 ) -> HostedWebJobStateRecoveryResult:
+    if request.legacy_package_conflict:
+        return _inspect_legacy_package_conflict(request, directory)
     names = sorted(os.listdir(directory))
     unexpected = [name for name in names if name not in _ALLOWED_FILES]
     payloads: dict[str, object] = {}
@@ -517,7 +699,15 @@ def _inspect_open_directory(
 def inspect_hosted_webjob_state(
     request: HostedWebJobStateRecoveryRequest,
 ) -> HostedWebJobStateRecoveryResult:
-    if request.mode not in {"check", "inspect", "archive"} or not request.source_root.is_absolute():
+    if (
+        request.mode not in {"check", "inspect", "archive"}
+        or not request.source_root.is_absolute()
+        or not isinstance(request.legacy_package_conflict, bool)
+        or (
+            request.legacy_package_conflict
+            and request.mode not in {"inspect", "archive"}
+        )
+    ):
         return _result(request, "invalid_request", "unsafe")
     try:
         if request.mode == "check":
@@ -770,6 +960,7 @@ def recover_hosted_webjob_state(
             request.expected_environment_fingerprint is not None
             and not _valid_fingerprint(request.expected_environment_fingerprint)
         )
+        or not isinstance(request.legacy_package_conflict, bool)
     ):
         return _result(request, "invalid_request", "unsafe")
 

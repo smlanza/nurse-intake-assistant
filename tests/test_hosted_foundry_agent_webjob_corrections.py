@@ -117,20 +117,19 @@ def test_discovery_is_a_distinct_single_read_mode() -> None:
     service = importlib.import_module(
         "src.app.services.hosted_foundry_agent_webjob_execution"
     )
+    kudu = importlib.import_module(
+        "src.app.services.hosted_foundry_agent_webjob_kudu"
+    )
 
-    class Runner:
+    class Discoverer:
         def __init__(self) -> None:
-            self.calls: list[list[str]] = []
+            self.calls: list[tuple[str, str]] = []
 
-        def run(self, args: list[str]):
-            self.calls.append(args)
-            return service.CommandResult(
-                0,
-                '[{"name":"verify-hosted-foundry-agent"}]',
-                "",
-            )
+        def discover(self, web_app_name: str, webjob_name: str):
+            self.calls.append((web_app_name, webjob_name))
+            return kudu.KuduWebJobDiscoveryResult.success()
 
-    runner = Runner()
+    discoverer = Discoverer()
     request = service.HostedFoundryAgentWebJobExecutionRequest(
         mode="live-discover",
         resource_group="fictional-rg",
@@ -139,26 +138,14 @@ def test_discovery_is_a_distinct_single_read_mode() -> None:
         environment_fingerprint="a" * 64,
     )
 
-    result = service.execute_hosted_foundry_agent_webjob(request, runner=runner)
+    result = service.execute_hosted_foundry_agent_webjob(
+        request,
+        discoverer=discoverer,
+    )
 
     assert result.ok is True
     assert result.remote_webjob_discovered is True
     assert result.trigger_request_accepted is False
-    assert runner.calls == [
-        [
-            "az",
-            "webapp",
-            "webjob",
-            "triggered",
-            "list",
-            "--resource-group",
-            "fictional-rg",
-            "--name",
-            "fictional-web-app",
-            "--query",
-            "[].{name:name}",
-            "--only-show-errors",
-            "--output",
-            "json",
-        ]
+    assert discoverer.calls == [
+        ("fictional-web-app", service.WEBJOB_NAME)
     ]

@@ -27,6 +27,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--expected-environment-fingerprint")
     parser.add_argument("--manifest-digest")
     parser.add_argument(
+        "--legacy-package-conflict",
+        action="store_true",
+        help=(
+            "Inspect or archive only the exact transitional handoff-plus-"
+            "package conflict shape."
+        ),
+    )
+    parser.add_argument(
         "--reason",
         choices=(
             "stale_environment_evidence",
@@ -45,6 +53,7 @@ def _request(args: argparse.Namespace) -> HostedWebJobStateRecoveryRequest:
         expected_environment_fingerprint=args.expected_environment_fingerprint,
         manifest_digest=args.manifest_digest,
         reason=args.reason,
+        legacy_package_conflict=args.legacy_package_conflict,
     )
 
 

@@ -999,9 +999,91 @@ def test_hosted_webjob_generation_handoff_is_receipt_bound_and_not_operator_supp
             "--live-status",
             "same unchanged readiness receipt",
             "Trigger acceptance is not terminal execution success",
+            "current_session_binding_invalid",
+            "local_package_binding_invalid",
+            "hosted_artifact_current_verification_failed",
+            "web_app_identity_read_failed",
+            "web_app_identity_invalid",
+            "foundry_project_read_failed",
+            "foundry_project_invalid",
+            "environment_fingerprint_invalid",
         },
     )
     assert "CURRENT_ENVIRONMENT_FINGERPRINT" not in runbook
+
+
+def test_hosted_webjob_deployment_is_generation_bound_and_stops_after_discovery() -> None:
+    architecture = _normalized(_read("docs/architecture.md"))
+    runbook = _normalized(
+        _read("docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md")
+    )
+    recovery = _normalized(
+        _read("docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md")
+    )
+
+    _assert_contains_all(
+        architecture,
+        {
+            "ordinary deterministic Web App package excludes `App_Data`",
+            "deterministic ZIP whose exact member allowlist is only `run.py`",
+            "`.artifacts/hosted-foundry-agent-webjob-package/`",
+            "immutable generation and trigger evidence remains exclusively",
+            "transitional recovery contract",
+            "current-run one-use authorization",
+            "PUT /api/triggeredwebjobs/verify-hosted-foundry-agent",
+            "GET /api/triggeredwebjobs/verify-hosted-foundry-agent",
+            "Kudu is authoritative for both dedicated installation and discovery",
+            "Azure CLI triggered-WebJob list is not used",
+            "latest_run",
+            "externally owned top-level Kudu fields are discarded",
+            "Upload acceptance is distinct",
+            "platform-selected Python interpreter",
+        },
+    )
+    _assert_contains_all(
+        runbook,
+        {
+            "scripts/deploy_hosted_foundry_agent_webjob.py",
+            "Content-Type: application/zip",
+            "default-no",
+            "upload_attempted",
+            "upload_accepted",
+            "remote_discovery_attempted",
+            "remote_webjob_discovered",
+            "package_changed",
+            "upload_request_invalid",
+            "upload_throttled",
+            "upload_service_failed",
+            "upload_acceptance_ambiguous",
+            "discovery_throttled",
+            "discovery_service_failed",
+            "discovery_ambiguous",
+            "discovery_response_invalid",
+            "same Kudu discoverer as post-upload deployment",
+            "separate Azure CLI `run` and `log` adapters",
+            "Additional Kudu-owned top-level fields are ignored",
+            'Content-Disposition: attachment; filename="verify-hosted-foundry-agent.zip"',
+            (
+                "`.artifacts/hosted-foundry-agent-webjob-package/"
+                "verify-hosted-foundry-agent.zip`"
+            ),
+            "reserved exclusively for recognized immutable generation",
+            "trigger_attempted",
+            "fictional_invocation_proven",
+        },
+    )
+    _assert_contains_all(
+        recovery,
+        {
+            "never edits or replaces `generation-handoff.json`",
+            "Do not manufacture a matching package",
+            "Inspect first",
+            "--legacy-package-conflict",
+            "Normal `--inspect` must return `unsafe_path`",
+            "package digest, package bytes, absolute paths",
+            "complete unchanged legacy directory",
+        },
+    )
 
 
 def test_current_hosted_docs_reject_superseded_metadata_only_meanings() -> None:

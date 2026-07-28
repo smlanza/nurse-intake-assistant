@@ -64,11 +64,10 @@ def test_plan_uses_minimal_allowlist_and_excludes_repository_content(
     plan = plan_web_app_package(source_tree)
 
     assert plan.member_names == (
-        "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py",
-            "requirements.txt",
-            "src/__init__.py",
-            "src/app/application-artifact.json",
-            "src/app/config/red_flags.yaml",
+        "requirements.txt",
+        "src/__init__.py",
+        "src/app/application-artifact.json",
+        "src/app/config/red_flags.yaml",
         "src/app/config/settings.py",
         "src/app/main.py",
         "src/app/static/demo.html",
@@ -118,7 +117,9 @@ def test_symlink_in_allowlisted_tree_is_rejected(source_tree: Path) -> None:
     assert "do-not-package" not in str(error.value)
 
 
-def test_symlink_at_fixed_webjob_entrypoint_is_rejected(source_tree: Path) -> None:
+def test_main_package_ignores_fixed_webjob_entrypoint_symlink(
+    source_tree: Path,
+) -> None:
     outside = source_tree.parent / "outside-webjob.py"
     outside.write_text("do-not-package")
     entrypoint = (
@@ -131,11 +132,9 @@ def test_symlink_at_fixed_webjob_entrypoint_is_rejected(source_tree: Path) -> No
     except OSError:
         pytest.skip("symlinks are not available")
 
-    with pytest.raises(PackageSafetyError) as error:
-        plan_web_app_package(source_tree)
+    plan = plan_web_app_package(source_tree)
 
-    assert error.value.category == "unsafe_symlink"
-    assert "do-not-package" not in str(error.value)
+    assert all(not name.startswith("App_Data/") for name in plan.member_names)
 
 
 def test_plan_rejects_high_risk_content_without_echoing_it(source_tree: Path) -> None:

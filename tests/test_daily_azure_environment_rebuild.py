@@ -12,6 +12,7 @@ from src.app.services import daily_azure_environment_rebuild as daily_rebuild_se
 from src.app.services import foundry_agent_consumer_rbac_deployment
 from src.app.services import foundry_agent_consumer_rbac_verification
 from src.app.services import hosted_foundry_agent_webjob_execution
+from src.app.services import hosted_foundry_agent_webjob_kudu
 from src.app.services import web_app_infra_deployment as web_app_deployment
 from src.app.services.daily_azure_environment_cleanup import (
     CleanupPurpose,
@@ -4032,26 +4033,23 @@ def test_hosted_webjob_boundary_rejects_unadapted_coordinator_result() -> None:
     assert result.ok is False
     assert result.category == "unexpected_error"
     assert result.remote_webjob_discovered is False
-    assert len(command_runner.calls) == 1
+    assert command_runner.calls == []
 
 
 def test_repository_webjob_discovery_adapts_result_and_parses_valid_output(
     tmp_path: Path,
 ) -> None:
-    hosted = hosted_foundry_agent_webjob_execution
-    command_runner = ExactCoordinatorCommandRunner(
-        [
-            daily_rebuild_service._CommandResult(
-                0,
-                json.dumps([{"name": hosted.WEBJOB_NAME}]),
-                "ignored stderr",
-            )
-        ]
-    )
+    calls: list[tuple[str, str]] = []
+
+    class Discoverer:
+        def discover(self, web_app_name: str, webjob_name: str):
+            calls.append((web_app_name, webjob_name))
+            return hosted_foundry_agent_webjob_kudu.KuduWebJobDiscoveryResult.success()
+
     runner = RepositoryDailyAzureStageRunner(
         _config(tmp_path),
         repository_root=Path(__file__).resolve().parents[1],
-        command_runner=command_runner,
+        hosted_webjob_discoverer_factory=Discoverer,
     )
     context = _rbac_preview_context(tmp_path)
 
@@ -4061,23 +4059,8 @@ def test_repository_webjob_discovery_adapts_result_and_parses_valid_output(
     assert result.reused is True
     assert result.webjob_triggered is False
     assert result.agent_invoked is False
-    assert command_runner.calls == [
-        [
-            "az",
-            "webapp",
-            "webjob",
-            "triggered",
-            "list",
-            "--resource-group",
-            context.resource_group,
-            "--name",
-            context.web_app_name,
-            "--query",
-            "[].{name:name}",
-            "--only-show-errors",
-            "--output",
-            "json",
-        ]
+    assert calls == [
+        (context.web_app_name, hosted_foundry_agent_webjob_execution.WEBJOB_NAME)
     ]
 
 
@@ -4086,79 +4069,68 @@ def test_repository_webjob_adapter_preserves_strict_rejection_and_exceptions(
 ) -> None:
     repository_root = Path(__file__).resolve().parents[1]
     context = _rbac_preview_context(tmp_path)
-    structural_runner = CommandRunner(
-        [
-            (
-                0,
-                json.dumps(
-                    [{"name": hosted_foundry_agent_webjob_execution.WEBJOB_NAME}]
-                ),
-                "",
+    class StructuralDiscoverer:
+        def discover(self, _web_app_name, _webjob_name):
+            return hosted_foundry_agent_webjob_kudu.KuduWebJobDiscoveryResult(
+                "discovery_response_invalid",
+                True,
+                False,
             )
-        ]
-    )
+
     structural_result = RepositoryDailyAzureStageRunner(
         _config(tmp_path),
         repository_root=repository_root,
-        command_runner=structural_runner,
+        hosted_webjob_discoverer_factory=StructuralDiscoverer,
     ).discover_webjob(context)
-    raising_runner = RaisingCoordinatorCommandRunner(
-        RuntimeError("sensitive runner failure")
-    )
+
+    class RaisingDiscoverer:
+        def discover(self, _web_app_name, _webjob_name):
+            raise RuntimeError("sensitive discovery failure")
+
     raising_result = RepositoryDailyAzureStageRunner(
         _config(tmp_path),
         repository_root=repository_root,
-        command_runner=raising_runner,
+        hosted_webjob_discoverer_factory=RaisingDiscoverer,
     ).discover_webjob(context)
 
-    assert structural_result.category == "unexpected_error"
-    assert raising_result.category == "unexpected_error"
-    assert len(structural_runner.calls) == 1
-    assert len(raising_runner.calls) == 1
+    assert structural_result.category == "discovery_response_invalid"
+    assert raising_result.category == "discovery_ambiguous"
 
 
 @pytest.mark.parametrize(
-    ("return_code", "stdout", "stderr", "category"),
+    "category",
     [
-        (0, "[]", "", "remote_webjob_missing"),
-        (
-            0,
-            json.dumps(
-                [
-                    {"name": "verify-hosted-foundry-agent"},
-                    {"name": "verify-hosted-foundry-agent"},
-                ]
-            ),
-            "",
-            "remote_webjob_ambiguous",
-        ),
-        (0, "not-json", "", "response_parse_failed"),
-        (127, "", "", "azure_cli_unavailable"),
-        (1, "", "authorization denied", "authentication_or_authorization_failed"),
-        (1, "", "request failed", "azure_request_failed"),
+        "remote_webjob_missing",
+        "authentication_or_authorization_failed",
+        "discovery_throttled",
+        "discovery_service_failed",
+        "discovery_failed",
+        "discovery_ambiguous",
+        "discovery_response_invalid",
     ],
 )
 def test_repository_webjob_discovery_preserves_hosted_failure_categories(
     tmp_path: Path,
-    return_code: int,
-    stdout: str,
-    stderr: str,
     category: str,
 ) -> None:
-    command_runner = ExactCoordinatorCommandRunner(
-        [daily_rebuild_service._CommandResult(return_code, stdout, stderr)]
-    )
+    class Discoverer:
+        def discover(self, _web_app_name, _webjob_name):
+            return hosted_foundry_agent_webjob_kudu.KuduWebJobDiscoveryResult(
+                category,
+                True,
+                False,
+            )
+
     runner = RepositoryDailyAzureStageRunner(
         _config(tmp_path),
         repository_root=Path(__file__).resolve().parents[1],
-        command_runner=command_runner,
+        hosted_webjob_discoverer_factory=Discoverer,
     )
 
     result = runner.discover_webjob(_rbac_preview_context(tmp_path))
 
     assert result.ok is False
     assert result.category == category
-    assert len(command_runner.calls) == 1
 
 
 @pytest.mark.parametrize(
@@ -4178,16 +4150,26 @@ def test_every_repository_webjob_path_supplies_exact_hosted_result_type(
         _config(tmp_path),
         repository_root=Path(__file__).resolve().parents[1],
         command_runner=command_runner,
+        hosted_webjob_discoverer_factory=lambda: object(),
     )
     adapted_runners = []
 
-    def fake_execute(request, *, runner):
-        adapted_runners.append(runner)
-        outcome = runner.run(["boundary-command", request.mode])
-        assert type(outcome) is hosted.CommandResult
-        assert outcome == hosted.CommandResult(
-            0, "opaque stdout", "opaque stderr"
-        )
+    def fake_execute(
+        request,
+        *,
+        runner=None,
+        discoverer_factory=None,
+    ):
+        if request.mode == "live-discover":
+            assert runner is None
+            adapted_runners.append(discoverer_factory())
+        else:
+            adapted_runners.append(runner)
+            outcome = runner.run(["boundary-command", request.mode])
+            assert type(outcome) is hosted.CommandResult
+            assert outcome == hosted.CommandResult(
+                0, "opaque stdout", "opaque stderr"
+            )
         return SimpleNamespace(
             ok=False,
             category="expected_test_stop",
@@ -4211,7 +4193,11 @@ def test_every_repository_webjob_path_supplies_exact_hosted_result_type(
         "trigger_webjob": "live-trigger",
         "verify_hosted_agent": "live-status",
     }[method_name]
-    assert command_runner.calls == [["boundary-command", expected_mode]]
+    assert command_runner.calls == (
+        []
+        if method_name == "discover_webjob"
+        else [["boundary-command", expected_mode]]
+    )
 
 
 def _rbac_preview_payload(

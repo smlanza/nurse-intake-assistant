@@ -69,6 +69,88 @@ UNEXPECTED_FAILURE_JSON = (
 )
 
 
+def _runtime_path_is_bound(candidate, prefixes):
+    try:
+        resolved = candidate.resolve(strict=True)
+        if "zipdeploy" in {part.lower() for part in resolved.parts}:
+            return False
+        owner = next(
+            (prefix for prefix in prefixes if resolved.is_relative_to(prefix)),
+            None,
+        )
+        if owner is None:
+            return False
+        current = resolved
+        while current != owner:
+            if current.is_symlink():
+                return False
+            current = current.parent
+        mode = resolved.lstat().st_mode
+        return stat.S_ISDIR(mode) or stat.S_ISREG(mode)
+    except (OSError, RuntimeError, ValueError):
+        return False
+
+
+def _validated_runtime_paths(application_root):
+    prefixes = []
+    for raw_prefix in (sys.prefix, sys.base_prefix):
+        prefix = Path(raw_prefix)
+        if (
+            not prefix.is_absolute()
+            or prefix.is_symlink()
+            or not stat.S_ISDIR(prefix.lstat().st_mode)
+        ):
+            return None
+        resolved = prefix.resolve(strict=True)
+        if resolved not in prefixes:
+            prefixes.append(resolved)
+    executable = Path(sys.executable)
+    if (
+        not executable.is_absolute()
+        or not _runtime_path_is_bound(executable, prefixes)
+    ):
+        return None
+    runtime_paths = []
+    for entry in sys.path:
+        if not isinstance(entry, str) or not entry:
+            continue
+        candidate = Path(entry)
+        if (
+            not candidate.is_absolute()
+            or candidate.resolve() == application_root
+            or not _runtime_path_is_bound(candidate, prefixes)
+        ):
+            continue
+        resolved = str(candidate.resolve(strict=True))
+        if resolved not in runtime_paths:
+            runtime_paths.append(resolved)
+    if not runtime_paths:
+        return None
+    sys.path[:] = [str(application_root), *runtime_paths]
+    importlib.invalidate_caches()
+    for module_name in ("pydantic", "azure.identity", "azure.ai.projects"):
+        spec = importlib.util.find_spec(module_name)
+        if spec is None:
+            return None
+        locations = []
+        if isinstance(spec.origin, str) and spec.origin not in {
+            "built-in",
+            "frozen",
+        }:
+            locations.append(Path(spec.origin))
+        if spec.submodule_search_locations is not None:
+            locations.extend(
+                Path(location)
+                for location in spec.submodule_search_locations
+            )
+        if not locations or any(
+            not _runtime_path_is_bound(location, prefixes)
+            for location in locations
+        ):
+            return None
+    return runtime_paths
+
+
 def _load_operations():
     try:
         home = os.environ.get("HOME")
@@ -157,17 +239,9 @@ def _load_operations():
             loaded = sys.modules.get(module_name)
             if loaded is not None and not loaded_module_matches(loaded, *expected):
                 return None
-        root = str(application_root)
-        retained_paths = []
-        for entry in sys.path:
-            try:
-                if isinstance(entry, str) and Path(entry).resolve() == application_root:
-                    continue
-            except (OSError, RuntimeError, ValueError):
-                pass
-            retained_paths.append(entry)
-        sys.path[:] = [root, *retained_paths]
-        importlib.invalidate_caches()
+        runtime_paths = _validated_runtime_paths(application_root)
+        if runtime_paths is None:
+            return None
         from src.app.operations import (
             invoke_hosted_foundry_agent,
             verify_hosted_foundry_agent,

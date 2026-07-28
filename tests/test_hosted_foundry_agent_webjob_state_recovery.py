@@ -9,6 +9,14 @@ from src.app.services.hosted_foundry_agent_webjob_execution import (
     FileTriggerReceiptStore,
     TriggerReceipt,
 )
+from src.app.services.hosted_foundry_agent_webjob_handoff import (
+    FileHostedFoundryAgentWebJobHandoffStore,
+    HostedFoundryAgentWebJobGenerationHandoff,
+)
+from src.app.services.hosted_foundry_agent_webjob_package import (
+    WEBJOB_PACKAGE_FILENAME,
+    build_hosted_foundry_agent_webjob_package,
+)
 from src.app.services.hosted_foundry_agent_webjob_state_recovery import (
     HostedWebJobStateRecoveryRequest,
     inspect_hosted_webjob_state,
@@ -37,14 +45,213 @@ def _accepted(root: Path) -> Path:
     return root / ".artifacts/hosted-foundry-agent-webjob"
 
 
-def _request(root: Path, mode: str = "inspect", digest: str | None = None):
-    return HostedWebJobStateRecoveryRequest(
+def _request(
+    root: Path,
+    mode: str = "inspect",
+    digest: str | None = None,
+    *,
+    legacy_package_conflict: bool = False,
+):
+    values = dict(
         mode=mode,
         source_root=root,
         expected_environment_fingerprint=CURRENT_FINGERPRINT,
         manifest_digest=digest,
         reason="stale_environment_evidence",
     )
+    if legacy_package_conflict:
+        values["legacy_package_conflict"] = True
+    return HostedWebJobStateRecoveryRequest(**values)
+
+
+def _prepared(root: Path) -> Path:
+    FileHostedFoundryAgentWebJobHandoffStore(root).write(
+        HostedFoundryAgentWebJobGenerationHandoff(
+            schema_version=1,
+            state="prepared",
+            readiness_configuration_fingerprint="c" * 64,
+            readiness_run_epoch="0" * 32,
+            readiness_correlation_fingerprint="d" * 64,
+            resource_group="fictional-rg",
+            web_app_name="fictional-web",
+            environment_fingerprint=OLD_FINGERPRINT,
+        )
+    )
+    return root / ".artifacts/hosted-foundry-agent-webjob"
+
+
+def _package_source(root: Path) -> None:
+    entrypoint = (
+        root
+        / "App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py"
+    )
+    entrypoint.parent.mkdir(parents=True)
+    entrypoint.write_text("def run():\n    return 0\n")
+
+
+def _legacy_prepared_package(root: Path) -> tuple[Path, bytes, str]:
+    active = _prepared(root)
+    _package_source(root)
+    package = build_hosted_foundry_agent_webjob_package(root)
+    package_bytes = package.package_path.read_bytes()
+    legacy_directory = active / "package"
+    legacy_directory.mkdir(mode=0o700, exist_ok=True)
+    legacy_directory.chmod(0o700)
+    legacy_package = legacy_directory / WEBJOB_PACKAGE_FILENAME
+    if legacy_package != package.package_path:
+        legacy_package.write_bytes(package_bytes)
+    legacy_package.chmod(0o600)
+    return active, package_bytes, package.sha256
+
+
+def test_package_build_does_not_pollute_prepared_lifecycle_state(
+    tmp_path: Path,
+) -> None:
+    active = _prepared(tmp_path)
+    original_names = sorted(path.name for path in active.iterdir())
+    _package_source(tmp_path)
+
+    package = build_hosted_foundry_agent_webjob_package(tmp_path)
+    result = inspect_hosted_webjob_state(_request(tmp_path))
+
+    assert sorted(path.name for path in active.iterdir()) == original_names
+    assert result.ok is True
+    assert result.state == "stale"
+    assert package.package_path.parent.name == (
+        "hosted-foundry-agent-webjob-package"
+    )
+
+
+def test_exact_legacy_package_conflict_requires_explicit_transitional_inspection(
+    tmp_path: Path,
+) -> None:
+    _active, _package_bytes, package_digest = _legacy_prepared_package(
+        tmp_path
+    )
+
+    normal = inspect_hosted_webjob_state(_request(tmp_path))
+    transitional = inspect_hosted_webjob_state(
+        _request(tmp_path, legacy_package_conflict=True)
+    )
+
+    assert normal.ok is False
+    assert normal.category == "unsafe_path"
+    assert transitional.ok is True
+    assert transitional.category == "success"
+    assert transitional.state == "legacy-package-conflict"
+    assert transitional.manifest_digest is not None
+    serialized = json.dumps(transitional.to_json_dict())
+    assert package_digest not in serialized
+    assert str(tmp_path) not in serialized
+
+
+def test_exact_legacy_package_conflict_archives_complete_unchanged_generation(
+    tmp_path: Path,
+) -> None:
+    active, package_bytes, package_digest = _legacy_prepared_package(tmp_path)
+    inspected = inspect_hosted_webjob_state(
+        _request(tmp_path, legacy_package_conflict=True)
+    )
+    assert inspected.manifest_digest is not None
+
+    result = recover_hosted_webjob_state(
+        _request(
+            tmp_path,
+            "archive",
+            inspected.manifest_digest,
+            legacy_package_conflict=True,
+        ),
+        now=lambda: datetime(2026, 7, 29, 12, tzinfo=timezone.utc),
+    )
+
+    assert result.ok is True
+    assert result.category == "archived"
+    assert not active.exists()
+    assert result.archive_relative_path is not None
+    archived = tmp_path / result.archive_relative_path
+    assert (
+        archived / "package" / WEBJOB_PACKAGE_FILENAME
+    ).read_bytes() == package_bytes
+    assert (archived / "generation-handoff.json").is_file()
+    assert result.retirement_receipt_relative_path is not None
+    retirement = json.loads(
+        (tmp_path / result.retirement_receipt_relative_path).read_text()
+    )
+    assert retirement["approved_manifest_digest"] == inspected.manifest_digest
+    assert retirement["archived_manifest_digest"] == inspected.manifest_digest
+    assert package_digest not in json.dumps(retirement)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "active-extra",
+        "package-extra",
+        "wrong-mode",
+        "wrong-name",
+        "package-symlink",
+    ],
+)
+def test_transitional_legacy_inspection_rejects_every_nonexact_shape(
+    tmp_path: Path,
+    change: str,
+) -> None:
+    active, _package_bytes, _package_digest = _legacy_prepared_package(
+        tmp_path
+    )
+    package_directory = active / "package"
+    package = package_directory / WEBJOB_PACKAGE_FILENAME
+    if change == "active-extra":
+        (active / "unknown.json").write_text("{}")
+    elif change == "package-extra":
+        (package_directory / "extra.zip").write_bytes(b"extra")
+    elif change == "wrong-mode":
+        package.chmod(0o644)
+    elif change == "wrong-name":
+        package.rename(package_directory / "wrong.zip")
+    else:
+        outside = tmp_path / "outside.zip"
+        package.rename(outside)
+        try:
+            package.symlink_to(outside)
+        except OSError:
+            pytest.skip("symlinks are unavailable")
+
+    result = inspect_hosted_webjob_state(
+        _request(tmp_path, legacy_package_conflict=True)
+    )
+
+    assert result.ok is False
+    assert result.category == "unsafe_path"
+
+
+def test_legacy_archive_revalidates_package_digest_after_approval(
+    tmp_path: Path,
+) -> None:
+    active, _package_bytes, _package_digest = _legacy_prepared_package(
+        tmp_path
+    )
+    inspected = inspect_hosted_webjob_state(
+        _request(tmp_path, legacy_package_conflict=True)
+    )
+    assert inspected.manifest_digest is not None
+    package = active / "package" / WEBJOB_PACKAGE_FILENAME
+    package.write_bytes(package.read_bytes() + b"changed")
+    package.chmod(0o600)
+
+    result = recover_hosted_webjob_state(
+        _request(
+            tmp_path,
+            "archive",
+            inspected.manifest_digest,
+            legacy_package_conflict=True,
+        ),
+        now=lambda: datetime(2026, 7, 29, 12, tzinfo=timezone.utc),
+    )
+
+    assert result.ok is False
+    assert result.category == "manifest_mismatch"
+    assert active.is_dir()
 
 
 def test_inspection_is_offline_and_sanitizes_valid_prior_generation_state(

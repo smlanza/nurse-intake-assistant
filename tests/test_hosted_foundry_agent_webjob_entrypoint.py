@@ -267,8 +267,22 @@ def test_entrypoint_is_fixed_to_verification_then_fictional_invocation() -> None
         "input(",
         "subprocess",
         "requests",
+        "APP_PATH",
     ):
         assert forbidden not in source
+
+
+def test_entrypoint_binds_dependencies_to_the_platform_interpreter_prefix() -> None:
+    source = ENTRYPOINT.read_text()
+
+    assert "sys.prefix" in source
+    assert "sys.base_prefix" in source
+    assert "importlib.util.find_spec" in source
+    assert '"pydantic"' in source
+    assert '"azure.identity"' in source
+    assert '"azure.ai.projects"' in source
+    assert "runtime_paths" in source
+    assert "zipdeploy" in source
 
 
 def test_entrypoint_success_emits_exactly_one_combined_json_document(

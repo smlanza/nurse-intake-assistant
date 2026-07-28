@@ -21,15 +21,20 @@ from src.app.services.web_app_hosting_contract import (
 from src.app.services.web_app_infra_deployment import (
     web_app_infrastructure_local_contract_valid,
 )
-from src.app.services.web_app_package import (
-    HOSTED_VERIFIER_WEBJOB_ENTRYPOINT,
-    PackageSafetyError,
-    plan_web_app_package,
+from src.app.services.hosted_foundry_agent_webjob_package import (
+    HostedWebJobPackageError,
+    WEBJOB_ARCHIVE_MEMBER,
+    WEBJOB_NAME,
+    WEBJOB_SOURCE_RELATIVE_PATH,
+    plan_hosted_foundry_agent_webjob_package,
+)
+from src.app.services.hosted_foundry_agent_webjob_kudu import (
+    KuduWebJobDiscoverer,
+    KuduWebJobDiscoveryResult,
 )
 
 
-WEBJOB_NAME = "verify-hosted-foundry-agent"
-DISCOVERY_QUERY = "[].{name:name}"
+HOSTED_VERIFIER_WEBJOB_ENTRYPOINT = WEBJOB_SOURCE_RELATIVE_PATH.as_posix()
 STATUS_QUERY = "[].runs[] | [].{status:status,start_time:startTime}"
 TRIGGER_STATE_DIRECTORY = Path(".artifacts/hosted-foundry-agent-webjob")
 TRIGGER_RECEIPT_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "accepted-trigger.json"
@@ -51,6 +56,11 @@ WebJobCategory = Literal[
     "response_parse_failed",
     "remote_webjob_missing",
     "remote_webjob_ambiguous",
+    "discovery_throttled",
+    "discovery_service_failed",
+    "discovery_failed",
+    "discovery_ambiguous",
+    "discovery_response_invalid",
     "trigger_receipt_missing",
     "trigger_receipt_invalid",
     "trigger_receipt_unresolved",
@@ -83,6 +93,11 @@ MESSAGES: dict[WebJobCategory, str] = {
     "response_parse_failed": "The WebJob response was not safely usable.",
     "remote_webjob_missing": "The fixed triggered WebJob was not discovered.",
     "remote_webjob_ambiguous": "The fixed triggered WebJob discovery was ambiguous.",
+    "discovery_throttled": "Kudu throttled the fixed WebJob discovery read.",
+    "discovery_service_failed": "Kudu rejected discovery with a service failure.",
+    "discovery_failed": "Kudu conclusively rejected the discovery read.",
+    "discovery_ambiguous": "The Kudu discovery read did not have a conclusive outcome.",
+    "discovery_response_invalid": "The Kudu discovery response was not safely usable.",
     "trigger_receipt_missing": "No current trigger receipt is available.",
     "trigger_receipt_invalid": "The current trigger receipt is invalid.",
     "trigger_receipt_unresolved": "A prior trigger receipt is still unresolved.",
@@ -116,6 +131,11 @@ NEXT_STEPS: dict[WebJobCategory, str] = {
     "response_parse_failed": "Stop and review the current Azure CLI response contract.",
     "remote_webjob_missing": "Stop until the fixed triggered WebJob is deployed and discoverable.",
     "remote_webjob_ambiguous": "Stop; do not infer which remote WebJob is authoritative.",
+    "discovery_throttled": "Stop without polling or retrying; a later read requires separate authorization.",
+    "discovery_service_failed": "Stop without polling or retrying; review the sanitized service category.",
+    "discovery_failed": "Stop without polling or retrying; review the sanitized rejection category.",
+    "discovery_ambiguous": "Stop without retrying; the read outcome is unknown.",
+    "discovery_response_invalid": "Stop and review the exact Kudu response contract.",
     "trigger_receipt_missing": "Stop until one explicitly authorized trigger has a local receipt.",
     "trigger_receipt_invalid": "Stop and restore the repository-owned trigger correlation contract.",
     "trigger_receipt_unresolved": "Resolve the prior trigger through a separate status stage before triggering again.",
@@ -785,38 +805,14 @@ def _local_contract(
         )
     )
     try:
-        package = plan_web_app_package(request.source_root)
-        package_valid = (
-            HOSTED_VERIFIER_WEBJOB_ENTRYPOINT in package.member_names
-            and all(
-                not name.startswith("App_Data/")
-                or name == HOSTED_VERIFIER_WEBJOB_ENTRYPOINT
-                for name in package.member_names
-            )
+        package = plan_hosted_foundry_agent_webjob_package(
+            request.source_root
         )
-    except PackageSafetyError:
+        package_valid = package.member_names == (WEBJOB_ARCHIVE_MEMBER,)
+    except HostedWebJobPackageError:
         package_valid = False
     package_valid = package_valid and _hosted_sdk_imports_lazy(request.source_root)
     return local_entrypoint_present, configuration_valid, package_valid
-
-
-def _discovery_command(request: HostedFoundryAgentWebJobExecutionRequest) -> list[str]:
-    return [
-        "az",
-        "webapp",
-        "webjob",
-        "triggered",
-        "list",
-        "--resource-group",
-        request.resource_group,
-        "--name",
-        request.web_app_name,
-        "--query",
-        DISCOVERY_QUERY,
-        "--only-show-errors",
-        "--output",
-        "json",
-    ]
 
 
 def _trigger_command(request: HostedFoundryAgentWebJobExecutionRequest) -> list[str]:
@@ -1097,32 +1093,6 @@ def _same_context(
     )
 
 
-def _discovery_result(stdout: str) -> WebJobCategory:
-    try:
-        payload = json.loads(stdout)
-    except (json.JSONDecodeError, TypeError):
-        return "response_parse_failed"
-    if not isinstance(payload, list):
-        return "response_parse_failed"
-    matches = 0
-    for item in payload:
-        if (
-            not isinstance(item, dict)
-            or set(item) != {"name"}
-            or not isinstance(item.get("name"), str)
-            or not item["name"].strip()
-            or item["name"] != item["name"].strip()
-        ):
-            return "response_parse_failed"
-        if item["name"] == WEBJOB_NAME:
-            matches += 1
-    if matches == 0:
-        return "remote_webjob_missing"
-    if matches != 1:
-        return "remote_webjob_ambiguous"
-    return "success"
-
-
 def _correlated_status(
     stdout: str,
     lower_bound: datetime | None,
@@ -1303,6 +1273,8 @@ def execute_hosted_foundry_agent_webjob(
     *,
     runner: AzureCliRunner | None = None,
     runner_factory: Callable[[], AzureCliRunner] | None = None,
+    discoverer: KuduWebJobDiscoverer | None = None,
+    discoverer_factory: Callable[[], KuduWebJobDiscoverer] | None = None,
     receipt_store: TriggerReceiptStore | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> HostedFoundryAgentWebJobExecutionResult:
@@ -1474,6 +1446,40 @@ def execute_hosted_foundry_agent_webjob(
                 )
             return _result(request, "unexpected_error", **common)
 
+    if request.mode == "live-discover":
+        selected_discoverer = discoverer
+        if selected_discoverer is None and discoverer_factory is not None:
+            try:
+                selected_discoverer = discoverer_factory()
+            except Exception:
+                selected_discoverer = None
+        if selected_discoverer is None:
+            return _result(request, "unexpected_error", **common)
+        try:
+            discovery = selected_discoverer.discover(
+                request.web_app_name,
+                WEBJOB_NAME,
+            )
+            if type(discovery) is not KuduWebJobDiscoveryResult:
+                raise TypeError()
+        except Exception:
+            return _result(
+                request,
+                "discovery_ambiguous",
+                azure_operation_attempted=True,
+                **common,
+            )
+        return _result(
+            request,
+            discovery.category,
+            ok=discovery.remote_webjob_discovered,
+            remote_webjob_discovered=(
+                discovery.remote_webjob_discovered
+            ),
+            azure_operation_attempted=True,
+            **common,
+        )
+
     selected_runner = _get_runner(runner, runner_factory)
     if selected_runner is None:
         if reservation is not None and not _release_reservation(store, reservation):
@@ -1490,9 +1496,7 @@ def execute_hosted_foundry_agent_webjob(
             **common,
         )
 
-    if request.mode == "live-discover":
-        command = _discovery_command(request)
-    elif request.mode == "live-trigger":
+    if request.mode == "live-trigger":
         command = _trigger_command(request)
     else:
         command = _status_command(request)
@@ -1559,17 +1563,6 @@ def execute_hosted_foundry_agent_webjob(
             _failure_category(outcome),
             azure_operation_attempted=True,
             trigger_receipt_valid=receipt is not None,
-            **common,
-        )
-
-    if request.mode == "live-discover":
-        category = _discovery_result(outcome.stdout)
-        return _result(
-            request,
-            category,
-            ok=category == "success",
-            remote_webjob_discovered=category == "success",
-            azure_operation_attempted=True,
             **common,
         )
 
