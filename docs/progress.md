@@ -403,11 +403,12 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Implement application-integrated live Foundry structured extraction through
-the existing Nurse Intake Assistant service boundary while preserving the
-current Pydantic output contracts, deterministic safety rules, mock defaults,
-fictional-data restriction, and human nurse review. Do not use the retired
-WebJob trigger path as the execution boundary.
+Resume at exactly one supervised fixed-fictional application-integrated smoke:
+```bash
+set -o pipefail
+.venv/bin/python scripts/smoke_application_foundry_extraction.py --config .env.daily-azure.local --live --json | .venv/bin/python -m json.tool
+```
+Mock persistence, agent, email, and SMS boundaries, suppressed notifications, deterministic rules, and mandatory nurse review remain fixed; do not use the retired WebJob path. Do not run daily Azure rebuild or cleanup concurrently with the supervised application Foundry smoke.
 
 ## Current Slice Status
 
@@ -424,7 +425,8 @@ WebJob trigger path as the execution boundary.
   supported operations. Its trigger, reconciliation, and status CLI modes
   remain code history and require a future explicit architecture decision
   before reuse.
-- Hosted managed-identity Foundry metadata access, fixed-fictional invocation, and application-integrated live structured extraction through the Nurse Intake Assistant service boundary remain unproven; the standalone manual Foundry structured-extraction smoke is live-proven.
+- `compose_application(settings)` is now the shared production composition boundary used by both the normal intake route and `scripts/smoke_application_foundry_extraction.py`; the smoke no longer owns a parallel service composition root. Its controlled non-echoing parser, centralized sanitized exception boundary, and repeated authoritative-readiness check remain in place. The first supervised application-integrated invocation reached the provider but returned sanitized `authentication_failed`; no case was persisted, no notification was attempted, and no Azure mutation occurred.
+- Independent `AzureCliCredential` and `DefaultAzureCredential` probes both acquired tokens for `https://ai.azure.com/.default`, strongly indicating that the failure was the incorrect Foundry project-endpoint client path rather than a missing Azure login. The adapter now lazily uses `AIProjectClient(endpoint=project_endpoint, credential=credential).get_openai_client()` instead of passing the project endpoint to `ChatCompletionsClient`; a successful supervised application-integrated proof remains pending. Mock persistence/providers, notification suppression, deterministic rules, and mandatory nurse review remain fixed; WebJob invocation remains retired, and the standalone manual Foundry structured-extraction smoke remains live-proven.
 - `docs/runbooks/daily-azure-operator-runbook.md` now consolidates the only
   normal operator sequence, optional RBAC, end-of-day cleanup, and exceptional
   immutable-evidence recovery.

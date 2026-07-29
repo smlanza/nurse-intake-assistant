@@ -40,28 +40,25 @@ FOUNDRY_SYSTEM_MESSAGE = (
 
 
 class AzureAiFoundryLiveClient:
-    """Opt-in scaffold for live Azure AI Foundry structured extraction.
-
-    The current adapter uses the Azure AI Inference client with an Azure AI
-    Foundry project endpoint. It does not implement the separate Azure OpenAI
-    endpoint/client path.
-    """
+    """Opt-in Foundry project client for live structured extraction."""
 
     def __init__(self, project_endpoint: str) -> None:
         self.project_endpoint = project_endpoint
-        self._chat_client = None
+        self._credential = None
+        self._project_client = None
+        self._openai_client = None
 
     def complete_structured_extraction(
         self,
         prompt: str,
         model_deployment_name: str,
     ) -> str:
-        """Return raw JSON text from a future live Foundry model response."""
+        """Return raw JSON text from one live Foundry model response."""
 
         try:
-            chat_client = self._get_chat_client()
-            response = chat_client.complete(
-                messages=_build_chat_messages(prompt),
+            openai_client = self._get_openai_client()
+            response = openai_client.chat.completions.create(
+                messages=_build_openai_chat_messages(prompt),
                 model=model_deployment_name,
             )
         except RuntimeError as exc:
@@ -77,10 +74,41 @@ class AzureAiFoundryLiveClient:
 
         return content
 
-    def _get_chat_client(self):
-        if self._chat_client is None:
-            self._chat_client = _create_chat_client(self.project_endpoint)
-        return self._chat_client
+    def _get_openai_client(self):
+        if self._openai_client is not None:
+            return self._openai_client
+
+        try:
+            if self._credential is None:
+                credential_class = _get_default_credential_class()
+                self._credential = credential_class()
+            if self._project_client is None:
+                project_client_class = _get_ai_project_client_class()
+                self._project_client = project_client_class(
+                    endpoint=self.project_endpoint,
+                    credential=self._credential,
+                )
+            self._openai_client = self._project_client.get_openai_client()
+        except RuntimeError as exc:
+            if str(exc) == FOUNDRY_LIVE_CLIENT_UNAVAILABLE_MESSAGE:
+                raise
+            raise RuntimeError(FOUNDRY_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+        except Exception as exc:
+            raise RuntimeError(FOUNDRY_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+
+        return self._openai_client
+
+    def close(self) -> None:
+        """Close lazily constructed SDK resources when they support closing."""
+
+        for attribute_name in (
+            "_openai_client",
+            "_project_client",
+            "_credential",
+        ):
+            resource = getattr(self, attribute_name)
+            setattr(self, attribute_name, None)
+            _close_when_supported(resource)
 
 
 def create_foundry_live_client(project_endpoint: str) -> AzureAiFoundryLiveClient:
@@ -144,7 +172,7 @@ def create_azure_openai_live_client(
 def foundry_live_sdk_available() -> bool:
     """Return whether optional live Foundry SDK imports appear available."""
 
-    return _chat_completions_sdk_available()
+    return _foundry_project_sdk_available()
 
 
 def azure_openai_live_sdk_available() -> bool:
@@ -159,30 +187,23 @@ def azure_openai_live_sdk_available() -> bool:
         return False
 
 
-def _chat_completions_sdk_available() -> bool:
+def _foundry_project_sdk_available() -> bool:
     try:
         return (
-            find_spec("azure.ai.inference") is not None
+            find_spec("azure.ai.projects") is not None
             and find_spec("azure.identity") is not None
+            and find_spec("openai") is not None
         )
     except (ImportError, ModuleNotFoundError, ValueError):
         return False
 
 
-def _create_chat_client(project_endpoint: str):
+def _get_ai_project_client_class():
     try:
-        from azure.ai.inference import ChatCompletionsClient
-        from azure.identity import DefaultAzureCredential
+        from azure.ai.projects import AIProjectClient
     except ImportError as exc:
         raise RuntimeError(FOUNDRY_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
-
-    try:
-        return ChatCompletionsClient(
-            endpoint=project_endpoint,
-            credential=DefaultAzureCredential(),
-        )
-    except Exception as exc:
-        raise RuntimeError(FOUNDRY_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+    return AIProjectClient
 
 
 def _create_azure_openai_chat_client(azure_openai_endpoint: str):
@@ -246,7 +267,7 @@ def _get_default_credential_class():
     try:
         from azure.identity import DefaultAzureCredential
     except ImportError as exc:
-        raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
+        raise RuntimeError(FOUNDRY_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
     return DefaultAzureCredential
 
 
@@ -256,21 +277,6 @@ def _get_bearer_token_provider_factory():
     except ImportError as exc:
         raise RuntimeError(AZURE_OPENAI_LIVE_CLIENT_UNAVAILABLE_MESSAGE) from exc
     return get_bearer_token_provider
-
-
-def _build_chat_messages(prompt: str) -> list[object]:
-    try:
-        from azure.ai.inference.models import SystemMessage, UserMessage
-    except ImportError:
-        return [
-            {"role": "system", "content": FOUNDRY_SYSTEM_MESSAGE},
-            {"role": "user", "content": prompt},
-        ]
-
-    return [
-        SystemMessage(content=FOUNDRY_SYSTEM_MESSAGE),
-        UserMessage(content=prompt),
-    ]
 
 
 def _build_openai_chat_messages(prompt: str) -> list[dict[str, str]]:
@@ -298,3 +304,12 @@ def _get_value(source: object, name: str):
     if isinstance(source, dict):
         return source.get(name)
     return getattr(source, name, None)
+
+
+def _close_when_supported(resource: object | None) -> None:
+    close = getattr(resource, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass

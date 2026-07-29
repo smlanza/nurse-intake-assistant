@@ -1,4 +1,7 @@
+import asyncio
 import importlib
+import inspect
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -41,6 +44,95 @@ def test_foundry_live_client_declares_endpoint_contract() -> None:
     )
 
 
+def test_foundry_project_endpoint_uses_one_lazy_project_openai_client_and_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_live_client
+    from src.app.services.foundry_live_client import AzureAiFoundryLiveClient
+
+    project_endpoint = (
+        "https://example.services.ai.azure.com/api/projects/fictional-project"
+    )
+    events: list[object] = []
+
+    class FakeCredential:
+        def __init__(self) -> None:
+            events.append("credential_created")
+
+        def close(self) -> None:
+            events.append("credential_closed")
+
+    class FakeCompletions:
+        def create(self, *, messages: list[object], model: str) -> object:
+            events.append(("model_request", messages, model))
+            return {
+                "choices": [
+                    {"message": {"content": '{"summary": "project client ok"}'}}
+                ]
+            }
+
+    class FakeOpenAIClient:
+        def __init__(self) -> None:
+            self.chat = SimpleNamespace(completions=FakeCompletions())
+
+        def close(self) -> None:
+            events.append("openai_client_closed")
+
+    openai_client = FakeOpenAIClient()
+
+    class FakeAIProjectClient:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
+            events.append(("project_client_created", endpoint, credential))
+
+        def get_openai_client(self) -> object:
+            events.append("get_openai_client")
+            return openai_client
+
+        def close(self) -> None:
+            events.append("project_client_closed")
+
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_get_default_credential_class",
+        lambda: FakeCredential,
+    )
+    monkeypatch.setattr(
+        foundry_live_client,
+        "_get_ai_project_client_class",
+        lambda: FakeAIProjectClient,
+        raising=False,
+    )
+    client = AzureAiFoundryLiveClient(project_endpoint=project_endpoint)
+
+    assert events == []
+
+    result = client.complete_structured_extraction(
+        prompt="Return JSON only.",
+        model_deployment_name="configured-deployment",
+    )
+    client.close()
+
+    assert result == '{"summary": "project client ok"}'
+    assert "ChatCompletionsClient" not in inspect.getsource(foundry_live_client)
+    assert events[0] == "credential_created"
+    assert events[1][0:2] == ("project_client_created", project_endpoint)
+    assert isinstance(events[1][2], FakeCredential)
+    assert events.count("get_openai_client") == 1
+    model_requests = [
+        event
+        for event in events
+        if isinstance(event, tuple) and event[0] == "model_request"
+    ]
+    assert len(model_requests) == 1
+    assert model_requests[0][2] == "configured-deployment"
+    assert model_requests[0][1][1]["content"] == "Return JSON only."
+    assert events[-3:] == [
+        "openai_client_closed",
+        "project_client_closed",
+        "credential_closed",
+    ]
+
+
 def test_azure_openai_live_client_exposes_structured_extraction_seam() -> None:
     from src.app.services.foundry_live_client import AzureOpenAiEndpointLiveClient
 
@@ -59,8 +151,8 @@ def test_foundry_live_client_fails_clearly_without_sdk_support(
 
     monkeypatch.setattr(
         foundry_live_client,
-        "_create_chat_client",
-        lambda project_endpoint: (_ for _ in ()).throw(
+        "_get_ai_project_client_class",
+        lambda: (_ for _ in ()).throw(
             RuntimeError(
                 "Azure AI Foundry live client is not configured or SDK support "
                 "is not available."
@@ -140,11 +232,7 @@ def test_foundry_live_client_returns_content_from_fake_chat_response(
             ]
         }
     )
-    monkeypatch.setattr(
-        foundry_live_client,
-        "_create_chat_client",
-        lambda project_endpoint: fake_chat_client,
-    )
+    _install_foundry_project_fakes(monkeypatch, foundry_live_client, fake_chat_client)
 
     client = AzureAiFoundryLiveClient(
         project_endpoint="https://secret-endpoint.example.invalid/api/projects/demo"
@@ -171,6 +259,60 @@ def test_foundry_live_client_returns_content_from_fake_chat_response(
             "model": "secret-deployment",
         }
     ]
+
+
+def test_foundry_project_response_reaches_existing_service_parser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from src.app.services import foundry_live_client
+    from src.app.services.foundry_ai_service import FoundryAiService
+    from src.app.services.foundry_live_client import AzureAiFoundryLiveClient
+
+    response_text = json.dumps(
+        {
+            "patient": {
+                "name": "Fictional Patient",
+                "date_of_birth": "2000-01-01",
+                "callback_number": None,
+            },
+            "reason_for_calling": "medication question",
+            "symptoms": ["fatigue"],
+            "summary": "Fictional patient reports fatigue.",
+            "urgency": "Routine",
+            "urgency_rationale": "No urgent symptoms were described.",
+            "advisory_disclaimer": (
+                "Advisory urgency only; nurse review and clinical judgment "
+                "are required."
+            ),
+            "missing_fields": ["patient.callback_number"],
+            "uncertain_fields": [],
+        }
+    )
+    openai_client = FakeChatClient(
+        response={"choices": [{"message": {"content": response_text}}]}
+    )
+    _install_foundry_project_fakes(
+        monkeypatch,
+        foundry_live_client,
+        openai_client,
+    )
+    live_client = AzureAiFoundryLiveClient(
+        project_endpoint=(
+            "https://example.services.ai.azure.com/api/projects/fictional-project"
+        )
+    )
+    service = FoundryAiService(
+        project_endpoint=live_client.project_endpoint,
+        model_deployment_name="configured-deployment",
+        client=live_client,
+    )
+
+    extraction = asyncio.run(service.extract_and_summarize("Fictional intake."))
+    live_client.close()
+
+    assert extraction.summary == "Fictional patient reports fatigue."
+    assert len(openai_client.calls) == 1
+    assert openai_client.calls[0]["model"] == "configured-deployment"
 
 
 def test_azure_openai_live_client_returns_content_from_fake_chat_response(
@@ -354,10 +496,10 @@ def test_foundry_live_client_supports_object_chat_response(
             )
         ]
     )
-    monkeypatch.setattr(
+    _install_foundry_project_fakes(
+        monkeypatch,
         foundry_live_client,
-        "_create_chat_client",
-        lambda project_endpoint: FakeChatClient(response=fake_response),
+        FakeChatClient(response=fake_response),
     )
 
     client = AzureAiFoundryLiveClient(
@@ -378,6 +520,8 @@ def test_foundry_live_client_supports_object_chat_response(
         {"choices": []},
         {"choices": [{"message": {"content": ""}}]},
         {"choices": [{"message": {}}]},
+        {"choices": [{"message": {"content": 7}}]},
+        {"unsupported": "response shape"},
     ],
 )
 def test_foundry_live_client_empty_content_fails_safely(
@@ -387,10 +531,10 @@ def test_foundry_live_client_empty_content_fails_safely(
     from src.app.services import foundry_live_client
     from src.app.services.foundry_live_client import AzureAiFoundryLiveClient
 
-    monkeypatch.setattr(
+    _install_foundry_project_fakes(
+        monkeypatch,
         foundry_live_client,
-        "_create_chat_client",
-        lambda project_endpoint: FakeChatClient(response=fake_response),
+        FakeChatClient(response=fake_response),
     )
 
     client = AzureAiFoundryLiveClient(
@@ -416,10 +560,10 @@ def test_foundry_live_client_sdk_exception_fails_safely(
     from src.app.services import foundry_live_client
     from src.app.services.foundry_live_client import AzureAiFoundryLiveClient
 
-    monkeypatch.setattr(
+    _install_foundry_project_fakes(
+        monkeypatch,
         foundry_live_client,
-        "_create_chat_client",
-        lambda project_endpoint: FailingChatClient(),
+        FailingChatClient(),
     )
 
     client = AzureAiFoundryLiveClient(
@@ -453,12 +597,9 @@ def test_foundry_live_client_factory_does_not_construct_sdk_client() -> None:
 
 class FakeChatClient:
     def __init__(self, response: object) -> None:
-        self.response = response
-        self.calls: list[dict[str, object]] = []
-
-    def complete(self, messages: list[object], model: str) -> object:
-        self.calls.append({"messages": messages, "model": model})
-        return self.response
+        completions = FakeAzureOpenAiCompletions(response=response)
+        self.chat = SimpleNamespace(completions=completions)
+        self.calls = completions.calls
 
 
 class FakeAzureOpenAiClient:
@@ -479,5 +620,36 @@ class FakeAzureOpenAiCompletions:
 
 
 class FailingChatClient:
-    def complete(self, messages: list[object], model: str) -> object:
+    def __init__(self) -> None:
+        self.chat = SimpleNamespace(completions=self)
+
+    def create(self, messages: list[object], model: str) -> object:
         raise RuntimeError("private sdk marker")
+
+
+def _install_foundry_project_fakes(
+    monkeypatch: pytest.MonkeyPatch,
+    module: object,
+    openai_client: object,
+) -> None:
+    class FakeCredential:
+        pass
+
+    class FakeAIProjectClient:
+        def __init__(self, *, endpoint: str, credential: object) -> None:
+            self.endpoint = endpoint
+            self.credential = credential
+
+        def get_openai_client(self) -> object:
+            return openai_client
+
+    monkeypatch.setattr(
+        module,
+        "_get_default_credential_class",
+        lambda: FakeCredential,
+    )
+    monkeypatch.setattr(
+        module,
+        "_get_ai_project_client_class",
+        lambda: FakeAIProjectClient,
+    )

@@ -29,7 +29,7 @@ or SMS.
 | AI-103 area | Current implementation | Evidence in repo | Status |
 |---|---|---|---|
 | Generative AI app design | `CaseProcessingService` orchestrates extraction, urgency merge, persistence, and notifications; AI provider factory selects the configured provider; `MockAiService` returns structured extraction, summary, and advisory classification; Pydantic models define API and output contracts | `src/app/services/case_processing_service.py`, `src/app/services/ai_service_factory.py`, `src/app/services/mock_ai_service.py`, `src/app/models/ai_outputs.py`, `src/app/models/case.py` | Implemented locally with mock AI |
-| Azure AI Foundry / agent orchestration readiness | `FoundryAiService` and `NurseIntakeAgent` provide tested runtime boundaries and application-owned structured contracts, including validation before trusting model/agent output; stable per-agent OpenAI protocol invocation is primary, project-endpoint agent-reference invocation is explicit compatibility-only, and read-only verification checks `agent_endpoint.protocols`, exclusive immutable-version routing, and the configured definition | `src/app/services/foundry_agent_client.py`, `src/app/services/foundry_agent_verification.py`, `scripts/verify_foundry_agent.py`, `tests/test_foundry_agent_verification.py` | Foundry deployment, prompt-agent configuration, and immutable routing are live-proven. Offline tests use fakes and make no Azure calls. Hosted managed-identity metadata access and invocation remain unproven; the current WebJob trigger mechanism is retired |
+| Azure AI Foundry / agent orchestration readiness | `FoundryAiService` and `NurseIntakeAgent` provide tested runtime boundaries and application-owned structured contracts, including validation before trusting model/agent output; the fixed-fictional application smoke composes `FoundryAiService` through the existing factories and `CaseProcessingService` with in-memory persistence, deterministic urgency rules, suppressed notifications, and mandatory nurse review | `src/app/services/foundry_agent_client.py`, `src/app/services/foundry_agent_verification.py`, `scripts/smoke_application_foundry_extraction.py`, `tests/test_application_foundry_smoke_script.py` | Foundry deployment, prompt-agent configuration, immutable routing, and the standalone manual structured-extraction smoke are live-proven. Offline tests use fakes and make no Azure calls; the first supervised application-integrated invocation reached the provider but did not produce valid structured output, so successful live proof remains pending. Hosted managed-identity metadata access and invocation remain unproven; the current WebJob trigger mechanism is retired |
 | Responsible AI / human oversight | Responsible AI pattern: urgency is advisory only; invalid agent output uses safe fallback values instead of crashing intake processing; deterministic red-flag rules supplement AI and may promote final urgency; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/services/nurse_intake_agent_contract.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented human review and deterministic safety rules |
 | Natural language processing and Speech readiness | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency; Speech transcription provider boundary has mock/offline and Azure scaffold implementations | `src/app/routes/intake.py`, `src/app/services/mock_ai_service.py`, `src/app/services/speech_transcription_service.py`, `src/app/services/speech_transcription_factory.py`, `tests/test_intake_route.py`, `tests/test_mock_ai_service.py`, `tests/test_speech_transcription_service.py`, `tests/test_speech_transcription_factory.py` | Implemented for text/transcripts and offline Speech boundary; live Azure Speech deferred |
 | Azure service integration boundaries | Cosmos repository and container factory with point reads/upserts plus cross-partition filtered case-list queries; ACS Email/SMS boundaries; Bicep baseline for Cosmos, storage, Log Analytics, Application Insights, and optional Azure Web App hosting | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/modules/web-app.bicep`, `infra/README.md` | Case-list/query-filter parity is covered offline with fakes; queue-summary and voicemail-idempotency lookup parity, live Cosmos validation, and production hardening are deferred |
@@ -57,14 +57,15 @@ POST /intake/text or POST /intake/voicemail-transcript
 
 For AI-103 discussion, the important design point is the provider seam:
 `MockAiService` supports safe local demonstration today, while
-`FoundryAiService` is the boundary where live Azure AI Foundry structured
-extraction can be added later. The offline Foundry contract already defines the
-prompt guardrails, expected JSON shape, parser validation, and mapping into the
-current extraction and urgency output models. The service can exercise that
-contract through an injected fake client in offline tests, and a lazy live
-adapter now matches the same seam for a future manual SDK smoke test. The
-backend owns side effects such as persistence, notifications, and review state;
-the AI provider should only return structured reasoning output.
+`FoundryAiService` is the live Azure AI Foundry structured-extraction boundary.
+The contract defines prompt guardrails, expected JSON shape, parser validation,
+and mapping into the current extraction and urgency output models. The new
+fixed-fictional application smoke composes that provider through the existing
+factories and `CaseProcessingService`; fake-only tests prove in-memory
+persistence, deterministic urgency merging, notification suppression, and
+mandatory nurse review. Its first supervised live invocation reached the
+provider but did not produce valid structured output. The backend continues to
+own side effects; the AI provider returns only structured output.
 
 The agent path follows the same responsible AI pattern: `NurseIntakeAgent` is
 an external reasoning boundary, and agent contract validation runs before the
@@ -74,10 +75,10 @@ deterministic red-flag rules still evaluate the raw intake text and may promote
 final urgency. The processing trace records agent usage, warnings, and final urgency source for audit-friendly review.
 
 The standalone manual Foundry structured-extraction smoke is live-proven.
-Application-integrated live structured extraction through the Nurse Intake
-Assistant service boundary is not yet live-proven. It is the next recommended
-AI-103 slice and should use the existing application service/provider boundary
-rather than the retired WebJob trigger mechanism.
+The application-integrated boundary is implemented and offline-proven with
+fakes, but live structured extraction through the Nurse Intake Assistant
+service boundary is not yet proven. Its supervised command uses the existing
+application service/provider boundary rather than the retired WebJob mechanism.
 
 ## 4. Responsible AI And Human Review
 
@@ -200,8 +201,8 @@ Scope boundaries:
 
 The following are future work, not current implementation:
 
-- Live Azure AI Foundry structured extraction through the Nurse Intake
-  Assistant service boundary (application-integrated)
+- Supervised live proof of Azure AI Foundry structured extraction through the
+  Nurse Intake Assistant service boundary
 - Azure AI Foundry Agent/tool orchestration, if still useful after the simpler
   Foundry provider path
 - Azure Speech transcription service
@@ -219,8 +220,7 @@ The following are future work, not current implementation:
 
 Highest AI-103 ROI:
 
-- Application-integrated live Azure AI Foundry structured extraction through
-  the Nurse Intake Assistant service boundary
+- Supervised application-integrated live Azure AI Foundry proof
 - Foundry prompt/schema/evaluation documentation
 - Azure Speech transcription boundary
 - Responsible AI and human-review documentation
@@ -241,7 +241,7 @@ Lower direct exam ROI but strong portfolio value:
 ## 9. Recommended Azure Implementation Order
 
 1. Live Azure AI Foundry structured extraction through the Nurse Intake
-   Assistant service boundary (application-integrated)
+   Assistant service boundary (supervised application-integrated proof)
 2. Foundry prompt/schema/evaluation notes
 3. Azure Speech transcription service boundary
 4. Hosted managed-identity Foundry validation when explicitly approved

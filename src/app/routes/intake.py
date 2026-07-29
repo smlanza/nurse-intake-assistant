@@ -4,15 +4,10 @@ from fastapi import APIRouter, Body
 from pydantic import BaseModel, field_validator
 
 from src.app.dependencies import (
-    ai_service,
     case_repository,
-    email_notification_sender,
-    nurse_intake_agent,
-    settings,
-    sms_notification_sender,
+    case_processing_service,
 )
 from src.app.models.case import CaseDocument
-from src.app.services.case_processing_service import CaseProcessingService
 
 
 router = APIRouter(prefix="/intake", tags=["intake"])
@@ -140,16 +135,6 @@ VOICEMAIL_TRANSCRIPT_OPENAPI_EXAMPLES = {
         },
     },
 }
-case_processing_service = CaseProcessingService(
-    ai_service=ai_service,
-    case_repository=case_repository,
-    email_notification_sender=email_notification_sender,
-    sms_notification_sender=sms_notification_sender,
-    nurse_intake_agent=nurse_intake_agent,
-    suppress_notifications=settings.demo_suppress_notifications,
-)
-
-
 class TextIntakeRequest(BaseModel):
     text: str
     sourceSystem: str | None = "local"
