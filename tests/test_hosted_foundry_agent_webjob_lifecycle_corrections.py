@@ -250,7 +250,13 @@ def test_all_state_reads_reject_symlinked_state_directory(tmp_path: Path) -> Non
     )
 
     store = service.FileTriggerReceiptStore(checkout)
-    for read in (store.read, store.read_blocked, store.read_outcome, store.reservation_exists):
+    for read in (
+        store.read,
+        store.read_blocked,
+        store.read_reconciliation,
+        store.read_outcome,
+        store.reservation_exists,
+    ):
         with pytest.raises(service.TriggerReceiptError):
             read()
 
@@ -260,6 +266,15 @@ def test_all_state_reads_reject_symlinked_state_directory(tmp_path: Path) -> Non
     [
         ("TRIGGER_RECEIPT_RELATIVE_PATH", "read", lambda: _receipt().to_json_dict()),
         ("TRIGGER_BLOCKED_RELATIVE_PATH", "read_blocked", lambda: _blocked().to_json_dict()),
+        (
+            "RECONCILIATION_RECEIPT_RELATIVE_PATH",
+            "read_reconciliation",
+            lambda: _service().ReconciliationReceipt.from_blocked_trigger(
+                _blocked(),
+                run_id="private-run-1",
+                run_start_time=NOW,
+            ).to_json_dict(),
+        ),
         ("TERMINAL_OUTCOME_RELATIVE_PATH", "read_outcome", lambda: _outcome().to_json_dict()),
         (
             "TRIGGER_RESERVATION_RELATIVE_PATH",

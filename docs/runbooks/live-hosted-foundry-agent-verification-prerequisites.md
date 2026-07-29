@@ -570,6 +570,35 @@ is not terminal execution success:
   python -m json.tool
 ```
 
+If that explicit request returns `trigger_acceptance_ambiguous` and immutable
+`blocked-trigger.json` is in exact `accepted-uncorrelatable` state, do not run
+the trigger command again. Preserve the blocked evidence unchanged. After
+separate approval, perform one generation-bound, read-only reconciliation:
+
+```bash
+set -o pipefail
+
+.venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
+  --live-reconcile-blocked-trigger \
+  --resource-group <resource-group> \
+  --web-app-name <web-app-name> \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --json |
+  python -m json.tool
+```
+
+Reconciliation validates the same unchanged READY receipt, private generation
+handoff, and exact blocked evidence before Azure access. It constructs no
+trigger runner and performs exactly one WebJob history read with no polling,
+sleep, retry, cleanup, archive, or blocked-state mutation. Exactly one eligible
+known run creates private exact-run correlation evidence. If that run is
+nonterminal, stop and request separate approval for the status command below.
+If it is terminal, review the persisted sanitized success or failure without
+triggering again. Zero or multiple eligible runs and malformed, unknown, or
+unsupported history remain blocked, create no selected-run evidence, and do not
+justify a retrigger.
+
 Authorize one receipt-correlated status read separately:
 
 ```bash
@@ -583,6 +612,12 @@ Authorize one receipt-correlated status read separately:
   python -m json.tool
 ```
 
-Terminal WebJob success must still prove the fixed sequence of exact metadata
-verification, one fictional invocation, and output-contract validation. It is
-not inferred from preparation, discovery, or trigger acceptance.
+Status uses either the ordinary accepted-trigger receipt or the exact private
+reconciliation receipt with its compatible original blocked trigger. It never
+selects an unrelated later or latest run. Reconciliation and terminal WebJob
+state do not by themselves prove managed-identity metadata access or the
+fixed-fictional invocation; those claims require their separate authoritative
+result contracts and are not inferred from preparation, discovery, trigger
+acceptance, or history proximity. Under the existing ordinary accepted-trigger
+result contract, a terminally successful WebJob run proves the fixed invocation
+completed; that meaning is not imputed to a newly reconciled history record.

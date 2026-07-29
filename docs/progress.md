@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,620 passed full suite
-- 21 shell-wrapper tests and 34 documentation tests
+- 2,684 passed full suite
+- 21 shell-wrapper tests and 35 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -81,14 +81,10 @@ Important constraints:
 
 ## Current Resume Point
 
-Bounded OneDeploy and hosted-readiness convergence are complete offline. One
-required absolute deadline governs each convergence stage, submission
-acceptance is separate from terminal deployment proof, and exact
-current-command attribution, safe hosted posture, and current-artifact equality
-remain mandatory. A READY
-receipt remains valid only while environment and configuration match; deletion
-or rebuild invalidates it.
+Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
 Consumer RBAC, WebJobs, managed identity, metadata verification, and invocation remain separate optional workflows.
+
+The current generation-bound hosted WebJob trigger returned sanitized `trigger_acceptance_ambiguous` and preserved immutable schema-version-2 `blocked-trigger.json` in exact `accepted-uncorrelatable` state. No accepted trigger receipt or terminal outcome exists. The next permitted live operation is one separately supervised `--live-reconcile-blocked-trigger` history read; do not trigger again. Zero, multiple, malformed, or unsupported results remain blocked. One nonterminal exact run permits a later separately authorized `--live-status`; one terminal run is reviewed without retriggering.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point
@@ -113,7 +109,8 @@ Authoritative Foundry infrastructure for future TDD slices:
 - Packaged `src/app/operations/verify_hosted_foundry_agent.py`: strict system-identity metadata verification using the existing agent contract.
 - Fixed packaged WebJob `App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`
   and `scripts/run_hosted_foundry_agent_verification.py`: offline check plus
-  separate one-read discovery, one-request trigger, and receipt-correlated
+  separate one-read discovery, one-request trigger, one-read
+  accepted-but-uncorrelatable reconciliation, and exact receipt-correlated
   one-read status boundaries.
 - `src/app/services/hosted_foundry_agent_webjob_state_recovery.py`,
   `scripts/recover_hosted_foundry_agent_webjob_state.py`, and the dedicated
@@ -405,38 +402,18 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Perform at most one supervised hosted managed-identity proof after every current-session prerequisite is freshly reconfirmed. Keep discovery, trigger
-acceptance, terminal status, metadata verification, fixed-fictional invocation,
-and output validation distinct when reviewing the sanitized results.
-After that proof, resume Nurse Intake Assistant application and AI-103 feature development.
+Perform exactly one supervised, generation-bound `--live-reconcile-blocked-trigger` read against the preserved `accepted-uncorrelatable` evidence. Do not submit another trigger. If exactly one nonterminal run is correlated, request separate authorization for one exact-run `--live-status` read. If it is terminal, review the recorded sanitized result without retriggering. If the result is zero, multiple, malformed, or unsupported, remain blocked. Managed-identity metadata access, fixed-fictional invocation, and hosted Foundry extraction remain unproven.
 
 ## Current Slice Status
 
-- Frozen objective: correct only dedicated hosted WebJob remote discovery after a successful Kudu upload.
-- Confirmed defect: Azure CLI list discovery omitted the installed fixed job
-  even though direct authenticated Kudu resource and VFS reads returned 200.
-- RED: 25 failures proved the absent authoritative adapter, attribution,
-  ambiguity, parser, first-run `latest_run`, and sanitization contracts.
-- GREEN: both callers share one exact-resource Kudu GET, require the fixed name
-  and `run.py`, permit absent/null/object `latest_run`, and discard every other
-  top-level field without serializing its value.
-- Null or absent `latest_run` proves registration but never execution. Discovery
-  does no list, poll, upload, trigger, history, status, verification, or invocation.
-- Trigger and status still use their separate Azure CLI `run` and `log`
-  operations. READY, handoff, generation, package authorization, default-no
-  upload, and immutable lifecycle contracts remain unchanged.
-- Focused parser RED was 1 failed and 24 passed; focused GREEN was 26 passed.
-  The WebJob/package/deployment/handoff/lifecycle matrix is 291 passed, and the
-  full suite is 2,620 passed with one existing Starlette warning.
-- The stale handoff was normally archived; daily refresh deployed the
-  parser-current application, re-established READY, reverified exact Consumer
-  RBAC, and prepared a replacement immutable handoff.
-- One corrected read-only live discovery returned `ok=true` and
-  `remote_webjob_discovered=true`. No WebJob upload, trigger, status/history
-  read, metadata verification, agent invocation, RBAC change, infrastructure
-  change, cleanup, commit, or push occurred.
-- Historical reconciliation rejected one Web App Deploy and nine unidentified
-  Ignore records; the wrapper is removed, `--reconcile-existing-web-app` remains standalone, no live direct-module preview has yet succeeded, and no live reconciliation preview or deployment occurred.
+- Live observation: the explicit trigger returned `trigger_acceptance_ambiguous`; immutable schema-version-2 `blocked-trigger.json` remains in exact `accepted-uncorrelatable` state, with no accepted-trigger receipt and no terminal outcome.
+- RED was 6 focused failures proving the absent CLI mode, blocked-context entry, one-read runner boundary, nonterminal correlation persistence, terminal persistence, and status continuation.
+- GREEN adds explicit generation-bound `--live-reconcile-blocked-trigger`. It validates private local evidence before runner construction, performs at most one read-only history request, never constructs the trigger runner, and never polls, sleeps, retries, archives, cleans up, or mutates the blocked trigger.
+- Exactly one eligible known run creates a private immutable receipt bound to the current resources, generation, fingerprint, blocked evidence, and exact run. Terminal status records reconciliation before the matching outcome; zero, multiple, malformed, unknown, or unsupported results remain blocked without selected-run evidence.
+- Existing accepted-trigger status remains intact. Status may instead use one compatible reconciliation receipt with its unchanged original blocked trigger and follows only the exact private run.
+- Focused GREEN is 128 service and 25 CLI tests; the related WebJob/recovery/handoff/RBAC/coordinator regression matrix is 687 passed. Full verification is 2,684 passed, 21 shell-wrapper tests, 35 documentation guardrails, and successful Python compilation.
+- Exact resume point: obtain operator review for one supervised reconciliation command. No hosted metadata access, fixed-fictional invocation, or live Foundry extraction is claimed.
+- Historical Web App reconciliation rejected one Web App Deploy and nine unidentified Ignore records; the wrapper is removed, `--reconcile-existing-web-app` remains standalone, no live direct-module preview has yet succeeded, and no live reconciliation preview or deployment occurred. After the hosted proof, resume Nurse Intake Assistant application and AI-103 feature development.
 
 ### Historical Slice Results
 

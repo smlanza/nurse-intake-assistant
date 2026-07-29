@@ -972,6 +972,48 @@ def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> Non
         assert unauthorized_command not in runbook
 
 
+def test_blocked_trigger_reconciliation_is_a_separate_read_only_boundary() -> None:
+    architecture = _normalized(_read("docs/architecture.md"))
+    runbook = _normalized(
+        _read("docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md")
+    )
+    mapping = _normalized(_read("docs/ai-103-mapping.md"))
+
+    _assert_contains_all(
+        architecture,
+        {
+            "--live-reconcile-blocked-trigger",
+            "exactly one history read",
+            "Runs before the blocked trigger's immutable UTC lower bound are discarded",
+            "Exactly one eligible known run",
+            "Zero or multiple eligible runs",
+            "never falls back to the latest run",
+            "Trigger, blocked-trigger reconciliation, status, metadata proof, and invocation remain separate",
+        },
+    )
+    _assert_contains_all(
+        runbook,
+        {
+            "do not run the trigger command again",
+            "--live-reconcile-blocked-trigger",
+            "constructs no trigger runner",
+            "exactly one WebJob history read",
+            "Zero or multiple eligible runs",
+            "do not justify a retrigger",
+        },
+    )
+    _assert_contains_all(
+        mapping,
+        {
+            "one history read",
+            "private exact-run correlation",
+            "never authorize retriggering",
+            "managed-identity metadata access",
+            "live Foundry extraction remain unproven",
+        },
+    )
+
+
 def test_hosted_webjob_generation_handoff_is_receipt_bound_and_not_operator_supplied() -> None:
     architecture = _normalized(_read("docs/architecture.md"))
     runbook = _normalized(

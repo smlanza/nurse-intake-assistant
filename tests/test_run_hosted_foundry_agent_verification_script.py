@@ -33,8 +33,10 @@ def _service():
 
 
 class MemoryStore:
-    def __init__(self, receipt=None) -> None:
+    def __init__(self, receipt=None, *, blocked=None, reconciliation=None) -> None:
         self.receipt = receipt
+        self.blocked = blocked
+        self.reconciliation = reconciliation
         self.outcome = None
         self.reservation = False
 
@@ -57,10 +59,16 @@ class MemoryStore:
         self.receipt = receipt
 
     def read_blocked(self):
-        return None
+        return self.blocked
 
     def write_blocked(self, blocked) -> None:
-        raise AssertionError("blocked state is unexpected")
+        self.blocked = blocked
+
+    def read_reconciliation(self):
+        return self.reconciliation
+
+    def write_reconciliation(self, receipt) -> None:
+        self.reconciliation = receipt
 
     def read_outcome(self):
         return self.outcome
@@ -74,6 +82,19 @@ def _receipt():
     return service.TriggerReceipt(
         schema_version=service.TRIGGER_RECEIPT_SCHEMA_VERSION,
         state="accepted",
+        trigger_not_before=datetime(2026, 7, 19, 10, tzinfo=timezone.utc),
+        resource_group="fictional-rg",
+        web_app_name="fictional-web-app",
+        webjob_name=service.WEBJOB_NAME,
+        environment_fingerprint="a" * 64,
+    )
+
+
+def _blocked():
+    service = _service()
+    return service.BlockedTrigger(
+        schema_version=service.TRIGGER_BLOCKED_SCHEMA_VERSION,
+        state="accepted-uncorrelatable",
         trigger_not_before=datetime(2026, 7, 19, 10, tzinfo=timezone.utc),
         resource_group="fictional-rg",
         web_app_name="fictional-web-app",
@@ -150,12 +171,137 @@ def test_cli_requires_one_explicit_mode_names_and_json() -> None:
         [],
         ["--check", "--live-discover", *VALID_NAMES],
         ["--check", "--live-trigger", *VALID_NAMES],
+        [
+            "--live-status",
+            "--live-reconcile-blocked-trigger",
+            *VALID_NAMES,
+            *HANDOFF_INPUTS,
+        ],
         ["--check", "--resource-group", "rg", "--web-app-name", "app"],
         ["--check", "--web-app-name", "app", "--json"],
         ["--live-status", "--resource-group", "rg", "--json"],
     ):
         with pytest.raises(SystemExit):
             script.main(argv)
+
+
+def test_reconciliation_cli_requires_config_and_readiness_receipt() -> None:
+    script = _script()
+
+    for omitted in ("--config", "--readiness-receipt"):
+        inputs = [
+            "--live-reconcile-blocked-trigger",
+            *VALID_NAMES,
+            *HANDOFF_INPUTS,
+        ]
+        index = inputs.index(omitted)
+        del inputs[index : index + 2]
+        with pytest.raises(SystemExit):
+            script.main(inputs)
+
+
+@pytest.mark.parametrize(
+    "other_mode",
+    ["--check", "--live-discover", "--live-trigger", "--live-status"],
+)
+def test_reconciliation_cli_is_mutually_exclusive_with_every_existing_mode(
+    other_mode: str,
+) -> None:
+    with pytest.raises(SystemExit):
+        _script().main(
+            [
+                "--live-reconcile-blocked-trigger",
+                other_mode,
+                *VALID_NAMES,
+                *HANDOFF_INPUTS,
+            ]
+        )
+
+
+def test_reconciliation_cli_uses_only_status_runner_factory_once(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    service = _service()
+    store = MemoryStore(blocked=_blocked())
+    monkeypatch.setattr(service, "FileTriggerReceiptStore", lambda _root: store)
+    _install_generation_handoff(monkeypatch, script)
+
+    class StatusRunner:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def run(self, args):
+            self.calls.append(args)
+            return service.CommandResult(0, "[]", "")
+
+    runner = StatusRunner()
+    status_constructed = []
+    monkeypatch.setattr(
+        script,
+        "_create_status_runner",
+        lambda: status_constructed.append(True) or runner,
+    )
+    monkeypatch.setattr(
+        script,
+        "_create_trigger_runner",
+        lambda: pytest.fail("reconciliation must never construct trigger runner"),
+    )
+
+    code = script.main(
+        [
+            "--live-reconcile-blocked-trigger",
+            *VALID_NAMES,
+            *HANDOFF_INPUTS,
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert payload["category"] == "correlated_run_not_observed"
+    assert payload["reconciliation_attempted"] is True
+    assert status_constructed == [True]
+    assert len(runner.calls) == 1
+    assert "log" in runner.calls[0]
+    assert "run" not in runner.calls[0]
+
+
+def test_reconciliation_cli_local_failure_constructs_no_runner(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    service = _service()
+    monkeypatch.setattr(
+        service,
+        "FileTriggerReceiptStore",
+        lambda _root: MemoryStore(),
+    )
+    _install_generation_handoff(monkeypatch, script)
+    monkeypatch.setattr(
+        script,
+        "_create_status_runner",
+        lambda: pytest.fail("missing blocked evidence must stop locally"),
+    )
+    monkeypatch.setattr(
+        script,
+        "_create_trigger_runner",
+        lambda: pytest.fail("reconciliation must never construct trigger runner"),
+    )
+
+    code = script.main(
+        [
+            "--live-reconcile-blocked-trigger",
+            *VALID_NAMES,
+            *HANDOFF_INPUTS,
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 2
+    assert payload["category"] == "blocked_trigger_invalid"
+    assert payload["azure_operation_attempted"] is False
 
 
 @pytest.mark.parametrize(
@@ -345,9 +491,13 @@ def test_live_modes_consume_private_handoff_without_operator_fingerprint(
     assert "environment_fingerprint" not in output
 
 
+@pytest.mark.parametrize(
+    "mode", ["--live-discover", "--live-reconcile-blocked-trigger"]
+)
 def test_invalid_readiness_or_handoff_stops_before_runner_factory(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    mode: str,
 ) -> None:
     script = _script()
     config = SimpleNamespace(
@@ -373,7 +523,7 @@ def test_invalid_readiness_or_handoff_stops_before_runner_factory(
 
     code = script.main(
         [
-            "--live-discover",
+            mode,
             *VALID_NAMES,
             "--config",
             ".env.daily-azure.local",
@@ -418,9 +568,13 @@ def test_operator_fingerprint_cannot_bypass_receipt_and_private_handoff(
     assert payload["azure_operation_attempted"] is False
 
 
+@pytest.mark.parametrize(
+    "mode", ["--live-discover", "--live-reconcile-blocked-trigger"]
+)
 def test_conflicting_direct_and_handoff_fingerprints_fail_before_runner(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    mode: str,
 ) -> None:
     script = _script()
     config = SimpleNamespace(
@@ -456,7 +610,7 @@ def test_conflicting_direct_and_handoff_fingerprints_fail_before_runner(
 
     code = script.main(
         [
-            "--live-discover",
+            mode,
             *VALID_NAMES,
             "--config",
             ".env.daily-azure.local",

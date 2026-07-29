@@ -622,7 +622,7 @@ file is exactly the validated HOME-owned operation. Temporary Kudu staging
 ancestry, the working directory, and `WEBJOBS_PATH` cannot select the import.
 
 `src/app/services/hosted_foundry_agent_webjob_execution.py` and
-`scripts/run_hosted_foundry_agent_verification.py` provide four separate
+`scripts/run_hosted_foundry_agent_verification.py` provide five separate
 operator stages. Offline check validates the fixed entry point, package,
 Bicep/configuration, and lazy-SDK contracts without a runner. Explicit discovery
 performs exactly one authenticated GET of the fixed Kudu triggered-WebJob
@@ -647,18 +647,40 @@ reservation release. Only the repository-owned process-not-started exception
 conclusively proves a local pre-submission failure and permits a later explicit
 attempt. There is no automatic expiry, cleanup, reset, or retrigger path.
 
-Explicit status requires the immutable resource/app/job receipt before runner
-construction, discards runs before its UTC lower bound, and requires exactly one
-eligible known run. It never changes the receipt. A correlated terminal success
-or failure is atomically recorded separately in immutable
+An accepted-but-uncorrelatable blocked trigger remains immutable and never
+authorizes a retry. A separate explicit
+`--live-reconcile-blocked-trigger` stage requires the current READY-bound
+generation handoff and exact schema-version-2 `accepted-uncorrelatable`
+evidence before constructing only the read-only history runner. It performs
+exactly one history read without polling, sleeping, retrying, or submitting a
+trigger. Runs before the blocked trigger's immutable UTC lower bound are
+discarded. Exactly one eligible known run atomically creates a private,
+generation- and blocked-evidence-bound reconciliation receipt containing only
+the exact run identity required by later status. Zero or multiple eligible
+runs, malformed history, and unknown states preserve the blocked evidence and
+create no correlation evidence. The reconciliation receipt uses the same
+descriptor-relative no-follow, restrictive-permission, atomic-create, and
+never-overwrite lifecycle protections as the other private evidence.
+
+Explicit status requires exactly one compatible correlation source before
+runner construction: immutable `accepted-trigger.json`, or the private
+blocked-trigger reconciliation receipt together with its unchanged original
+`blocked-trigger.json`. Accepted-trigger status retains its UTC-lower-bound
+selection contract. Reconciled status instead selects only the privately
+recorded exact run and never falls back to the latest run or another run after
+the lower bound. It never changes either correlation receipt. A correlated
+terminal success or failure is atomically recorded separately in immutable
 `terminal-outcome.json`; repeated status returns that sanitized recorded result
 without another Azure read, while mismatched or conflicting evidence fails
 closed. Descriptor-relative no-follow reads reject symlinked state parents,
 targets, and nonregular files. Trigger acceptance is never metadata success;
-only the single receipt-correlated terminal `Success` can prove the operation
-exited successfully. Raw history, timestamps, lifecycle contents, paths, lock
-information, logs, identifiers, endpoints, and operator values are never
-serialized.
+reconciliation proves only the attributable WebJob run and terminal process
+state. Managed-identity metadata access and fixed-fictional invocation remain
+unproven until their separate authoritative result contracts succeed. Raw
+history, timestamps, lifecycle contents, paths, lock information, logs,
+identifiers, endpoints, and operator values are never serialized. Trigger,
+blocked-trigger reconciliation, status, metadata proof, and invocation remain
+separate.
 
 Stale or generation-mismatched immutable lifecycle evidence is never deleted,
 reset, adopted, or converted by the coordinator. The separate offline recovery

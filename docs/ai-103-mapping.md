@@ -172,12 +172,19 @@ Scope boundaries:
   entry is durably blocked before reservation release; only a proven local
   process-not-started failure permits a later explicit attempt.
   Accepted-but-uncorrelatable attempts are likewise durably blocked, symlinked
-  state is rejected, and terminal outcomes are stored
-  separately. Local presence, remote discovery, reservation, trigger acceptance,
-  receipt-correlated status, terminal outcome, metadata proof, and invocation
-  are separate. Status accepts only exactly one run at or after the current
-  trigger's UTC lower bound; all evidence remains offline-tested and no WebJob
-  stage has run live
+  state is rejected, and a separate explicit read-only reconciliation may make
+  one history read for the current generation and exact blocked evidence.
+  Exactly one eligible known run creates private exact-run correlation;
+  zero, multiple, malformed, or unsupported results remain blocked and never
+  authorize retriggering. Terminal outcomes are stored separately. Local
+  presence, remote discovery, reservation, trigger acceptance, blocked-trigger
+  reconciliation, receipt-correlated status, terminal outcome, metadata proof,
+  and invocation are separate. Accepted-receipt status retains its exact
+  lower-bound contract, while reconciled status uses only the privately
+  recorded run. The live trigger request has been observed as ambiguous and
+  preserved in `accepted-uncorrelatable` state; managed-identity metadata
+  access, fixed-fictional invocation, and live Foundry extraction remain
+  unproven
 - The separate packaged hosted invocation boundary is offline-tested only. It
   accepts no operator prompt, uses one fixed fictional request, validates only
   approved output sections, and performs no persistence or notification work

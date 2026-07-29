@@ -14,6 +14,7 @@ from typing import Callable, Literal
 import zipfile
 
 from src.app.services.hosted_foundry_agent_webjob_execution import (
+    RECONCILIATION_RECEIPT_RELATIVE_PATH,
     TERMINAL_OUTCOME_RELATIVE_PATH,
     TRIGGER_BLOCKED_RELATIVE_PATH,
     TRIGGER_RECEIPT_RELATIVE_PATH,
@@ -21,7 +22,9 @@ from src.app.services.hosted_foundry_agent_webjob_execution import (
     TRIGGER_STATE_DIRECTORY,
     _parse_blocked,
     _parse_outcome,
+    _parse_reconciliation_receipt,
     _parse_receipt,
+    _reconciliation_matches_blocked,
 )
 from src.app.services.hosted_foundry_agent_webjob_handoff import (
     GENERATION_HANDOFF_RELATIVE_PATH,
@@ -79,6 +82,7 @@ _ALLOWED_FILES = frozenset(
     {
         TRIGGER_RECEIPT_RELATIVE_PATH.name,
         TRIGGER_BLOCKED_RELATIVE_PATH.name,
+        RECONCILIATION_RECEIPT_RELATIVE_PATH.name,
         TERMINAL_OUTCOME_RELATIVE_PATH.name,
         TRIGGER_RESERVATION_RELATIVE_PATH.name,
         GENERATION_HANDOFF_RELATIVE_PATH.name,
@@ -576,6 +580,9 @@ def _inspect_open_directory(
         )
     receipt = _parse_receipt(payloads.get(TRIGGER_RECEIPT_RELATIVE_PATH.name))
     blocked = _parse_blocked(payloads.get(TRIGGER_BLOCKED_RELATIVE_PATH.name))
+    reconciliation = _parse_reconciliation_receipt(
+        payloads.get(RECONCILIATION_RECEIPT_RELATIVE_PATH.name)
+    )
     outcome = _parse_outcome(payloads.get(TERMINAL_OUTCOME_RELATIVE_PATH.name))
     handoff = _parse_generation_handoff(
         payloads.get(GENERATION_HANDOFF_RELATIVE_PATH.name)
@@ -583,6 +590,11 @@ def _inspect_open_directory(
     if TRIGGER_RECEIPT_RELATIVE_PATH.name in payloads and receipt is None:
         malformed = True
     if TRIGGER_BLOCKED_RELATIVE_PATH.name in payloads and blocked is None:
+        malformed = True
+    if (
+        RECONCILIATION_RECEIPT_RELATIVE_PATH.name in payloads
+        and reconciliation is None
+    ):
         malformed = True
     if TERMINAL_OUTCOME_RELATIVE_PATH.name in payloads and outcome is None:
         malformed = True
@@ -600,6 +612,8 @@ def _inspect_open_directory(
         if receipt is not None
         else blocked.environment_fingerprint
         if blocked is not None
+        else reconciliation.environment_fingerprint
+        if reconciliation is not None
         else outcome.environment_fingerprint
         if outcome is not None
         else None
@@ -642,6 +656,21 @@ def _inspect_open_directory(
         and handoff.web_app_name == blocked.web_app_name
         and handoff.environment_fingerprint == blocked.environment_fingerprint
     )
+    reconciliation_matches_blocked = bool(
+        reconciliation is not None
+        and blocked is not None
+        and _reconciliation_matches_blocked(reconciliation, blocked)
+    )
+    reconciliation_matches_outcome = bool(
+        reconciliation is not None
+        and outcome is not None
+        and reconciliation.trigger_not_before == outcome.trigger_not_before
+        and reconciliation.resource_group == outcome.resource_group
+        and reconciliation.web_app_name == outcome.web_app_name
+        and reconciliation.webjob_name == outcome.webjob_name
+        and reconciliation.environment_fingerprint
+        == outcome.environment_fingerprint
+    )
     if (
         handoff is not None
         and receipt is None
@@ -650,9 +679,22 @@ def _inspect_open_directory(
         and len(names) == 1
     ):
         state = "prepared"
-    elif blocked is not None and receipt is None and outcome is None and (
-        len(names) == 1
-        or len(names) == 2 and handoff_matches_blocked
+    elif (
+        blocked is not None
+        and receipt is None
+        and outcome is None
+        and (
+            reconciliation is None
+            and (
+                len(names) == 1
+                or len(names) == 2 and handoff_matches_blocked
+            )
+            or reconciliation_matches_blocked
+            and (
+                len(names) == 2
+                or len(names) == 3 and handoff_matches_blocked
+            )
+        )
     ):
         state = "blocked"
     elif receipt is not None and blocked is None and outcome is None and (
@@ -669,6 +711,18 @@ def _inspect_open_directory(
             or len(names) == 3 and handoff_matches_receipt
         )
         and same_context
+    ):
+        state = outcome.state
+    elif (
+        receipt is None
+        and blocked is not None
+        and reconciliation_matches_blocked
+        and outcome is not None
+        and reconciliation_matches_outcome
+        and (
+            len(names) == 3
+            or len(names) == 4 and handoff_matches_blocked
+        )
     ):
         state = outcome.state
     else:

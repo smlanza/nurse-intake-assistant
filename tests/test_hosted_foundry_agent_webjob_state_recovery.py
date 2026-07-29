@@ -744,5 +744,6 @@ def test_success_never_unlinks_an_individual_lifecycle_artifact(
     assert not {
         "accepted-trigger.json",
         "blocked-trigger.json",
+        "blocked-trigger-reconciliation.json",
         "terminal-outcome.json",
     }.intersection(unlinked)

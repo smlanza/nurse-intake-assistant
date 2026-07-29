@@ -36,16 +36,29 @@ from src.app.services.hosted_foundry_agent_webjob_kudu import (
 
 HOSTED_VERIFIER_WEBJOB_ENTRYPOINT = WEBJOB_SOURCE_RELATIVE_PATH.as_posix()
 STATUS_QUERY = "[].runs[] | [].{status:status,start_time:startTime}"
+RECONCILIATION_STATUS_QUERY = (
+    "[].runs[] | [].{id:id,status:status,start_time:startTime}"
+)
 TRIGGER_STATE_DIRECTORY = Path(".artifacts/hosted-foundry-agent-webjob")
 TRIGGER_RECEIPT_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "accepted-trigger.json"
 TRIGGER_BLOCKED_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "blocked-trigger.json"
+RECONCILIATION_RECEIPT_RELATIVE_PATH = (
+    TRIGGER_STATE_DIRECTORY / "blocked-trigger-reconciliation.json"
+)
 TERMINAL_OUTCOME_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "terminal-outcome.json"
 TRIGGER_RESERVATION_RELATIVE_PATH = TRIGGER_STATE_DIRECTORY / "trigger-reservation.lock"
 TRIGGER_RECEIPT_SCHEMA_VERSION = 2
 TRIGGER_BLOCKED_SCHEMA_VERSION = 2
+RECONCILIATION_RECEIPT_SCHEMA_VERSION = 1
 TERMINAL_OUTCOME_SCHEMA_VERSION = 2
 ENVIRONMENT_FINGERPRINT_SCHEMA_VERSION = 1
-WebJobMode = Literal["check", "live-discover", "live-trigger", "live-status"]
+WebJobMode = Literal[
+    "check",
+    "live-discover",
+    "live-trigger",
+    "live-reconcile-blocked-trigger",
+    "live-status",
+]
 WebJobCategory = Literal[
     "success",
     "invalid_arguments",
@@ -68,7 +81,11 @@ WebJobCategory = Literal[
     "trigger_acceptance_ambiguous",
     "trigger_reservation_active",
     "trigger_blocked",
+    "blocked_trigger_invalid",
     "trigger_lifecycle_critical",
+    "reconciliation_receipt_invalid",
+    "reconciliation_receipt_conflict",
+    "reconciliation_receipt_persistence_failed",
     "terminal_outcome_invalid",
     "terminal_outcome_conflict",
     "terminal_outcome_persistence_failed",
@@ -109,7 +126,13 @@ MESSAGES: dict[WebJobCategory, str] = {
     ),
     "trigger_reservation_active": "Another local trigger lifecycle is reserved.",
     "trigger_blocked": "A prior trigger may have been accepted without usable correlation evidence.",
+    "blocked_trigger_invalid": "The blocked-trigger evidence is missing or invalid.",
     "trigger_lifecycle_critical": "Trigger lifecycle evidence could not be made durable safely.",
+    "reconciliation_receipt_invalid": "The blocked-trigger reconciliation evidence is invalid.",
+    "reconciliation_receipt_conflict": "The blocked-trigger reconciliation evidence conflicts.",
+    "reconciliation_receipt_persistence_failed": (
+        "The blocked-trigger correlation evidence could not be persisted safely."
+    ),
     "terminal_outcome_invalid": "The terminal WebJob outcome evidence is invalid.",
     "terminal_outcome_conflict": "The terminal WebJob outcome evidence conflicts.",
     "terminal_outcome_persistence_failed": "The terminal WebJob outcome could not be persisted safely.",
@@ -143,7 +166,11 @@ NEXT_STEPS: dict[WebJobCategory, str] = {
     "trigger_acceptance_ambiguous": "Stop and investigate the blocked trigger; do not retry automatically.",
     "trigger_reservation_active": "Stop and investigate the existing local trigger reservation; do not retry or remove it automatically.",
     "trigger_blocked": "Stop and investigate the accepted but uncorrelatable trigger before any future trigger.",
+    "blocked_trigger_invalid": "Stop and restore the exact immutable blocked-trigger evidence before any reconciliation read.",
     "trigger_lifecycle_critical": "Stop immediately; execution may have been requested and the remaining reservation must be investigated manually.",
+    "reconciliation_receipt_invalid": "Stop and restore the immutable blocked-trigger reconciliation contract before another read.",
+    "reconciliation_receipt_conflict": "Stop; do not replace or infer between conflicting reconciliation evidence.",
+    "reconciliation_receipt_persistence_failed": "Stop; preserve the blocked trigger and investigate reconciliation persistence without retriggering.",
     "terminal_outcome_invalid": "Stop and restore the immutable terminal-outcome contract before another status read.",
     "terminal_outcome_conflict": "Stop; do not replace or infer between conflicting terminal outcomes.",
     "terminal_outcome_persistence_failed": "Stop; preserve the accepted receipt and investigate outcome persistence before another stage.",
@@ -245,6 +272,59 @@ class BlockedTrigger:
 
 
 @dataclass(frozen=True)
+class ReconciliationReceipt:
+    schema_version: int
+    state: Literal["reconciled"]
+    trigger_not_before: datetime
+    resource_group: str
+    web_app_name: str
+    webjob_name: str
+    environment_fingerprint: str
+    blocked_trigger_digest: str
+    run_id: str
+    run_start_time: datetime
+    observed_status: str
+
+    @classmethod
+    def from_blocked_trigger(
+        cls,
+        blocked: BlockedTrigger,
+        *,
+        run_id: str,
+        run_start_time: datetime,
+        observed_status: str = "Running",
+    ) -> "ReconciliationReceipt":
+        return cls(
+            schema_version=RECONCILIATION_RECEIPT_SCHEMA_VERSION,
+            state="reconciled",
+            trigger_not_before=blocked.trigger_not_before,
+            resource_group=blocked.resource_group,
+            web_app_name=blocked.web_app_name,
+            webjob_name=blocked.webjob_name,
+            environment_fingerprint=blocked.environment_fingerprint,
+            blocked_trigger_digest=_blocked_trigger_digest(blocked),
+            run_id=run_id,
+            run_start_time=run_start_time,
+            observed_status=observed_status,
+        )
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "schema_version": self.schema_version,
+            "state": self.state,
+            "trigger_not_before": _format_utc(self.trigger_not_before),
+            "resource_group": self.resource_group,
+            "web_app_name": self.web_app_name,
+            "webjob_name": self.webjob_name,
+            "environment_fingerprint": self.environment_fingerprint,
+            "blocked_trigger_digest": self.blocked_trigger_digest,
+            "run_id": self.run_id,
+            "run_start_time": _format_utc(self.run_start_time),
+            "observed_status": self.observed_status,
+        }
+
+
+@dataclass(frozen=True)
 class TerminalOutcome:
     schema_version: int
     state: Literal["terminal-success", "terminal-failure"]
@@ -286,6 +366,10 @@ class TriggerReceiptStore(Protocol):
     def read_blocked(self) -> BlockedTrigger | None: ...
 
     def write_blocked(self, blocked: BlockedTrigger) -> None: ...
+
+    def read_reconciliation(self) -> ReconciliationReceipt | None: ...
+
+    def write_reconciliation(self, receipt: ReconciliationReceipt) -> None: ...
 
     def read_outcome(self) -> TerminalOutcome | None: ...
 
@@ -495,6 +579,21 @@ class FileTriggerReceiptStore:
             blocked.to_json_dict(),
         )
 
+    def read_reconciliation(self) -> ReconciliationReceipt | None:
+        payload = self._read_state(RECONCILIATION_RECEIPT_RELATIVE_PATH.name)
+        if payload is None:
+            return None
+        receipt = _parse_reconciliation_receipt(payload)
+        if receipt is None:
+            raise TriggerReceiptError()
+        return receipt
+
+    def write_reconciliation(self, receipt: ReconciliationReceipt) -> None:
+        self._write_immutable(
+            RECONCILIATION_RECEIPT_RELATIVE_PATH.name,
+            receipt.to_json_dict(),
+        )
+
     def read_outcome(self) -> TerminalOutcome | None:
         payload = self._read_state(TERMINAL_OUTCOME_RELATIVE_PATH.name)
         if payload is None:
@@ -593,6 +692,12 @@ class HostedFoundryAgentWebJobExecutionResult:
     trigger_reservation_active: bool
     trigger_receipt_valid: bool
     trigger_blocked: bool
+    blocked_trigger_valid: bool
+    reconciliation_attempted: bool
+    reconciliation_receipt_valid: bool
+    reconciled_run_observed: bool
+    reconciled_run_terminal: bool
+    reconciled_run_succeeded: bool
     correlated_run_observed: bool
     correlated_run_terminal: bool
     correlated_run_succeeded: bool
@@ -616,6 +721,12 @@ class HostedFoundryAgentWebJobExecutionResult:
             "trigger_reservation_active": self.trigger_reservation_active,
             "trigger_receipt_valid": self.trigger_receipt_valid,
             "trigger_blocked": self.trigger_blocked,
+            "blocked_trigger_valid": self.blocked_trigger_valid,
+            "reconciliation_attempted": self.reconciliation_attempted,
+            "reconciliation_receipt_valid": self.reconciliation_receipt_valid,
+            "reconciled_run_observed": self.reconciled_run_observed,
+            "reconciled_run_terminal": self.reconciled_run_terminal,
+            "reconciled_run_succeeded": self.reconciled_run_succeeded,
             "correlated_run_observed": self.correlated_run_observed,
             "correlated_run_terminal": self.correlated_run_terminal,
             "correlated_run_succeeded": self.correlated_run_succeeded,
@@ -640,6 +751,12 @@ def _result(
     trigger_reservation_active: bool = False,
     trigger_receipt_valid: bool = False,
     trigger_blocked: bool = False,
+    blocked_trigger_valid: bool = False,
+    reconciliation_attempted: bool = False,
+    reconciliation_receipt_valid: bool = False,
+    reconciled_run_observed: bool = False,
+    reconciled_run_terminal: bool = False,
+    reconciled_run_succeeded: bool = False,
     correlated_run_observed: bool = False,
     correlated_run_terminal: bool = False,
     correlated_run_succeeded: bool = False,
@@ -648,7 +765,13 @@ def _result(
     invocation_attempted: bool = False,
     recommended_next_step: str | None = None,
 ) -> HostedFoundryAgentWebJobExecutionResult:
-    valid_modes = {"check", "live-discover", "live-trigger", "live-status"}
+    valid_modes = {
+        "check",
+        "live-discover",
+        "live-trigger",
+        "live-reconcile-blocked-trigger",
+        "live-status",
+    }
     return HostedFoundryAgentWebJobExecutionResult(
         ok=ok,
         mode=request.mode if request.mode in valid_modes else "invalid",
@@ -663,6 +786,12 @@ def _result(
         trigger_reservation_active=trigger_reservation_active,
         trigger_receipt_valid=trigger_receipt_valid,
         trigger_blocked=trigger_blocked,
+        blocked_trigger_valid=blocked_trigger_valid,
+        reconciliation_attempted=reconciliation_attempted,
+        reconciliation_receipt_valid=reconciliation_receipt_valid,
+        reconciled_run_observed=reconciled_run_observed,
+        reconciled_run_terminal=reconciled_run_terminal,
+        reconciled_run_succeeded=reconciled_run_succeeded,
         correlated_run_observed=correlated_run_observed,
         correlated_run_terminal=correlated_run_terminal,
         correlated_run_succeeded=correlated_run_succeeded,
@@ -834,7 +963,11 @@ def _trigger_command(request: HostedFoundryAgentWebJobExecutionRequest) -> list[
     ]
 
 
-def _status_command(request: HostedFoundryAgentWebJobExecutionRequest) -> list[str]:
+def _status_command(
+    request: HostedFoundryAgentWebJobExecutionRequest,
+    *,
+    exact_run_identity: bool = False,
+) -> list[str]:
     return [
         "az",
         "webapp",
@@ -848,7 +981,7 @@ def _status_command(request: HostedFoundryAgentWebJobExecutionRequest) -> list[s
         "--webjob-name",
         WEBJOB_NAME,
         "--query",
-        STATUS_QUERY,
+        RECONCILIATION_STATUS_QUERY if exact_run_identity else STATUS_QUERY,
         "--only-show-errors",
         "--output",
         "json",
@@ -913,6 +1046,23 @@ def _canonical_guid(value: object) -> str | None:
 
 def _valid_fingerprint(value: object) -> bool:
     return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _valid_run_id(value: object) -> bool:
+    return bool(
+        isinstance(value, str)
+        and value == value.strip()
+        and 1 <= len(value) <= 256
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:\-]{0,255}", value)
+    )
+
+
+def _blocked_trigger_digest(blocked: BlockedTrigger) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            blocked.to_json_dict(), separators=(",", ":"), sort_keys=True
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def environment_generation_fingerprint(
@@ -1021,6 +1171,67 @@ def _parse_blocked(payload: object) -> BlockedTrigger | None:
     )
 
 
+def _parse_reconciliation_receipt(
+    payload: object,
+) -> ReconciliationReceipt | None:
+    expected = {
+        "schema_version",
+        "state",
+        "trigger_not_before",
+        "resource_group",
+        "web_app_name",
+        "webjob_name",
+        "environment_fingerprint",
+        "blocked_trigger_digest",
+        "run_id",
+        "run_start_time",
+        "observed_status",
+    }
+    if not isinstance(payload, dict) or set(payload) != expected:
+        return None
+    context = _parse_local_context(
+        {
+            name: payload[name]
+            for name in (
+                "schema_version",
+                "state",
+                "trigger_not_before",
+                "resource_group",
+                "web_app_name",
+                "webjob_name",
+                "environment_fingerprint",
+            )
+        },
+        schema_version=RECONCILIATION_RECEIPT_SCHEMA_VERSION,
+        states={"reconciled"},
+    )
+    run_start_time = _parse_time(payload.get("run_start_time"))
+    if (
+        context is None
+        or run_start_time is None
+        or _utc_time(run_start_time) is None
+        or run_start_time < context[1]
+        or not _valid_run_id(payload.get("run_id"))
+        or not _valid_fingerprint(payload.get("blocked_trigger_digest"))
+        or payload.get("observed_status")
+        not in {"Success", "Failed", "Error", "Aborted", "Running"}
+    ):
+        return None
+    return ReconciliationReceipt(
+        schema_version=RECONCILIATION_RECEIPT_SCHEMA_VERSION,
+        state="reconciled",
+        trigger_not_before=context[1],
+        resource_group=context[2],
+        web_app_name=context[3],
+        webjob_name=WEBJOB_NAME,
+        environment_fingerprint=context[4],
+        blocked_trigger_digest=payload["blocked_trigger_digest"],
+        run_id=payload["run_id"],
+        run_start_time=run_start_time,
+        observed_status=payload["observed_status"],
+    )
+
+
 def _parse_outcome(payload: object) -> TerminalOutcome | None:
     outcome = _parse_local_context(
         payload,
@@ -1081,7 +1292,7 @@ def _parse_local_context(
 
 
 def _same_context(
-    receipt: TriggerReceipt,
+    receipt: TriggerReceipt | ReconciliationReceipt,
     evidence: BlockedTrigger | TerminalOutcome,
 ) -> bool:
     return bool(
@@ -1091,6 +1302,105 @@ def _same_context(
         and receipt.webjob_name == evidence.webjob_name
         and receipt.environment_fingerprint == evidence.environment_fingerprint
     )
+
+
+def _reconciliation_matches_blocked(
+    receipt: ReconciliationReceipt,
+    blocked: BlockedTrigger,
+) -> bool:
+    return bool(
+        _same_context(receipt, blocked)
+        and receipt.blocked_trigger_digest == _blocked_trigger_digest(blocked)
+        and receipt.run_start_time >= blocked.trigger_not_before
+        and _valid_run_id(receipt.run_id)
+        and receipt.observed_status
+        in {"Success", "Failed", "Error", "Aborted", "Running"}
+    )
+
+
+@dataclass(frozen=True)
+class KnownRun:
+    run_id: str
+    status: str
+    start_time: datetime
+
+
+def _parse_known_runs(stdout: str) -> list[KnownRun] | None:
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(payload, list):
+        return None
+    runs: list[KnownRun] = []
+    for item in payload:
+        if not isinstance(item, dict) or set(item) != {
+            "id",
+            "status",
+            "start_time",
+        }:
+            return None
+        run_id = item.get("id")
+        status = item.get("status")
+        started = _parse_time(item.get("start_time"))
+        if (
+            not _valid_run_id(run_id)
+            or status not in {"Success", "Failed", "Error", "Aborted", "Running"}
+            or started is None
+            or _utc_time(started) is None
+        ):
+            return None
+        assert isinstance(run_id, str)
+        assert isinstance(status, str)
+        runs.append(KnownRun(run_id, status, started))
+    return runs
+
+
+def _classify_known_run(run: KnownRun) -> tuple[WebJobCategory, bool, bool]:
+    if run.status == "Success":
+        return "success", True, True
+    if run.status in {"Failed", "Error", "Aborted"}:
+        return "correlated_run_failed", True, False
+    return "correlated_run_nonterminal", False, False
+
+
+def _reconcile_history(
+    stdout: str,
+    lower_bound: datetime,
+) -> tuple[WebJobCategory, KnownRun | None]:
+    if _utc_time(lower_bound) is None:
+        return "blocked_trigger_invalid", None
+    runs = _parse_known_runs(stdout)
+    if runs is None:
+        return "response_parse_failed", None
+    eligible = [run for run in runs if run.start_time >= lower_bound]
+    if not eligible:
+        return "correlated_run_not_observed", None
+    if len(eligible) != 1:
+        return "correlated_run_ambiguous", None
+    category, _terminal, _succeeded = _classify_known_run(eligible[0])
+    return category, eligible[0]
+
+
+def _exact_reconciled_status(
+    stdout: str,
+    receipt: ReconciliationReceipt,
+) -> tuple[WebJobCategory, bool, bool, bool]:
+    runs = _parse_known_runs(stdout)
+    if runs is None:
+        return "response_parse_failed", False, False, False
+    matching = [
+        run
+        for run in runs
+        if run.run_id == receipt.run_id
+        and run.start_time == receipt.run_start_time
+    ]
+    if not matching:
+        return "correlated_run_not_observed", False, False, False
+    if len(matching) != 1:
+        return "correlated_run_ambiguous", False, False, False
+    category, terminal, succeeded = _classify_known_run(matching[0])
+    return category, True, terminal, succeeded
 
 
 def _correlated_status(
@@ -1134,25 +1444,66 @@ def _correlated_status(
 def _receipt_for_request(
     store: TriggerReceiptStore,
     request: HostedFoundryAgentWebJobExecutionRequest,
-) -> tuple[TriggerReceipt | None, TerminalOutcome | None, WebJobCategory | None]:
+) -> tuple[
+    TriggerReceipt | ReconciliationReceipt | None,
+    BlockedTrigger | None,
+    TerminalOutcome | None,
+    WebJobCategory | None,
+]:
     try:
         if store.reservation_exists():
-            return None, None, "trigger_reservation_active"
-        blocked = store.read_blocked()
-        if blocked is not None:
-            return None, None, (
-                "environment_evidence_stale"
-                if blocked.environment_fingerprint != request.environment_fingerprint
-                else "trigger_blocked"
-            )
+            return None, None, None, "trigger_reservation_active"
         receipt = store.read()
+        blocked = store.read_blocked()
         outcome = store.read_outcome()
     except Exception:
-        return None, None, "trigger_receipt_invalid"
+        return None, None, None, "trigger_receipt_invalid"
+    try:
+        read_reconciliation = getattr(store, "read_reconciliation", None)
+        reconciliation = (
+            read_reconciliation() if callable(read_reconciliation) else None
+        )
+    except Exception:
+        return None, blocked, outcome, "reconciliation_receipt_invalid"
+    if receipt is not None and reconciliation is not None:
+        return None, blocked, outcome, "reconciliation_receipt_conflict"
+    if reconciliation is not None:
+        if blocked is None:
+            return None, None, outcome, "reconciliation_receipt_invalid"
+        if (
+            blocked.environment_fingerprint != request.environment_fingerprint
+            or reconciliation.environment_fingerprint
+            != request.environment_fingerprint
+        ):
+            return None, blocked, outcome, "environment_evidence_stale"
+        if (
+            blocked.resource_group != request.resource_group
+            or blocked.web_app_name != request.web_app_name
+            or blocked.webjob_name != WEBJOB_NAME
+            or reconciliation.resource_group != request.resource_group
+            or reconciliation.web_app_name != request.web_app_name
+            or reconciliation.webjob_name != WEBJOB_NAME
+            or not _reconciliation_matches_blocked(reconciliation, blocked)
+        ):
+            return None, blocked, outcome, "reconciliation_receipt_invalid"
+        if outcome is not None and not _same_context(reconciliation, outcome):
+            return None, blocked, outcome, (
+                "environment_evidence_stale"
+                if outcome.environment_fingerprint
+                != request.environment_fingerprint
+                else "terminal_outcome_invalid"
+            )
+        return reconciliation, blocked, outcome, None
+    if blocked is not None:
+        return None, blocked, outcome, (
+            "environment_evidence_stale"
+            if blocked.environment_fingerprint != request.environment_fingerprint
+            else "trigger_blocked"
+        )
     if receipt is None:
         if outcome is not None:
-            return None, None, "terminal_outcome_invalid"
-        return None, None, "trigger_receipt_missing"
+            return None, None, outcome, "terminal_outcome_invalid"
+        return None, None, None, "trigger_receipt_missing"
     if (
         receipt.schema_version != TRIGGER_RECEIPT_SCHEMA_VERSION
         or receipt.state != "accepted"
@@ -1161,16 +1512,72 @@ def _receipt_for_request(
         or receipt.webjob_name != WEBJOB_NAME
         or _utc_time(receipt.trigger_not_before) is None
     ):
-        return None, None, "trigger_receipt_invalid"
+        return None, None, outcome, "trigger_receipt_invalid"
     if receipt.environment_fingerprint != request.environment_fingerprint:
-        return None, None, "environment_evidence_stale"
+        return None, None, outcome, "environment_evidence_stale"
     if outcome is not None and not _same_context(receipt, outcome):
-        return None, None, (
+        return None, None, outcome, (
             "environment_evidence_stale"
             if outcome.environment_fingerprint != request.environment_fingerprint
             else "terminal_outcome_invalid"
         )
-    return receipt, outcome, None
+    return receipt, None, outcome, None
+
+
+def _blocked_reconciliation_for_request(
+    store: TriggerReceiptStore,
+    request: HostedFoundryAgentWebJobExecutionRequest,
+) -> tuple[
+    BlockedTrigger | None,
+    ReconciliationReceipt | None,
+    TerminalOutcome | None,
+    WebJobCategory | None,
+]:
+    try:
+        if store.reservation_exists():
+            return None, None, None, "trigger_reservation_active"
+        accepted = store.read()
+        blocked = store.read_blocked()
+        outcome = store.read_outcome()
+    except Exception:
+        return None, None, None, "blocked_trigger_invalid"
+    try:
+        read_reconciliation = getattr(store, "read_reconciliation", None)
+        reconciliation = (
+            read_reconciliation() if callable(read_reconciliation) else None
+        )
+    except Exception:
+        return blocked, None, outcome, "reconciliation_receipt_invalid"
+    if accepted is not None:
+        return blocked, reconciliation, outcome, "reconciliation_receipt_conflict"
+    if blocked is None:
+        return None, reconciliation, outcome, "blocked_trigger_invalid"
+    if blocked.environment_fingerprint != request.environment_fingerprint:
+        return blocked, reconciliation, outcome, "environment_evidence_stale"
+    if (
+        blocked.schema_version != TRIGGER_BLOCKED_SCHEMA_VERSION
+        or blocked.state != "accepted-uncorrelatable"
+        or blocked.resource_group != request.resource_group
+        or blocked.web_app_name != request.web_app_name
+        or blocked.webjob_name != WEBJOB_NAME
+        or _utc_time(blocked.trigger_not_before) is None
+    ):
+        return blocked, reconciliation, outcome, "blocked_trigger_invalid"
+    if reconciliation is None:
+        if outcome is not None:
+            return blocked, None, outcome, "terminal_outcome_invalid"
+        return blocked, None, None, None
+    if reconciliation.environment_fingerprint != request.environment_fingerprint:
+        return blocked, reconciliation, outcome, "environment_evidence_stale"
+    if not _reconciliation_matches_blocked(reconciliation, blocked):
+        return blocked, reconciliation, outcome, "reconciliation_receipt_conflict"
+    if outcome is not None and not _same_context(reconciliation, outcome):
+        return blocked, reconciliation, outcome, (
+            "environment_evidence_stale"
+            if outcome.environment_fingerprint != request.environment_fingerprint
+            else "terminal_outcome_conflict"
+        )
+    return blocked, reconciliation, outcome, None
 
 
 def _release_reservation(
@@ -1254,6 +1661,55 @@ def _persisted_outcome_matches(
         return False
 
 
+def _persisted_reconciliation_matches(
+    store: TriggerReceiptStore,
+    expected: ReconciliationReceipt,
+) -> bool:
+    try:
+        read_reconciliation = getattr(store, "read_reconciliation")
+        return read_reconciliation() == expected
+    except Exception:
+        return False
+
+
+def _terminal_outcome_for_reconciliation(
+    receipt: ReconciliationReceipt,
+    *,
+    succeeded: bool,
+) -> TerminalOutcome:
+    return TerminalOutcome(
+        schema_version=TERMINAL_OUTCOME_SCHEMA_VERSION,
+        state="terminal-success" if succeeded else "terminal-failure",
+        trigger_not_before=receipt.trigger_not_before,
+        resource_group=receipt.resource_group,
+        web_app_name=receipt.web_app_name,
+        webjob_name=receipt.webjob_name,
+        environment_fingerprint=receipt.environment_fingerprint,
+    )
+
+
+def _persist_terminal_outcome(
+    store: TriggerReceiptStore,
+    outcome: TerminalOutcome,
+) -> WebJobCategory | None:
+    try:
+        store.write_outcome(outcome)
+    except ImmutableLifecycleStateExists:
+        if not _persisted_outcome_matches(store, outcome):
+            try:
+                conflicting = store.read_outcome()
+            except Exception:
+                conflicting = None
+            return (
+                "terminal_outcome_conflict"
+                if conflicting is not None
+                else "terminal_outcome_persistence_failed"
+            )
+    except Exception:
+        return "terminal_outcome_persistence_failed"
+    return None
+
+
 def _get_runner(
     runner: AzureCliRunner | None,
     runner_factory: Callable[[], AzureCliRunner] | None,
@@ -1268,6 +1724,276 @@ def _get_runner(
         return None
 
 
+def _reconciliation_result(
+    request: HostedFoundryAgentWebJobExecutionRequest,
+    category: WebJobCategory,
+    common: dict[str, bool],
+    *,
+    azure_operation_attempted: bool,
+    receipt_valid: bool,
+    observed: bool,
+    terminal: bool,
+    succeeded: bool,
+    outcome_recorded: bool,
+) -> HostedFoundryAgentWebJobExecutionResult:
+    reconciliation_next_steps = {
+        "correlated_run_not_observed": (
+            "Stop; a later blocked-trigger reconciliation read requires "
+            "separate authorization. Do not trigger again."
+        ),
+        "correlated_run_ambiguous": (
+            "Stop; preserve the blocked trigger and do not infer, select, or "
+            "trigger again."
+        ),
+        "correlated_run_nonterminal": (
+            "Stop; one later exact-run status read requires separate "
+            "authorization."
+        ),
+        "response_parse_failed": (
+            "Stop; preserve the blocked trigger and review the fixed history "
+            "contract without triggering again."
+        ),
+    }
+    return _result(
+        request,
+        category,
+        ok=category == "success",
+        azure_operation_attempted=azure_operation_attempted,
+        trigger_blocked=True,
+        blocked_trigger_valid=True,
+        reconciliation_attempted=azure_operation_attempted,
+        reconciliation_receipt_valid=receipt_valid,
+        reconciled_run_observed=observed,
+        reconciled_run_terminal=terminal,
+        reconciled_run_succeeded=succeeded,
+        terminal_outcome_recorded=outcome_recorded,
+        recommended_next_step=reconciliation_next_steps.get(category),
+        **common,
+    )
+
+
+def _execute_blocked_trigger_reconciliation(
+    request: HostedFoundryAgentWebJobExecutionRequest,
+    store: TriggerReceiptStore,
+    common: dict[str, bool],
+    *,
+    runner: AzureCliRunner | None,
+    runner_factory: Callable[[], AzureCliRunner] | None,
+) -> HostedFoundryAgentWebJobExecutionResult:
+    blocked, persisted, existing_outcome, failure = (
+        _blocked_reconciliation_for_request(store, request)
+    )
+    if failure is not None:
+        return _result(
+            request,
+            failure,
+            trigger_reservation_active=failure == "trigger_reservation_active",
+            trigger_blocked=blocked is not None,
+            blocked_trigger_valid=(
+                blocked is not None and failure != "blocked_trigger_invalid"
+            ),
+            reconciliation_receipt_valid=(
+                persisted is not None
+                and failure
+                not in {
+                    "reconciliation_receipt_invalid",
+                    "reconciliation_receipt_conflict",
+                }
+            ),
+            terminal_outcome_recorded=existing_outcome is not None,
+            **common,
+        )
+    assert blocked is not None
+    if persisted is not None:
+        category, terminal, succeeded = _classify_known_run(
+            KnownRun(
+                persisted.run_id,
+                persisted.observed_status,
+                persisted.run_start_time,
+            )
+        )
+        if terminal and existing_outcome is None:
+            expected = _terminal_outcome_for_reconciliation(
+                persisted, succeeded=succeeded
+            )
+            persistence_failure = _persist_terminal_outcome(store, expected)
+            if persistence_failure is not None:
+                return _reconciliation_result(
+                    request,
+                    persistence_failure,
+                    common,
+                    azure_operation_attempted=False,
+                    receipt_valid=True,
+                    observed=True,
+                    terminal=True,
+                    succeeded=False,
+                    outcome_recorded=False,
+                )
+            existing_outcome = expected
+        if existing_outcome is not None:
+            succeeded = existing_outcome.state == "terminal-success"
+            category = "success" if succeeded else "correlated_run_failed"
+            terminal = True
+        return _reconciliation_result(
+            request,
+            category,
+            common,
+            azure_operation_attempted=False,
+            receipt_valid=True,
+            observed=True,
+            terminal=terminal,
+            succeeded=succeeded,
+            outcome_recorded=existing_outcome is not None,
+        )
+
+    selected_runner = _get_runner(runner, runner_factory)
+    if selected_runner is None:
+        return _result(
+            request,
+            "unexpected_error",
+            trigger_blocked=True,
+            blocked_trigger_valid=True,
+            **common,
+        )
+    try:
+        response = selected_runner.run(
+            _status_command(request, exact_run_identity=True)
+        )
+    except AzureCliProcessNotStarted:
+        return _result(
+            request,
+            "azure_cli_unavailable",
+            trigger_blocked=True,
+            blocked_trigger_valid=True,
+            **common,
+        )
+    except Exception:
+        return _reconciliation_result(
+            request,
+            "unexpected_error",
+            common,
+            azure_operation_attempted=True,
+            receipt_valid=False,
+            observed=False,
+            terminal=False,
+            succeeded=False,
+            outcome_recorded=False,
+        )
+    if not isinstance(response, CommandResult):
+        return _reconciliation_result(
+            request,
+            "unexpected_error",
+            common,
+            azure_operation_attempted=True,
+            receipt_valid=False,
+            observed=False,
+            terminal=False,
+            succeeded=False,
+            outcome_recorded=False,
+        )
+    if response.return_code != 0:
+        return _reconciliation_result(
+            request,
+            _failure_category(response),
+            common,
+            azure_operation_attempted=True,
+            receipt_valid=False,
+            observed=False,
+            terminal=False,
+            succeeded=False,
+            outcome_recorded=False,
+        )
+    category, selected_run = _reconcile_history(
+        response.stdout, blocked.trigger_not_before
+    )
+    if selected_run is None:
+        return _reconciliation_result(
+            request,
+            category,
+            common,
+            azure_operation_attempted=True,
+            receipt_valid=False,
+            observed=False,
+            terminal=False,
+            succeeded=False,
+            outcome_recorded=False,
+        )
+    receipt = ReconciliationReceipt.from_blocked_trigger(
+        blocked,
+        run_id=selected_run.run_id,
+        run_start_time=selected_run.start_time,
+        observed_status=selected_run.status,
+    )
+    try:
+        write_reconciliation = getattr(store, "write_reconciliation")
+        write_reconciliation(receipt)
+    except ImmutableLifecycleStateExists:
+        if not _persisted_reconciliation_matches(store, receipt):
+            return _reconciliation_result(
+                request,
+                "reconciliation_receipt_conflict",
+                common,
+                azure_operation_attempted=True,
+                receipt_valid=False,
+                observed=True,
+                terminal=False,
+                succeeded=False,
+                outcome_recorded=False,
+            )
+    except Exception:
+        return _reconciliation_result(
+            request,
+            "reconciliation_receipt_persistence_failed",
+            common,
+            azure_operation_attempted=True,
+            receipt_valid=False,
+            observed=True,
+            terminal=False,
+            succeeded=False,
+            outcome_recorded=False,
+        )
+    category, terminal, succeeded = _classify_known_run(selected_run)
+    if not terminal:
+        return _reconciliation_result(
+            request,
+            category,
+            common,
+            azure_operation_attempted=True,
+            receipt_valid=True,
+            observed=True,
+            terminal=False,
+            succeeded=False,
+            outcome_recorded=False,
+        )
+    terminal_outcome = _terminal_outcome_for_reconciliation(
+        receipt, succeeded=succeeded
+    )
+    persistence_failure = _persist_terminal_outcome(store, terminal_outcome)
+    if persistence_failure is not None:
+        return _reconciliation_result(
+            request,
+            persistence_failure,
+            common,
+            azure_operation_attempted=True,
+            receipt_valid=True,
+            observed=True,
+            terminal=True,
+            succeeded=False,
+            outcome_recorded=False,
+        )
+    return _reconciliation_result(
+        request,
+        category,
+        common,
+        azure_operation_attempted=True,
+        receipt_valid=True,
+        observed=True,
+        terminal=True,
+        succeeded=succeeded,
+        outcome_recorded=True,
+    )
+
+
 def execute_hosted_foundry_agent_webjob(
     request: HostedFoundryAgentWebJobExecutionRequest,
     *,
@@ -1278,7 +2004,13 @@ def execute_hosted_foundry_agent_webjob(
     receipt_store: TriggerReceiptStore | None = None,
     clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> HostedFoundryAgentWebJobExecutionResult:
-    valid_modes = {"check", "live-discover", "live-trigger", "live-status"}
+    valid_modes = {
+        "check",
+        "live-discover",
+        "live-trigger",
+        "live-reconcile-blocked-trigger",
+        "live-status",
+    }
     if (
         request.mode not in valid_modes
         or not _safe_resource_group(request.resource_group)
@@ -1302,10 +2034,19 @@ def execute_hosted_foundry_agent_webjob(
         return _result(request, "success", ok=True, **common)
 
     store = receipt_store or FileTriggerReceiptStore(request.source_root)
-    receipt: TriggerReceipt | None = None
+    receipt: TriggerReceipt | ReconciliationReceipt | None = None
+    blocked_for_status: BlockedTrigger | None = None
     existing_outcome: TerminalOutcome | None = None
     reservation: TriggerReservation | None = None
 
+    if request.mode == "live-reconcile-blocked-trigger":
+        return _execute_blocked_trigger_reconciliation(
+            request,
+            store,
+            common,
+            runner=runner,
+            runner_factory=runner_factory,
+        )
     if request.mode == "live-trigger":
         try:
             reservation = store.acquire_reservation()
@@ -1401,31 +2142,44 @@ def execute_hosted_foundry_agent_webjob(
                 **common,
             )
     elif request.mode == "live-status":
-        receipt, existing_outcome, receipt_failure = _receipt_for_request(
-            store, request
-        )
+        (
+            receipt,
+            blocked_for_status,
+            existing_outcome,
+            receipt_failure,
+        ) = _receipt_for_request(store, request)
         if receipt_failure is not None:
             return _result(
                 request,
                 receipt_failure,
                 trigger_reservation_active=receipt_failure == "trigger_reservation_active",
                 trigger_blocked=receipt_failure == "trigger_blocked",
+                blocked_trigger_valid=(
+                    blocked_for_status is not None
+                    and receipt_failure != "blocked_trigger_invalid"
+                ),
                 **common,
             )
         assert receipt is not None
+        reconciliation_status = isinstance(receipt, ReconciliationReceipt)
         if existing_outcome is not None:
             succeeded = existing_outcome.state == "terminal-success"
             return _result(
                 request,
                 "success" if succeeded else "correlated_run_failed",
                 ok=succeeded,
-                trigger_receipt_valid=True,
+                trigger_receipt_valid=not reconciliation_status,
+                trigger_blocked=reconciliation_status,
+                blocked_trigger_valid=reconciliation_status,
+                reconciliation_receipt_valid=reconciliation_status,
                 correlated_run_observed=True,
                 correlated_run_terminal=True,
                 correlated_run_succeeded=succeeded,
                 terminal_outcome_recorded=True,
-                metadata_verification_proven=succeeded,
-                invocation_attempted=succeeded,
+                metadata_verification_proven=(
+                    succeeded and not reconciliation_status
+                ),
+                invocation_attempted=succeeded and not reconciliation_status,
                 **common,
             )
 
@@ -1499,7 +2253,10 @@ def execute_hosted_foundry_agent_webjob(
     if request.mode == "live-trigger":
         command = _trigger_command(request)
     else:
-        command = _status_command(request)
+        command = _status_command(
+            request,
+            exact_run_identity=isinstance(receipt, ReconciliationReceipt),
+        )
 
     try:
         outcome = selected_runner.run(command)
@@ -1528,7 +2285,10 @@ def execute_hosted_foundry_agent_webjob(
             request,
             "unexpected_error",
             azure_operation_attempted=True,
-            trigger_receipt_valid=receipt is not None,
+            trigger_receipt_valid=isinstance(receipt, TriggerReceipt),
+            reconciliation_receipt_valid=isinstance(
+                receipt, ReconciliationReceipt
+            ),
             **common,
         )
     if not isinstance(outcome, CommandResult):
@@ -1545,7 +2305,10 @@ def execute_hosted_foundry_agent_webjob(
             request,
             "unexpected_error",
             azure_operation_attempted=True,
-            trigger_receipt_valid=receipt is not None,
+            trigger_receipt_valid=isinstance(receipt, TriggerReceipt),
+            reconciliation_receipt_valid=isinstance(
+                receipt, ReconciliationReceipt
+            ),
             **common,
         )
     if outcome.return_code != 0:
@@ -1562,7 +2325,10 @@ def execute_hosted_foundry_agent_webjob(
             request,
             _failure_category(outcome),
             azure_operation_attempted=True,
-            trigger_receipt_valid=receipt is not None,
+            trigger_receipt_valid=isinstance(receipt, TriggerReceipt),
+            reconciliation_receipt_valid=isinstance(
+                receipt, ReconciliationReceipt
+            ),
             **common,
         )
 
@@ -1643,10 +2409,16 @@ def execute_hosted_foundry_agent_webjob(
         )
 
     assert receipt is not None
-    category, observed, terminal, succeeded = _correlated_status(
-        outcome.stdout,
-        receipt.trigger_not_before,
-    )
+    if isinstance(receipt, ReconciliationReceipt):
+        category, observed, terminal, succeeded = _exact_reconciled_status(
+            outcome.stdout,
+            receipt,
+        )
+    else:
+        category, observed, terminal, succeeded = _correlated_status(
+            outcome.stdout,
+            receipt.trigger_not_before,
+        )
     if terminal:
         terminal_outcome = TerminalOutcome(
             schema_version=TERMINAL_OUTCOME_SCHEMA_VERSION,
@@ -1671,7 +2443,16 @@ def execute_hosted_foundry_agent_webjob(
                     if conflicting is not None
                     else "terminal_outcome_persistence_failed",
                     azure_operation_attempted=True,
-                    trigger_receipt_valid=True,
+                    trigger_receipt_valid=isinstance(receipt, TriggerReceipt),
+                    trigger_blocked=isinstance(
+                        receipt, ReconciliationReceipt
+                    ),
+                    blocked_trigger_valid=isinstance(
+                        receipt, ReconciliationReceipt
+                    ),
+                    reconciliation_receipt_valid=isinstance(
+                        receipt, ReconciliationReceipt
+                    ),
                     correlated_run_observed=observed,
                     correlated_run_terminal=terminal,
                     **common,
@@ -1681,7 +2462,14 @@ def execute_hosted_foundry_agent_webjob(
                 request,
                 "terminal_outcome_persistence_failed",
                 azure_operation_attempted=True,
-                trigger_receipt_valid=True,
+                trigger_receipt_valid=isinstance(receipt, TriggerReceipt),
+                trigger_blocked=isinstance(receipt, ReconciliationReceipt),
+                blocked_trigger_valid=isinstance(
+                    receipt, ReconciliationReceipt
+                ),
+                reconciliation_receipt_valid=isinstance(
+                    receipt, ReconciliationReceipt
+                ),
                 correlated_run_observed=observed,
                 correlated_run_terminal=terminal,
                 **common,
@@ -1691,13 +2479,24 @@ def execute_hosted_foundry_agent_webjob(
             category,
             ok=category == "success",
             azure_operation_attempted=True,
-            trigger_receipt_valid=True,
+            trigger_receipt_valid=isinstance(receipt, TriggerReceipt),
+            trigger_blocked=isinstance(receipt, ReconciliationReceipt),
+            blocked_trigger_valid=isinstance(receipt, ReconciliationReceipt),
+            reconciliation_receipt_valid=isinstance(
+                receipt, ReconciliationReceipt
+            ),
             correlated_run_observed=observed,
             correlated_run_terminal=True,
             correlated_run_succeeded=succeeded,
             terminal_outcome_recorded=True,
-            metadata_verification_proven=category == "success",
-            invocation_attempted=category == "success",
+            metadata_verification_proven=(
+                category == "success"
+                and isinstance(receipt, TriggerReceipt)
+            ),
+            invocation_attempted=(
+                category == "success"
+                and isinstance(receipt, TriggerReceipt)
+            ),
             **common,
         )
     return _result(
@@ -1705,7 +2504,12 @@ def execute_hosted_foundry_agent_webjob(
         category,
         ok=category == "success",
         azure_operation_attempted=True,
-        trigger_receipt_valid=True,
+        trigger_receipt_valid=isinstance(receipt, TriggerReceipt),
+        trigger_blocked=isinstance(receipt, ReconciliationReceipt),
+        blocked_trigger_valid=isinstance(receipt, ReconciliationReceipt),
+        reconciliation_receipt_valid=isinstance(
+            receipt, ReconciliationReceipt
+        ),
         correlated_run_observed=observed,
         correlated_run_terminal=terminal,
         correlated_run_succeeded=succeeded,

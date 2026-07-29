@@ -51,6 +51,14 @@ def _create_azure_cli_runner() -> SubprocessAzureCliRunner:
     return SubprocessAzureCliRunner()
 
 
+def _create_trigger_runner() -> SubprocessAzureCliRunner:
+    return _create_azure_cli_runner()
+
+
+def _create_status_runner() -> SubprocessAzureCliRunner:
+    return _create_azure_cli_runner()
+
+
 def _create_kudu_discoverer() -> KuduTriggeredWebJobDiscoverer:
     return KuduTriggeredWebJobDiscoverer(
         token_runner=SubprocessAzureCliRunner(),
@@ -60,14 +68,16 @@ def _create_kudu_discoverer() -> KuduTriggeredWebJobDiscoverer:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Check, discover, trigger, or read one receipt-correlated status "
-            "for the fixed hosted Foundry metadata-verification WebJob."
+            "Check, discover, trigger, reconcile one blocked trigger, or read "
+            "one receipt-correlated status for the fixed hosted Foundry "
+            "metadata-verification WebJob."
         )
     )
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--check", action="store_true")
     modes.add_argument("--live-discover", action="store_true")
     modes.add_argument("--live-trigger", action="store_true")
+    modes.add_argument("--live-reconcile-blocked-trigger", action="store_true")
     modes.add_argument("--live-status", action="store_true")
     parser.add_argument("--resource-group", required=True)
     parser.add_argument("--web-app-name", required=True)
@@ -75,7 +85,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--readiness-receipt", type=Path)
     parser.add_argument("--environment-fingerprint")
     parser.add_argument("--json", action="store_true", required=True)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.live_reconcile_blocked_trigger and (
+        args.config is None or args.readiness_receipt is None
+    ):
+        parser.error(
+            "--live-reconcile-blocked-trigger requires --config and "
+            "--readiness-receipt"
+        )
+    return args
 
 
 def _generation_handoff_failure(mode: str) -> dict[str, object]:
@@ -93,6 +111,12 @@ def _generation_handoff_failure(mode: str) -> dict[str, object]:
         "trigger_reservation_active": False,
         "trigger_receipt_valid": False,
         "trigger_blocked": False,
+        "blocked_trigger_valid": False,
+        "reconciliation_attempted": False,
+        "reconciliation_receipt_valid": False,
+        "reconciled_run_observed": False,
+        "reconciled_run_terminal": False,
+        "reconciled_run_succeeded": False,
         "correlated_run_observed": False,
         "correlated_run_terminal": False,
         "correlated_run_succeeded": False,
@@ -148,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.live_discover
         else "live-trigger"
         if args.live_trigger
+        else "live-reconcile-blocked-trigger"
+        if args.live_reconcile_blocked_trigger
         else "live-status"
     )
     environment_fingerprint = (
@@ -176,10 +202,15 @@ def main(argv: list[str] | None = None) -> int:
             request,
             discoverer_factory=_create_kudu_discoverer,
         )
+    elif mode == "live-trigger":
+        result = execute_hosted_foundry_agent_webjob(
+            request,
+            runner_factory=_create_trigger_runner,
+        )
     else:
         result = execute_hosted_foundry_agent_webjob(
             request,
-            runner_factory=_create_azure_cli_runner,
+            runner_factory=_create_status_runner,
         )
     print(json.dumps(result.to_json_dict(), separators=(",", ":"), sort_keys=True))
     return 0 if result.ok else 2
