@@ -29,7 +29,7 @@ or SMS.
 | AI-103 area | Current implementation | Evidence in repo | Status |
 |---|---|---|---|
 | Generative AI app design | `CaseProcessingService` orchestrates extraction, urgency merge, persistence, and notifications; AI provider factory selects the configured provider; `MockAiService` returns structured extraction, summary, and advisory classification; Pydantic models define API and output contracts | `src/app/services/case_processing_service.py`, `src/app/services/ai_service_factory.py`, `src/app/services/mock_ai_service.py`, `src/app/models/ai_outputs.py`, `src/app/models/case.py` | Implemented locally with mock AI |
-| Azure AI Foundry / agent orchestration readiness | `FoundryAiService` and `NurseIntakeAgent` provide tested runtime boundaries and application-owned structured contracts, including validation before trusting model/agent output; stable per-agent OpenAI protocol invocation is primary, project-endpoint agent-reference invocation is explicit compatibility-only, and read-only verification checks `agent_endpoint.protocols`, exclusive immutable-version routing, and the configured definition | `src/app/services/foundry_agent_client.py`, `src/app/services/foundry_agent_verification.py`, `scripts/verify_foundry_agent.py`, `tests/test_foundry_agent_verification.py` | Offline tests use fakes and make no Azure calls; live verification/invocation remains explicit, sanitized, and fictional-data-only |
+| Azure AI Foundry / agent orchestration readiness | `FoundryAiService` and `NurseIntakeAgent` provide tested runtime boundaries and application-owned structured contracts, including validation before trusting model/agent output; stable per-agent OpenAI protocol invocation is primary, project-endpoint agent-reference invocation is explicit compatibility-only, and read-only verification checks `agent_endpoint.protocols`, exclusive immutable-version routing, and the configured definition | `src/app/services/foundry_agent_client.py`, `src/app/services/foundry_agent_verification.py`, `scripts/verify_foundry_agent.py`, `tests/test_foundry_agent_verification.py` | Foundry deployment, prompt-agent configuration, and immutable routing are live-proven. Offline tests use fakes and make no Azure calls. Hosted managed-identity metadata access and invocation remain unproven; the current WebJob trigger mechanism is retired |
 | Responsible AI / human oversight | Responsible AI pattern: urgency is advisory only; invalid agent output uses safe fallback values instead of crashing intake processing; deterministic red-flag rules supplement AI and may promote final urgency; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/services/nurse_intake_agent_contract.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented human review and deterministic safety rules |
 | Natural language processing and Speech readiness | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency; Speech transcription provider boundary has mock/offline and Azure scaffold implementations | `src/app/routes/intake.py`, `src/app/services/mock_ai_service.py`, `src/app/services/speech_transcription_service.py`, `src/app/services/speech_transcription_factory.py`, `tests/test_intake_route.py`, `tests/test_mock_ai_service.py`, `tests/test_speech_transcription_service.py`, `tests/test_speech_transcription_factory.py` | Implemented for text/transcripts and offline Speech boundary; live Azure Speech deferred |
 | Azure service integration boundaries | Cosmos repository and container factory with point reads/upserts plus cross-partition filtered case-list queries; ACS Email/SMS boundaries; Bicep baseline for Cosmos, storage, Log Analytics, Application Insights, and optional Azure Web App hosting | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/modules/web-app.bicep`, `infra/README.md` | Case-list/query-filter parity is covered offline with fakes; queue-summary and voicemail-idempotency lookup parity, live Cosmos validation, and production hardening are deferred |
@@ -38,7 +38,7 @@ or SMS.
 | Testing and reliability | Pytest covers provider factories, repositories, routes, safety rules, notification behavior, static pages, and stable documentation guardrails. Azure-dependent slices additionally require a checked-in prerequisite runbook with authentication, authoritative Bicep, fail-fast stages, and current read-only proof | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` | Implemented project discipline; automated tests make no Azure calls |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it. The Foundry what-if boundary returns sanitized counts for seven allowed change types and fails closed on malformed or unknown shapes; a separate verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Current read-only verification of an explicit operator-approved parameter set proved the AIServices account, child project, endpoint contract, and model deployment. Disposable names are not permanent defaults |
 | Managed-identity and RBAC readiness | Optional IaC defines a Linux Web App system identity and separate project-scoped Consumer assignment. The verifier resolves and validates Azure's returned project ID without manual construction. The outer deployment name is deterministic while the nested module derives the distinct `${deployment().name}-assignment` name; project scope, fixed role, deterministic assignment GUID, and identity lookup remain unchanged | `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | After the collision correction and a fresh matching preview, Azure accepted the project-scoped Consumer assignment deployment. A separate read-only verifier proved exactly one direct assignment for the Web App system identity at the exact project scope. Token use, hosted metadata access, agent operation, and invocation remain unproven |
-| Repeatable application deployment readiness | An explicit CLI deploys Web App infrastructure through the existing `main.bicep` with Foundry disabled; its local reader enforces the exact shared hosted settings contract, and what-if exposes sanitized change counts only. Separate boundaries verify Bicep-owned configuration, package and deploy code, and check `/health`, `/version`, and `/demo/status` | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_infra_deployment.py`, `scripts/deploy_web_app_infra.py`, `src/app/services/web_app_configuration_verification.py`, `scripts/verify_web_app_configuration.py`, `src/app/services/web_app_package.py`, `scripts/deploy_web_app_code.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/verify_web_app_readiness.py` | Current verification of the operator-approved Web App proved configuration, system identity, mock-safe hosted posture, and `/health`, `/version`, and `/demo/status`. Check modes make no Azure or HTTP call. Successful RBAC, managed-identity Foundry access, and invocation remain unproven; no production-readiness claim is made |
+| Repeatable application deployment readiness | An explicit CLI deploys Web App infrastructure through the existing `main.bicep` with Foundry disabled; its local reader enforces the exact shared hosted settings contract, and what-if exposes sanitized change counts only. Separate boundaries verify Bicep-owned configuration, package and deploy code, and check `/health`, `/version`, and `/demo/status` | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_infra_deployment.py`, `scripts/deploy_web_app_infra.py`, `src/app/services/web_app_configuration_verification.py`, `scripts/verify_web_app_configuration.py`, `src/app/services/web_app_package.py`, `scripts/deploy_web_app_code.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/verify_web_app_readiness.py` | Current verification proved configuration, system identity, mock-safe hosted posture, application deployment, artifact equality, and hosted readiness. Check modes make no Azure or HTTP call. Direct project-scoped Consumer RBAC is separately live-proven; managed-identity Foundry access and invocation remain unproven |
 
 ## 3. Generative AI And Foundry Relevance
 
@@ -73,7 +73,11 @@ classification. Invalid output uses a safe fallback for nurse review, while
 deterministic red-flag rules still evaluate the raw intake text and may promote
 final urgency. The processing trace records agent usage, warnings, and final urgency source for audit-friendly review.
 
-Live Azure AI Foundry extraction is not currently implemented.
+The standalone manual Foundry structured-extraction smoke is live-proven.
+Application-integrated live structured extraction through the Nurse Intake
+Assistant service boundary is not yet live-proven. It is the next recommended
+AI-103 slice and should use the existing application service/provider boundary
+rather than the retired WebJob trigger mechanism.
 
 ## 4. Responsible AI And Human Review
 
@@ -147,7 +151,9 @@ Scope boundaries:
 - The explicit RBAC deployment and read-only assignment-verification boundaries
   are live-proven separately: Azure accepted the project-scoped Consumer
   deployment, then a read-only verifier proved exactly one direct assignment.
-  No token acquisition, hosted Foundry verification, or invocation occurred
+  The final fresh READY generation subsequently reused and reverified that
+  exact assignment without mutation. No token acquisition, hosted Foundry
+  verification, or invocation occurred
 - The packaged App Service-hosted prompt-agent verifier is offline-tested only. Its system-assigned
   identity credential and metadata reads do not prove hosted authorization
 - The verifier's exact five non-secret settings use a disabled-by-default tagged
@@ -156,42 +162,31 @@ Scope boundaries:
   Direct `main.bicep` and reusable `web-app.bicep` deployments reject whitespace
   through trim-aware nested-module `minLength` validation without experimental
   Bicep features.
-  The seven mock-safe application settings remain unchanged. The deterministic
-  application package excludes `App_Data`; a separate generation-bound,
-  default-no deployment creates an exact one-file WebJob ZIP and uses the
-  supported Kudu triggered-WebJob replacement endpoint. Upload acceptance and
-  one subsequent read-only discovery are separate and neither triggers
-  execution. The WebJob calls only the metadata verifier and fixed fictional
-  invocation, forces validated `$HOME/site/wwwroot` to import precedence,
-  resolves dependencies only from the validated platform interpreter prefix,
-  rejects unexpected preloaded packages, and proves the exact HOME-owned module
-  file after import, independent of temporary Kudu staging. A fixed exclusive
-  local reservation protects one
-  checkout's shared artifact filesystem; it is not a cross-machine lock.
-  Accepted receipts remain immutable. Any unvalidated result after trigger-runner
-  entry is durably blocked before reservation release; only a proven local
-  process-not-started failure permits a later explicit attempt.
-  Accepted-but-uncorrelatable attempts are likewise durably blocked, symlinked
-  state is rejected, and a separate explicit read-only reconciliation may make
-  one history read for the current generation and exact blocked evidence.
-  Exactly one eligible known run creates private exact-run correlation;
-  zero, multiple, malformed, or unsupported results remain blocked and never
-  authorize retriggering. Terminal outcomes are stored separately. Local
-  presence, remote discovery, reservation, trigger acceptance, blocked-trigger
-  reconciliation, receipt-correlated status, terminal outcome, metadata proof,
-  and invocation are separate. Accepted-receipt status retains its exact
-  lower-bound contract, while reconciled status uses only the privately
-  recorded run. The live trigger request has been observed as ambiguous and
-  preserved in `accepted-uncorrelatable` state; managed-identity metadata
-  access, fixed-fictional invocation, and live Foundry extraction remain
-  unproven
+  The seven mock-safe application settings remain unchanged.
+- A separate generation-bound one-file WebJob package, upload, immutable
+  handoff, and fixed-resource Kudu discovery boundary exists. Live handoff and
+  discovery succeeded, proving generation binding and registration of the
+  fixed `run.py` WebJob. Neither proof establishes execution or Foundry access.
+- Multiple fresh supervised trigger attempts returned
+  `trigger_acceptance_ambiguous`, and Azure exposed no safely correlatable
+  execution record. The current WebJob trigger-and-correlation mechanism is
+  retired from supported operations; this is not a claim that Azure WebJobs
+  are universally impossible.
+- The preserved retired reconciliation design made one history read and
+  allowed private exact-run correlation only for exactly one eligible known
+  run. Zero, multiple, malformed, or unsupported results remain blocked and
+  never authorize retriggering. Those code contracts are historical evidence,
+  not a recommended AI-103 exercise.
+- Managed-identity metadata access, fixed-fictional invocation, and live
+  Foundry extraction remain unproven
 - The separate packaged hosted invocation boundary is offline-tested only. It
   accepts no operator prompt, uses one fixed fictional request, validates only
   approved output sections, and performs no persistence or notification work
 - Infrastructure deployment, configuration verification, code deployment,
-  hosted readiness, WebJob discovery, WebJob trigger acceptance, correlated
-  status, managed-identity metadata verification, RBAC verification, and agent
-  invocation remain separate stages
+  hosted readiness, WebJob discovery, RBAC verification, managed-identity
+  metadata verification, and agent invocation remain distinct proof
+  boundaries. Trigger acceptance and correlated status belong to the retired
+  mechanism
 - Configuration verification does not prove code deployment. Package creation
   and deployment-request acceptance do not imply hosted health; hosted readiness
   does not imply RBAC, managed-identity authentication, Foundry access, or
@@ -205,7 +200,8 @@ Scope boundaries:
 
 The following are future work, not current implementation:
 
-- Live Azure AI Foundry structured extraction
+- Live Azure AI Foundry structured extraction through the Nurse Intake
+  Assistant service boundary (application-integrated)
 - Azure AI Foundry Agent/tool orchestration, if still useful after the simpler
   Foundry provider path
 - Azure Speech transcription service
@@ -223,7 +219,8 @@ The following are future work, not current implementation:
 
 Highest AI-103 ROI:
 
-- Live Azure AI Foundry structured extraction
+- Application-integrated live Azure AI Foundry structured extraction through
+  the Nurse Intake Assistant service boundary
 - Foundry prompt/schema/evaluation documentation
 - Azure Speech transcription boundary
 - Responsible AI and human-review documentation
@@ -243,7 +240,8 @@ Lower direct exam ROI but strong portfolio value:
 
 ## 9. Recommended Azure Implementation Order
 
-1. Live Azure AI Foundry structured extraction
+1. Live Azure AI Foundry structured extraction through the Nurse Intake
+   Assistant service boundary (application-integrated)
 2. Foundry prompt/schema/evaluation notes
 3. Azure Speech transcription service boundary
 4. Hosted managed-identity Foundry validation when explicitly approved
@@ -260,7 +258,8 @@ workflow work.
 
 When presenting the capstone, do not imply that the current MVP already has:
 
-- Live Azure AI Foundry extraction
+- Application-integrated live Azure AI Foundry structured extraction through
+  the Nurse Intake Assistant service boundary
 - Azure Speech transcription
 - ACS phone intake
 - App Service authentication
@@ -281,7 +280,8 @@ Cosmos DB, ACS Email/SMS, and infrastructure.
 Future-facing framing:
 
 ```text
-The next highest-value Azure slice is to replace the mock AI provider with live
-Azure AI Foundry structured extraction while preserving the same Pydantic output
-contracts and human-review boundary.
+The next highest-value Azure slice is to replace the mock AI provider with
+application-integrated live Azure AI Foundry structured extraction through the
+Nurse Intake Assistant service boundary while preserving the same Pydantic
+output contracts and human-review boundary.
 ```

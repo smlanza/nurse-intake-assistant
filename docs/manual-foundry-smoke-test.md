@@ -1,10 +1,18 @@
 # Manual Foundry Smoke Test
 
+This is a specialized Foundry development reference, not the normal disposable
+Azure operator procedure. For daily authentication, READY, optional Consumer
+RBAC, and cleanup, follow
+[`docs/runbooks/daily-azure-operator-runbook.md`](runbooks/daily-azure-operator-runbook.md).
+The current hosted WebJob trigger-and-correlation mechanism is retired; nothing
+in this reference revives it.
+
 ## Disposable Foundry Infrastructure
 
-The recommended daily path deploys only one Foundry resource, one project, and
-one explicitly configured model deployment through `infra/foundry-only.bicep`.
-It reuses the same module as optional Foundry support in `infra/main.bicep`.
+The historical standalone Foundry path deploys one Foundry resource, one
+project, and one explicitly configured model deployment through
+`infra/foundry-only.bicep`. It reuses the same module as optional Foundry
+support in `infra/main.bicep`.
 
 Run the infrastructure CLI in this order: offline `--check`; optional
 non-mutating `--what-if` against an existing resource group; explicit
@@ -12,10 +20,6 @@ non-mutating `--what-if` against an existing resource group; explicit
 Intake Agent, edit `.env.foundry-agent.local`, or clean up. Copy the returned
 endpoint and deployment name manually. Model/version/provider/SKU/region/quota
 values must be valid for the subscription.
-
-```bash
-az group delete --name <resource-group-name> --yes --no-wait
-```
 
 Tests remain offline, nurse review stays mandatory, and no production clinical
 claim is made.
@@ -196,10 +200,9 @@ does not establish production or clinical readiness.
 
 ### App Service-hosted identity verification of the Foundry prompt agent
 
-After separately verifying Foundry infrastructure, deploying and checking the
-Web App, reviewing hosted readiness, deploying the Consumer assignment, and
-verifying that exact assignment read-only, run the packaged operation from the
-deployed Web App environment:
+The following direct packaged-operation commands describe the original
+offline-tested boundary. They are retained for implementation context and are
+not a supported operator substitute for the retired WebJob execution path:
 
 ```bash
 set -o pipefail
@@ -231,6 +234,7 @@ or authorization claim.
 
 Here, “hosted” means the command runs inside Azure App Service. It verifies a
 Foundry prompt agent and is not the Microsoft Foundry Hosted Agents runtime.
+The following is a historical boundary map, not a supported operator sequence:
 
 ```text
 Foundry infrastructure verification
@@ -244,10 +248,11 @@ Foundry infrastructure verification
 -> later, separate fictional-data hosted agent invocation
 ```
 
-Each arrow is a separate operator-reviewed proof. Keep application, AI, agent,
-email, SMS, and Speech providers at their mock defaults and keep hosted
-notifications suppressed. Human nurse review and the non-production clinical
-boundary remain mandatory.
+Each arrow was designed as a separate proof. The hosted verification and
+invocation arrows remain unproven, and the WebJob path intended to reach them is
+retired. Keep application, AI, agent, email, SMS, and Speech providers at their
+mock defaults and keep hosted notifications suppressed. Human nurse review and
+the non-production clinical boundary remain mandatory.
 
 The application Foundry Agent adapter prefers the current stable per-agent
 OpenAI protocol endpoint:
@@ -510,14 +515,12 @@ information, or patient data.
     `EMAIL_PROVIDER=mock`, `SMS_PROVIDER=mock`, and `SPEECH_PROVIDER=mock`
     after validation.
 
-15. After review, manually delete the disposable resource group when it is no
-    longer needed:
+15. After review, use Step 8 of the canonical daily Azure operator runbook for
+    verified, ownership-scoped cleanup. Do not use an asynchronous manual
+    resource-group deletion.
 
-    ```bash
-    az group delete --name <resource-group-name> --yes --no-wait
-    ```
-
-Do not automate environment-file mutation or resource-group deletion.
+Do not automate environment-file mutation or bypass the canonical cleanup
+boundary.
 Disposable resource-group deletion is always a manual, explicit operator
 action.
 

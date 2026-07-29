@@ -315,13 +315,18 @@ The daily disposable coordinator ends at verified application-hosting
 readiness. It verifies Foundry infrastructure, prompt-agent identity and
 immutable routing, Web App infrastructure and configuration, the current
 application artifact, and hosted readiness. It returns success immediately
-after those proofs. Consumer RBAC, WebJob discovery/execution and recovery,
-managed-identity access, metadata verification, and hosted agent invocation
-remain separate, explicitly invoked optional workflows and are not daily
-readiness requirements. The independent deployment, packaging, read-only
-verification, RBAC, readiness, and WebJob lifecycle boundaries below remain
-authoritative for their resource-specific parsing and proof. Intake processing
-and notifications remain outside infrastructure orchestration.
+after those proofs. Consumer RBAC remains one of the separate, explicitly
+invoked optional workflows outside readiness. WebJob discovery and
+immutable-evidence recovery remain separate technical boundaries, while the
+current WebJob
+trigger-and-correlation path is retired from supported operations.
+Managed-identity access, metadata verification, and hosted agent invocation
+remain unproven and are not daily readiness requirements. The independent
+deployment, packaging, read-only verification, RBAC, readiness, and WebJob
+lifecycle boundaries below remain authoritative for their resource-specific
+parsing and proof. Intake processing and notifications remain outside
+infrastructure orchestration. The only normal operator sequence is
+`docs/runbooks/daily-azure-operator-runbook.md`.
 
 After READY, a separate explicitly invoked handoff-preparation boundary
 validates the current non-revoked readiness receipt, revalidates the hosted
@@ -329,12 +334,12 @@ package, and performs only projected read-only Web App identity and Foundry
 project reads. It constructs the existing environment-generation evidence
 without reading Consumer role assignments and persists only its opaque
 fingerprint and readiness correlation in private immutable
-`generation-handoff.json` beneath the WebJob lifecycle directory. Discovery,
-trigger, and status validate the
-same unchanged readiness receipt and private handoff before constructing an
-Azure runner. The fingerprint and its source identifiers are never operator
-inputs or serialized command output. Preparation cannot discover, trigger, or
-inspect a WebJob and does not change daily READY.
+`generation-handoff.json` beneath the WebJob lifecycle directory. Discovery
+validates the same unchanged readiness receipt and private handoff before
+constructing an Azure runner. The preserved retired trigger and status
+implementation applies the same validation. The fingerprint and its source
+identifiers are never operator inputs or serialized command output. Preparation
+cannot discover, trigger, or inspect a WebJob and does not change daily READY.
 
 WebJob installation is a separate generation-bound deployment boundary. The
 ordinary deterministic Web App package excludes `App_Data` and cannot imply
@@ -389,8 +394,7 @@ It deletes no unowned or ambiguous resource, never adopts by name, and never
 acts on an active exact-name conflict outside the owned group. End-of-day
 cleanup requires separate default-no approval, synchronous group deletion,
 matching Foundry tombstone purge, and final read-only absence proof. Operational
-commands and manual fallback procedures remain in the daily disposable
-environment runbook.
+commands remain in the canonical daily Azure operator runbook.
 
 Two resource-group-scoped entry points reuse the
 `infra/modules/foundry.bicep` module. `main.bicep` preserves Cosmos DB, Storage,
@@ -426,8 +430,9 @@ unrelated, incomplete, or count-inconsistent evidence stops before prompting.
 Safe current evidence is summarized without names or IDs, approved explicitly,
 and followed by exactly one deployment request and its separate verifier.
 Missing prerequisites, drift, and deterministic failures fail fast without
-retry or polling. The current RBAC prerequisite runbook is
-`docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md`.
+retry or polling. Optional RBAC operator use is Step 5 of
+`docs/runbooks/daily-azure-operator-runbook.md`; the older RBAC file is an
+implementation reference only.
 
 The Foundry infrastructure preview boundary reduces Azure's change collection
 to sanitized counts, logical categories, nested-deployment presence, and exact
@@ -622,74 +627,49 @@ file is exactly the validated HOME-owned operation. Temporary Kudu staging
 ancestry, the working directory, and `WEBJOBS_PATH` cannot select the import.
 
 `src/app/services/hosted_foundry_agent_webjob_execution.py` and
-`scripts/run_hosted_foundry_agent_verification.py` provide five separate
-operator stages. Offline check validates the fixed entry point, package,
-Bicep/configuration, and lazy-SDK contracts without a runner. Explicit discovery
-performs exactly one authenticated GET of the fixed Kudu triggered-WebJob
-resource and distinguishes registered installation from local package
-presence. It does not upload, trigger, poll, mutate, or read execution history.
-HTTP rejection, throttling, service failure, transport ambiguity, and an
-unsupported exact response shape remain separate sanitized categories.
-Explicit trigger remains the separate Azure CLI triggered-WebJob `run`
-operation and status remains the separate Azure CLI triggered-WebJob `log`
-operation; neither adapter was changed by the Kudu discovery correction.
-Before trigger reads lifecycle state or constructs a runner, it atomically
-creates one fixed exclusive reservation beneath
-`.artifacts/hosted-foundry-agent-webjob/`. The reservation excludes concurrent
-trigger processes sharing that repository artifact filesystem; it is not a
-distributed lock across machines or checkouts. Accepted context is atomically
-recorded once in immutable `accepted-trigger.json`. Receipt-persistence failure
-after acceptance creates immutable `blocked-trigger.json`; if both writes fail,
-the reservation is preserved for manual investigation. After runner entry, a
-nonzero return, timeout, exception, or empty, malformed, or unknown acceptance
-response is ambiguous and creates the same immutable blocked state before
-reservation release. Only the repository-owned process-not-started exception
-conclusively proves a local pre-submission failure and permits a later explicit
-attempt. There is no automatic expiry, cleanup, reset, or retrigger path.
+`scripts/run_hosted_foundry_agent_verification.py` retain the offline check,
+fixed-resource discovery, trigger, blocked-trigger reconciliation, and status
+implementation. Offline check and one-read Kudu discovery remain distinct
+technical boundaries. Discovery proved the fixed registered WebJob, but it
+does not prove trigger acceptance, execution, managed-identity access,
+metadata, or invocation.
 
-An accepted-but-uncorrelatable blocked trigger remains immutable and never
-authorizes a retry. A separate explicit
-`--live-reconcile-blocked-trigger` stage requires the current READY-bound
-generation handoff and exact schema-version-2 `accepted-uncorrelatable`
-evidence before constructing only the read-only history runner. It performs
-exactly one history read without polling, sleeping, retrying, or submitting a
-trigger. Runs before the blocked trigger's immutable UTC lower bound are
-discarded. Exactly one eligible known run atomically creates a private,
-generation- and blocked-evidence-bound reconciliation receipt containing only
-the exact run identity required by later status. Zero or multiple eligible
-runs, malformed history, and unknown states preserve the blocked evidence and
-create no correlation evidence. The reconciliation receipt uses the same
-descriptor-relative no-follow, restrictive-permission, atomic-create, and
-never-overwrite lifecycle protections as the other private evidence.
+The trigger-and-correlation modes are retired from supported operations.
+Multiple fresh supervised trigger attempts returned
+`trigger_acceptance_ambiguous`, and Azure exposed no safely correlatable
+execution record for those attempts. This does not mean Azure WebJobs are
+universally impossible; this specific implementation was not reliably
+provable enough for the capstone. The executable's `--live-trigger`,
+`--live-reconcile-blocked-trigger`, and `--live-status` modes require a future
+explicit architecture decision before reuse.
 
-Explicit status requires exactly one compatible correlation source before
-runner construction: immutable `accepted-trigger.json`, or the private
-blocked-trigger reconciliation receipt together with its unchanged original
-`blocked-trigger.json`. Accepted-trigger status retains its UTC-lower-bound
-selection contract. Reconciled status instead selects only the privately
-recorded exact run and never falls back to the latest run or another run after
-the lower bound. It never changes either correlation receipt. A correlated
-terminal success or failure is atomically recorded separately in immutable
-`terminal-outcome.json`; repeated status returns that sanitized recorded result
-without another Azure read, while mismatched or conflicting evidence fails
-closed. Descriptor-relative no-follow reads reject symlinked state parents,
-targets, and nonregular files. Trigger acceptance is never metadata success;
-reconciliation proves only the attributable WebJob run and terminal process
-state. Managed-identity metadata access and fixed-fictional invocation remain
-unproven until their separate authoritative result contracts succeed. Raw
-history, timestamps, lifecycle contents, paths, lock information, logs,
-identifiers, endpoints, and operator values are never serialized. Trigger,
-blocked-trigger reconciliation, status, metadata proof, and invocation remain
-separate.
+The retired implementation still preserves its fail-closed evidence model for
+audit and recovery. Before trigger-runner construction it created one exclusive
+reservation beneath `.artifacts/hosted-foundry-agent-webjob/`; accepted context
+used immutable `accepted-trigger.json`, ambiguous acceptance used
+`blocked-trigger.json`, and correlated terminal state used separate
+`terminal-outcome.json`. The reservation is local to one repository artifact
+filesystem, not a distributed lock.
+
+The retired blocked-trigger reconciliation contract constructed no trigger
+runner and performed exactly one history read. Runs before the blocked
+trigger's immutable UTC lower bound are discarded. Exactly one eligible known
+run could create private exact-run correlation; Zero or multiple eligible runs,
+malformed history, and unknown states remained blocked. Retired reconciled
+status selected only that exact private run and never falls back to the latest
+run. Trigger, blocked-trigger reconciliation, status, metadata proof, and
+invocation remain separate in the preserved implementation, but they are not a
+supported operator sequence.
 
 Stale or generation-mismatched immutable lifecycle evidence is never deleted,
 reset, adopted, or converted by the coordinator. The separate offline recovery
 service inspects it with descriptor-relative no-follow reads, produces a
 sanitized digest-bound manifest, and can retire only unchanged, nonconflicting
 evidence after a default-no manual approval. Retirement atomically moves the
-whole active directory to a sibling archive and adds an immutable retirement
-receipt; it cannot trigger a WebJob or produce READY. The operational procedure
-is in `docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md`.
+whole active directory to a sibling archive and adds an immutable external
+retirement receipt; it cannot trigger a WebJob or produce READY. This remains
+an evidence-preservation mechanism. The exceptional operator procedure is in
+`docs/runbooks/daily-azure-operator-runbook.md`.
 
 `src/app/services/hosted_foundry_agent_invocation.py` and the packaged
 `src/app/operations/invoke_hosted_foundry_agent.py` implement the following,
@@ -811,12 +791,14 @@ current-artifact readiness proof.
 Every convergence read remains fail-closed, and deployment acceptance never
 substitutes for hosted readiness. Consumer RBAC, generation-bound WebJob
 execution, managed-identity metadata verification, and fixed fictional
-invocation remain separate optional workflows whose false result fields mean
-they were not part of the coordinator run. Hosted defaults remain mock-only
-with notifications suppressed. Code deployment does not provision
-infrastructure, and human nurse review remains mandatory for every fictional
-result. The project remains a capstone/demo rather than production clinical
-software.
+invocation remain outside the coordinator; their false result fields mean they
+were not part of the coordinator run. Consumer RBAC remains optional. The
+current WebJob execution path is retired, and metadata verification and
+invocation remain unproven. A future hosted validation mechanism may use a
+different execution boundary. Hosted defaults remain mock-only with
+notifications suppressed. Code deployment does not provision infrastructure,
+and human nurse review remains mandatory for every fictional result. The
+project remains a capstone/demo rather than production clinical software.
 
 `infra/main.bicep` is a minimal resource-group-scope Azure baseline for the
 capstone. It provisions:

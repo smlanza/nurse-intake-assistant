@@ -1,882 +1,164 @@
 # Daily Disposable Azure Environment Rebuild
 
+> **Canonical procedure moved:** Follow
+> [`daily-azure-operator-runbook.md`](daily-azure-operator-runbook.md) for the
+> only supported normal daily Azure sequence. This file retains implementation
+> background and a historical stage index only. It is not an alternate
+> operator procedure.
+
 ## Daily command summary
 
-The lightweight Bash wrapper is the preferred operator-facing interface for
-the normal daily sequence:
-
-```bash
-scripts/daily_azure.sh start
-
-# Perform Azure development, testing, or demonstrations.
-
-scripts/daily_azure.sh stop
-```
-
-`start` is the preferred beginning-of-day command. It invokes
-`scripts/rebuild_daily_azure_environment.py`; the coordinator performs its
-authoritative startup cleanup preflight. In other words, `start` already
-includes startup cleanup inspection, so the operator should not normally run
-destructive cleanup before it. A healthy exact-owned environment can be
-reused. Stale owned blockers still require the coordinator's explicit,
-default-no approval.
-
-| Command | Purpose |
-| --- | --- |
-| `scripts/daily_azure.sh start [--config FILE]` | Run the authoritative rebuild coordinator in live JSON mode. |
-| `scripts/daily_azure.sh inspect [--config FILE]` | Optionally inspect cleanup targets in live JSON mode without mutation. |
-| `scripts/daily_azure.sh stop [--config FILE]` | Run the explicit, default-no end-of-day cleanup workflow. |
-| `scripts/daily_azure.sh check [--config FILE]` | Validate cleanup and rebuild contracts offline, without Azure or HTTP calls. |
-
-`inspect` is optional and read-only. `stop` is the explicit end-of-day cleanup
-command and preserves the approval boundary implemented by
-`scripts/cleanup_daily_azure_environment.py`. `check` runs that cleanup CLI's
-offline check before the rebuild coordinator's offline check.
+The canonical runbook owns `scripts/daily_azure.sh check`,
+`scripts/daily_azure.sh start`, `scripts/daily_azure.sh inspect`, and
+`scripts/daily_azure.sh stop`. Their arguments and order are intentionally not
+repeated here.
 
 The wrapper is only a convenience interface. The Python CLIs remain the
-authoritative fallback, audit, and implementation commands; the wrapper does
-not duplicate their cleanup, deployment, ownership, approval, or verification
-logic. It defaults to `.venv/bin/python` and `.env.daily-azure.local`;
-`PYTHON_BIN` and `--config FILE` provide explicit overrides. If the executable
-bit is missing after installation or file transfer, repair it once with:
-
-```bash
-chmod +x scripts/daily_azure.sh
-```
+authoritative implementation boundaries:
+`scripts/rebuild_daily_azure_environment.py` and
+`scripts/cleanup_daily_azure_environment.py`. `start` already includes startup
+cleanup inspection through the startup cleanup preflight; `inspect` is optional
+and read-only; `stop` is the explicit end-of-day cleanup. Final absence is
+proved by `resource_group_absent=true` and
+`foundry_tombstones_absent=true`.
 
 ## Normal Daily Guided Path
 
-The repository-owned Python coordinator is the authoritative path for a normal
-daily rebuild. Follow this sequence without skipping a step:
+The ordered Normal Daily Guided Path, including offline `--check`, explicit
+`--live`, current-run approval, and the required
+`daily_environment_ready=true` proof, is now solely in the canonical runbook.
+The coordinator returns success immediately at verified application-hosting
+readiness. Its historical detailed stages below remain a troubleshooting,
+recovery, audit index, not commands to execute.
 
-The supported primary path is the next-day fresh build after the previous
-workday's disposable resource group was deleted:
-
-```text
-missing disposable environment
--> startup cleanup preflight
--> infra/main.bicep initial creation
--> Foundry and prompt-agent verification
--> Web App deployment and configuration verification
--> application deployment
--> hosted readiness
--> DAILY AZURE ENVIRONMENT READY
-```
-
-1. Copy `.env.daily-azure.example` to the ignored `.env.daily-azure.local`,
-   replace every placeholder with reviewed stable non-secret values, and keep
-   that configuration untracked.
-2. Run the coordinator's offline check:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/rebuild_daily_azure_environment.py \
-  --config .env.daily-azure.local \
-  --check \
-  --json |
-  python -m json.tool
-```
-
-3. Start the guided live coordinator in an interactive terminal:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/rebuild_daily_azure_environment.py \
-  --config .env.daily-azure.local \
-  --live \
-  --json |
-  python -m json.tool
-```
-
-4. Review each prompt and answer `y` only for the current stage. The
-   default, EOF, malformed input, or noninteractive input stops without that
-   mutation. The possible approvals are startup cleanup of proven stale owned
-   state, resource-group creation, Foundry infrastructure deployment, Web App
-   infrastructure deployment, and current package deployment. Already verified
-   required stages are not prompted.
-5. Require `daily_environment_ready=true` from the current run before recording
-   the READY declaration below. The successful JSON reports the actual
-   `foundry_account_name`, whether it was generated, the bounded generation
-   attempt count, and a receipt-backed `rbac_handoff`.
-
-Begin the approved Azure-dependent Codex slice only when the current live
-result reports `daily_environment_ready=true` and the operator records:
-
-```text
-DAILY AZURE ENVIRONMENT READY
-```
-
-The operator-approved coordinator verifies current state and reuses only an
-owned resource group and conclusively valid resources. It prepares sanitized
-Foundry and Web App previews, including whether nested deployment records are
-present, and requires current-run approval before either deployment. It stops
-on destructive, malformed, unknown, unrelated, incomplete, count-disagreeing,
-or otherwise ambiguous evidence. Package deployment has its own current-run
-approval and immutable transient handoff. Live mode reruns the complete offline
-contract; the prior standalone check is not reused as proof. The coordinator
-then verifies the exact hosted application artifact through `/health`,
-`/version`, and `/demo/status` and returns success immediately.
-
-### Startup cleanup preflight
-
-After complete offline validation, current-run readiness-evidence revocation,
-and Azure account verification, the coordinator inspects the exact configured
-resource group, active matching Foundry accounts, and matching soft-deleted
-Foundry records. A healthy exact-owned resource group with no blocking
-tombstone remains eligible for the normal reuse path without cleanup or a
-cleanup prompt.
-
-Conclusive stale owned state produces one sanitized cleanup summary and a
-default-no approval prompt. Approval is bound to the exact private inspection;
-the service reinspects and stops without mutation if any relevant evidence
-changed. Ambiguous, malformed, unowned, wrong-location, or conflicting active
-state stops before approval and infrastructure deployment. After approved
-cleanup, the coordinator continues only when the exact group is absent and no
-matching Foundry tombstone remains. Successful READY output therefore requires
-`startup_cleanup_inspected=true` and `startup_environment_clean=true`.
-
-`AZURE_FOUNDRY_ACCOUNT_NAME` is the stable operator-selected base name. When
-Azure proves the account name is unavailable with the specific
-`CustomDomainInUse` conflict (or the repository's equivalent normalized
-account-name-unavailable category), the coordinator may append a short random
-lowercase alphanumeric suffix. It tries at most three distinct generated
-candidates. Every candidate receives rebuilt parameters, a fresh offline
-check, a fresh What-If and safety classification, and fresh approval before
-deployment. Generic conflicts, authorization, policy, quota, timeout,
-malformed, unknown, or ambiguous partial-state failures never activate this
-recovery.
-
-Do not edit `.env.daily-azure.local` or export the generated name. The file
-retains the stable base name. All later daily phases consume the verified
-effective name automatically. The actual deployed name is returned in
-coordinator JSON, persisted in
-`.artifacts/daily-azure-rebuild/readiness-receipt.json`, and included in the
-`rbac_handoff`.
-
-An existing Web App with configuration drift is not reconciled by the daily
-coordinator. On a same-day rerun, unsafe or ambiguous drift evidence remains
-fail-closed and is never classified as successful. The operator may continue
-using the already verified environment, delete and recreate the disposable
-resource group through the normal fresh-build path, or use the separate
-supervised Web App deployment workflow.
+The coordinator stops with
+`resource_group_ownership_approval_required` rather than adopting an unowned
+group. Approved application deployment uses an immutable transient handoff.
 
 ### Out of scope for daily readiness
 
-- Consumer RBAC
-- WebJob execution
-- managed-identity verification
-- hosted agent invocation
-- existing-Web-App reconciliation when the preview is unsafe
-
-These standalone workflows remain available for an explicitly authorized later
-slice. Do not continue into them automatically after daily success.
-
-The detailed manual stages below remain the troubleshooting, recovery, audit,
-and individual-boundary reference. Sections 13 through 15 are optional
-standalone workflows, not part of the normal daily command path or READY gate.
+Consumer RBAC, WebJob discovery or execution, managed-identity Foundry access,
+metadata verification, agent invocation, live inference, and notification
+delivery remain outside READY. Do not continue into them automatically after
+daily success.
 
 ## 1. Purpose and lifecycle
 
-This is the authoritative operator runbook for rebuilding the disposable Nurse
-Intake Assistant Azure environment at the start of a live-validation session.
-The default state is **NOT READY**. A session becomes **READY** only after the
-guided application-hosting path, or its required manual recovery stages through
-hosted readiness, succeed in order and their sanitized results are reviewed
-during the current session.
-
-This file is the durable checked-in procedure. Command output is fresh
-current-session evidence. Evidence expires when the resource group is deleted
-and must not be treated as durable project state.
-
-```text
-resource group absent
--> rebuild
--> verify
--> perform approved Azure-dependent work
--> delete the entire disposable resource group at the end of the workday
--> all live evidence expires
-```
-
-A prior day's success never proves today's readiness.
-
-Nightly whole-resource-group deletion remains the expected cost-control step.
-The reduced daily-readiness scope does not make the Azure resources permanent
-and does not remove this cleanup requirement.
-
-This workflow is fictional-data-only, requires human nurse review, and does not
-establish production or clinical readiness.
+The canonical file is the durable checked-in procedure; command output is fresh
+current-session evidence. READY and NOT READY describe only the current
+disposable generation. Deletion immediately returns the environment to NOT
+READY and expires its evidence. See the canonical runbook for the lifecycle.
 
 ## 2. Required operator inputs
 
-For normal coordinator use, retain the reviewed stable values in the ignored
-`.env.daily-azure.local`; a deleted resource supplies no current evidence, even
-when the same configured name is retained. Globally unique names may be reused
-only when Azure permits reuse and the current resource passes ownership and
-drift verification. During intentional manual recovery, the operator may
-select alternate disposable names and keep them in an ignored local note or
-shell session. Angle-bracket values below are placeholders, not architecture
-defaults:
-
-- subscription name, Azure region, and a new resource-group name;
-- short project and environment names, App Service plan/SKU parameters, and a
-  globally unique Linux Web App name;
-- stable Foundry account base name, project name, project endpoint, model deployment name,
-  and model/version/SKU/capacity values available in the selected region;
-- prompt-agent name, immutable version, and complete stable agent endpoint;
-- the public HTTPS Web App base URL.
-
-Never commit subscription IDs, tenant IDs, principal IDs, complete ARM resource
-IDs, credentials, connection strings, identity headers, access tokens, bearer
-tokens, secrets, endpoints containing sensitive values, or real patient or
-contact data. Retain only sanitized pass/fail fields in a local ignored note,
-the active terminal session, ignored artifact storage, or the Codex prompt that
-consumes the proof.
+The ignored `.env.daily-azure.local` is the normal configuration source. Never
+commit subscription IDs, tenant IDs, principal IDs, complete ARM resource IDs,
+access tokens, bearer tokens, secrets, endpoints, real contact data, or patient
+data. The canonical prerequisite section owns the complete list.
 
 ## 3. Local preflight
 
-Start from the repository root with the project virtual environment available.
-Review local changes before doing anything live:
-
-```bash
-pwd
-test -f pyproject.toml
-git status --short
-source .venv/bin/activate
-python -m pytest -q
-az version
-az bicep version
-```
-
-These commands confirm the repository marker, preserve all existing work, and
-check the expected Python, Azure CLI, and Bicep tooling. Do not clean, reset,
-stash, discard, or rewrite unrelated changes.
-
-Copy `infra/foundry-only.example.bicepparam` to the ignored
-`infra/foundry-only.bicepparam` manually, then replace its fictional model and
-session placeholders. Do not edit or commit the example as session evidence.
-Confirm the local files remain ignored:
-
-```bash
-git check-ignore infra/foundry-only.bicepparam .env.foundry-agent.local
-```
-
-The `--check` commands in sections 6 through 12 are the daily-readiness
-preflights. Sections 13 through 15 apply only to their separately authorized
-optional workflows. Each check must pass before its matching live mode is
-considered.
-
-Create an ignored `.env.foundry-agent.local` manually. Before prompt-agent
-provisioning it must contain the current values for:
-
-```text
-AGENT_PROVIDER=foundry-agent
-AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT=<project-endpoint>
-AZURE_AI_FOUNDRY_AGENT_NAME=<agent-name>
-AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME=<model-deployment-name>
-```
-
-After provisioning, add the returned operator-inspected immutable version and
-stable endpoint as described in section 7. Keep application, AI, notification,
-and Speech providers at their mock-safe defaults.
+The wrapper now owns the normal local validation. The implementation still
+delegates to the offline modes of cleanup and rebuild. Do not treat an earlier
+check as live proof.
 
 ## 4. Authentication and subscription
 
-The operator signs in and confirms the intended enabled subscription:
-
-```bash
-az login
-az account show \
-  --query "{subscription:name,state:state,isDefault:isDefault}" \
-  --output table
-```
-
-Stop if the account, subscription, or state is wrong. Do not paste IDs from the
-full account response into documentation or a prompt.
+Authentication and projected current-account verification are Step 2 of the
+canonical runbook. No alternate account sequence is defined here.
 
 ## 5. Resource group creation or explicit adoption
 
-Guided mode inspects the configured group first. If it is absent, the
-coordinator displays the create summary and waits for approval before issuing
-one tagged creation request. If an existing group lacks the exact
-`purpose=fictional-daily-validation` tag, it stops with
-`resource_group_ownership_approval_required` and never adopts or retags it.
-
-For intentional adoption, first inspect the group and its contents outside the
-coordinator:
-
-```bash
-az group show \
-  --name <resource-group> \
-  --query "{location:location,state:properties.provisioningState,purpose:tags.purpose}" \
-  --output table
-
-az resource list \
-  --resource-group <resource-group> \
-  --query "[].{type:type,name:name}" \
-  --output table
-```
-
-Only after the operator establishes that this is the intended disposable group
-may the operator explicitly adopt it:
-
-```bash
-az group update \
-  --name <resource-group> \
-  --set tags.purpose=fictional-daily-validation \
-  --query "{location:location,state:properties.provisioningState,purpose:tags.purpose}" \
-  --output json
-```
-
-Review the projected response, then rerun the guided coordinator. Adoption is
-never an automatic continuation within the run that detected missing or
-different ownership.
-
-The equivalent manual recovery command for creating a new group is:
-
-```bash
-az group create \
-  --name <resource-group> \
-  --location <location> \
-  --tags purpose=fictional-daily-validation \
-  --output json
-```
-
-Confirm the response reports the intended name, region, and successful
-provisioning state. Creation alone does not make the environment READY.
+The coordinator creates only an absent configured group after approval and
+reuses only conclusively healthy repository-owned state. Explicit manual
+adoption is an exceptional operator decision, never an automatic continuation.
 
 ## 6. Foundry infrastructure
 
-Use `infra/foundry-only.bicep` through the repository-owned deployment boundary.
-Run the offline check, review one what-if, deploy once, then perform separate
-read-only verification:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/deploy_foundry_infra.py \
-  --mode foundry-only \
-  --parameters infra/foundry-only.bicepparam \
-  --resource-group <resource-group> \
-  --location <location> \
-  --check
-
-.venv/bin/python scripts/deploy_foundry_infra.py \
-  --mode foundry-only \
-  --parameters infra/foundry-only.bicepparam \
-  --resource-group <resource-group> \
-  --location <location> \
-  --what-if \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/deploy_foundry_infra.py \
-  --mode foundry-only \
-  --parameters infra/foundry-only.bicepparam \
-  --resource-group <resource-group> \
-  --location <location> \
-  --live \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/verify_foundry_infra.py \
-  --resource-group <resource-group> \
-  --project-endpoint <project-endpoint> \
-  --model-deployment-name <model-deployment-name> \
-  --json |
-  python -m json.tool
-```
-
-Stop unless what-if matches the intended template and both live results are
-successful. Record only sanitized success fields. Infrastructure deployment and
-read-only verification are separate evidence. Require fresh proof of the
-AIServices account, child project, model deployment, successful provisioning
-states, and the expected project-endpoint contract. Infrastructure deployment
-must not create the prompt agent as a side effect.
+The implementation boundaries remain `scripts/deploy_foundry_infra.py` and
+`scripts/verify_foundry_infra.py`. Deployment and read-only verification are
+separate; the wrapper coordinator owns their normal ordering and arguments.
 
 ## 7. Prompt-agent provisioning and immutable-version proof
 
-Provisioning reads the ignored env file, may create/reuse/update one immutable
-version, and never invokes the agent. Verification is a later read-only stage:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/deploy_foundry_agent.py \
-  --env-file .env.foundry-agent.local \
-  --check \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/deploy_foundry_agent.py \
-  --env-file .env.foundry-agent.local \
-  --live \
-  --json |
-  python -m json.tool
-```
-
-Require sanitized provisioning success and `agent_invoked=false`. The operator
-then inspects the resulting Foundry agent and manually adds these current values
-to the ignored file:
-
-```text
-AZURE_AI_FOUNDRY_AGENT_ENDPOINT=<stable-agent-endpoint>
-AZURE_AI_FOUNDRY_AGENT_VERSION=<immutable-agent-version>
-```
-
-Prove that exact configured version without invoking it:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/configure_foundry_agent_endpoint_routing.py \
-  --env-file .env.foundry-agent.local \
-  --check \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/configure_foundry_agent_endpoint_routing.py \
-  --env-file .env.foundry-agent.local \
-  --live \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/verify_foundry_agent.py \
-  --env-file .env.foundry-agent.local \
-  --check \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/verify_foundry_agent.py \
-  --env-file .env.foundry-agent.local \
-  --live \
-  --json |
-  python -m json.tool
-```
-
-The routing check is offline and proves only local readiness. Explicit live mode
-reads the current endpoint, reuses an already-exclusive route without mutation,
-or submits at most one fixed 100% `FixedRatio` update for the configured
-immutable version. It preserves Responses, other supported protocol settings,
-and endpoint authorization settings; it never provisions or invokes an agent.
-The separate read-only verifier remains the proof boundary after any routing
-result.
-
-Require verifier `ok=true`, the expected definition/version checks,
-`responses_protocol_present=true`, `immutable_version_verified=true`,
-`configured_version_traffic_percentage=100`, `agent_invoked=false`, and
-`azure_mutation_made=false`. Agent provisioning, endpoint routing configuration,
-metadata verification, and invocation remain different authorization boundaries.
+The implementation boundaries remain, in order,
+`scripts/deploy_foundry_agent.py`,
+`scripts/configure_foundry_agent_endpoint_routing.py`, and
+`scripts/verify_foundry_agent.py`. Provisioning, routing mutation, read-only
+verification, and invocation remain separate authorization boundaries.
 
 ## 8. Web App infrastructure
 
-Deploy the Web App with the complete hosted-verifier configuration. The five
-hosted values are required exactly once when the feature is enabled:
-
-This repository boundary uses `infra/main.bicep` with `deployApp=true` and
-`deployFoundry=false`. It preserves the system-assigned managed identity, Linux
-Python runtime, remote build, mock providers, notification suppression, and
-non-production-clinical-use posture.
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/deploy_web_app_infra.py \
-  --check \
-  --resource-group <resource-group> \
-  --location <location> \
-  --environment-name <environment-name> \
-  --project-name <project-name> \
-  --web-app-name <web-app-name> \
-  --enable-hosted-foundry-verifier \
-  --hosted-verifier-project-endpoint <project-endpoint> \
-  --hosted-verifier-stable-agent-endpoint <stable-agent-endpoint> \
-  --hosted-verifier-agent-name <agent-name> \
-  --hosted-verifier-agent-version <immutable-agent-version> \
-  --hosted-verifier-model-deployment-name <model-deployment-name> \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/deploy_web_app_infra.py \
-  --what-if \
-  --resource-group <resource-group> \
-  --location <location> \
-  --environment-name <environment-name> \
-  --project-name <project-name> \
-  --web-app-name <web-app-name> \
-  --enable-hosted-foundry-verifier \
-  --hosted-verifier-project-endpoint <project-endpoint> \
-  --hosted-verifier-stable-agent-endpoint <stable-agent-endpoint> \
-  --hosted-verifier-agent-name <agent-name> \
-  --hosted-verifier-agent-version <immutable-agent-version> \
-  --hosted-verifier-model-deployment-name <model-deployment-name> \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/deploy_web_app_infra.py \
-  --live \
-  --resource-group <resource-group> \
-  --location <location> \
-  --environment-name <environment-name> \
-  --project-name <project-name> \
-  --web-app-name <web-app-name> \
-  --enable-hosted-foundry-verifier \
-  --hosted-verifier-project-endpoint <project-endpoint> \
-  --hosted-verifier-stable-agent-endpoint <stable-agent-endpoint> \
-  --hosted-verifier-agent-name <agent-name> \
-  --hosted-verifier-agent-version <immutable-agent-version> \
-  --hosted-verifier-model-deployment-name <model-deployment-name> \
-  --json |
-  python -m json.tool
-```
-
-Review the what-if before running live. Do not combine modes. Stop unless each
-result succeeds and the deployment is limited to the intended Web App stack.
+The implementation boundary remains `scripts/deploy_web_app_infra.py`.
+The coordinator owns the normal preview, current-run approval, deployment, and
+reuse policy.
 
 ## 9. Web App configuration verification
 
-Read and compare the Bicep-owned settings without printing their values:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/verify_web_app_configuration.py --check --json |
-  python -m json.tool
-
-.venv/bin/python scripts/verify_web_app_configuration.py \
-  --live \
-  --json \
-  --resource-group <resource-group> \
-  --web-app-name <web-app-name> \
-  --verify-hosted-foundry-verifier \
-  --hosted-verifier-project-endpoint <project-endpoint> \
-  --hosted-verifier-stable-agent-endpoint <stable-agent-endpoint> \
-  --hosted-verifier-agent-name <agent-name> \
-  --hosted-verifier-agent-version <immutable-agent-version> \
-  --hosted-verifier-model-deployment-name <model-deployment-name> |
-  python -m json.tool
-```
-
-Stop unless the sanitized result proves the full baseline and all five hosted
-verifier settings. Do not repair settings with ad hoc CLI or portal mutations.
-The required baseline is Linux Python runtime, startup command, remote build,
-HTTPS-only, disabled FTPS, minimum TLS, health path, system-assigned identity,
-mock application/AI/agent/Speech/email/SMS providers, and notification
-suppression. Configuration verification does not prove deployed code.
+The read-only implementation boundary remains
+`scripts/verify_web_app_configuration.py`. It proves configuration, not current
+application code.
 
 ## 10. Package creation
 
-Create the deterministic source package locally as its own stage:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/package_web_app.py --check --json |
-  python -m json.tool
-.venv/bin/python scripts/package_web_app.py --package --json |
-  python -m json.tool
-```
-
-Require a successful, sanitized package result. Packaging proves neither code
-deployment nor hosted readiness. Review the deterministic manifest/exclusion
-evidence and confirm the fixed triggered WebJob is included when hosted
-verification is planned; local env files, caches, credentials, and artifacts
-must remain excluded.
+The deterministic implementation boundary remains
+`scripts/package_web_app.py`. Packaging proves neither upload acceptance nor
+hosted readiness.
 
 ## 11. Web App code deployment
 
-Check the deployment boundary, then explicitly upload to the existing Web App:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/deploy_web_app_code.py --check --json |
-  python -m json.tool
-.venv/bin/python scripts/deploy_web_app_code.py \
-  --live \
-  --resource-group <resource-group> \
-  --web-app <web-app-name> \
-  --json |
-  python -m json.tool
-```
-
-Deployment acceptance is not readiness. Continue only after a successful
-sanitized result; do not introduce polling or another deployment request.
+The implementation boundary remains `scripts/deploy_web_app_code.py`.
+Deployment-request acceptance is not terminal deployment or readiness proof.
 
 ## 12. Hosted readiness verification
 
-Validate the URL locally, then make one explicit read-only readiness request:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/verify_web_app_readiness.py \
-  --check \
-  --base-url https://<web-app-hostname> \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/verify_web_app_readiness.py \
-  --live \
-  --base-url https://<web-app-hostname> \
-  --json |
-  python -m json.tool
-```
-
-Require the repository contract for `/health`, `/version`, and `/demo/status`
-to pass, including mock providers and notification suppression. The result
-proves hosted readiness, not Foundry access or invocation.
+The read-only implementation boundary remains
+`scripts/verify_web_app_readiness.py`. A healthy old worker cannot produce
+READY; exact current-artifact equality is required.
 
 ## 13. Optional standalone Consumer RBAC deployment
 
-This section is not required for daily READY. When a later slice explicitly
-requires it, use the separate `infra/foundry-agent-consumer-rbac.bicep`
-boundary. Run check, review what-if, then deploy the project-scoped assignment
-once:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
-  --check \
-  --config .env.daily-azure.local \
-  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
-  --what-if \
-  --config .env.daily-azure.local \
-  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py \
-  --live \
-  --config .env.daily-azure.local \
-  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
-  --json |
-  python -m json.tool
-```
-
-The command matches the receipt's requested base name to the current daily
-configuration, accepts the effective account name only from that matching
-receipt, rereads the exact account and child project from Azure, and derives
-fresh transient RBAC evidence before What-If or mutation. It rejects a missing,
-stale, differently named, differently scoped, or ambiguous account/project.
-Manually review every exact-match flag and the exact project scope before
-running live. Do not use a manual role assignment or retry a failed deployment
-without correcting its cause.
+The separate implementation boundary remains
+`scripts/deploy_foundry_agent_consumer_rbac.py`. Its supported optional
+operator use is Step 5 of the canonical runbook.
 
 ## 14. Optional standalone Consumer RBAC verification
 
-When separately authorized, prove the exact direct assignment separately from
-deployment:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
-  --check \
-  --config .env.daily-azure.local \
-  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
-  --json |
-  python -m json.tool
-
-.venv/bin/python scripts/verify_foundry_agent_consumer_rbac.py \
-  --live \
-  --config .env.daily-azure.local \
-  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
-  --json |
-  python -m json.tool
-```
-
-Require exactly one matching direct Foundry Agent Consumer assignment at the
-approved project scope. Historical, inherited, broader, duplicate, or inferred
-assignments do not pass. This does not prove managed-identity token acquisition.
+The focused deployment CLI performs its own exact post-deployment verification.
+The lower-level read-only implementation boundary remains
+`scripts/verify_foundry_agent_consumer_rbac.py`.
 
 ## 15. Optional standalone Consumer RBAC and WebJob troubleshooting
 
-The normal daily path does not perform RBAC discovery or deployment, WebJob
-discovery, trigger or status reads, managed-identity verification, or agent
-invocation. Use the individual commands below only after separate explicit
-authorization for troubleshooting or recovery. The check is offline:
-
-```bash
-set -o pipefail
-
-.venv/bin/python scripts/run_hosted_foundry_agent_verification.py \
-  --check \
-  --resource-group <resource-group> \
-  --web-app-name <web-app-name> \
-  --json |
-  python -m json.tool
-```
-
-Standalone discovery does not itself authorize a trigger, status read,
-managed-identity access, metadata verification, or agent invocation. Preserve
-the separation between those operations. If immutable evidence is stale,
-incompatible, or generation-mismatched, do not delete or ignore it. Follow the
-separate stale-state recovery runbook only when explicitly authorized.
-That procedure is
-`docs/runbooks/recover-stale-hosted-foundry-agent-webjob-state.md`.
+`scripts/run_hosted_foundry_agent_verification.py` remains in the repository,
+but the current trigger-and-correlation path is retired from supported
+operations. Standalone discovery does not itself authorize a trigger, status
+read, managed-identity access, metadata verification, or agent invocation.
+Retired trigger, reconciliation, and status modes require a future explicit
+architecture decision before reuse.
 
 ## 16. Daily environment-ready declaration
 
-Declare **READY** only after the operator has reviewed current-session success
-for every required stage: authentication, resource group, Foundry deployment
-and verification, exact prompt-agent version, Web App deployment/configuration,
-package/code deployment or safe reuse, and hosted application readiness.
-Consumer RBAC, WebJob execution, managed-identity verification, and hosted
-agent invocation are not required for this declaration and must not be inferred
-from it.
-
-The declaration must name the next narrow Azure-dependent slice and list which
-fresh sanitized prerequisites satisfy it. READY authorizes only that slice; it
-does not authorize unrelated live operations or establish production readiness.
-If any prerequisite is absent, stale, ambiguous, or failed, declare **NOT READY**.
-
-End the operator review with exactly one decision:
-
-```text
-DAILY AZURE ENVIRONMENT READY
-```
-
-or:
-
-```text
-DAILY AZURE ENVIRONMENT NOT READY
-```
+Only the current canonical Step 4 success contract may establish READY. No
+historical or specialized runbook supplies a substitute declaration.
 
 ## 17. End-of-day cleanup and evidence expiry
 
-First, a read-only inspection can confirm whether the configured owned
-environment requires cleanup. It never prompts, deletes, or purges:
-
-```bash
-set -o pipefail
-
-python scripts/cleanup_daily_azure_environment.py \
-  --config .env.daily-azure.local \
-  --inspect \
-  --live \
-  --json |
-  python -m json.tool
-```
-
-At the end of each workday, run the explicit standalone cleanup in an
-interactive terminal:
-
-```bash
-set -o pipefail
-
-python scripts/cleanup_daily_azure_environment.py \
-  --config .env.daily-azure.local \
-  --cleanup \
-  --live \
-  --json |
-  python -m json.tool
-```
-
-The service verifies the current Azure account and subscription, inspects the
-exact configured resource group and matching Foundry records, presents one
-sanitized default-no approval summary, reinspects, deletes the exact owned
-group synchronously, purges every conclusively matching soft-deleted
-AIServices account, and performs final read-only verification. Cleanup success
-requires both:
-
-```text
-resource_group_absent=true
-foundry_tombstones_absent=true
-```
-
-Foundry purge requires sufficient Azure permission. Never purge an unrelated
-deleted account, a similar-name-only account, a record from another resource
-group, or any record with incomplete identity evidence.
-
-### Manual fallback
-
-Use manual commands only when the standalone result requires review and the
-operator has independently proved the exact configured identities. Keep the
-normal synchronous delete behavior; do not add `--no-wait`.
-
-```bash
-az account show \
-  --query '{subscription:name,state:state,isDefault:isDefault}' \
-  --output json \
-  --only-show-errors
-
-az group show \
-  --name <exact-configured-resource-group> \
-  --query '{name:name,location:location,provisioningState:properties.provisioningState,ownershipTag:tags.purpose}' \
-  --output json \
-  --only-show-errors
-
-az cognitiveservices account list-deleted \
-  --output json \
-  --only-show-errors
-
-az group delete \
-  --name <exact-configured-resource-group> \
-  --yes \
-  --only-show-errors
-
-az group exists \
-  --name <exact-configured-resource-group> \
-  --output tsv \
-  --only-show-errors
-
-az cognitiveservices account list-deleted \
-  --output json \
-  --only-show-errors
-
-az cognitiveservices account purge \
-  --name <exact-proved-deleted-account-name> \
-  --resource-group <exact-configured-resource-group> \
-  --location <exact-configured-location> \
-  --only-show-errors
-
-az cognitiveservices account list-deleted \
-  --output json \
-  --only-show-errors
-```
-
-Deletion immediately returns the environment to NOT READY. It expires every
-prior claim about the resource group, Foundry account/project/model, agent and
-immutable version, Web App, system identity, settings, package/code, readiness,
-RBAC, WebJob, managed-identity access, metadata verification, and invocation.
-The checked-in procedure remains valid; the deleted environment's evidence does
-not. A later session must restart at section 2.
-
-```text
-DAILY AZURE ENVIRONMENT NOT READY
-```
+Only canonical Step 8 defines normal cleanup. The implementation remains
+ownership-scoped, default-no, synchronous, and verification-driven.
 
 ## 18. Fail-fast rules
 
-- Stop at the first failed, missing, mismatched, or ambiguous prerequisite.
-- Unknown or malformed command output fails closed.
-- Do not infer names from history, screenshots, truncated portal labels, or a
-  previous conversation.
-- Do not substitute portal-only creation, ad hoc Azure provisioning, manual App
-  Service settings, manual RBAC, SSH/Kudu changes, or improvised HTTP endpoints.
-- Do not retry live mutations, use general-purpose polling loops, repeat sleeps,
-  or turn one failed rebuild into a broad debugging slice.
-- Keep deployment, read-only verification, WebJob discovery, trigger, status,
-  managed-identity proof, metadata verification, and invocation separate.
-- When NOT READY, return to this runbook. Do not start an Azure-dependent Codex
-  prompt or repeatedly rewrite progress with the same blocked result.
+Malformed, unknown, stale, mismatched, unowned, or ambiguous evidence fails
+closed. Do not improvise repairs, retry mutations, or infer proof from resource
+existence.
+
+If immutable WebJob evidence blocks a new generation, follow the exceptional
+procedure in the canonical runbook. The specialized implementation background
+is retained in
+[`recover-stale-hosted-foundry-agent-webjob-state.md`](recover-stale-hosted-foundry-agent-webjob-state.md).
 
 ## 19. Cost control
 
-Use one short-lived, fictional, resource-group-scoped environment. Select the
-smallest approved development capacity, create no resources beyond the checked-in
-templates, avoid duplicate deployments, and delete the exact resource group at
-the end of every workday. Nightly cleanup is an operator action and must never
-be inferred from elapsed time or delegated to an unbounded automation loop.
-
-Daily resource-group deletion is an intentional operator cost-control choice,
-not a repository defect. Its consequence is a required rebuild and fresh
-verification before every later Azure-dependent session. This runbook makes no
-cost estimate or claim about current Azure pricing.
+The environment remains short-lived and disposable. The canonical end-of-day
+cleanup is the sole normal cost-control procedure.

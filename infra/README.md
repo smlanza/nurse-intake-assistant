@@ -443,18 +443,10 @@ Intake Agent. Update `.env.foundry-agent.local` manually before running the
 separate agent deployment CLI.
 
 Daily disposable cleanup is a separate, default-no operator boundary. Use the
-repository-owned command and follow the authoritative runbook:
-
-```bash
-python scripts/cleanup_daily_azure_environment.py \
-  --config .env.daily-azure.local \
-  --cleanup \
-  --live \
-  --json
-```
-
-See `docs/runbooks/daily-disposable-azure-environment-rebuild.md` for read-only
-inspection, success criteria, and manual fallback commands.
+repository-owned wrapper and follow Step 8 of
+`docs/runbooks/daily-azure-operator-runbook.md`. Cleanup commands and success
+criteria are intentionally not duplicated here. The wrapper delegates to
+`scripts/cleanup_daily_azure_environment.py`.
 
 Pytest uses fake runners and never calls Azure. No secrets are stored in Bicep
 or examples. Mandatory nurse review remains unchanged, and this is not
@@ -594,15 +586,8 @@ For the full local-to-Cosmos verification checklist, see
 Cleanup remains explicit and separately approved; no Bicep template deletes a
 resource group. For the configured daily disposable environment, use the
 ownership-scoped cleanup service so resource-group absence and matching Foundry
-tombstone absence are both verified:
-
-```bash
-python scripts/cleanup_daily_azure_environment.py \
-  --config .env.daily-azure.local \
-  --cleanup \
-  --live \
-  --json
-```
+tombstone absence are both verified. The only normal cleanup command is in
+Step 8 of `docs/runbooks/daily-azure-operator-runbook.md`.
 
 ## Notes
 

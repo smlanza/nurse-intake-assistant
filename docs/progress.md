@@ -26,45 +26,27 @@ all three endpoints and may be retried, but it is never accepted until
 `/version` exactly matches the current package. Malformed, unsafe, unrelated,
 ambiguous, or deterministic failures remain immediate and fail-closed.
 
-The preferred operator-facing daily path is the lightweight convenience
-wrapper:
+The preferred daily path is now owned exclusively by
+`docs/runbooks/daily-azure-operator-runbook.md`; its command order is not
+duplicated here.
 
-```bash
-scripts/daily_azure.sh start
-scripts/daily_azure.sh stop
-```
+`docs/runbooks/daily-azure-operator-runbook.md` is the only normal
+operator-facing Azure procedure. `start` delegates to the authoritative rebuild
+coordinator and includes startup cleanup preflight. `stop` delegates to the
+default-no `scripts/cleanup_daily_azure_environment.py` service. Cleanup
+success still requires
+`resource_group_absent=true`, `foundry_tombstones_absent=true`, and
+`daily_environment_clean=true`.
 
-`start` is the preferred beginning-of-day command and delegates to the
-authoritative rebuild coordinator, including its startup cleanup preflight.
-`stop` is the preferred explicit end-of-day command and delegates to the
-default-no `scripts/cleanup_daily_azure_environment.py` CLI. Cleanup success
-still requires `resource_group_absent=true` and
-`foundry_tombstones_absent=true`.
-
-The intended permanent sequence remains:
-
-```text
-daily coordinator READY
--> sanitized readiness receipt and RBAC handoff
--> focused Consumer RBAC command
--> exact direct assignment reused or safely deployed
--> read-only RBAC verification
--> ready for one supervised hosted managed-identity proof
-```
-
-Consumer RBAC still requires successful exact reuse or
-`assignment_verified=true` after deployment. Consumer RBAC, WebJob
-execution/recovery, managed-identity and metadata verification, and
-fixed-fictional hosted invocation remain standalone optional workflows.
+Consumer RBAC remains among the standalone optional workflows and requires successful
+exact reuse or `assignment_verified=true` after a separately approved deployment.
+WebJob evidence recovery remains exceptional. The current
+WebJob trigger-and-correlation path is retired from supported operations.
 
 **Active implementation direction:** move the local mock capstone toward an
 Azure-first Microsoft Foundry Agent implementation through disposable Foundry,
 immutable agents, evaluation, managed-identity-ready hosting, deterministic
 deployment, and hosted application readiness.
-
-Optional standalone boundaries remain available for project-scoped Consumer
-RBAC, WebJob execution/recovery, managed-identity verification, and
-fixed-fictional-data hosted invocation.
 
 Mock mode remains the safe default, hosted notifications remain suppressed,
 and all AI output continues to require human nurse review.
@@ -82,9 +64,25 @@ Important constraints:
 ## Current Resume Point
 
 Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
-Consumer RBAC, WebJobs, managed identity, metadata verification, and invocation remain separate optional workflows.
+Consumer RBAC remains optional; WebJob discovery and immutable evidence
+recovery remain separate technical boundaries.
 
-The current generation-bound hosted WebJob trigger returned sanitized `trigger_acceptance_ambiguous` and preserved immutable schema-version-2 `blocked-trigger.json` in exact `accepted-uncorrelatable` state. No accepted trigger receipt or terminal outcome exists. The next permitted live operation is one separately supervised `--live-reconcile-blocked-trigger` history read; do not trigger again. Zero, multiple, malformed, or unsupported results remain blocked. One nonterminal exact run permits a later separately authorized `--live-status`; one terminal run is reviewed without retriggering.
+The final fresh disposable generation reached READY, including live-proven
+Foundry infrastructure, prompt-agent configuration, immutable routing, Web App
+configuration, current application deployment and artifact equality, and
+hosted readiness. Generation handoff then succeeded, the fixed triggered
+WebJob was discovered, and the direct project-scoped Consumer assignment was
+reused and verified without mutation.
+
+Multiple fresh supervised WebJob trigger attempts returned sanitized
+`trigger_acceptance_ambiguous`. Azure exposed no safely correlatable execution
+record for those attempts. The trigger-and-correlation implementation is now
+retired from supported operations; it was not reliably provable enough for this
+capstone. This decision does not claim that Azure WebJobs are universally
+impossible. Managed-identity token acquisition, hosted Foundry metadata access,
+fixed-fictional invocation, and application-integrated live structured
+extraction through the Nurse Intake Assistant service boundary remain
+unproven; the standalone manual Foundry structured-extraction smoke is live-proven.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point
@@ -109,13 +107,13 @@ Authoritative Foundry infrastructure for future TDD slices:
 - Packaged `src/app/operations/verify_hosted_foundry_agent.py`: strict system-identity metadata verification using the existing agent contract.
 - Fixed packaged WebJob `App_Data/jobs/triggered/verify-hosted-foundry-agent/run.py`
   and `scripts/run_hosted_foundry_agent_verification.py`: offline check plus
-  separate one-read discovery, one-request trigger, one-read
-  accepted-but-uncorrelatable reconciliation, and exact receipt-correlated
-  one-read status boundaries.
+  live-proven one-read discovery plus preserved but retired trigger,
+  accepted-but-uncorrelatable reconciliation, and status boundaries.
 - `src/app/services/hosted_foundry_agent_webjob_state_recovery.py`,
   `scripts/recover_hosted_foundry_agent_webjob_state.py`, and the dedicated
-  recovery runbook: separate offline manifest inspection and default-no,
-  reservation-held quarantine/reinspection of immutable lifecycle evidence.
+  recovery reference: separate offline manifest inspection and default-no,
+  reservation-held quarantine/reinspection of immutable lifecycle evidence;
+  the canonical operator runbook owns the exceptional procedure.
 - Packaged `src/app/operations/invoke_hosted_foundry_agent.py`: separate strict system-identity boundary for one fixed fictional invocation and sanitized application-contract proof; check mode is offline and live remains explicit.
 - `infra/foundry-only.bicep`: preferred lightweight entry point for disposable daily Foundry validation.
 - `infra/foundry-only.example.bicepparam`: committed fictional example; `infra/foundry-only.bicepparam` is ignored, operator-local, and must not be committed.
@@ -133,13 +131,15 @@ for separately approved cleanup. Use the environment for development, testing,
 and demonstrations, then run the explicit standalone cleanup at day's end.
 End-of-day deletion remains expected; reduced readiness scope does not make the
 resources permanent. The permanent procedure is
-`docs/runbooks/daily-disposable-azure-environment-rebuild.md`.
+`docs/runbooks/daily-azure-operator-runbook.md`. The former
+`docs/runbooks/daily-disposable-azure-environment-rebuild.md` is an
+implementation index that points to the canonical procedure.
 
 `scripts/daily_azure.sh start` is the preferred daily path for operators; it
 delegates to authoritative `scripts/rebuild_daily_azure_environment.py`
 `--live --json`. The wrapper's `check` runs both offline contracts, while the
-detailed Python commands and manual runbook remain the fallback, recovery, and
-audit reference. Azure-dependent Codex prompts still require a fresh
+detailed Python services remain implementation and audit boundaries.
+Azure-dependent Codex prompts still require a fresh
 current-session `daily_environment_ready=true` result. READY now requires
 current startup cleanup inspection and clean-state proof, resource-group,
 Foundry infrastructure, prompt-agent and immutable routing, Web App
@@ -177,25 +177,26 @@ If the environment is NOT READY, direct the operator to the daily runbook and
 do not issue the dependent prompt. Record the gate once; avoid repeated blocked
 slices and progress rewrites that merely rediscover the same absent resources.
 The coordinator preserves the independent contracts: Keep infrastructure
-deployment separate from prompt-agent creation. Consumer RBAC, WebJob
-trigger/status, managed-identity proof, metadata verification, and invocation
-remain optional, standalone, separate, and explicitly authorized. Keep cleanup
-separately approved and ownership-scoped, and complete the expected standalone
-end-of-day cleanup after the workday.
+deployment separate from prompt-agent creation. Consumer RBAC remains optional,
+standalone, separate, and explicitly authorized. The current WebJob
+trigger/status path is retired. Managed-identity proof, metadata verification,
+and invocation remain unproven. Keep cleanup separately approved and
+ownership-scoped, and complete the expected standalone end-of-day cleanup after
+the workday.
 Never commit session identifiers, endpoints, credentials, tokens, secrets,
 real contact information, or patient data.
 
 ## Prerequisites Before The Next TDD Slice
 
-Before any hosted managed-identity metadata proof, complete
-`docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md` with an
-exact operator-approved inventory and fresh evidence. The repository-owned
-optional five-setting Bicep/configuration path and fixed manually triggered
-WebJob now exist offline. They remain unproven in App Service until separately
-authorized infrastructure/configuration verification, code deployment, WebJob
-discovery, readiness, and the other runbook prerequisites are freshly completed.
+Begin Azure-dependent work with the canonical daily runbook and fresh READY
+proof. The old
+`docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md` is now
+an implementation reference for the retired WebJob path, not a prerequisite
+sequence. A future hosted managed-identity proof requires an explicit
+architecture decision and may use a different execution boundary.
+
 Do not claim as complete:
-- Live Azure AI Foundry extraction outside the manual Foundry Agent smoke path
+- Application-integrated live structured extraction through the Nurse Intake Assistant service boundary; the standalone manual Foundry structured-extraction smoke is live-proven
 - Historical evidence only: Manual live Foundry Agent smoke passed in an
   earlier slice with `ok=true`, `category=success`, `agent_attempted=true`,
   `agent_output_valid=true`, `fallback_used=false`, and fields `extraction`, `urgency`, and `handoffNote`; no hosted managed-identity smoke has run.
@@ -269,7 +270,7 @@ Provider settings:
   `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`. The offline Foundry structured
   extraction prompt/schema/parser contract and injected fake-client seam are
   implemented. A thin opt-in live adapter matches the same seam with lazy SDK
-  imports/client construction, but live extraction is deferred.
+  imports/client construction. The standalone manual Foundry structured-extraction smoke is live-proven, but application-integrated live structured extraction through the Nurse Intake Assistant service boundary is deferred.
 - `AGENT_PROVIDER=mock` remains the default. `AGENT_PROVIDER=foundry-agent`
   routes text intake through the `NurseIntakeAgent` boundary when explicitly
   configured. The Foundry Agent client boundary supports injected fakes and
@@ -394,7 +395,7 @@ Completed work by feature area:
 - Live hosted managed-identity verification and agent invocation
 - Key Vault
 - Azure Speech/voice intake
-- live Azure AI Foundry extraction
+- Application-integrated live Azure AI Foundry structured extraction through the Nurse Intake Assistant service boundary
 - ACS SMS delivery tracking
 - Application-level durable retry processing
 - Production frontend
@@ -402,18 +403,37 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Perform exactly one supervised, generation-bound `--live-reconcile-blocked-trigger` read against the preserved `accepted-uncorrelatable` evidence. Do not submit another trigger. If exactly one nonterminal run is correlated, request separate authorization for one exact-run `--live-status` read. If it is terminal, review the recorded sanitized result without retriggering. If the result is zero, multiple, malformed, or unsupported, remain blocked. Managed-identity metadata access, fixed-fictional invocation, and hosted Foundry extraction remain unproven.
+Implement application-integrated live Foundry structured extraction through
+the existing Nurse Intake Assistant service boundary while preserving the
+current Pydantic output contracts, deterministic safety rules, mock defaults,
+fictional-data restriction, and human nurse review. Do not use the retired
+WebJob trigger path as the execution boundary.
 
 ## Current Slice Status
 
-- Live observation: the explicit trigger returned `trigger_acceptance_ambiguous`; immutable schema-version-2 `blocked-trigger.json` remains in exact `accepted-uncorrelatable` state, with no accepted-trigger receipt and no terminal outcome.
-- RED was 6 focused failures proving the absent CLI mode, blocked-context entry, one-read runner boundary, nonterminal correlation persistence, terminal persistence, and status continuation.
-- GREEN adds explicit generation-bound `--live-reconcile-blocked-trigger`. It validates private local evidence before runner construction, performs at most one read-only history request, never constructs the trigger runner, and never polls, sleeps, retries, archives, cleans up, or mutates the blocked trigger.
-- Exactly one eligible known run creates a private immutable receipt bound to the current resources, generation, fingerprint, blocked evidence, and exact run. Terminal status records reconciliation before the matching outcome; zero, multiple, malformed, unknown, or unsupported results remain blocked without selected-run evidence.
-- Existing accepted-trigger status remains intact. Status may instead use one compatible reconciliation receipt with its unchanged original blocked trigger and follows only the exact private run.
-- Focused GREEN is 128 service and 25 CLI tests; the related WebJob/recovery/handoff/RBAC/coordinator regression matrix is 687 passed. Full verification is 2,684 passed, 21 shell-wrapper tests, 35 documentation guardrails, and successful Python compilation.
-- Exact resume point: obtain operator review for one supervised reconciliation command. No hosted metadata access, fixed-fictional invocation, or live Foundry extraction is claimed.
-- Historical Web App reconciliation rejected one Web App Deploy and nine unidentified Ignore records; the wrapper is removed, `--reconcile-existing-web-app` remains standalone, no live direct-module preview has yet succeeded, and no live reconciliation preview or deployment occurred. After the hosted proof, resume Nurse Intake Assistant application and AI-103 feature development.
+- Final fresh live proof reached READY with Foundry infrastructure,
+  prompt-agent configuration, immutable routing, Web App configuration,
+  application deployment, artifact equality, and hosted readiness verified.
+- Generation handoff preparation succeeded for that READY generation.
+- The fixed triggered WebJob was successfully discovered.
+- Consumer RBAC reuse succeeded with `assignment_reused=true`,
+  `assignment_verified=true`, and `azure_mutation_made=false`.
+- Multiple fresh supervised trigger attempts returned `trigger_acceptance_ambiguous`;
+  Azure exposed no safely correlatable execution record.
+- The current WebJob trigger-and-correlation implementation is retired from
+  supported operations. Its trigger, reconciliation, and status CLI modes
+  remain code history and require a future explicit architecture decision
+  before reuse.
+- Hosted managed-identity Foundry metadata access, fixed-fictional invocation, and application-integrated live structured extraction through the Nurse Intake Assistant service boundary remain unproven; the standalone manual Foundry structured-extraction smoke is live-proven.
+- `docs/runbooks/daily-azure-operator-runbook.md` now consolidates the only
+  normal operator sequence, optional RBAC, end-of-day cleanup, and exceptional
+  immutable-evidence recovery.
+- Historical Web App reconciliation rejected one Web App Deploy and nine
+  unidentified Ignore records; the wrapper is removed,
+  `--reconcile-existing-web-app` remains standalone, no live direct-module
+  preview has yet succeeded, and no live reconciliation preview or deployment
+  occurred. Resume Nurse Intake Assistant application and AI-103 feature
+  development through the recommended structured-extraction slice.
 
 ### Historical Slice Results
 
@@ -425,6 +445,7 @@ Perform exactly one supervised, generation-bound `--live-reconcile-blocked-trigg
 
 ## Reference Docs
 - `docs/archive/progress-2026-06.md`
+- `docs/runbooks/daily-azure-operator-runbook.md`
 - `docs/runbooks/daily-disposable-azure-environment-rebuild.md`
 - `docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md`
 - `docs/manual-local-mock-demo.md`

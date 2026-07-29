@@ -27,6 +27,9 @@ AI-assisted nurse intake capstone project for Azure AI-103 preparation.
 For a concise interview/demo runbook, use
 `docs/demo-readiness-checklist.md`.
 
+For the only normal disposable Azure operator procedure, use
+`docs/runbooks/daily-azure-operator-runbook.md`.
+
 ## Local Mock Demo Walkthrough
 
 This project demonstrates a local mock/demo only nurse intake workflow for the
