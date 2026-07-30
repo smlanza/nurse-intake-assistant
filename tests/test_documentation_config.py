@@ -527,6 +527,11 @@ def test_architecture_documents_completed_application_foundry_runtime_modes() ->
             "hosted foundry metadata access",
             "hosted foundry invocation",
             "trigger-and-correlation modes are retired from supported operations",
+            "repository-owned fictional evaluation dataset",
+            "provider-neutral candidate contract",
+            "deterministic scorer",
+            "sanitized metrics",
+            "not a live foundry evaluation",
         },
     )
     assert "live azure ai foundry extraction" not in deferred
@@ -614,9 +619,13 @@ def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
             "hosted managed-identity execution remains unproven",
             "trigger-and-correlation mechanism is retired",
             "offline foundry evaluation baseline",
+            "provider-neutral candidate contract",
+            "not a live foundry evaluation run",
+            "not model-as-judge",
+            "not clinical validation",
         },
     )
-    assert mapping.index("1. Offline Foundry evaluation baseline") < mapping.index(
+    assert mapping.index("1. Offline application-output adapters") < mapping.index(
         "7. ACS phone intake"
     )
 
@@ -639,8 +648,10 @@ def test_completed_application_foundry_paths_are_not_deferred_or_recommended() -
 
     assert "application-integrated" not in deferred
     assert "application-integrated" not in recommended
-    assert "offline foundry evaluation baseline" in recommended
-    assert "offline foundry evaluation baseline using a small fictional intake dataset and deterministic scoring contracts" in progress_next
+    assert "offline foundry evaluation baseline" not in recommended
+    assert "offline application-output adapters" in recommended
+    assert "offline application-output adapters" in progress_next
+    assert "canonical evaluation candidate contract" in progress_next
     assert "structured-extraction smoke" not in progress_next
     assert "foundry agent smoke" not in progress_next
     assert "hosted managed-identity execution remains unproven" in mapping.casefold()

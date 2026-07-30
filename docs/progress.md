@@ -5,7 +5,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,763 passed full suite
+- 2,795 passed full suite
 - 21 shell-wrapper tests and 37 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
@@ -82,6 +82,7 @@ capstone. This decision does not claim that Azure WebJobs are universally
 impossible. Hosted managed-identity token acquisition, Foundry metadata access,
 and invocation remain unproven. Separately, application-integrated Microsoft
 Foundry Agent execution and application-integrated structured extraction through production composition are both live-proven.
+Offline Foundry evaluation baseline v1 is implemented with eight fictional intake cases, a separate intentionally imperfect candidate fixture, strict provider-neutral contracts, deterministic exact/set metrics, and sanitized JSON output. It makes no Azure or network call and performs no persistence or notification work.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point
@@ -399,10 +400,11 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Offline Foundry evaluation baseline using a small fictional intake dataset and deterministic scoring contracts.
+Offline application-output adapters from `FoundryAiService` and `NurseIntakeAgent` results into the canonical evaluation candidate contract.
 
 ## Current Slice Status
 
+- The offline evaluation baseline now scores contract validity, structured-field exact matches, symptom precision/recall/F1, missing-field recall, advisory and final urgency accuracy, deterministic-rule agreement, and the nurse-review invariant. Invalid candidates remain isolated per case, zero denominators return `0.0`, results sort by case ID, and the CLI emits one deterministic sanitized JSON document. The baseline is fixture-driven, exact-match only, and is not a live Foundry run, model-as-judge evaluation, subjective clinical-quality score, or clinical validation.
 - Authoritative architecture and AI-103 mapping now match the two live-proven application-integrated Foundry execution paths. Hosted managed-identity execution remains unproven, and the WebJob trigger-and-correlation path remains retired.
 - The first supervised application-integrated Agent attempt failed because local configuration was stale. Current-generation Agent settings were then synchronized from the deployed Web App without exposing values. Read-only verification succeeded and proved Agent identity and definition, stable-endpoint binding, the Responses protocol, the immutable version, and 100% routing.
 - The second supervised attempt used production application composition, invoked the Agent once, accepted valid output without fallback, persisted only in memory, suppressed notifications, retained pending nurse review, and made no Azure mutation; it failed only because the smoke incorrectly equated deterministic-rule execution with urgency promotion.

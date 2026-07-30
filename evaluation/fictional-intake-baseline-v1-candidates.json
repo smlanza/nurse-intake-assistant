@@ -1,0 +1,177 @@
+{
+  "fixture_version": "fictional-intake-baseline-candidates-v1",
+  "candidates": [
+    {
+      "case_id": "complete-routine",
+      "candidate": {
+        "contract_valid": true,
+        "structured_fields": {
+          "patient_name": "Fictional Rowan Example",
+          "date_of_birth": "2001-01-01",
+          "callback_identifier": "fictional-callback-rowan",
+          "reason_for_calling": "routine follow-up"
+        },
+        "symptoms": [
+          "mild cough"
+        ],
+        "missing_fields": [],
+        "advisory_ai_urgency": "Routine",
+        "final_application_urgency": "Routine",
+        "deterministic_rule_result": "Routine",
+        "nurse_review_required": true,
+        "summary_text": "Fictional routine intake summary."
+      }
+    },
+    {
+      "case_id": "positive-urgent-red-flag",
+      "candidate": {
+        "contract_valid": true,
+        "structured_fields": {
+          "patient_name": "Fictional Avery Example",
+          "date_of_birth": "1999-02-02",
+          "callback_identifier": "fictional-callback-avery",
+          "reason_for_calling": "new chest pain"
+        },
+        "symptoms": [
+          "chest pain"
+        ],
+        "missing_fields": [],
+        "advisory_ai_urgency": "Urgent",
+        "final_application_urgency": "Urgent",
+        "deterministic_rule_result": "Urgent",
+        "nurse_review_required": true,
+        "summary_text": "Fictional urgent intake summary."
+      }
+    },
+    {
+      "case_id": "negated-red-flag",
+      "candidate": {
+        "contract_valid": true,
+        "structured_fields": {
+          "patient_name": "Fictional Morgan Example",
+          "date_of_birth": "1998-03-03",
+          "callback_identifier": "fictional-callback-morgan",
+          "reason_for_calling": "mild congestion"
+        },
+        "symptoms": [
+          "mild congestion",
+          "chest pain"
+        ],
+        "missing_fields": [],
+        "advisory_ai_urgency": "Urgent",
+        "final_application_urgency": "Urgent",
+        "deterministic_rule_result": "Urgent",
+        "nurse_review_required": true,
+        "summary_text": "Fictional negation test summary."
+      }
+    },
+    {
+      "case_id": "missing-patient-information",
+      "candidate": {
+        "contract_valid": true,
+        "structured_fields": {
+          "patient_name": null,
+          "date_of_birth": "2002-04-04",
+          "callback_identifier": null,
+          "reason_for_calling": "fatigue"
+        },
+        "symptoms": [
+          "fatigue"
+        ],
+        "missing_fields": [
+          "patient.name"
+        ],
+        "advisory_ai_urgency": "Routine",
+        "final_application_urgency": "Routine",
+        "deterministic_rule_result": "Routine",
+        "nurse_review_required": true,
+        "summary_text": "Fictional incomplete-information summary."
+      }
+    },
+    {
+      "case_id": "multiple-symptoms",
+      "candidate": {
+        "contract_valid": true,
+        "structured_fields": {
+          "patient_name": "Fictional Casey Example",
+          "date_of_birth": "1997-05-05",
+          "callback_identifier": "fictional-callback-casey",
+          "reason_for_calling": "multiple symptoms"
+        },
+        "symptoms": [
+          "cough",
+          "fever",
+          "cough",
+          "headache"
+        ],
+        "missing_fields": [],
+        "advisory_ai_urgency": "Routine",
+        "final_application_urgency": "Routine",
+        "deterministic_rule_result": "Routine",
+        "nurse_review_required": true,
+        "summary_text": "Fictional multiple-symptom summary."
+      }
+    },
+    {
+      "case_id": "rules-promote-urgency",
+      "candidate": {
+        "contract_valid": true,
+        "structured_fields": {
+          "patient_name": "Fictional Jordan Example",
+          "date_of_birth": "1996-06-06",
+          "callback_identifier": "fictional-callback-jordan",
+          "reason_for_calling": "shortness of breath"
+        },
+        "symptoms": [
+          "shortness of breath"
+        ],
+        "missing_fields": [],
+        "advisory_ai_urgency": "Routine",
+        "final_application_urgency": "Urgent",
+        "deterministic_rule_result": "Urgent",
+        "nurse_review_required": true,
+        "summary_text": "Fictional deterministic-rule promotion summary."
+      }
+    },
+    {
+      "case_id": "routine-no-red-flag",
+      "candidate": {
+        "contract_valid": true,
+        "structured_fields": {
+          "patient_name": "Fictional Taylor Example",
+          "date_of_birth": "1995-07-07",
+          "callback_identifier": "fictional-callback-taylor",
+          "reason_for_calling": "seasonal congestion"
+        },
+        "symptoms": [
+          "mild seasonal congestion"
+        ],
+        "missing_fields": [],
+        "advisory_ai_urgency": "Routine",
+        "final_application_urgency": "Urgent",
+        "deterministic_rule_result": "Routine",
+        "nurse_review_required": true,
+        "summary_text": "Fictional routine symptom summary."
+      }
+    },
+    {
+      "case_id": "invalid-candidate-output",
+      "candidate": {
+        "contract_valid": false,
+        "structured_fields": {
+          "patient_name": "Fictional Quinn Example",
+          "date_of_birth": "1994-08-08",
+          "callback_identifier": "fictional-callback-quinn",
+          "reason_for_calling": "medication-list question"
+        },
+        "symptoms": [],
+        "missing_fields": [],
+        "advisory_ai_urgency": "Routine",
+        "final_application_urgency": "Routine",
+        "deterministic_rule_result": "Routine",
+        "nurse_review_required": true,
+        "summary_text": "Fictional intentionally invalid candidate summary."
+      }
+    }
+  ]
+}

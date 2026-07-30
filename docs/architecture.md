@@ -47,6 +47,7 @@ Browser or API client
 | `MockAiService` | Deterministic local extraction, summary, and urgency classification for demo/testing |
 | `FoundryAiService` | Implemented opt-in Foundry structured-extraction provider with an application-owned prompt/schema/parser contract, injected fake-client seam, and lazy live adapter obtained through `AIProjectClient.get_openai_client()` |
 | `NurseIntakeAgent` | Implemented application-integrated Agent boundary; output is contract-validated before case processing trusts it, and invalid output uses a safe fallback |
+| Offline Foundry evaluation | Strictly validates a repository-owned fictional v1 dataset and provider-neutral candidate contract, then produces deterministic per-case evidence and sanitized aggregate metrics |
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
 | Speech transcription services | Offline mock transcription boundary and Azure Speech scaffold/factory; live audio transcription is deferred |
@@ -168,6 +169,34 @@ suppressed notifications, mandatory nurse review, and no Azure mutation.
 Neither application-integrated execution mode proves hosted managed-identity
 token acquisition, hosted Foundry metadata access, or hosted Foundry
 invocation.
+
+### Offline Evaluation Boundary
+
+The reusable offline evaluation flow is:
+
+```text
+repository-owned fictional evaluation dataset
+-> strict validation
+-> provider-neutral candidate contract
+-> deterministic scorer
+-> sanitized metrics
+```
+
+The canonical candidate contract covers structural contract validity,
+application-owned structured fields, symptoms, missing fields, advisory and
+final urgency, deterministic-rule outcome, mandatory nurse review, and
+nonblank summary structure. Scoring uses trimmed exact structured-field
+equality and case-folded order-independent sets for symptoms and missing
+fields. Undefined zero-denominator precision, recall, and F1 values are
+reported as `0.0`.
+
+Per-case evidence contains only stable case IDs, counts, match booleans, and
+safe error categories. Aggregate output contains only the dataset identifier,
+version, deterministic counts and rates, and sorted per-case evidence. The
+boundary does not invoke a provider or Agent, access Azure or the network,
+process a runtime intake, persist a case, or send or record a notification. It
+is not a live Foundry evaluation, model-as-judge evaluation, or clinical
+validation.
 
 ```text
 Raw intake -> Agent/AI analysis -> agent contract validation -> safe fallback if needed -> deterministic red-flag rules -> persisted case -> notification/review
