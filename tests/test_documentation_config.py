@@ -630,6 +630,30 @@ def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
     )
 
 
+def test_evaluation_docs_distinguish_expected_and_observed_urgency() -> None:
+    mapping = _normalized(_read("docs/ai-103-mapping.md")).casefold()
+    progress = _normalized(_read("docs/progress.md")).casefold()
+
+    _assert_contains_all(
+        mapping,
+        {
+            "expected urgency labels remain `routine` or `urgent`",
+            "observed contract-invalid output may use safe `unknown` urgency",
+            "scores as an ordinary mismatch",
+            "no model, agent, or live foundry evaluation ran",
+        },
+    )
+    _assert_contains_all(
+        progress,
+        {
+            "blocked application-output adapter slice exposed a canonical representation mismatch",
+            "expected advisory, final, and deterministic-rule labels binary",
+            "allowing only application-consistent `unknown` urgency states",
+            "no adapter was implemented in this correction",
+        },
+    )
+
+
 def test_completed_application_foundry_paths_are_not_deferred_or_recommended() -> None:
     mapping = _normalized(_read("docs/ai-103-mapping.md"))
     progress = _normalized(_read("docs/progress.md"))

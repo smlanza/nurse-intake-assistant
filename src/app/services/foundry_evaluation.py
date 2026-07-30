@@ -16,7 +16,9 @@ from pydantic import (
 DATASET_VERSION = "fictional-intake-baseline-v1"
 CANDIDATE_FIXTURE_VERSION = "fictional-intake-baseline-candidates-v1"
 DEFAULT_DATASET_ID = "evaluation/fictional-intake-baseline-v1.json"
-Urgency = Literal["Routine", "Urgent"]
+ExpectedUrgency = Literal["Routine", "Urgent"]
+ObservedCandidateUrgency = Literal["Routine", "Urgent", "Unknown"]
+DeterministicRuleResult = Literal["Routine", "Urgent"]
 EvaluationErrorCategory = Literal[
     "missing_dataset",
     "invalid_json",
@@ -53,9 +55,9 @@ class ExpectedEvaluationOutput(_StrictFrozenModel):
     structured_fields: StructuredFields
     symptoms: tuple[NonBlankString, ...]
     missing_fields: tuple[NonBlankString, ...]
-    advisory_ai_urgency: Urgency
-    final_application_urgency: Urgency
-    deterministic_rule_result: Urgency
+    advisory_ai_urgency: ExpectedUrgency
+    final_application_urgency: ExpectedUrgency
+    deterministic_rule_result: DeterministicRuleResult
     nurse_review_required: Literal[True]
 
     @field_validator("symptoms", "missing_fields", mode="before")
@@ -94,9 +96,9 @@ class EvaluationCandidate(_StrictFrozenModel):
     structured_fields: StructuredFields
     symptoms: tuple[NonBlankString, ...]
     missing_fields: tuple[NonBlankString, ...]
-    advisory_ai_urgency: Urgency
-    final_application_urgency: Urgency
-    deterministic_rule_result: Urgency
+    advisory_ai_urgency: ObservedCandidateUrgency
+    final_application_urgency: ObservedCandidateUrgency
+    deterministic_rule_result: DeterministicRuleResult
     nurse_review_required: bool
     summary_text: NonBlankString
     handoff_text: NonBlankString | None = None
@@ -105,6 +107,37 @@ class EvaluationCandidate(_StrictFrozenModel):
     @classmethod
     def _require_string_array(cls, value: object) -> object:
         return _validated_string_array(value)
+
+    @model_validator(mode="after")
+    def _require_consistent_urgency_state(self) -> "EvaluationCandidate":
+        if self.contract_valid:
+            if (
+                self.advisory_ai_urgency == "Unknown"
+                or self.final_application_urgency == "Unknown"
+            ):
+                raise ValueError(
+                    "Contract-valid candidate urgency must be known."
+                )
+            return self
+
+        if self.advisory_ai_urgency != "Unknown":
+            raise ValueError(
+                "Contract-invalid candidate advisory urgency must be unknown."
+            )
+        expected_final_urgency: ObservedCandidateUrgency = (
+            "Urgent"
+            if self.deterministic_rule_result == "Urgent"
+            else "Unknown"
+        )
+        if self.final_application_urgency != expected_final_urgency:
+            raise ValueError(
+                "Contract-invalid candidate final urgency is inconsistent."
+            )
+        if not self.nurse_review_required:
+            raise ValueError(
+                "Contract-invalid candidate requires nurse review."
+            )
+        return self
 
 
 class _CandidateFixtureEntry(_StrictFrozenModel):
@@ -274,13 +307,7 @@ def _score_case(
 
     expected_symptoms = _normalized_set(case.expected.symptoms)
     expected_missing = _normalized_set(case.expected.missing_fields)
-    if candidate_valid and candidate is not None:
-        actual_symptoms = _normalized_set(candidate.symptoms)
-        actual_missing = _normalized_set(candidate.missing_fields)
-        structured_matches = _structured_field_matches(
-            case.expected.structured_fields,
-            candidate.structured_fields,
-        )
+    if candidate is not None:
         advisory_match = (
             candidate.advisory_ai_urgency
             == case.expected.advisory_ai_urgency
@@ -298,13 +325,22 @@ def _score_case(
             == case.expected.nurse_review_required
         )
     else:
-        actual_symptoms = set()
-        actual_missing = set()
-        structured_matches = 0
         advisory_match = False
         final_match = False
         rule_match = False
         nurse_review_match = False
+
+    if candidate_valid and candidate is not None:
+        actual_symptoms = _normalized_set(candidate.symptoms)
+        actual_missing = _normalized_set(candidate.missing_fields)
+        structured_matches = _structured_field_matches(
+            case.expected.structured_fields,
+            candidate.structured_fields,
+        )
+    else:
+        actual_symptoms = set()
+        actual_missing = set()
+        structured_matches = 0
 
     symptom_tp, symptom_fp, symptom_fn = _set_counts(
         expected_symptoms,

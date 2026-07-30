@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import socket
 
+from pydantic import ValidationError
 import pytest
 
 
@@ -90,6 +91,16 @@ def _candidate_payload(**overrides: object) -> dict[str, object]:
     return values
 
 
+def _invalid_candidate_payload(**overrides: object) -> dict[str, object]:
+    values = _candidate_payload(
+        contract_valid=False,
+        advisory_ai_urgency="Unknown",
+        final_application_urgency="Unknown",
+    )
+    values.update(overrides)
+    return values
+
+
 def _write_payload(path: Path, payload: object) -> Path:
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
@@ -170,6 +181,20 @@ def test_unsupported_dataset_version_fails(tmp_path: Path) -> None:
         ),
         _dataset_payload(
             _case_payload(
+                expected=_expected_payload(
+                    final_application_urgency="Unknown"
+                )
+            )
+        ),
+        _dataset_payload(
+            _case_payload(
+                expected=_expected_payload(
+                    deterministic_rule_result="Unknown"
+                )
+            )
+        ),
+        _dataset_payload(
+            _case_payload(
                 expected=_expected_payload(deterministic_rule_result="Matched")
             )
         ),
@@ -194,7 +219,9 @@ def test_unsupported_dataset_version_fails(tmp_path: Path) -> None:
         "duplicate-case-id",
         "blank-intake",
         "missing-expected",
-        "unknown-urgency",
+        "unknown-expected-advisory-urgency",
+        "unknown-expected-final-urgency",
+        "unknown-expected-rule-result",
         "unknown-rule-result",
         "nonboolean-review",
         "review-not-required",
@@ -307,6 +334,123 @@ def test_urgency_rules_and_review_metrics_are_deterministic(tmp_path: Path) -> N
     assert metrics.deterministic_rule_agreement_rate == 0.0
     assert metrics.nurse_review_invariant_correct_count == 0
     assert metrics.nurse_review_invariant_rate == 0.0
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        _candidate_payload(),
+        _candidate_payload(
+            advisory_ai_urgency="Urgent",
+            final_application_urgency="Urgent",
+            deterministic_rule_result="Urgent",
+        ),
+        _invalid_candidate_payload(),
+        _invalid_candidate_payload(
+            final_application_urgency="Urgent",
+            deterministic_rule_result="Urgent",
+        ),
+    ],
+    ids=[
+        "valid-routine",
+        "valid-urgent",
+        "invalid-routine-rule",
+        "invalid-urgent-rule",
+    ],
+)
+def test_candidate_urgency_invariants_accept_supported_states(
+    candidate: dict[str, object],
+) -> None:
+    evaluation = _evaluation()
+
+    result = evaluation.EvaluationCandidate.model_validate(candidate)
+
+    assert result.contract_valid is candidate["contract_valid"]
+    assert result.advisory_ai_urgency == candidate["advisory_ai_urgency"]
+    assert (
+        result.final_application_urgency
+        == candidate["final_application_urgency"]
+    )
+    assert (
+        result.deterministic_rule_result
+        == candidate["deterministic_rule_result"]
+    )
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        _candidate_payload(advisory_ai_urgency="Unknown"),
+        _candidate_payload(final_application_urgency="Unknown"),
+        _invalid_candidate_payload(advisory_ai_urgency="Routine"),
+        _invalid_candidate_payload(advisory_ai_urgency="Urgent"),
+        _invalid_candidate_payload(final_application_urgency="Routine"),
+        _invalid_candidate_payload(final_application_urgency="Urgent"),
+        _invalid_candidate_payload(
+            deterministic_rule_result="Urgent",
+            final_application_urgency="Unknown",
+        ),
+        _invalid_candidate_payload(
+            deterministic_rule_result="Urgent",
+            final_application_urgency="Routine",
+        ),
+        _invalid_candidate_payload(deterministic_rule_result="Unknown"),
+        _invalid_candidate_payload(nurse_review_required=False),
+    ],
+    ids=[
+        "valid-unknown-advisory",
+        "valid-unknown-final",
+        "invalid-routine-advisory",
+        "invalid-urgent-advisory",
+        "invalid-routine-rule-routine-final",
+        "invalid-routine-rule-urgent-final",
+        "invalid-urgent-rule-unknown-final",
+        "invalid-urgent-rule-routine-final",
+        "unknown-rule-result",
+        "invalid-review-not-required",
+    ],
+)
+def test_candidate_urgency_invariants_reject_contradictory_states(
+    candidate: dict[str, object],
+) -> None:
+    evaluation = _evaluation()
+
+    with pytest.raises(ValidationError):
+        evaluation.EvaluationCandidate.model_validate(candidate)
+
+
+def test_unknown_observed_urgency_is_scored_without_aborting(
+    tmp_path: Path,
+) -> None:
+    evaluation = _evaluation()
+    dataset = _load_dataset(
+        tmp_path,
+        _dataset_payload(_case_payload("case-b"), _case_payload("case-a")),
+    )
+    candidates = {
+        "case-a": _invalid_candidate_payload(),
+        "case-b": _candidate_payload(),
+    }
+
+    report = evaluation.evaluate_dataset(dataset, candidates)
+
+    assert report.metrics.evaluated_case_count == 2
+    assert report.metrics.candidate_contract_valid_count == 1
+    assert report.metrics.candidate_contract_valid_rate == 0.5
+    assert report.metrics.advisory_urgency_correct_count == 1
+    assert report.metrics.advisory_urgency_accuracy == 0.5
+    assert report.metrics.final_urgency_correct_count == 1
+    assert report.metrics.final_urgency_accuracy == 0.5
+    assert report.metrics.deterministic_rule_agreement_count == 2
+    assert report.metrics.deterministic_rule_agreement_rate == 1.0
+    assert report.metrics.nurse_review_invariant_correct_count == 2
+    assert report.metrics.nurse_review_invariant_rate == 1.0
+    assert report.cases[0].candidate_contract_valid is False
+    assert report.cases[0].advisory_urgency_match is False
+    assert report.cases[0].final_urgency_match is False
+    assert report.cases[0].deterministic_rule_match is True
+    assert report.cases[0].nurse_review_invariant_match is True
+    assert report.cases[0].error_category == "candidate_contract_invalid"
 
 
 def test_zero_denominators_return_zero(tmp_path: Path) -> None:

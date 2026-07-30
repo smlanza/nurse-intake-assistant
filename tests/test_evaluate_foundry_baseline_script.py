@@ -71,6 +71,25 @@ def test_default_fixture_has_intentional_errors_and_nonperfect_metrics(
     assert metrics["final_urgency_accuracy"] < 1.0
 
 
+def test_default_invalid_candidate_uses_safe_unknown_urgency() -> None:
+    script = _script()
+    candidates = script.load_candidate_fixture(
+        script.DEFAULT_CANDIDATE_FIXTURE_PATH
+    )
+    invalid_candidates = [
+        candidate
+        for candidate in candidates.values()
+        if candidate["contract_valid"] is False
+    ]
+
+    assert len(invalid_candidates) == 1
+    invalid_candidate = invalid_candidates[0]
+    assert invalid_candidate["advisory_ai_urgency"] == "Unknown"
+    assert invalid_candidate["final_application_urgency"] == "Unknown"
+    assert invalid_candidate["deterministic_rule_result"] == "Routine"
+    assert invalid_candidate["nurse_review_required"] is True
+
+
 def test_repeated_unchanged_runs_emit_equivalent_json(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

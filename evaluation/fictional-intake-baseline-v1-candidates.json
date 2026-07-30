@@ -166,8 +166,8 @@
         },
         "symptoms": [],
         "missing_fields": [],
-        "advisory_ai_urgency": "Routine",
-        "final_application_urgency": "Routine",
+        "advisory_ai_urgency": "Unknown",
+        "final_application_urgency": "Unknown",
         "deterministic_rule_result": "Routine",
         "nurse_review_required": true,
         "summary_text": "Fictional intentionally invalid candidate summary."
