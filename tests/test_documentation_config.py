@@ -499,6 +499,42 @@ def test_architecture_documents_local_safety_and_agent_validation() -> None:
     )
 
 
+def test_architecture_documents_completed_application_foundry_runtime_modes() -> None:
+    architecture = _normalized(_read("docs/architecture.md"))
+    normalized = architecture.casefold()
+    deferred = normalized.split("## 10. deferred / future architecture", 1)[1].split(
+        "## 11. ai-103 alignment",
+        1,
+    )[0]
+
+    _assert_contains_all(
+        normalized,
+        {
+            "implemented opt-in foundry structured-extraction provider",
+            "aiprojectclient.get_openai_client()",
+            "compose_application(settings)",
+            "application-integrated structured extraction is live-proven",
+            "valid structured output",
+            "no fallback",
+            "deterministic urgency-rule evaluation",
+            "in-memory persistence",
+            "suppressed notifications",
+            "mandatory nurse review",
+            "no azure mutation",
+            "`nurseintakeagent` is an implemented application-integrated agent boundary",
+            "application-integrated agent execution is live-proven",
+            "hosted managed-identity token acquisition",
+            "hosted foundry metadata access",
+            "hosted foundry invocation",
+            "trigger-and-correlation modes are retired from supported operations",
+        },
+    )
+    assert "live azure ai foundry extraction" not in deferred
+    assert "application-integrated structured extraction" not in deferred
+    assert "application-integrated agent execution" not in deferred
+    assert "azure speech / voice intake" in deferred
+
+
 def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() -> None:
     architecture = _normalized(_read("docs/architecture.md"))
 
@@ -555,28 +591,60 @@ def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() 
 def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
     mapping = _read("docs/ai-103-mapping.md")
     normalized = _normalized(mapping)
+    normalized_casefold = normalized.casefold()
 
     _assert_contains_all(
-        normalized,
+        normalized_casefold,
         {
-            "local mock/demo FastAPI app",
+            "local mock/demo fastapi app",
             "not production clinical software",
-            "AI_PROVIDER=mock",
+            "ai_provider=mock",
             "validation before trusting model/agent output",
             "safe fallback",
-            "AI output requires human nurse review",
-            "Offline tests use fakes and make no Azure calls",
+            "ai output requires human nurse review",
+            "offline tests use fakes and make no azure calls",
             "scripts/verify_web_app_configuration.py",
             "scripts/verify_web_app_readiness.py",
-            "Check modes make no Azure or HTTP call",
-            "Configuration verification does not prove code deployment",
-            "Package creation and deployment-request acceptance do not imply hosted health",
-            "Live Azure AI Foundry structured extraction",
+            "check modes make no azure or http call",
+            "configuration verification does not prove code deployment",
+            "package creation and deployment-request acceptance do not imply hosted health",
+            "application-integrated structured extraction",
+            "application-integrated microsoft foundry agent",
+            "live-proven",
+            "hosted managed-identity execution remains unproven",
+            "trigger-and-correlation mechanism is retired",
+            "offline foundry evaluation baseline",
         },
     )
-    assert mapping.index("1. Live Azure AI Foundry structured extraction") < mapping.index(
+    assert mapping.index("1. Offline Foundry evaluation baseline") < mapping.index(
         "7. ACS phone intake"
     )
+
+
+def test_completed_application_foundry_paths_are_not_deferred_or_recommended() -> None:
+    mapping = _normalized(_read("docs/ai-103-mapping.md"))
+    progress = _normalized(_read("docs/progress.md"))
+    deferred = mapping.casefold().split(
+        "## 7. explicitly deferred ai-103 / azure work",
+        1,
+    )[1].split("## 8. exam roi for future slices", 1)[0]
+    recommended = mapping.casefold().split(
+        "## 9. recommended azure implementation order",
+        1,
+    )[1].split("## 10. scope honesty checklist", 1)[0]
+    progress_next = progress.casefold().split(
+        "## recommended next slice",
+        1,
+    )[1].split("## current slice status", 1)[0]
+
+    assert "application-integrated" not in deferred
+    assert "application-integrated" not in recommended
+    assert "offline foundry evaluation baseline" in recommended
+    assert "offline foundry evaluation baseline using a small fictional intake dataset and deterministic scoring contracts" in progress_next
+    assert "structured-extraction smoke" not in progress_next
+    assert "foundry agent smoke" not in progress_next
+    assert "hosted managed-identity execution remains unproven" in mapping.casefold()
+    assert "webjob trigger-and-correlation mechanism is retired" in mapping.casefold()
 
 
 def test_infrastructure_docs_keep_operator_boundaries_manual_and_explicit() -> None:
@@ -1009,7 +1077,7 @@ def test_blocked_trigger_reconciliation_is_a_separate_read_only_boundary() -> No
             "private exact-run correlation",
             "never authorize retriggering",
             "managed-identity metadata access",
-            "live Foundry extraction remain unproven",
+            "fixed-fictional hosted invocation remain unproven",
         },
     )
 

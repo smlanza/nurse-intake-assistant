@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,761 passed full suite
-- 21 shell-wrapper tests and 35 documentation tests
+- 2,763 passed full suite
+- 21 shell-wrapper tests and 37 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -399,10 +399,11 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The application-integrated Foundry structured-extraction and Agent paths are both live-proven and need no rerun. Select future work through a separately frozen slice; hosted managed-identity execution remains unproven, and the retired WebJob path remains retired.
+Offline Foundry evaluation baseline using a small fictional intake dataset and deterministic scoring contracts.
 
 ## Current Slice Status
 
+- Authoritative architecture and AI-103 mapping now match the two live-proven application-integrated Foundry execution paths. Hosted managed-identity execution remains unproven, and the WebJob trigger-and-correlation path remains retired.
 - The first supervised application-integrated Agent attempt failed because local configuration was stale. Current-generation Agent settings were then synchronized from the deployed Web App without exposing values. Read-only verification succeeded and proved Agent identity and definition, stable-endpoint binding, the Responses protocol, the immutable version, and 100% routing.
 - The second supervised attempt used production application composition, invoked the Agent once, accepted valid output without fallback, persisted only in memory, suppressed notifications, retained pending nurse review, and made no Azure mutation; it failed only because the smoke incorrectly equated deterministic-rule execution with urgency promotion.
 - Correction RED was 3 failed/16 passed: equal-or-higher Agent urgency and no-op rule results proved production `CaseProcessingService` already executed deterministic rules, while a missing authoritative spy call was not representable. GREEN is 19 focused and 136 relevant tests after the smoke began proving one successful rules-boundary call independently of urgency promotion.

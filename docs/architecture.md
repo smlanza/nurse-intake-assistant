@@ -45,8 +45,8 @@ Browser or API client
 | `CaseProcessingService` | Orchestrates extraction, urgency merge, persistence, and notifications |
 | `create_ai_service(settings)` | Selects mock AI by default or the Foundry provider boundary when configured |
 | `MockAiService` | Deterministic local extraction, summary, and urgency classification for demo/testing |
-| `FoundryAiService` | Azure AI Foundry provider boundary/scaffold with offline structured extraction prompt/schema/parser contract, injected fake-client seam, and opt-in lazy live adapter; live extraction is deferred |
-| `NurseIntakeAgent` | External reasoning boundary for future agent orchestration; output is contract-validated before case processing trusts it |
+| `FoundryAiService` | Implemented opt-in Foundry structured-extraction provider with an application-owned prompt/schema/parser contract, injected fake-client seam, and lazy live adapter obtained through `AIProjectClient.get_openai_client()` |
+| `NurseIntakeAgent` | Implemented application-integrated Agent boundary; output is contract-validated before case processing trusts it, and invalid output uses a safe fallback |
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
 | Speech transcription services | Offline mock transcription boundary and Azure Speech scaffold/factory; live audio transcription is deferred |
@@ -102,15 +102,20 @@ or SMS.
 fields, summarize the intake, and classify advisory urgency. The mock provider
 uses deterministic local logic so tests and demos are repeatable.
 
-The Foundry provider boundary includes an offline structured extraction
-contract: deterministic prompt instructions, expected JSON fields, and parser
-validation that maps a future model response into the current extraction and
-urgency output models. `FoundryAiService` can use that contract through an
-injected fake/live-client seam in tests. A thin live adapter implements the
-same `complete_structured_extraction(prompt, model_deployment_name)` seam with
-lazy SDK imports and client construction. The existing manual Foundry Agent
-invocation smoke has succeeded, while programmatic agent-version creation and
-validation remain pending explicit operator execution. Automated tests remain offline.
+`FoundryAiService` is an implemented opt-in Foundry structured-extraction
+provider. Its deterministic prompt instructions, expected JSON fields, and
+parser validation map model responses into the existing extraction and urgency
+output models. The live adapter constructs SDK resources lazily and obtains its
+inference client through `AIProjectClient.get_openai_client()` while preserving
+the injected fake-client seam for offline tests. The normal intake path and the
+fixed-fictional structured-extraction smoke share the production
+`compose_application(settings)` composition boundary.
+
+Application-integrated structured extraction is live-proven with valid
+structured output, no fallback, deterministic urgency-rule evaluation,
+in-memory persistence, suppressed notifications, mandatory nurse review, and
+no Azure mutation. Mock providers remain the safe defaults, and automated
+tests remain offline.
 
 The separate prompt-agent lifecycle boundary makes instruction provisioning
 reproducible without changing runtime routing. An explicit operator CLI builds
@@ -155,6 +160,14 @@ urgency source as `unknown` unless deterministic red-flag rules promote the
 case to urgent. Deterministic red-flag rules still evaluate the raw intake text
 even when agent output is invalid, and `processing_trace` records agent usage,
 warnings, rules override state, and final urgency source.
+
+`NurseIntakeAgent` is an implemented application-integrated Agent boundary.
+Application-integrated Agent execution is live-proven with valid Agent output,
+no fallback, deterministic urgency-rule execution, in-memory persistence,
+suppressed notifications, mandatory nurse review, and no Azure mutation.
+Neither application-integrated execution mode proves hosted managed-identity
+token acquisition, hosted Foundry metadata access, or hosted Foundry
+invocation.
 
 ```text
 Raw intake -> Agent/AI analysis -> agent contract validation -> safe fallback if needed -> deterministic red-flag rules -> persisted case -> notification/review
@@ -835,7 +848,6 @@ The following are intentionally not implemented in the current MVP:
 - Application authentication and private networking
 - Key Vault
 - Azure Speech / voice intake
-- Live Azure AI Foundry extraction
 - ACS SMS delivery reports/status tracking
 - Retry logic
 - Production frontend
@@ -852,8 +864,9 @@ unless the project scope explicitly changes.
 This architecture demonstrates AI-103-relevant concepts without overstating the
 implementation:
 
-- Azure AI Foundry provider boundary through `FoundryAiService` and
-  `create_ai_service(settings)`
+- Implemented Azure AI Foundry structured-extraction and Agent runtime
+  boundaries through `FoundryAiService`, `NurseIntakeAgent`, and production
+  application composition
 - Azure Speech readiness through an offline transcription provider boundary and
   Azure Speech scaffold
 - Natural language extraction, summarization, and advisory classification
@@ -865,6 +878,6 @@ implementation:
 - Infrastructure-as-code baseline through Bicep
 - Monitoring baseline concepts through Application Insights and Log Analytics
 
-Live Azure AI Foundry extraction, live Azure Speech transcription/audio
-processing, production hosting, authentication, Key Vault, and SMS delivery
+Hosted managed-identity Foundry access and invocation, live Azure Speech
+transcription/audio processing, authentication, Key Vault, and SMS delivery
 tracking remain deferred.
