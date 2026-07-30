@@ -5,7 +5,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,684 passed full suite
+- 2,759 passed full suite
 - 21 shell-wrapper tests and 35 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
@@ -79,10 +79,9 @@ Multiple fresh supervised WebJob trigger attempts returned sanitized
 record for those attempts. The trigger-and-correlation implementation is now
 retired from supported operations; it was not reliably provable enough for this
 capstone. This decision does not claim that Azure WebJobs are universally
-impossible. Managed-identity token acquisition, hosted Foundry metadata access,
-fixed-fictional invocation, and application-integrated live structured
-extraction through the Nurse Intake Assistant service boundary remain
-unproven; the standalone manual Foundry structured-extraction smoke is live-proven.
+impossible. Hosted managed-identity token acquisition, Foundry metadata access,
+and invocation remain unproven. Separately, application-integrated Microsoft
+Foundry Agent execution through production composition is live-proven.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point
@@ -197,9 +196,8 @@ architecture decision and may use a different execution boundary.
 
 Do not claim as complete:
 - Application-integrated live structured extraction through the Nurse Intake Assistant service boundary; the standalone manual Foundry structured-extraction smoke is live-proven
-- Historical evidence only: Manual live Foundry Agent smoke passed in an
-  earlier slice with `ok=true`, `category=success`, `agent_attempted=true`,
-  `agent_output_valid=true`, `fallback_used=false`, and fields `extraction`, `urgency`, and `handoffNote`; no hosted managed-identity smoke has run.
+- Hosted managed-identity Agent execution remains unproven; the supervised
+  application-integrated Foundry Agent path is separately live-proven.
 - No live Azure behavior is claimed for `/demo` by default;
   `AGENT_PROVIDER=mock` remains the safe local/demo default, and human nurse
   review remains mandatory.
@@ -403,15 +401,17 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Resume at exactly one supervised fixed-fictional application-integrated smoke:
-```bash
-set -o pipefail
-.venv/bin/python scripts/smoke_application_foundry_extraction.py --config .env.daily-azure.local --live --json | .venv/bin/python -m json.tool
-```
-Mock persistence, agent, email, and SMS boundaries, suppressed notifications, deterministic rules, and mandatory nurse review remain fixed; do not use the retired WebJob path. Do not run daily Azure rebuild or cleanup concurrently with the supervised application Foundry smoke.
+The application-integrated Foundry Agent smoke slice is complete and has no
+pending rerun. Select any future work through a separately frozen slice;
+hosted managed-identity execution remains unproven, and the retired WebJob path
+remains retired.
 
 ## Current Slice Status
 
+- The first supervised application-integrated Agent attempt failed because local configuration was stale. Current-generation Agent settings were then synchronized from the deployed Web App without exposing values. Read-only verification succeeded and proved Agent identity and definition, stable-endpoint binding, the Responses protocol, the immutable version, and 100% routing.
+- The second supervised attempt used production application composition, invoked the Agent once, accepted valid output without fallback, persisted only in memory, suppressed notifications, retained pending nurse review, and made no Azure mutation; it failed only because the smoke incorrectly equated deterministic-rule execution with urgency promotion.
+- Correction RED was 3 failed/16 passed: equal-or-higher Agent urgency and no-op rule results proved production `CaseProcessingService` already executed deterministic rules, while a missing authoritative spy call was not representable. GREEN is 19 focused and 136 relevant tests after the smoke began proving one successful rules-boundary call independently of urgency promotion.
+- The final supervised application-integrated Foundry Agent smoke succeeded: production composition was used, Agent output was valid, no fallback occurred, deterministic rules ran, persistence remained in memory, notifications were suppressed, nurse review remained mandatory, and no Azure mutation occurred. Application-integrated Microsoft Foundry Agent execution is now live-proven; hosted managed-identity execution remains unproven, and WebJob invocation remains retired.
 - Final fresh live proof reached READY with Foundry infrastructure,
   prompt-agent configuration, immutable routing, Web App configuration,
   application deployment, artifact equality, and hosted readiness verified.
@@ -430,12 +430,9 @@ Mock persistence, agent, email, and SMS boundaries, suppressed notifications, de
 - `docs/runbooks/daily-azure-operator-runbook.md` now consolidates the only
   normal operator sequence, optional RBAC, end-of-day cleanup, and exceptional
   immutable-evidence recovery.
-- Historical Web App reconciliation rejected one Web App Deploy and nine
-  unidentified Ignore records; the wrapper is removed,
-  `--reconcile-existing-web-app` remains standalone, no live direct-module
-  preview has yet succeeded, and no live reconciliation preview or deployment
-  occurred. Resume Nurse Intake Assistant application and AI-103 feature
-  development through the recommended structured-extraction slice.
+- Historical Web App reconciliation rejected one Web App Deploy and nine unidentified Ignore records; the wrapper is removed,
+  `--reconcile-existing-web-app` remains standalone, no live direct-module preview has yet succeeded, and no live reconciliation preview or deployment occurred.
+  Resume Nurse Intake Assistant application and AI-103 feature development only through a separately frozen slice.
 
 ### Historical Slice Results
 
