@@ -12,6 +12,7 @@ from src.app.services.case_repository import InMemoryCaseRepository
 from src.app.services.email_notification_sender import MockEmailNotificationSender
 from src.app.services.foundry_ai_service import FoundryAiService
 from src.app.services.sms_notification_sender import MockSmsNotificationSender
+from src.app.services.urgency_rules_service import RuleEvaluationResult
 
 
 SECRET_ENDPOINT = (
@@ -480,6 +481,7 @@ def test_one_live_call_maps_models_runs_rules_and_requires_review(
     assert result.ai_provider_verified is True
     assert result.foundry_invocation_attempted is True
     assert result.foundry_output_valid is True
+    assert result.fallback_used is False
     assert result.deterministic_rules_evaluated is True
     assert result.rules_promoted_urgency is True
     assert result.case_document_valid is True
@@ -488,6 +490,63 @@ def test_one_live_call_maps_models_runs_rules_and_requires_review(
     assert result.notifications_suppressed is True
     assert result.notification_attempted is False
     assert result.azure_mutation_attempted is False
+
+
+def test_rules_execution_is_proven_without_requiring_urgency_promotion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    rule_calls: list[str] = []
+
+    def evaluate_without_promotion(self, raw_text: str) -> RuleEvaluationResult:
+        rule_calls.append(raw_text)
+        return RuleEvaluationResult(urgency="Routine")
+
+    from src.app.services import urgency_rules_service
+
+    monkeypatch.setattr(
+        urgency_rules_service.UrgencyRulesService,
+        "evaluate",
+        evaluate_without_promotion,
+    )
+    configuration, _, _, _, _ = _install_safe_composition(
+        monkeypatch,
+        script,
+    )
+
+    result = script.run_application_foundry_smoke(configuration)
+
+    assert rule_calls == [script.FIXED_FICTIONAL_INTAKE]
+    assert result.ok is True
+    assert result.deterministic_rules_evaluated is True
+    assert result.rules_promoted_urgency is False
+
+
+def test_rules_execution_requires_authoritative_tracker_evidence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    configuration, _, _, _, _ = _install_safe_composition(
+        monkeypatch,
+        script,
+    )
+
+    class InactiveRulesTracker:
+        def __init__(self, delegate: object) -> None:
+            self.delegate = delegate
+            self.attempt_count = 0
+            self.completed = False
+
+        def evaluate(self, raw_text: str) -> RuleEvaluationResult:
+            return self.delegate.evaluate(raw_text)
+
+    monkeypatch.setattr(script, "_RulesExecutionTracker", InactiveRulesTracker)
+
+    result = script.run_application_foundry_smoke(configuration)
+
+    assert result.ok is False
+    assert result.category == "result_contract_invalid"
+    assert result.deterministic_rules_evaluated is False
 
 
 def test_case_is_persisted_only_to_in_memory_repository(
@@ -551,6 +610,10 @@ def test_invalid_or_schema_invalid_model_output_fails_safely(
     assert result.category == "model_response_invalid"
     assert result.foundry_invocation_attempted is True
     assert result.foundry_output_valid is False
+    assert result.fallback_used is False
+    assert result.case_persisted_in_memory is False
+    assert result.notification_attempted is False
+    assert result.azure_mutation_attempted is False
     assert PRIVATE_MARKER not in json.dumps(result.to_json_dict())
 
 
@@ -587,6 +650,10 @@ def test_provider_failures_use_allowlisted_sanitized_categories(
     assert result.ok is False
     assert result.category == category
     assert result.foundry_invocation_attempted is True
+    assert result.fallback_used is False
+    assert result.case_persisted_in_memory is False
+    assert result.notification_attempted is False
+    assert result.azure_mutation_attempted is False
     assert PRIVATE_MARKER not in serialized
     assert SECRET_ENDPOINT not in serialized
     assert SECRET_MODEL not in serialized

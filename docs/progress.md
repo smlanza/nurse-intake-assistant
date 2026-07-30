@@ -5,7 +5,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,759 passed full suite
+- 2,761 passed full suite
 - 21 shell-wrapper tests and 35 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
@@ -81,7 +81,7 @@ retired from supported operations; it was not reliably provable enough for this
 capstone. This decision does not claim that Azure WebJobs are universally
 impossible. Hosted managed-identity token acquisition, Foundry metadata access,
 and invocation remain unproven. Separately, application-integrated Microsoft
-Foundry Agent execution through production composition is live-proven.
+Foundry Agent execution and application-integrated structured extraction through production composition are both live-proven.
 
 Safe to demo today:
 - The default demo mock/offline posture remains the safe starting point
@@ -195,7 +195,6 @@ sequence. A future hosted managed-identity proof requires an explicit
 architecture decision and may use a different execution boundary.
 
 Do not claim as complete:
-- Application-integrated live structured extraction through the Nurse Intake Assistant service boundary; the standalone manual Foundry structured-extraction smoke is live-proven
 - Hosted managed-identity Agent execution remains unproven; the supervised
   application-integrated Foundry Agent path is separately live-proven.
 - No live Azure behavior is claimed for `/demo` by default;
@@ -268,7 +267,7 @@ Provider settings:
   `AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME`. The offline Foundry structured
   extraction prompt/schema/parser contract and injected fake-client seam are
   implemented. A thin opt-in live adapter matches the same seam with lazy SDK
-  imports/client construction. The standalone manual Foundry structured-extraction smoke is live-proven, but application-integrated live structured extraction through the Nurse Intake Assistant service boundary is deferred.
+  imports/client construction and obtains its inference client through `AIProjectClient.get_openai_client()`. Both the standalone manual smoke and the production-composed application-integrated path are live-proven.
 - `AGENT_PROVIDER=mock` remains the default. `AGENT_PROVIDER=foundry-agent`
   routes text intake through the `NurseIntakeAgent` boundary when explicitly
   configured. The Foundry Agent client boundary supports injected fakes and
@@ -393,7 +392,6 @@ Completed work by feature area:
 - Live hosted managed-identity verification and agent invocation
 - Key Vault
 - Azure Speech/voice intake
-- Application-integrated live Azure AI Foundry structured extraction through the Nurse Intake Assistant service boundary
 - ACS SMS delivery tracking
 - Application-level durable retry processing
 - Production frontend
@@ -401,10 +399,7 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The application-integrated Foundry Agent smoke slice is complete and has no
-pending rerun. Select any future work through a separately frozen slice;
-hosted managed-identity execution remains unproven, and the retired WebJob path
-remains retired.
+The application-integrated Foundry structured-extraction and Agent paths are both live-proven and need no rerun. Select future work through a separately frozen slice; hosted managed-identity execution remains unproven, and the retired WebJob path remains retired.
 
 ## Current Slice Status
 
@@ -426,7 +421,7 @@ remains retired.
   remain code history and require a future explicit architecture decision
   before reuse.
 - `compose_application(settings)` is now the shared production composition boundary used by both the normal intake route and `scripts/smoke_application_foundry_extraction.py`; the smoke no longer owns a parallel service composition root. Its controlled non-echoing parser, centralized sanitized exception boundary, and repeated authoritative-readiness check remain in place. The first supervised application-integrated invocation reached the provider but returned sanitized `authentication_failed`; no case was persisted, no notification was attempted, and no Azure mutation occurred.
-- Independent `AzureCliCredential` and `DefaultAzureCredential` probes both acquired tokens for `https://ai.azure.com/.default`, strongly indicating that the failure was the incorrect Foundry project-endpoint client path rather than a missing Azure login. The adapter now lazily uses `AIProjectClient(endpoint=project_endpoint, credential=credential).get_openai_client()` instead of passing the project endpoint to `ChatCompletionsClient`; a successful supervised application-integrated proof remains pending. Mock persistence/providers, notification suppression, deterministic rules, and mandatory nurse review remain fixed; WebJob invocation remains retired, and the standalone manual Foundry structured-extraction smoke remains live-proven.
+- Independent credential probes succeeded, strongly indicating that the failure was the incorrect Foundry project-endpoint client path rather than a missing Azure login. The final supervised application-integrated structured-extraction smoke succeeded with fixed fictional data: production application composition verified `AI_PROVIDER=foundry`; the corrected lazy `AIProjectClient.get_openai_client()` path invoked Foundry; the output contract was valid; no fallback occurred; deterministic rules were evaluated without needing to promote urgency; exactly one case was persisted only in memory; notifications were suppressed and not attempted; nurse review remained mandatory; and no Azure mutation was attempted. This production-composed structured-extraction path and the separate application-integrated Agent path are now live-proven; hosted managed-identity execution remains unproven, and WebJob invocation remains retired.
 - `docs/runbooks/daily-azure-operator-runbook.md` now consolidates the only
   normal operator sequence, optional RBAC, end-of-day cleanup, and exceptional
   immutable-evidence recovery.

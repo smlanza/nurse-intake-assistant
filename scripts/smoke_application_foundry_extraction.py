@@ -97,6 +97,7 @@ class ApplicationFoundrySmokeResult:
     ai_provider_verified: bool = False
     foundry_invocation_attempted: bool = False
     foundry_output_valid: bool = False
+    fallback_used: bool = False
     deterministic_rules_evaluated: bool = False
     rules_promoted_urgency: bool = False
     case_document_valid: bool = False
@@ -172,6 +173,22 @@ class _PersistenceTrackingRepository:
         saved = await self.delegate.save(case)
         self.saved_case = saved
         return saved
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.delegate, name)
+
+
+class _RulesExecutionTracker:
+    def __init__(self, delegate: object) -> None:
+        self.delegate = delegate
+        self.attempt_count = 0
+        self.completed = False
+
+    def evaluate(self, raw_text: str) -> Any:
+        self.attempt_count += 1
+        result = self.delegate.evaluate(raw_text)
+        self.completed = True
+        return result
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.delegate, name)
@@ -324,8 +341,10 @@ def run_application_foundry_smoke(
     )
     tracked_repository = _PersistenceTrackingRepository(application.case_repository)
     service = application.case_processing_service
+    rules_tracker = _RulesExecutionTracker(service.rules_service)
     service.ai_service = tracked_ai
     service.case_repository = tracked_repository
+    service.rules_service = rules_tracker
     try:
         try:
             case = asyncio.run(service.process(FIXED_FICTIONAL_INTAKE, "text-intake"))
@@ -335,6 +354,7 @@ def run_application_foundry_smoke(
                 tracked_ai,
                 tracked_repository,
                 application,
+                rules_tracker,
             )
         except FoundryExtractionContractError:
             return _failed_execution_result(
@@ -342,6 +362,7 @@ def run_application_foundry_smoke(
                 tracked_ai,
                 tracked_repository,
                 application,
+                rules_tracker,
             )
         except Exception as error:
             if tracked_repository.save_attempted:
@@ -355,6 +376,7 @@ def run_application_foundry_smoke(
                 tracked_ai,
                 tracked_repository,
                 application,
+                rules_tracker,
             )
 
         return _success_or_contract_failure(
@@ -362,6 +384,7 @@ def run_application_foundry_smoke(
             application,
             tracked_ai,
             tracked_repository,
+            rules_tracker,
         )
     finally:
         _close_foundry_live_client(application.ai_service)
@@ -403,6 +426,7 @@ def _success_or_contract_failure(
     application: ApplicationComposition,
     tracked_ai: _FinalReadinessTrackingAiService,
     tracked_repository: _PersistenceTrackingRepository,
+    rules_tracker: _RulesExecutionTracker,
 ) -> ApplicationFoundrySmokeResult:
     case_valid = isinstance(case, CaseDocument)
     trace = case.processing_trace if case_valid else None
@@ -414,10 +438,8 @@ def _success_or_contract_failure(
         and case.aiUrgency in {"Routine", "Urgent"}
     )
     rules_evaluated = bool(
-        case_valid
-        and trace is not None
-        and "rules.apply_red_flags" in trace.steps
-        and case.ruleUrgency == "Urgent"
+        rules_tracker.attempt_count == 1
+        and rules_tracker.completed
     )
     rules_promoted = bool(
         rules_evaluated
@@ -479,6 +501,7 @@ def _failed_execution_result(
     tracked_ai: _FinalReadinessTrackingAiService,
     tracked_repository: _PersistenceTrackingRepository,
     application: ApplicationComposition,
+    rules_tracker: _RulesExecutionTracker,
 ) -> ApplicationFoundrySmokeResult:
     notification_attempted = bool(
         application.email_notification_sender.sent_notifications
@@ -492,6 +515,10 @@ def _failed_execution_result(
         case_processing_service_used=True,
         ai_provider_verified=True,
         foundry_invocation_attempted=tracked_ai.invocation_attempted,
+        deterministic_rules_evaluated=bool(
+            rules_tracker.attempt_count == 1
+            and rules_tracker.completed
+        ),
         case_persisted_in_memory=tracked_repository.saved_case is not None,
         notification_attempted=notification_attempted,
         nurse_review_required=False,
