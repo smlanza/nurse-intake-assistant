@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,795 passed full suite
-- 21 shell-wrapper tests and 37 documentation tests
+- 2,862 passed full suite
+- 21 shell-wrapper tests and 38 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -400,12 +400,13 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The offline application-output adapters from `FoundryAiService` and `NurseIntakeAgent` results into the canonical evaluation candidate contract are complete. The next separately frozen candidate is Foundry prompt, schema, and evaluation guidance that preserves the existing application and evaluator boundaries.
+The offline application-output adapters, canonical evaluation candidate contract, and application-composed runner are complete. Add a thin offline CLI or reporting boundary over the runner, with explicit selection of exactly one mode and sanitized deterministic JSON. Keep provider comparison, live execution, and scoring changes out of that separately frozen slice.
 
 ## Current Slice Status
 
-- Offline, deterministic adapters now transform application-owned `CaseDocument` outputs from structured-extraction and Agent processing into the existing canonical evaluation candidate. They preserve normalized fields and urgency values, use the already-merged final urgency, retain safe `Unknown` values for contract-invalid Agent fallback, and fail closed on contradictory processing-trace, fallback, urgency, intake, or nurse-review evidence. They instantiate no provider clients and add no live, persistence, notification, prompt, schema, or CLI behavior.
-- Adapter TDD produced a genuine RED with 18 focused failures before the module existed. Final GREEN is 20 focused adapter tests, 112 evaluator/case-processing regressions, 38 documentation guardrails, and 2,834 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. The independent frozen-criteria review found only a progress-file line-cap failure; the single correction pass restored the cap and added explicit raw-provider-object rejection coverage without changing production semantics.
+- The offline application-composed evaluation runner now evaluates exactly one selected `structured-extraction` or `agent` mode per invocation. It uses production `compose_application(settings)`, sends every complete fictional dataset case through normal `CaseProcessingService`, injects deterministic fake clients through the existing `FoundryAiService` or `FoundryNurseIntakeAgent` seam, reuses the existing mode adapter and evaluator once, and keeps dataset IDs as the exact candidate keys.
+- Malformed Agent client output is exercised through the real Agent contract boundary and application fallback, including Routine-to-`Unknown` and urgent-rule-to-`Urgent` final urgency. Each invocation has isolated in-memory persistence, suppressed email/SMS statuses, and empty mock notification stores. No Azure, network, credential, Cosmos, hosted-identity, live-provider, notification, CLI, or disk-evaluation operation was added or performed; evaluator contracts, scores, fixtures, labels, and metrics are unchanged.
+- Runner TDD produced a genuine 27-failure RED before the module existed and 28 focused tests pass after the single sanitized-processing correction. Adapter (20), evaluator (42), existing evaluation CLI (8), composition (3), case-processing (36), Foundry service (17), Agent runtime/contract/factory (18), and documentation guardrail (38) regressions pass; compilation and deterministic sanitized serialization checks pass; the full offline suite is 2,862 passed with the one existing FastAPI/TestClient deprecation warning.
 - The blocked application-output adapter slice exposed a canonical representation mismatch: invalid Agent fallback output could safely contain `Unknown`, while the candidate contract required a fabricated binary urgency. The canonical evaluator now keeps expected advisory, final, and deterministic-rule labels binary while allowing only application-consistent `Unknown` urgency states on contract-invalid observed candidates. `Unknown` remains an ordinary advisory/final mismatch; deterministic-rule agreement and mandatory nurse review remain scoreable. No adapter was implemented in this correction.
 - Verification for the canonical correction is 50 focused evaluator/CLI tests, 38 documentation guardrails, and 2,814 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. Python compilation, CLI JSON validation, repeated-run determinism, and diff checks also pass.
 - The offline evaluation baseline continues to score contract validity, structured-field exact matches, symptom precision/recall/F1, missing-field recall, advisory and final urgency accuracy, deterministic-rule agreement, and the nurse-review invariant. Invalid candidates remain isolated per case, zero denominators return `0.0`, results sort by case ID, and the CLI emits one deterministic sanitized JSON document. The baseline remains provider-neutral, fixture-driven, exact-match only, and offline; it is not a live Foundry run, model-as-judge evaluation, subjective clinical-quality score, or clinical validation.
