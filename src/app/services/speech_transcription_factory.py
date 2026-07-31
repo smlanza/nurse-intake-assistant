@@ -15,9 +15,9 @@ from src.app.services.speech_transcription_service import (
 def create_speech_transcription_service(
     settings: AppSettings,
     *,
-    azure_adapter_factory: Callable[
-        [str, str], AzureSpeechRecognitionAdapter
-    ] = create_azure_speech_sdk_adapter,
+    azure_adapter_factory: Callable[..., AzureSpeechRecognitionAdapter] = (
+        create_azure_speech_sdk_adapter
+    ),
 ) -> MockSpeechTranscriptionService | AzureSpeechTranscriptionService:
     """Select the configured transcription boundary."""
 
@@ -35,6 +35,7 @@ def create_speech_transcription_service(
         return AzureSpeechTranscriptionService(
             endpoint=settings.azure_speech_endpoint,
             region=settings.azure_speech_region,
+            subscription_key=getattr(settings, "azure_speech_key", None),
             adapter_factory=azure_adapter_factory,
         )
 

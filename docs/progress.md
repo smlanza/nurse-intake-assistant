@@ -5,7 +5,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,899 passed full suite
+- 2,928 passed full suite
 - 21 shell-wrapper tests and 41 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
@@ -281,8 +281,8 @@ Provider settings:
   `AGENT_PROVIDER=foundry` smoke alias while preserving `mock` as the default.
 - `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
   already-transcribed text.
-- `SPEECH_PROVIDER=azure` selects the lazy offline-tested SDK adapter; live
-  Azure Speech transcription and production audio processing remain deferred.
+- `SPEECH_PROVIDER=azure` selects the lazy offline-tested SDK adapter; the
+  fixed-fictional live CLI additionally requires an ignored local Speech key.
 - Mock email remains the default local mode.
 - `EMAIL_PROVIDER=acs` selects ACS Email and requires
   `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
@@ -326,8 +326,8 @@ Completed work by feature area:
   offline Foundry structured extraction prompt/schema/parser contract with an
   injected fake-client seam and opt-in lazy live adapter
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
-- Offline Speech transcription provider boundary, mock provider, lazy Azure
-  Speech SDK adapter, and provider factory
+- Offline Speech boundary, mock provider, lazy Azure SDK adapter, provider
+  factory, owned fictional WAV, and sanitized fixed-proof CLI
 - Deterministic urgency rules with negation-aware red-flag handling
 - Structured missing-field validation, intake completion status, and follow-up
   prioritization
@@ -400,13 +400,13 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The offline application-output adapters, canonical evaluation candidate contract, application-composed runner, application evaluation CLI, prompt/schema/evaluation guidance, and offline Azure Speech SDK adapter are complete. The next separately frozen candidate is the Azure Speech transcription service boundary's fixed-fictional live-validation contract; require separate authorization, sanitized evidence, fictional in-memory audio, transcript-only routes, and no voice automation.
+The offline application-output adapters, canonical evaluation candidate contract, application-composed runner, application evaluation CLI, prompt/schema/evaluation guidance, offline Azure Speech SDK adapter, fixed fictional WAV, proof CLI, and prerequisite runbook are complete. Live acceptance for the Azure Speech transcription service boundary remains pending exact owned-resource evidence, `.env.speech.local`, SDK availability, current Azure-gate proof, and explicit command approval. After that acceptance succeeds, the next separately frozen candidate is hosted managed-identity Foundry validation.
 
 ## Current Slice Status
 
-- The Azure Speech scaffold is now an application-owned, offline-tested SDK adapter boundary. `SPEECH_PROVIDER=mock` remains the unchanged default; explicit `azure` selection validates endpoint and region before lazily creating a per-call adapter. Injected fakes prove successful text mapping, no-match, cancellation, blank text, malformed response, dependency and recognition failures, fixed sanitized categories, in-memory audio handoff, and cleanup that never masks the primary outcome. Intake routes remain transcript-only and never invoke Speech; live Azure transcription, audio upload, ACS calling, production voice handling, persistence, notifications, case processing, nurse review, Foundry, and evaluation behavior remain unchanged or deferred.
-- Speech TDD produced a genuine 22-failure/5-pass RED and 27 focused tests pass. The 395-test Speech, provider-factory, settings, preflight, readiness, infrastructure, and unchanged-route regression set passes; all 41 documentation guardrails pass; and the full offline suite is 2,899 passed with the one existing FastAPI/TestClient deprecation warning. Tests use fictional bytes and injected SDK fakes only; no Azure, network, credential, audio-device, filesystem-dependent SDK, persistence, notification, or live-provider call occurred, and no real audio, patient data, credentials, endpoints, tokens, or secrets were added.
-Architecture impact: updated Speech transcription services and Current Local Mock Data Flow because the durable Speech boundary changed from a scaffold to an offline-tested lazy SDK adapter while intake routes remain transcript-only.
+- `scripts/smoke_azure_speech_transcription.py` now owns one fixed-fictional proof contract: strict repository WAV ownership/PCM validation, import-safe SDK visibility, isolated ignored configuration loading, explicit Azure-provider and endpoint/region/key requirements, production factory/service/adapter reuse, exactly one recognition attempt, narrow transcript normalization and exact match, sanitized deterministic JSON, and no route, persistence, notification, fallback, retry, or Azure mutation. `SPEECH_PROVIDER=mock` remains unchanged. The checked-in prerequisite runbook governs the supervised command. Live acceptance did not run: `.env.speech.local`, SDK availability, exact owned Speech-resource evidence, and explicit approval are absent, so Azure Speech remains unproven live.
+- CLI TDD produced a genuine 29-failure RED and 29 focused tests pass. A narrow correction added a one-failure RED proving that unavailable SDK capability must fail closed with `ok=false` and `category=sdk_unavailable`. The 158-test Speech adapter/service/factory, settings, intake-route, preflight, and CLI regression set passes; all 41 documentation guardrails pass; and the full offline suite is 2,928 passed with the one existing FastAPI/TestClient deprecation warning. The 2.738-second fixture is 16 kHz, 16-bit, mono PCM; check-mode JSON validates through `json.tool`, remains byte-identical and one newline-terminated document across repeated runs, and reports no transcription or Azure call. Automated tests use injected fakes and make no Azure or network call; no real patient data, credentials, endpoints, resource identifiers, or provider diagnostics were added or exposed.
+Architecture impact: none.
 - The blocked application-output adapter slice exposed a canonical representation mismatch: invalid Agent fallback output could safely contain `Unknown`, while the candidate contract required a fabricated binary urgency. The canonical evaluator now keeps expected advisory, final, and deterministic-rule labels binary while allowing only application-consistent `Unknown` urgency states on contract-invalid observed candidates. `Unknown` remains an ordinary advisory/final mismatch; deterministic-rule agreement and mandatory nurse review remain scoreable. No adapter was implemented in this correction.
 - Verification for the canonical correction is 50 focused evaluator/CLI tests, 38 documentation guardrails, and 2,814 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. Python compilation, CLI JSON validation, repeated-run determinism, and diff checks also pass.
 - The offline evaluation baseline continues to score contract validity, structured-field exact matches, symptom precision/recall/F1, missing-field recall, advisory and final urgency accuracy, deterministic-rule agreement, and the nurse-review invariant. Invalid candidates remain isolated per case, zero denominators return `0.0`, results sort by case ID, and the CLI emits one deterministic sanitized JSON document. The baseline remains provider-neutral, fixture-driven, exact-match only, and offline; it is not a live Foundry run, model-as-judge evaluation, subjective clinical-quality score, or clinical validation.

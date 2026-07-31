@@ -78,13 +78,15 @@ class AzureSpeechTranscriptionService:
         endpoint: str | None = None,
         region: str | None = None,
         *,
+        subscription_key: str | None = None,
         adapter: AzureSpeechRecognitionAdapter | None = None,
-        adapter_factory: Callable[
-            [str, str], AzureSpeechRecognitionAdapter
-        ] = create_azure_speech_sdk_adapter,
+        adapter_factory: Callable[..., AzureSpeechRecognitionAdapter] = (
+            create_azure_speech_sdk_adapter
+        ),
     ) -> None:
         self.endpoint = endpoint
         self.region = region
+        self._subscription_key = subscription_key
         self._adapter = adapter
         self._adapter_factory = adapter_factory
 
@@ -100,7 +102,14 @@ class AzureSpeechTranscriptionService:
         if adapter is None:
             construction_failed = False
             try:
-                adapter = self._adapter_factory(self.endpoint, self.region)
+                if self._subscription_key is None:
+                    adapter = self._adapter_factory(self.endpoint, self.region)
+                else:
+                    adapter = self._adapter_factory(
+                        self.endpoint,
+                        self.region,
+                        self._subscription_key,
+                    )
             except Exception:
                 construction_failed = True
             if construction_failed:

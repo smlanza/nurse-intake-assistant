@@ -27,6 +27,7 @@ class AppSettings:
     speech_provider_normalized: str
     azure_speech_endpoint: str | None
     azure_speech_region: str | None
+    azure_speech_key: str | None
     acs_email_connection_string: str | None
     acs_email_sender_address: str | None
     nurse_notification_email: str | None
@@ -97,6 +98,7 @@ class AppSettings:
         )
         self.azure_speech_endpoint = self._optional_env("AZURE_SPEECH_ENDPOINT")
         self.azure_speech_region = self._optional_env("AZURE_SPEECH_REGION")
+        self.azure_speech_key = self._optional_env("AZURE_SPEECH_KEY")
         self.acs_email_connection_string = self._optional_env(
             "ACS_EMAIL_CONNECTION_STRING"
         )

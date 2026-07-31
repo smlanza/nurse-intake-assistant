@@ -49,10 +49,12 @@ class AzureSpeechSdkAdapter:
         *,
         endpoint: str,
         region: str,
+        subscription_key: str | None = None,
         sdk_loader: Callable[[], Any] | None = None,
     ) -> None:
         self.endpoint = endpoint
         self.region = region
+        self._subscription_key = subscription_key
         self._sdk_loader = sdk_loader or _load_speech_sdk
         self._sdk: Any | None = None
         self._speech_config: Any | None = None
@@ -104,7 +106,13 @@ class AzureSpeechSdkAdapter:
             return
 
         self._sdk = self._sdk_loader()
-        self._speech_config = self._sdk.SpeechConfig(endpoint=self.endpoint)
+        if self._subscription_key is None:
+            self._speech_config = self._sdk.SpeechConfig(endpoint=self.endpoint)
+        else:
+            self._speech_config = self._sdk.SpeechConfig(
+                subscription=self._subscription_key,
+                endpoint=self.endpoint,
+            )
         self._input_stream = self._sdk.audio.PushAudioInputStream()
         self._audio_config = self._sdk.audio.AudioConfig(stream=self._input_stream)
         self._recognizer = self._sdk.SpeechRecognizer(
@@ -139,10 +147,15 @@ class AzureSpeechSdkAdapter:
 def create_azure_speech_sdk_adapter(
     endpoint: str,
     region: str,
+    subscription_key: str | None = None,
 ) -> AzureSpeechSdkAdapter:
     """Create a lazy adapter without importing or constructing the Azure SDK."""
 
-    return AzureSpeechSdkAdapter(endpoint=endpoint, region=region)
+    return AzureSpeechSdkAdapter(
+        endpoint=endpoint,
+        region=region,
+        subscription_key=subscription_key,
+    )
 
 
 def _load_speech_sdk() -> Any:
