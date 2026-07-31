@@ -50,7 +50,7 @@ Browser or API client
 | Offline Foundry evaluation | Strictly validates a repository-owned fictional v1 dataset and provider-neutral candidate contract, then produces deterministic per-case evidence and sanitized aggregate metrics |
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
-| Speech transcription services | Offline mock transcription boundary and Azure Speech scaffold/factory; live audio transcription is deferred |
+| Speech transcription services | Mock transcript handling remains the default; the opt-in Azure service uses a lazy SDK adapter with injected-fake tests, in-memory audio input, application-owned normalized outcomes, and sanitized failures; live Azure transcription is unproven |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
 | `InMemoryCaseRepository` | Default mock persistence for local demo, filtering, summary, idempotency, and reset |
@@ -80,15 +80,19 @@ POST /intake/text or POST /intake/voicemail-transcript
 `POST /intake/text` stores `caseType="text-intake"`. `POST
 /intake/voicemail-transcript` stores `caseType="phone-intake"` with optional
 source call, recording, audio blob, caller phone, and idempotency metadata. The
-voicemail route expects already-transcribed text only. The Speech transcription
-provider boundary exists for future work, but Azure Speech, audio upload, and
-live voice intake are not implemented in this MVP.
+voicemail route expects already-transcribed text only and never invokes a Speech
+provider. Separately, `SPEECH_PROVIDER=azure` selects an application-owned
+transcription service whose SDK adapter is constructed lazily for one explicit
+in-memory audio request. The adapter is offline-tested with injected fakes;
+live Azure transcription remains unproven, and audio upload, ACS voice intake,
+and production audio handling are not implemented.
 
 The default local settings are:
 
 ```text
 APP_MODE=mock
 AI_PROVIDER=mock
+SPEECH_PROVIDER=mock
 EMAIL_PROVIDER=mock
 SMS_PROVIDER=mock
 DEMO_SUPPRESS_NOTIFICATIONS=false
@@ -876,7 +880,8 @@ The following are intentionally not implemented in the current MVP:
 - Authentication / RBAC beyond the proven direct Consumer assignment
 - Application authentication and private networking
 - Key Vault
-- Azure Speech / voice intake
+- Azure Speech / voice intake beyond the offline SDK adapter: live
+  transcription, audio ingestion, and voice automation
 - ACS SMS delivery reports/status tracking
 - Retry logic
 - Production frontend
@@ -896,8 +901,8 @@ implementation:
 - Implemented Azure AI Foundry structured-extraction and Agent runtime
   boundaries through `FoundryAiService`, `NurseIntakeAgent`, and production
   application composition
-- Azure Speech readiness through an offline transcription provider boundary and
-  Azure Speech scaffold
+- Azure Speech readiness through a lazy SDK adapter boundary that is
+  offline-tested with injected fakes while intake routes remain transcript-only
 - Natural language extraction, summarization, and advisory classification
   concept through the deterministic mock provider
 - Responsible AI boundary through explicit human nurse review and no autonomous

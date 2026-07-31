@@ -5,7 +5,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,880 passed full suite
+- 2,899 passed full suite
 - 21 shell-wrapper tests and 41 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
@@ -281,8 +281,8 @@ Provider settings:
   `AGENT_PROVIDER=foundry` smoke alias while preserving `mock` as the default.
 - `SPEECH_PROVIDER=mock` uses an offline transcription boundary for
   already-transcribed text.
-- `SPEECH_PROVIDER=azure` wires an Azure Speech scaffold/factory, but live
-  Azure Speech transcription and audio processing are deferred.
+- `SPEECH_PROVIDER=azure` selects the lazy offline-tested SDK adapter; live
+  Azure Speech transcription and production audio processing remain deferred.
 - Mock email remains the default local mode.
 - `EMAIL_PROVIDER=acs` selects ACS Email and requires
   `ACS_EMAIL_CONNECTION_STRING`, `ACS_EMAIL_SENDER_ADDRESS`, and
@@ -326,8 +326,8 @@ Completed work by feature area:
   offline Foundry structured extraction prompt/schema/parser contract with an
   injected fake-client seam and opt-in lazy live adapter
 - Agent output contract validation added with safe fallback behavior and processing trace warnings.
-- Offline Speech transcription provider boundary, mock provider, Azure Speech
-  scaffold, and speech provider factory
+- Offline Speech transcription provider boundary, mock provider, lazy Azure
+  Speech SDK adapter, and provider factory
 - Deterministic urgency rules with negation-aware red-flag handling
 - Structured missing-field validation, intake completion status, and follow-up
   prioritization
@@ -392,7 +392,7 @@ Completed work by feature area:
 - Agent-specific RBAC scope
 - Live hosted managed-identity verification and agent invocation
 - Key Vault
-- Azure Speech/voice intake
+- Live Azure Speech transcription, audio ingestion, and voice automation
 - ACS SMS delivery tracking
 - Application-level durable retry processing
 - Production frontend
@@ -400,13 +400,13 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The offline application-output adapters, canonical evaluation candidate contract, application-composed runner, application evaluation CLI, and prompt/schema/evaluation guidance are complete. The next separately frozen candidate is the Azure Speech transcription service boundary; keep it mock-first, human-reviewed, offline-tested, and separate from live deployment or voice automation.
+The offline application-output adapters, canonical evaluation candidate contract, application-composed runner, application evaluation CLI, prompt/schema/evaluation guidance, and offline Azure Speech SDK adapter are complete. The next separately frozen candidate is the Azure Speech transcription service boundary's fixed-fictional live-validation contract; require separate authorization, sanitized evidence, fictional in-memory audio, transcript-only routes, and no voice automation.
 
 ## Current Slice Status
 
-- `docs/foundry-prompt-schema-evaluation.md` is now the authoritative developer guide for the two independently selected application evaluation modes, prompt and Agent-instruction ownership, application schemas and fallback, dataset and fixture roles, deterministic metrics, actual single-mode CLI commands, and safe future iteration. The AI-103 mapping now records the completed offline application-composed baseline and guidance, with the Azure Speech transcription service boundary as the next separately frozen candidate.
-- Documentation TDD produced a genuine 4-failure RED and the same 4 focused tests pass. All 113 Foundry evaluator, adapter, runner, baseline CLI, and application CLI regressions pass; all 41 documentation guardrails pass; both real CLI modes pass `json.tool`, emit one newline-terminated JSON document, and are byte-identical across repeated runs; and the full offline suite is 2,880 passed with the one existing FastAPI/TestClient deprecation warning. No runtime, prompt, schema, fixture, metric, provider, adapter, runner, CLI, or architecture behavior changed. No Azure, network, credential, persistence, notification, live-provider, or report-artifact operation occurred.
-Architecture impact: none.
+- The Azure Speech scaffold is now an application-owned, offline-tested SDK adapter boundary. `SPEECH_PROVIDER=mock` remains the unchanged default; explicit `azure` selection validates endpoint and region before lazily creating a per-call adapter. Injected fakes prove successful text mapping, no-match, cancellation, blank text, malformed response, dependency and recognition failures, fixed sanitized categories, in-memory audio handoff, and cleanup that never masks the primary outcome. Intake routes remain transcript-only and never invoke Speech; live Azure transcription, audio upload, ACS calling, production voice handling, persistence, notifications, case processing, nurse review, Foundry, and evaluation behavior remain unchanged or deferred.
+- Speech TDD produced a genuine 22-failure/5-pass RED and 27 focused tests pass. The 395-test Speech, provider-factory, settings, preflight, readiness, infrastructure, and unchanged-route regression set passes; all 41 documentation guardrails pass; and the full offline suite is 2,899 passed with the one existing FastAPI/TestClient deprecation warning. Tests use fictional bytes and injected SDK fakes only; no Azure, network, credential, audio-device, filesystem-dependent SDK, persistence, notification, or live-provider call occurred, and no real audio, patient data, credentials, endpoints, tokens, or secrets were added.
+Architecture impact: updated Speech transcription services and Current Local Mock Data Flow because the durable Speech boundary changed from a scaffold to an offline-tested lazy SDK adapter while intake routes remain transcript-only.
 - The blocked application-output adapter slice exposed a canonical representation mismatch: invalid Agent fallback output could safely contain `Unknown`, while the candidate contract required a fabricated binary urgency. The canonical evaluator now keeps expected advisory, final, and deterministic-rule labels binary while allowing only application-consistent `Unknown` urgency states on contract-invalid observed candidates. `Unknown` remains an ordinary advisory/final mismatch; deterministic-rule agreement and mandatory nurse review remain scoreable. No adapter was implemented in this correction.
 - Verification for the canonical correction is 50 focused evaluator/CLI tests, 38 documentation guardrails, and 2,814 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. Python compilation, CLI JSON validation, repeated-run determinism, and diff checks also pass.
 - The offline evaluation baseline continues to score contract validity, structured-field exact matches, symptom precision/recall/F1, missing-field recall, advisory and final urgency accuracy, deterministic-rule agreement, and the nurse-review invariant. Invalid candidates remain isolated per case, zero denominators return `0.0`, results sort by case ID, and the CLI emits one deterministic sanitized JSON document. The baseline remains provider-neutral, fixture-driven, exact-match only, and offline; it is not a live Foundry run, model-as-judge evaluation, subjective clinical-quality score, or clinical validation.
