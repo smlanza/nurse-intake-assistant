@@ -30,7 +30,7 @@ or SMS.
 |---|---|---|---|
 | Generative AI app design | `CaseProcessingService` orchestrates extraction, urgency merge, persistence, and notifications; AI provider factory selects the configured provider; `MockAiService` returns structured extraction, summary, and advisory classification; Pydantic models define API and output contracts | `src/app/services/case_processing_service.py`, `src/app/services/ai_service_factory.py`, `src/app/services/mock_ai_service.py`, `src/app/models/ai_outputs.py`, `src/app/models/case.py` | Implemented locally with mock AI |
 | Azure AI Foundry / agent orchestration readiness | `FoundryAiService` and `NurseIntakeAgent` are implemented application-integrated runtime boundaries with application-owned structured contracts and validation before trusting model/agent output. Their fixed-fictional smokes use production composition with in-memory persistence, deterministic urgency rules, suppressed notifications, and mandatory nurse review | `scripts/smoke_application_foundry_extraction.py`, `scripts/smoke_application_foundry_agent.py`, `tests/test_application_foundry_smoke_script.py`, `tests/test_application_foundry_agent_smoke_script.py` | Application-integrated structured extraction and application-integrated Microsoft Foundry Agent execution are live-proven with valid output, no fallback, deterministic-rule execution, in-memory persistence, suppressed notifications, mandatory nurse review, and no Azure mutation. Offline tests use fakes and make no Azure calls. Hosted managed-identity execution remains unproven, and the WebJob trigger-and-correlation mechanism is retired |
-| Offline Foundry evaluation baseline | A strict repository-owned fictional v1 dataset, provider-neutral candidate contract, deterministic exact/set scorer, sanitized per-case evidence, and aggregate counts and rates establish a reusable offline baseline. Expected urgency labels remain `Routine` or `Urgent`; observed contract-invalid output may use safe `Unknown` urgency only in application-consistent fallback states | `evaluation/fictional-intake-baseline-v1.json`, `evaluation/fictional-intake-baseline-v1-candidates.json`, `src/app/services/foundry_evaluation.py`, `scripts/evaluate_foundry_baseline.py`, `tests/test_foundry_evaluation.py` | Implemented offline without Azure, network, persistence, or notifications. Observed `Unknown` scores as an ordinary mismatch instead of being fabricated or crashing evaluation; deterministic-rule and nurse-review evidence remain scoreable. The fixture contains intentional errors and the scorer reports non-perfect deterministic metrics. It is not a live Foundry evaluation run, is not model-as-judge, and is not subjective clinical-quality scoring or clinical validation |
+| Offline Foundry evaluation baseline and guidance | A strict repository-owned fictional v1 dataset, provider-neutral candidate contract, deterministic exact/set scorer, application-composed single-mode runner and CLI, and prompt/schema/evaluation guidance establish a reusable offline baseline. Expected urgency labels remain `Routine` or `Urgent`; observed contract-invalid output may use safe `Unknown` urgency only in application-consistent fallback states | `evaluation/fictional-intake-baseline-v1.json`, `evaluation/fictional-intake-baseline-v1-candidates.json`, `src/app/services/foundry_evaluation.py`, `src/app/services/foundry_application_evaluation.py`, `scripts/evaluate_foundry_application.py`, `docs/foundry-prompt-schema-evaluation.md` | Implemented offline without Azure, network, external persistence, or notifications. Each CLI run selects one application mode, uses deterministic fake clients, and emits sanitized JSON. Observed `Unknown` scores as an ordinary mismatch instead of being fabricated or crashing evaluation; deterministic-rule and nurse-review evidence remain scoreable. It is not a live Foundry evaluation run, not model-as-judge evaluation, not a provider comparison, not subjective clinical-quality scoring, and not clinical validation |
 | Responsible AI / human oversight | Responsible AI pattern: urgency is advisory only; invalid agent output uses safe fallback values instead of crashing intake processing; deterministic red-flag rules supplement AI and may promote final urgency; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/services/nurse_intake_agent_contract.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented human review and deterministic safety rules |
 | Natural language processing and Speech readiness | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency; Speech transcription provider boundary has mock/offline and Azure scaffold implementations | `src/app/routes/intake.py`, `src/app/services/mock_ai_service.py`, `src/app/services/speech_transcription_service.py`, `src/app/services/speech_transcription_factory.py`, `tests/test_intake_route.py`, `tests/test_mock_ai_service.py`, `tests/test_speech_transcription_service.py`, `tests/test_speech_transcription_factory.py` | Implemented for text/transcripts and offline Speech boundary; live Azure Speech deferred |
 | Azure service integration boundaries | Cosmos repository and container factory with point reads/upserts plus cross-partition filtered case-list queries; ACS Email/SMS boundaries; Bicep baseline for Cosmos, storage, Log Analytics, Application Insights, and optional Azure Web App hosting | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/modules/web-app.bicep`, `infra/README.md` | Case-list/query-filter parity is covered offline with fakes; queue-summary and voicemail-idempotency lookup parity, live Cosmos validation, and production hardening are deferred |
@@ -83,13 +83,18 @@ suppressed notifications, mandatory nurse review, and no Azure mutation.
 Neither application-integrated path proves hosted managed-identity token
 acquisition, hosted Foundry metadata access, or hosted Foundry invocation.
 
-The offline Foundry evaluation baseline is provider-neutral and does not invoke
-either application path. A small fictional dataset and separate deterministic
-candidate fixture are strictly validated before exact structured-field,
-set-based symptom and missing-field, urgency, deterministic-rule, and
-nurse-review metrics are calculated. Reports expose only sanitized case IDs,
-counts, rates, match booleans, and safe error categories. The baseline is not a
-live Foundry evaluation, is not model-as-judge, and is not clinical validation.
+The fixture-based offline Foundry baseline is provider-neutral and does not
+invoke either application path. Separately, the application evaluation CLI
+selects exactly one structured-extraction or Agent mode and uses deterministic
+fake clients while the existing runner processes all eight cases through
+production composition. Both paths reuse the same strict candidate and scorer.
+A small fictional dataset and separate intentionally imperfect candidate
+fixture provide exact structured-field, set-based symptom and missing-field,
+urgency, deterministic-rule, and nurse-review evidence. Reports expose only
+sanitized case IDs, counts, rates, match booleans, and safe error categories.
+The baseline and application CLI are not live Foundry evaluation, model-as-judge
+evaluation, provider comparison, or clinical validation. Prompt/schema/evaluation
+guidance is documented in `docs/foundry-prompt-schema-evaluation.md`.
 Expected advisory, final, and deterministic-rule labels remain binary
 `Routine` or `Urgent`. A contract-invalid observed candidate may instead carry
 safe `Unknown` advisory urgency and the application-consistent fallback final
@@ -234,10 +239,7 @@ The following are future work, not current implementation:
 
 Highest AI-103 ROI:
 
-- Offline adapters from existing application-owned Foundry outputs into the
-  canonical evaluation candidate contract
 - Azure Speech transcription boundary
-- Responsible AI and human-review documentation
 
 Medium AI-103 ROI:
 
@@ -254,16 +256,13 @@ Lower direct exam ROI but strong portfolio value:
 
 ## 9. Recommended Azure Implementation Order
 
-1. Offline application-output adapters from `FoundryAiService` and
-   `NurseIntakeAgent` into the canonical evaluation candidate contract
-2. Foundry prompt/schema/evaluation notes
-3. Azure Speech transcription service boundary
-4. Hosted managed-identity Foundry validation when explicitly approved
-5. Key Vault and App Service auth/protected routes
-6. Application Insights telemetry hardening
-7. ACS phone intake
-8. Retry/durable processing
-9. Advanced Foundry Agent/tool orchestration only if useful
+1. Azure Speech transcription service boundary
+2. Hosted managed-identity Foundry validation when explicitly approved
+3. Key Vault and App Service auth/protected routes
+4. Application Insights telemetry hardening
+5. ACS phone intake
+6. Retry/durable processing
+7. Advanced Foundry Agent/tool orchestration only if useful
 
 This order prioritizes AI-103 learning value before lower-exam-value telephony
 workflow work.
@@ -293,7 +292,7 @@ boundaries for Cosmos DB and ACS Email/SMS.
 Future-facing framing:
 
 ```text
-The next separately frozen candidate is an offline application-output adapter
-boundary from `FoundryAiService` and `NurseIntakeAgent` results into the
-canonical evaluation candidate contract.
+The next separately frozen candidate is the Azure Speech transcription service
+boundary. Keep it mock-first, human-reviewed, and separate from live deployment,
+voice automation, or production clinical claims.
 ```

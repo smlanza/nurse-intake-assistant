@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,877 passed full suite
-- 21 shell-wrapper tests and 38 documentation tests
+- 2,880 passed full suite
+- 21 shell-wrapper tests and 41 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -400,13 +400,13 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The offline application-output adapters, canonical evaluation candidate contract, application-composed runner, and application evaluation CLI are complete. The next separately frozen candidate is prompt, schema, and evaluation guidance that uses the existing single-mode CLI and runner without changing metrics, comparing providers, or adding live evaluation.
+The offline application-output adapters, canonical evaluation candidate contract, application-composed runner, application evaluation CLI, and prompt/schema/evaluation guidance are complete. The next separately frozen candidate is the Azure Speech transcription service boundary; keep it mock-first, human-reviewed, offline-tested, and separate from live deployment or voice automation.
 
 ## Current Slice Status
 
-- `scripts/evaluate_foundry_application.py` now requires exactly one explicit `structured-extraction` or `agent` mode, invokes the existing application-composed runner once, and emits exactly one newline-terminated, key-sorted, sanitized JSON document. Repository-owned deterministic fake-client behavior keeps both paths offline; Agent mode still sends its malformed case through real contract validation and application-consistent `Unknown` fallback. It reads no operator environment file, creates no report artifact, and performs no Azure, network, credential, Cosmos, hosted-identity, live-provider, notification-send, Web App, WebJob, infrastructure, or RBAC operation.
-- CLI TDD produced a genuine 15-failure RED before the script existed and 15 focused tests pass. Runner (28), adapter (20), evaluator (42), existing evaluation CLI (8), composition (3), case-processing (36), Foundry service (17), Agent runtime/contract/factory (18), and documentation guardrail (38) regressions pass; both real modes pass `json.tool`, remain one line, and are byte-identical across repeated runs. Compilation and `git diff --check` pass, no repository report file was created, and the full offline suite is 2,877 passed with the one existing FastAPI/TestClient deprecation warning.
-- The independent frozen-criteria review found no blocking correctness, sanitization, safety, offline-boundary, or contract issue, so no correction pass was required. This slice changes only the new CLI, its focused tests, and this progress record; the runner, adapters, evaluator, datasets, fixtures, metrics, application services, architecture document, and existing CLI remain unchanged.
+- `docs/foundry-prompt-schema-evaluation.md` is now the authoritative developer guide for the two independently selected application evaluation modes, prompt and Agent-instruction ownership, application schemas and fallback, dataset and fixture roles, deterministic metrics, actual single-mode CLI commands, and safe future iteration. The AI-103 mapping now records the completed offline application-composed baseline and guidance, with the Azure Speech transcription service boundary as the next separately frozen candidate.
+- Documentation TDD produced a genuine 4-failure RED and the same 4 focused tests pass. All 113 Foundry evaluator, adapter, runner, baseline CLI, and application CLI regressions pass; all 41 documentation guardrails pass; both real CLI modes pass `json.tool`, emit one newline-terminated JSON document, and are byte-identical across repeated runs; and the full offline suite is 2,880 passed with the one existing FastAPI/TestClient deprecation warning. No runtime, prompt, schema, fixture, metric, provider, adapter, runner, CLI, or architecture behavior changed. No Azure, network, credential, persistence, notification, live-provider, or report-artifact operation occurred.
+Architecture impact: none.
 - The blocked application-output adapter slice exposed a canonical representation mismatch: invalid Agent fallback output could safely contain `Unknown`, while the candidate contract required a fabricated binary urgency. The canonical evaluator now keeps expected advisory, final, and deterministic-rule labels binary while allowing only application-consistent `Unknown` urgency states on contract-invalid observed candidates. `Unknown` remains an ordinary advisory/final mismatch; deterministic-rule agreement and mandatory nurse review remain scoreable. No adapter was implemented in this correction.
 - Verification for the canonical correction is 50 focused evaluator/CLI tests, 38 documentation guardrails, and 2,814 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. Python compilation, CLI JSON validation, repeated-run determinism, and diff checks also pass.
 - The offline evaluation baseline continues to score contract validity, structured-field exact matches, symptom precision/recall/F1, missing-field recall, advisory and final urgency accuracy, deterministic-rule agreement, and the nurse-review invariant. Invalid candidates remain isolated per case, zero denominators return `0.0`, results sort by case ID, and the CLI emits one deterministic sanitized JSON document. The baseline remains provider-neutral, fixture-driven, exact-match only, and offline; it is not a live Foundry run, model-as-judge evaluation, subjective clinical-quality score, or clinical validation.

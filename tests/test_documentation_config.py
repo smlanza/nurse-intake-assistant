@@ -625,8 +625,8 @@ def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
             "not clinical validation",
         },
     )
-    assert mapping.index("1. Offline application-output adapters") < mapping.index(
-        "7. ACS phone intake"
+    assert mapping.index("1. Azure Speech transcription service boundary") < mapping.index(
+        "5. ACS phone intake"
     )
 
 
@@ -654,6 +654,102 @@ def test_evaluation_docs_distinguish_expected_and_observed_urgency() -> None:
     )
 
 
+def test_foundry_prompt_schema_evaluation_guide_owns_current_boundaries() -> None:
+    guide_path = PROJECT_ROOT / "docs/foundry-prompt-schema-evaluation.md"
+    assert guide_path.is_file()
+    guide = _normalized(guide_path.read_text()).casefold()
+
+    _assert_contains_all(
+        guide,
+        {
+            "structured-extraction",
+            "agent",
+            "one mode",
+            "prompt and instruction ownership",
+            "application-owned schemas",
+            "production application composition",
+            "deterministic evaluation",
+            "src/app/services/foundry_extraction_contract.py",
+            "src/app/services/nurse_intake_agent_instructions.py",
+            "src/app/services/foundry_agent_contract.py",
+            "src/app/services/nurse_intake_agent_contract.py",
+            "src/app/services/case_processing_service.py",
+            "src/app/services/foundry_evaluation_adapters.py",
+            "src/app/services/foundry_evaluation.py",
+            "src/app/services/foundry_application_evaluation.py",
+        },
+    )
+
+
+def test_foundry_prompt_schema_guide_documents_metrics_and_safety_semantics() -> None:
+    guide = _normalized(
+        _read("docs/foundry-prompt-schema-evaluation.md")
+    ).casefold()
+
+    _assert_contains_all(
+        guide,
+        {
+            "expected urgency labels remain `routine` or `urgent`",
+            "contract-invalid",
+            "application-consistent `unknown`",
+            "ordinary advisory and final urgency mismatch",
+            "deterministic-rule agreement",
+            "mandatory nurse-review",
+            "independently scoreable",
+            "invalid candidates are isolated per case",
+            "zero denominator",
+            "`0.0`",
+            "ordered by case id",
+            "contract validity",
+            "structured-field exact",
+            "symptom precision, recall, and f1",
+            "missing-field recall",
+            "advisory urgency accuracy",
+            "final urgency accuracy",
+            "offline",
+            "fictional-data-only",
+            "exact-match and deterministic",
+            "provider-neutral at the evaluator boundary",
+            "not clinical validation",
+            "not model-as-judge",
+            "not a live foundry evaluation",
+            "not a provider comparison or ranking",
+            "human nurse review",
+        },
+    )
+
+
+def test_foundry_prompt_schema_guide_uses_current_cli_and_safe_iteration() -> None:
+    guide = _normalized(
+        _read("docs/foundry-prompt-schema-evaluation.md")
+    ).casefold()
+
+    _assert_contains_all(
+        guide,
+        {
+            ".venv/bin/python scripts/evaluate_foundry_application.py --mode structured-extraction --json | .venv/bin/python -m json.tool",
+            ".venv/bin/python scripts/evaluate_foundry_application.py --mode agent --json | .venv/bin/python -m json.tool",
+            "byte-identical before pretty-printing",
+            "creates no repository report artifact",
+            "freeze one prompt or schema hypothesis",
+            "update the authoritative prompt/schema source",
+            "run exactly one evaluation mode",
+            "inspect deterministic per-case and aggregate changes",
+            "preserve safety rules and nurse review",
+            "review independently",
+            "must not simultaneously",
+            "change metrics",
+            "hide regressions",
+            "compare or rank providers",
+            "introduce live evaluation",
+            "change deterministic urgency rules",
+            "weaken safe fallback or nurse review",
+        },
+    )
+    assert "--mode all" not in guide
+    assert "comparison command" not in guide
+
+
 def test_completed_application_foundry_paths_are_not_deferred_or_recommended() -> None:
     mapping = _normalized(_read("docs/ai-103-mapping.md"))
     progress = _normalized(_read("docs/progress.md"))
@@ -673,9 +769,14 @@ def test_completed_application_foundry_paths_are_not_deferred_or_recommended() -
     assert "application-integrated" not in deferred
     assert "application-integrated" not in recommended
     assert "offline foundry evaluation baseline" not in recommended
-    assert "offline application-output adapters" in recommended
+    assert "offline application-output adapters" not in recommended
+    assert "foundry prompt/schema/evaluation notes" not in recommended
+    assert "1. azure speech transcription service boundary" in recommended
+    assert "prompt/schema/evaluation guidance" in mapping.casefold()
+    assert "docs/foundry-prompt-schema-evaluation.md" in mapping
     assert "offline application-output adapters" in progress_next
     assert "canonical evaluation candidate contract" in progress_next
+    assert "azure speech transcription service boundary" in progress_next
     assert "structured-extraction smoke" not in progress_next
     assert "foundry agent smoke" not in progress_next
     assert "hosted managed-identity execution remains unproven" in mapping.casefold()
