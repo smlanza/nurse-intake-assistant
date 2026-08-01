@@ -49,6 +49,12 @@ The implementation should prioritize demoability, cost control, and clear Azure 
   from deployment, readiness, RBAC, and metadata verification. Only check mode
   has been exercised; no live hosted metadata verification or invocation has
   run.
+- A packaged synchronous combined proof operation now composes those exact
+  metadata and fixed-fictional invocation boundaries fail-closed. Direct App
+  Service SSH to the existing Linux application container is the selected
+  future supervised transport. Its local command contract is offline-tested;
+  no live hosted managed-identity proof has run, no route or additional compute
+  was added, and the WebJob trigger mechanism remains retired.
 - Azure Speech remains scaffolded with offline/manual preflight only; no live
   audio transcription or phone intake is part of the default demo.
 - ACS Email/SMS have provider scaffolds and offline-safe preflight/manual smoke

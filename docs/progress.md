@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 2,929 passed full suite
-- 21 shell-wrapper tests and 42 documentation tests
+- 3,015 passed full suite
+- 21 shell-wrapper tests and 43 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -62,7 +62,8 @@ Important constraints:
 
 ## Current Resume Point
 
-Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
+Azure Speech closure is complete. Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
+`.env.speech.local` remains ignored and secret-bearing; mock remains the safe default.
 Consumer RBAC remains optional; WebJob discovery and immutable evidence
 recovery remain separate technical boundaries.
 
@@ -79,8 +80,7 @@ record for those attempts. The trigger-and-correlation implementation is now
 retired from supported operations; it was not reliably provable enough for this
 capstone. This decision does not claim that Azure WebJobs are universally
 impossible. Hosted managed-identity token acquisition, Foundry metadata access,
-and invocation remain unproven. Separately, application-integrated Microsoft
-Foundry Agent execution and application-integrated structured extraction through production composition are both live-proven.
+and invocation remain unproven. The next candidate is frozen as an offline-tested packaged synchronous hosted proof operation intended for operator-supervised direct App Service SSH. No SSH or live managed-identity proof has run. The WebJob trigger-and-correlation mechanism remains retired; Container Apps Jobs, Functions, HTTP proof routes, and Kudu command execution were not added. Separately, application-integrated Microsoft Foundry Agent execution and application-integrated structured extraction through production composition are both live-proven.
 Offline Foundry evaluation baseline v1 is implemented with eight fictional intake cases, a separate intentionally imperfect candidate fixture, strict provider-neutral contracts, deterministic exact/set metrics, and sanitized JSON output. Expected urgency labels remain `Routine` or `Urgent`; observed contract-invalid output may carry safe `Unknown` urgency under strict fallback invariants, where it scores as a mismatch without aborting evaluation. The baseline makes no Azure or network call and performs no persistence or notification work.
 
 Safe to demo today:
@@ -191,8 +191,8 @@ Begin Azure-dependent work with the canonical daily runbook and fresh READY
 proof. The old
 `docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md` is now
 an implementation reference for the retired WebJob path, not a prerequisite
-sequence. A future hosted managed-identity proof requires an explicit
-architecture decision and may use a different execution boundary.
+sequence. Direct operator-supervised App Service SSH is the selected future
+execution transport for the packaged synchronous proof operation.
 
 Do not claim as complete:
 - Hosted managed-identity Agent execution remains unproven; the supervised
@@ -396,13 +396,13 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The Speech SDK adapter, factory, service, repository-owned fictional WAV, proof CLI, prerequisite runbook, offline check, and one supervised live acceptance are complete. The next separately frozen candidate is hosted managed-identity Foundry validation. Do not design or implement that mechanism in this closure slice, and do not reuse the retired WebJob trigger-and-correlation mechanism without a new explicit architecture decision.
+The packaged synchronous hosted proof operation, fixed future App Service SSH command contract, offline check, and prerequisite runbook are complete. The next separately frozen slice is the narrow SSH transport/prerequisite acceptance and, only with every fresh gate and separate approval satisfied, one supervised live proof. No WebJob mechanism or additional compute is part of that path.
 
 ## Current Slice Status
 
-- `scripts/smoke_azure_speech_transcription.py` owns the fixed-fictional proof contract through the production factory, service, and Azure SDK adapter. One supervised live acceptance made one Azure call and exactly one recognition attempt; it returned a valid normalized transcript matching the application-owned expected text, made no Azure mutation, and used no intake route, persistence, notification, or clinical-processing path. This is not route-integrated audio processing, general Speech reliability validation, or clinical validation. Audio upload, microphone input, ACS recording transcription, ACS Calling Automation, streaming, general voice intake, and production clinical use remain deferred. Human nurse review remains mandatory for application-generated output.
-- `.env.speech.local` remains ignored and secret-bearing. It is not a second configuration mechanism and must remain local-only. The checked-in example contains placeholders only; the general environment example and mock-safe defaults remain unchanged.
-Architecture impact: updated the existing Speech component, data-flow, deferred-scope, and AI-103 alignment sections because the standalone fixed-fictional Azure Speech provider execution boundary is now live-proven while route-level audio ingestion and voice workflows remain deferred.
+- `src/app/services/hosted_foundry_agent_proof.py` composes the existing hosted metadata verifier and fixed-fictional invocation boundary in one exact-type, exact-boolean, fail-closed sequence. `src/app/operations/prove_hosted_foundry_agent.py` is included by the ordinary `src` package allowlist, and `scripts/run_hosted_foundry_agent_proof.py` validates the fixed future command without subprocess, SSH, credential, Azure, metadata, or Agent activity. Check mode is deterministic and sanitized. Live mode is implemented but has not run.
+- The selected future transport is operator-supervised direct App Service SSH to the existing Linux application container. The proof has no route, persistence, notification, deterministic-rule, arbitrary-input, alternate-credential, retry, polling, WebJob, Kudu command, or additional-compute surface. The checked-in prerequisite runbook owns the future supervised gate.
+Architecture impact: updated the existing hosted Foundry execution sections because the repository now contains a packaged synchronous proof operation intended for operator-supervised direct execution inside the existing Linux App Service container, while live managed-identity proof remains pending and the WebJob trigger-and-correlation mechanism remains retired.
 - The blocked application-output adapter slice exposed a canonical representation mismatch: invalid Agent fallback output could safely contain `Unknown`, while the candidate contract required a fabricated binary urgency. The canonical evaluator now keeps expected advisory, final, and deterministic-rule labels binary while allowing only application-consistent `Unknown` urgency states on contract-invalid observed candidates. `Unknown` remains an ordinary advisory/final mismatch; deterministic-rule agreement and mandatory nurse review remain scoreable. No adapter was implemented in this correction.
 - Verification for the canonical correction is 50 focused evaluator/CLI tests, 38 documentation guardrails, and 2,814 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. Python compilation, CLI JSON validation, repeated-run determinism, and diff checks also pass.
 - The offline evaluation baseline continues to score contract validity, structured-field exact matches, symptom precision/recall/F1, missing-field recall, advisory and final urgency accuracy, deterministic-rule agreement, and the nurse-review invariant. Invalid candidates remain isolated per case, zero denominators return `0.0`, results sort by case ID, and the CLI emits one deterministic sanitized JSON document. The baseline remains provider-neutral, fixture-driven, exact-match only, and offline; it is not a live Foundry run, model-as-judge evaluation, subjective clinical-quality score, or clinical validation.

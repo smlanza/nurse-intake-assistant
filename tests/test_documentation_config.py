@@ -499,7 +499,7 @@ def test_speech_live_acceptance_is_documented_as_a_bounded_standalone_proof() ->
             "mutated no azure resource",
             "`.env.speech.local` remains ignored and secret-bearing",
             "mock remains the safe default",
-            "hosted managed-identity foundry validation",
+            "operator-supervised direct app service ssh",
             "must not be reused without a new explicit architecture decision",
         },
     )
@@ -520,7 +520,7 @@ def test_speech_live_acceptance_is_documented_as_a_bounded_standalone_proof() ->
             "application routes remain text/already-transcribed-text only",
             "streaming transcription",
             "production clinical audio workflows",
-            "hosted managed-identity foundry validation",
+            "direct app service ssh is the selected future supervised transport",
         },
     )
     for stale_claim in {
@@ -529,6 +529,74 @@ def test_speech_live_acceptance_is_documented_as_a_bounded_standalone_proof() ->
         "supervised execution of the fixed-fictional live azure speech proof",
     }:
         assert stale_claim not in progress + architecture + mapping
+
+
+def test_hosted_foundry_ssh_proof_is_documented_as_offline_packaged_boundary() -> None:
+    progress = _normalized(_read("docs/progress.md")).casefold()
+    architecture = _normalized(_read("docs/architecture.md")).casefold()
+    mapping = _normalized(_read("docs/ai-103-mapping.md")).casefold()
+    handoff = _normalized(_read("docs/developer-handoff.md")).casefold()
+    runbook = _normalized(
+        _read("docs/runbooks/live-hosted-foundry-agent-ssh-prerequisites.md")
+    ).casefold()
+
+    _assert_contains_all(
+        progress,
+        {
+            "azure speech closure is complete",
+            "packaged synchronous hosted proof operation",
+            "operator-supervised direct app service ssh",
+            "no ssh or live managed-identity proof has run",
+            "webjob trigger-and-correlation mechanism remains retired",
+            "container apps jobs, functions, http proof routes, and kudu command execution were not added",
+        },
+    )
+    _assert_contains_all(
+        architecture,
+        {
+            "packaged synchronous combined proof operation",
+            "existing metadata verification and fixed-fictional invocation boundaries",
+            "operator-supervised direct app service ssh",
+            "ordinary application package",
+            "not exposed through an application route",
+            "no additional compute resource",
+            "no live ssh, managed-identity metadata access, or hosted agent invocation is proven",
+        },
+    )
+    _assert_contains_all(
+        mapping,
+        {
+            "offline packaged proof composition is implemented",
+            "direct app service ssh is the selected future supervised transport",
+            "live hosted managed-identity metadata access and invocation remain unproven",
+            "application-integrated foundry execution remains separately live-proven",
+            "webjob trigger mechanism remains retired",
+        },
+    )
+    _assert_contains_all(
+        handoff,
+        {
+            "packaged synchronous combined proof operation",
+            "direct app service ssh",
+            "no live hosted managed-identity proof has run",
+        },
+    )
+    _assert_contains_all(
+        runbook,
+        {
+            "daily_environment_ready=true",
+            "current application artifact equality",
+            "direct project-scoped foundry agent consumer assignment",
+            "ordinary package contains the exact proof operation",
+            "explicit operator approval before opening",
+            "non-invoking remote check",
+            "exactly one synchronous execution",
+            "python -m src.app.operations.prove_hosted_foundry_agent --live --json",
+            "stop immediately",
+            "kudu `/api/command`",
+            "no patient data",
+        },
+    )
 
 
 def test_architecture_documents_local_safety_and_agent_validation() -> None:
@@ -682,9 +750,9 @@ def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
             "not clinical validation",
         },
     )
-    assert mapping.index("1. Hosted managed-identity Foundry validation") < mapping.index(
-        "4. ACS phone intake"
-    )
+    assert mapping.index(
+        "1. Operator-supervised App Service SSH prerequisite acceptance"
+    ) < mapping.index("4. ACS phone intake")
 
 
 def test_evaluation_docs_distinguish_expected_and_observed_urgency() -> None:
@@ -830,12 +898,12 @@ def test_completed_foundry_and_speech_paths_are_not_deferred_or_recommended() ->
     assert "foundry prompt/schema/evaluation notes" not in recommended
     assert "fixed-fictional live azure speech proof" not in deferred
     assert "azure speech transcription service boundary" not in recommended
-    assert "1. hosted managed-identity foundry validation" in recommended
+    assert "1. operator-supervised app service ssh prerequisite acceptance" in recommended
     assert "prompt/schema/evaluation guidance" in mapping.casefold()
     assert "docs/foundry-prompt-schema-evaluation.md" in mapping
-    assert "speech sdk adapter" in progress_next
-    assert "one supervised live acceptance" in progress_next
-    assert "hosted managed-identity foundry validation" in progress_next
+    assert "packaged synchronous hosted proof operation" in progress_next
+    assert "narrow ssh transport/prerequisite acceptance" in progress_next
+    assert "one supervised live proof" in progress_next
     assert "structured-extraction smoke" not in progress_next
     assert "foundry agent smoke" not in progress_next
     assert "hosted managed-identity execution remains unproven" in mapping.casefold()

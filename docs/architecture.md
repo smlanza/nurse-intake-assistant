@@ -50,6 +50,7 @@ Browser or API client
 | Offline Foundry evaluation | Strictly validates a repository-owned fictional v1 dataset and provider-neutral candidate contract, then produces deterministic per-case evidence and sanitized aggregate metrics |
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
+| `HostedFoundryAgentProof` | Packaged synchronous combined proof operation that composes the existing metadata verification and fixed-fictional invocation boundaries with exact result validation; direct operator-supervised App Service SSH is the selected future transport |
 | Speech transcription services | Mock transcript handling remains the default; the opt-in Azure service uses a lazy SDK adapter with injected-fake tests, in-memory audio input, application-owned normalized outcomes, and sanitized failures. The standalone provider boundary is live-proven for one repository-owned fixed-fictional WAV through the production factory, service, and adapter, isolated from routes and side effects |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
@@ -370,7 +371,10 @@ immutable-evidence recovery remain separate technical boundaries, while the
 current WebJob
 trigger-and-correlation path is retired from supported operations.
 Managed-identity access, metadata verification, and hosted agent invocation
-remain unproven and are not daily readiness requirements. The independent
+remain unproven and are not daily readiness requirements. A packaged
+synchronous combined proof operation is present in the ordinary application
+package, but no live SSH, managed-identity metadata access, or hosted Agent
+invocation is proven. The independent
 deployment, packaging, read-only verification, RBAC, readiness, and WebJob
 lifecycle boundaries below remain authoritative for their resource-specific
 parsing and proof. Intake processing and notifications remain outside
@@ -747,6 +751,27 @@ change RBAC, provision or modify an agent, alter infrastructure, or repeat the
 request. Capability and offline validation do not claim a successful live
 hosted proof.
 
+`src/app/services/hosted_foundry_agent_proof.py` and
+`src/app/operations/prove_hosted_foundry_agent.py` form the packaged synchronous
+combined proof operation. It composes the existing metadata verification and
+fixed-fictional invocation boundaries without reimplementing their credential,
+SDK, prompt, parsing, or cleanup behavior. Exact authoritative metadata proof
+must complete before exactly one invocation can occur, and the invocation must
+return the exact authoritative application-contract success result. Every
+other type, boolean, category, or exception fails closed with sanitized status
+only.
+
+The operation is selected by the ordinary application package's existing
+`src` allowlist; no `App_Data` member or separate package is involved. It is not
+exposed through an application route and has no persistence, notification,
+case-processing, deterministic-rule, arbitrary-input, or Azure-mutation path.
+Operator-supervised direct App Service SSH to the existing Linux application
+container is the selected future execution transport. The repository does not
+automate the tunnel or interpreter discovery, and no additional compute
+resource, Kudu command mechanism, or HTTP proof endpoint is part of the current
+architecture. No live SSH, managed-identity metadata access, or hosted Agent
+invocation is proven by this offline implementation.
+
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
 is deferred because prompt-agent provisioning remains a separate lifecycle and
@@ -843,8 +868,10 @@ execution, managed-identity metadata verification, and fixed fictional
 invocation remain outside the coordinator; their false result fields mean they
 were not part of the coordinator run. Consumer RBAC remains optional. The
 current WebJob execution path is retired, and metadata verification and
-invocation remain unproven. A future hosted validation mechanism may use a
-different execution boundary. Hosted defaults remain mock-only with
+invocation remain unproven. The supported candidate is the packaged synchronous
+proof operation under separately approved operator-supervised direct App
+Service SSH; the WebJob trigger-and-correlation mechanism remains retired.
+Hosted defaults remain mock-only with
 notifications suppressed. Code deployment does not provision infrastructure,
 and human nurse review remains mandatory for every fictional result. The
 project remains a capstone/demo rather than production clinical software.
@@ -905,6 +932,9 @@ implementation:
 - Implemented Azure AI Foundry structured-extraction and Agent runtime
   boundaries through `FoundryAiService`, `NurseIntakeAgent`, and production
   application composition
+- Offline packaged hosted proof composition with direct App Service SSH as the
+  selected future supervised transport; live hosted managed-identity access
+  remains unproven and the WebJob trigger mechanism remains retired
 - Azure Speech through a lazy SDK adapter boundary that is offline-tested with
   injected fakes and live-proven for one standalone fixed-fictional fixture,
   while intake routes remain text/already-transcribed-text only
