@@ -453,26 +453,82 @@ def test_demo_page_smoke_guide_covers_review_and_reset_workflow() -> None:
     )
 
 
-def test_manual_speech_guide_keeps_check_mode_offline_and_live_work_deferred() -> None:
+def test_manual_speech_guide_keeps_check_mode_offline_and_scope_bounded() -> None:
     guide = _normalized(_read("docs/manual-speech-smoke-test.md"))
 
     _assert_contains_all(
         guide,
         {
-            "Manual Azure Speech Smoke-Test Preparation",
-            "automated test suite must remain offline",
-            "must not call Azure Speech",
+            "Manual Azure Speech Smoke Test",
+            "standalone provider boundary is live-proven",
+            "Do not rerun that live command",
             "SPEECH_PROVIDER=mock",
-            "SPEECH_PROVIDER=azure",
             "AZURE_SPEECH_ENDPOINT",
             "AZURE_SPEECH_REGION",
-            "python scripts/smoke_speech_transcription.py --check",
-            "No Speech client was created",
-            "Manual/live Azure Speech transcription remains deferred",
-            "Do not use PHI or real patient data",
-            "Do not commit",
+            "AZURE_SPEECH_KEY",
+            "scripts/smoke_azure_speech_transcription.py",
+            "performs no transcription",
+            "makes no Azure or network call",
+            "Audio upload and microphone input",
+            "Use fictional repository-owned audio only",
+            "Mock Speech remains the safe default",
         },
     )
+
+
+def test_speech_live_acceptance_is_documented_as_a_bounded_standalone_proof() -> None:
+    speech_example = _env_values(".env.speech.local.example")
+    progress = _normalized(_read("docs/progress.md")).casefold()
+    architecture = _normalized(_read("docs/architecture.md")).casefold()
+    mapping = _normalized(_read("docs/ai-103-mapping.md")).casefold()
+
+    assert speech_example == {
+        "SPEECH_PROVIDER": "azure",
+        "AZURE_SPEECH_ENDPOINT": "https://your-speech-resource.example.invalid",
+        "AZURE_SPEECH_REGION": "<your-speech-region>",
+        "AZURE_SPEECH_KEY": "<your-speech-key>",
+    }
+    _assert_contains_all(
+        progress,
+        {
+            "standalone azure speech proof boundary is live-proven",
+            "exactly one recognition attempt",
+            "no intake route",
+            "persisted no case",
+            "attempted no notification",
+            "mutated no azure resource",
+            "`.env.speech.local` remains ignored and secret-bearing",
+            "mock remains the safe default",
+            "hosted managed-identity foundry validation",
+            "must not be reused without a new explicit architecture decision",
+        },
+    )
+    _assert_contains_all(
+        architecture,
+        {
+            "standalone proof cli is separate from application route processing",
+            "fixed repository fixture",
+            "no persistence, notification, or clinical processing",
+            "normal fastapi intake pipeline remains text-only",
+            "route-integrated audio ingestion",
+        },
+    )
+    _assert_contains_all(
+        mapping,
+        {
+            "one fixed-fictional standalone azure speech transcription is live-proven",
+            "application routes remain text/already-transcribed-text only",
+            "streaming transcription",
+            "production clinical audio workflows",
+            "hosted managed-identity foundry validation",
+        },
+    )
+    for stale_claim in {
+        "live azure transcription remains unproven",
+        "manual/live azure speech transcription remains deferred",
+        "supervised execution of the fixed-fictional live azure speech proof",
+    }:
+        assert stale_claim not in progress + architecture + mapping
 
 
 def test_architecture_documents_local_safety_and_agent_validation() -> None:
@@ -537,7 +593,8 @@ def test_architecture_documents_completed_application_foundry_runtime_modes() ->
     assert "live azure ai foundry extraction" not in deferred
     assert "application-integrated structured extraction" not in deferred
     assert "application-integrated agent execution" not in deferred
-    assert "azure speech / voice intake" in deferred
+    assert "route-integrated audio ingestion" in deferred
+    assert "standalone provider boundary is live-proven" not in deferred
 
 
 def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() -> None:
@@ -625,8 +682,8 @@ def test_ai_103_mapping_documents_scope_safety_and_priority() -> None:
             "not clinical validation",
         },
     )
-    assert mapping.index("1. Azure Speech transcription service boundary") < mapping.index(
-        "5. ACS phone intake"
+    assert mapping.index("1. Hosted managed-identity Foundry validation") < mapping.index(
+        "4. ACS phone intake"
     )
 
 
@@ -750,7 +807,7 @@ def test_foundry_prompt_schema_guide_uses_current_cli_and_safe_iteration() -> No
     assert "comparison command" not in guide
 
 
-def test_completed_application_foundry_paths_are_not_deferred_or_recommended() -> None:
+def test_completed_foundry_and_speech_paths_are_not_deferred_or_recommended() -> None:
     mapping = _normalized(_read("docs/ai-103-mapping.md"))
     progress = _normalized(_read("docs/progress.md"))
     deferred = mapping.casefold().split(
@@ -771,12 +828,14 @@ def test_completed_application_foundry_paths_are_not_deferred_or_recommended() -
     assert "offline foundry evaluation baseline" not in recommended
     assert "offline application-output adapters" not in recommended
     assert "foundry prompt/schema/evaluation notes" not in recommended
-    assert "1. azure speech transcription service boundary" in recommended
+    assert "fixed-fictional live azure speech proof" not in deferred
+    assert "azure speech transcription service boundary" not in recommended
+    assert "1. hosted managed-identity foundry validation" in recommended
     assert "prompt/schema/evaluation guidance" in mapping.casefold()
     assert "docs/foundry-prompt-schema-evaluation.md" in mapping
-    assert "offline application-output adapters" in progress_next
-    assert "canonical evaluation candidate contract" in progress_next
-    assert "azure speech transcription service boundary" in progress_next
+    assert "speech sdk adapter" in progress_next
+    assert "one supervised live acceptance" in progress_next
+    assert "hosted managed-identity foundry validation" in progress_next
     assert "structured-extraction smoke" not in progress_next
     assert "foundry agent smoke" not in progress_next
     assert "hosted managed-identity execution remains unproven" in mapping.casefold()

@@ -32,7 +32,7 @@ or SMS.
 | Azure AI Foundry / agent orchestration readiness | `FoundryAiService` and `NurseIntakeAgent` are implemented application-integrated runtime boundaries with application-owned structured contracts and validation before trusting model/agent output. Their fixed-fictional smokes use production composition with in-memory persistence, deterministic urgency rules, suppressed notifications, and mandatory nurse review | `scripts/smoke_application_foundry_extraction.py`, `scripts/smoke_application_foundry_agent.py`, `tests/test_application_foundry_smoke_script.py`, `tests/test_application_foundry_agent_smoke_script.py` | Application-integrated structured extraction and application-integrated Microsoft Foundry Agent execution are live-proven with valid output, no fallback, deterministic-rule execution, in-memory persistence, suppressed notifications, mandatory nurse review, and no Azure mutation. Offline tests use fakes and make no Azure calls. Hosted managed-identity execution remains unproven, and the WebJob trigger-and-correlation mechanism is retired |
 | Offline Foundry evaluation baseline and guidance | A strict repository-owned fictional v1 dataset, provider-neutral candidate contract, deterministic exact/set scorer, application-composed single-mode runner and CLI, and prompt/schema/evaluation guidance establish a reusable offline baseline. Expected urgency labels remain `Routine` or `Urgent`; observed contract-invalid output may use safe `Unknown` urgency only in application-consistent fallback states | `evaluation/fictional-intake-baseline-v1.json`, `evaluation/fictional-intake-baseline-v1-candidates.json`, `src/app/services/foundry_evaluation.py`, `src/app/services/foundry_application_evaluation.py`, `scripts/evaluate_foundry_application.py`, `docs/foundry-prompt-schema-evaluation.md` | Implemented offline without Azure, network, external persistence, or notifications. Each CLI run selects one application mode, uses deterministic fake clients, and emits sanitized JSON. Observed `Unknown` scores as an ordinary mismatch instead of being fabricated or crashing evaluation; deterministic-rule and nurse-review evidence remain scoreable. It is not a live Foundry evaluation run, not model-as-judge evaluation, not a provider comparison, not subjective clinical-quality scoring, and not clinical validation |
 | Responsible AI / human oversight | Responsible AI pattern: urgency is advisory only; invalid agent output uses safe fallback values instead of crashing intake processing; deterministic red-flag rules supplement AI and may promote final urgency; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/services/nurse_intake_agent_contract.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented human review and deterministic safety rules |
-| Natural language processing and Speech readiness | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency; Speech transcription has a mock default, an opt-in lazy Azure SDK adapter, and a sanitized fixed-fictional WAV proof CLI that reuses the production factory/service/adapter | `src/app/routes/intake.py`, `src/app/services/speech_transcription_service.py`, `src/app/services/speech_transcription_factory.py`, `src/app/services/azure_speech_transcription_adapter.py`, `scripts/smoke_azure_speech_transcription.py`, `tests/fixtures/fictional_speech_intake.wav`, `tests/test_azure_speech_transcription_smoke.py`, `docs/runbooks/live-azure-speech-transcription-prerequisites.md` | Adapter and proof CLI are implemented and offline-tested with injected fakes. Check mode validates the owned PCM fixture and emits deterministic sanitized JSON without recognition. Live acceptance has not run because the exact owned Speech resource, local credential configuration, SDK, and explicit command approval are not currently established. Intake routes remain transcript-only; human nurse review remains mandatory; audio upload, ACS Calling Automation, real voice intake, and production audio workflows remain deferred |
+| Natural language processing and Speech readiness | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency. The offline/mock provider boundary remains implemented, the Azure SDK adapter is implemented, and one fixed-fictional standalone Azure Speech transcription is live-proven through the production factory/service/adapter | `src/app/routes/intake.py`, `src/app/services/speech_transcription_service.py`, `src/app/services/speech_transcription_factory.py`, `src/app/services/azure_speech_transcription_adapter.py`, `scripts/smoke_azure_speech_transcription.py`, `tests/fixtures/fictional_speech_intake.wav`, `tests/test_azure_speech_transcription_smoke.py`, `docs/runbooks/live-azure-speech-transcription-prerequisites.md` | Check mode validates the owned PCM fixture and emits deterministic sanitized JSON without recognition. One supervised standalone attempt returned the expected normalized transcript, made one Azure call and no mutation, and used no route, persistence, or notification path. Application routes remain text/already-transcribed-text only; human nurse review remains mandatory; route-level audio ingestion and voice automation remain deferred |
 | Azure service integration boundaries | Cosmos repository and container factory with point reads/upserts plus cross-partition filtered case-list queries; ACS Email/SMS boundaries; Bicep baseline for Cosmos, storage, Log Analytics, Application Insights, and optional Azure Web App hosting | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/modules/web-app.bicep`, `infra/README.md` | Case-list/query-filter parity is covered offline with fakes; queue-summary and voicemail-idempotency lookup parity, live Cosmos validation, and production hardening are deferred |
 | Application architecture | FastAPI routes support intake, case list, filtering, summary, lookup, nurse review, demo seed/reset, notification inspection, health, and static demo/legal pages | `src/app/routes/`, `src/app/main.py`, `src/app/static/demo.html`, `tests/test_cases_route.py`, `tests/test_demo_page_route.py`, `tests/test_demo_reset_route.py`, `tests/test_notifications_route.py` | Implemented local MVP |
 | Notification status semantics | Legacy booleans remain backward-compatible while explicit email/SMS status fields distinguish `MockRecorded`, `Accepted`, `Failed`, `Suppressed`, and `NotAttempted`; SMS delivery confirmation remains false until future tracking exists | `src/app/models/case.py`, `src/app/services/case_processing_service.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented semantics |
@@ -135,15 +135,25 @@ boundary now has an offline mock provider and an opt-in Azure SDK adapter with
 lazy construction and injected-fake coverage, but neither route invokes it and
 both routes remain text-only.
 
-Deferred speech work:
+The standalone fixed-fictional transcription boundary is live-proven. Exactly
+one recognition attempt through the production Speech factory, service, and
+Azure SDK adapter returned the application-owned expected normalized text. It
+made one Azure call, no Azure mutation, and did not invoke a route, persist a
+case, attempt a notification, or perform clinical processing. This single
+proof is not clinical validation or general Speech reliability validation.
 
-- Supervised execution of the fixed-fictional live Azure Speech proof
-- Audio upload or ACS recording transcription
-- Voice intake or call automation workflow
-- Audio retention and cleanup workflow
+Deferred route-level audio and voice work:
 
-This keeps the current app honest: it demonstrates transcript processing and an
-offline-tested Azure Speech SDK adapter and proof CLI, not live Azure Speech.
+- Audio upload and microphone capture
+- ACS recording ingestion and transcription
+- Voice intake and ACS call automation
+- Streaming transcription
+- Audio retention and cleanup
+- Production clinical audio workflows
+
+This keeps the current app honest: it demonstrates transcript processing and a
+live-proven standalone fixed-fictional Speech boundary, not route-integrated
+audio ingestion, general voice intake, or production Speech processing.
 
 ## 6. Azure Integration Readiness
 
@@ -157,6 +167,8 @@ Azure services for the local demo:
 - ACS Email sender boundary and completed ACS Email smoke-test documentation
 - ACS SMS sender boundary that reaches SDK/send-request path
 - Mock providers as the safe local default
+- One standalone fixed-fictional Azure Speech transcription through the
+  production factory/service/adapter, with no route or application side effect
 
 Scope boundaries:
 
@@ -225,12 +237,13 @@ Scope boundaries:
 
 The following are future work, not current implementation:
 
-- Supervised execution of the fixed-fictional live Azure Speech proof
 - Hosted managed-identity metadata verification and fixed-fictional-data invocation
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication / Entra ID protection
 - Application Insights runtime logging/telemetry hardening
+- Audio upload, microphone capture, ACS recording ingestion, streaming
+  transcription, audio retention/cleanup, and production clinical audio workflows
 - ACS phone intake/call automation
 - ACS SMS delivery reports/status tracking
 - Retry/durable processing
@@ -240,11 +253,10 @@ The following are future work, not current implementation:
 
 Highest AI-103 ROI:
 
-- Supervised live execution of the fixed-fictional Azure Speech proof CLI
+- Managed-identity authentication and hosted Foundry verification
 
 Medium AI-103 ROI:
 
-- Managed-identity authentication and hosted Foundry verification
 - Key Vault
 - App Service Authentication / Entra ID route protection
 - Application Insights telemetry hardening
@@ -257,13 +269,12 @@ Lower direct exam ROI but strong portfolio value:
 
 ## 9. Recommended Azure Implementation Order
 
-1. Azure Speech transcription service boundary: run the fixed-fictional live proof only after every prerequisite and the exact command are separately approved
-2. Hosted managed-identity Foundry validation when explicitly approved
-3. Key Vault and App Service auth/protected routes
-4. Application Insights telemetry hardening
-5. ACS phone intake
-6. Retry/durable processing
-7. Advanced Foundry Agent/tool orchestration only if useful
+1. Hosted managed-identity Foundry validation when separately frozen and explicitly approved; do not reuse the retired WebJob trigger-and-correlation mechanism without a new architecture decision
+2. Key Vault and App Service auth/protected routes
+3. Application Insights telemetry hardening
+4. ACS phone intake and route-level audio ingestion
+5. Retry/durable processing
+6. Advanced Foundry Agent/tool orchestration only if useful
 
 This order prioritizes AI-103 learning value before lower-exam-value telephony
 workflow work.
@@ -273,7 +284,7 @@ workflow work.
 When presenting the capstone, do not imply that the current MVP already has:
 
 - Hosted managed-identity Foundry access or invocation
-- Azure Speech transcription
+- Route-integrated audio ingestion or voice workflows
 - ACS phone intake
 - App Service authentication
 - Key Vault
@@ -287,16 +298,16 @@ Built a mock-first Nurse Intake Assistant in FastAPI with live-proven
 application-integrated Microsoft Foundry structured-extraction and Agent modes,
 deterministic urgency rules, mandatory nurse review, in-memory smoke
 persistence, suppressed smoke notifications, and Azure-ready provider
-boundaries for Cosmos DB and ACS Email/SMS.
+boundaries for Cosmos DB and ACS Email/SMS. A separate fixed-fictional Azure
+Speech provider proof is live-proven without route integration or side effects.
 ```
 
 Future-facing framing:
 
 ```text
-The Azure Speech transcription service boundary's fixed-fictional proof CLI is
-implemented offline, but its one supervised live attempt remains pending exact
-resource ownership, local credentials, SDK availability, current Azure-gate
-evidence, and explicit approval. Do not claim live proof or begin broader audio
-work. After successful acceptance, the next separately frozen implementation
+The standalone Azure Speech provider boundary is live-proven for exactly one
+repository-owned fixed-fictional WAV. This does not establish route-integrated
+audio ingestion, voice intake, general Speech reliability, clinical
+validation, or production audio processing. The next separately frozen
 candidate is hosted managed-identity Foundry validation.
 ```

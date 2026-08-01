@@ -50,7 +50,7 @@ Browser or API client
 | Offline Foundry evaluation | Strictly validates a repository-owned fictional v1 dataset and provider-neutral candidate contract, then produces deterministic per-case evidence and sanitized aggregate metrics |
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
-| Speech transcription services | Mock transcript handling remains the default; the opt-in Azure service uses a lazy SDK adapter with injected-fake tests, in-memory audio input, application-owned normalized outcomes, and sanitized failures; live Azure transcription is unproven |
+| Speech transcription services | Mock transcript handling remains the default; the opt-in Azure service uses a lazy SDK adapter with injected-fake tests, in-memory audio input, application-owned normalized outcomes, and sanitized failures. The standalone provider boundary is live-proven for one repository-owned fixed-fictional WAV through the production factory, service, and adapter, isolated from routes and side effects |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
 | `InMemoryCaseRepository` | Default mock persistence for local demo, filtering, summary, idempotency, and reset |
@@ -83,9 +83,12 @@ source call, recording, audio blob, caller phone, and idempotency metadata. The
 voicemail route expects already-transcribed text only and never invokes a Speech
 provider. Separately, `SPEECH_PROVIDER=azure` selects an application-owned
 transcription service whose SDK adapter is constructed lazily for one explicit
-in-memory audio request. The adapter is offline-tested with injected fakes;
-live Azure transcription remains unproven, and audio upload, ACS voice intake,
-and production audio handling are not implemented.
+in-memory audio request. The standalone proof CLI is separate from application
+route processing. The Azure Speech adapter was live-proven using the fixed
+repository fixture: exactly one recognition attempt returned the expected
+normalized text, with no persistence, notification, or clinical processing.
+The normal FastAPI intake pipeline remains text-only. Route-integrated audio
+ingestion and voice workflows are not implemented.
 
 The default local settings are:
 
@@ -880,8 +883,9 @@ The following are intentionally not implemented in the current MVP:
 - Authentication / RBAC beyond the proven direct Consumer assignment
 - Application authentication and private networking
 - Key Vault
-- Azure Speech / voice intake beyond the offline SDK adapter: live
-  transcription, audio ingestion, and voice automation
+- Route-integrated audio ingestion, audio upload, microphone capture, ACS
+  recording ingestion, voice intake and call automation, streaming
+  transcription, audio retention/cleanup, and production audio workflows
 - ACS SMS delivery reports/status tracking
 - Retry logic
 - Production frontend
@@ -901,8 +905,9 @@ implementation:
 - Implemented Azure AI Foundry structured-extraction and Agent runtime
   boundaries through `FoundryAiService`, `NurseIntakeAgent`, and production
   application composition
-- Azure Speech readiness through a lazy SDK adapter boundary that is
-  offline-tested with injected fakes while intake routes remain transcript-only
+- Azure Speech through a lazy SDK adapter boundary that is offline-tested with
+  injected fakes and live-proven for one standalone fixed-fictional fixture,
+  while intake routes remain text/already-transcribed-text only
 - Natural language extraction, summarization, and advisory classification
   concept through the deterministic mock provider
 - Responsible AI boundary through explicit human nurse review and no autonomous
@@ -912,6 +917,6 @@ implementation:
 - Infrastructure-as-code baseline through Bicep
 - Monitoring baseline concepts through Application Insights and Log Analytics
 
-Hosted managed-identity Foundry access and invocation, live Azure Speech
-transcription/audio processing, authentication, Key Vault, and SMS delivery
+Hosted managed-identity Foundry access and invocation, route-integrated audio
+ingestion and voice workflows, authentication, Key Vault, and SMS delivery
 tracking remain deferred.

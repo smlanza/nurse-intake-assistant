@@ -1,124 +1,73 @@
-# Manual Azure Speech Smoke-Test Preparation
+# Manual Azure Speech Smoke Test
 
 ## Purpose
 
-Use this guide to prepare for a future manual Azure Speech transcription smoke
-test while keeping the current project offline-safe. This slice adds a
-configuration preflight only. It does not implement live audio upload, phone
-intake, ACS call automation, or Azure Speech transcription.
+Use this guide for the offline-safe Azure Speech proof check. The authoritative
+prerequisites and supervised-command procedure remain in
+`docs/runbooks/live-azure-speech-transcription-prerequisites.md`.
 
-The automated test suite must remain offline and deterministic. It must not
-call Azure Speech or require Azure credentials.
+The standalone provider boundary is live-proven for one repository-owned
+fixed-fictional WAV through the production Speech factory, service, and Azure
+SDK adapter. Exactly one recognition attempt returned the application-owned
+expected normalized text. Do not rerun that live command merely to reconfirm
+the documented result.
 
-## Prerequisites
+This is not route-integrated audio processing, general Speech reliability
+validation, clinical validation, or production clinical use. Human nurse review
+remains mandatory for application-generated output.
 
-Future manual/live testing still requires:
+## Safe Defaults And Local Configuration
 
-- Azure Speech resource
-- Azure Speech endpoint
-- Azure Speech region
-- Local authentication and SDK setup appropriate for the live environment
-- A later implementation slice that explicitly adds live transcription
-
-The current CLI can only verify local configuration and optional SDK package
-visibility.
-
-## Safe Environment Variables
-
-Keep mock mode as the default for normal development and tests:
+Normal development, tests, demos, and application routes keep the safe default:
 
 ```bash
 SPEECH_PROVIDER=mock
 ```
 
-For a manual preflight only, use placeholders like these in your local shell or
-uncommitted `.env.speech.local` file:
+The normal FastAPI routes accept text or already-transcribed voicemail text
+only. They do not invoke the Speech provider.
+
+The Speech-specific `.env.speech.local.example` contains placeholder-only names
+for `SPEECH_PROVIDER`, `AZURE_SPEECH_ENDPOINT`, `AZURE_SPEECH_REGION`, and
+`AZURE_SPEECH_KEY`. Real values belong only in the ignored, uncommitted,
+secret-bearing `.env.speech.local` file. Do not display, copy, diff, stage, or
+commit that file.
+
+## Offline Check
+
+Run only the offline check during ordinary verification:
 
 ```bash
-SPEECH_PROVIDER=azure
-AZURE_SPEECH_ENDPOINT=https://example-speech-resource.cognitiveservices.azure.com/
-AZURE_SPEECH_REGION=eastus
+set -o pipefail
+
+.venv/bin/python scripts/smoke_azure_speech_transcription.py \
+  --check \
+  --json | \
+  .venv/bin/python -m json.tool
 ```
 
-You can start from `.env.speech.local.example`. Keep the real
-`.env.speech.local` local-only and uncommitted.
+Check mode validates the repository-owned fictional fixture, expected-text
+contract, result schema, production factory/service compatibility, and SDK
+visibility. It loads no credentials, constructs no Speech adapter or
+recognizer, performs no transcription, makes no Azure or network call, invokes
+no intake route, persists no case, attempts no notification, and mutates no
+Azure resource.
 
-Do not commit real endpoints tied to production resources, keys, secrets,
-connection strings, real phone numbers, real email addresses, or real patient
-data.
+## Proven And Deferred Boundaries
 
-## Run The Preflight
+The standalone proof made one Azure call and no Azure mutation. It used no
+intake route, persistence, notification, or clinical-processing path and did
+not expose the transcript or provider configuration.
 
-Run:
+The following remain deferred:
 
-```bash
-python scripts/smoke_speech_transcription.py --check
-```
+- Audio upload and microphone input
+- ACS recording ingestion and transcription
+- ACS Calling Automation and general voice intake
+- Streaming transcription
+- Audio retention and cleanup
+- Route-integrated and production clinical audio workflows
 
-Or keep Azure Speech smoke settings isolated to this script process:
-
-```bash
-python scripts/smoke_speech_transcription.py --env-file .env.speech.local --check
-```
-
-The env-file form loads simple `KEY=value` settings for the script process
-only. Existing shell environment variables still win over values from the env
-file, so the file only fills variables that are missing from the shell
-environment.
-
-The `--check` mode validates that:
-
-- `SPEECH_PROVIDER=azure`
-- `AZURE_SPEECH_ENDPOINT` is present
-- `AZURE_SPEECH_REGION` is present
-- The optional Azure Speech SDK package appears importable or unavailable
-
-The SDK check is informational. Missing SDK support is reported clearly and
-does not by itself make the preflight fail.
-
-`--check` remains offline-safe with or without `--env-file`: it does not create
-Azure Speech clients, process audio, upload audio, transcribe audio, or make
-Azure calls. It is preflight/config validation only, not live transcription.
-
-## What Successful Preflight Means
-
-A successful preflight means local Azure Speech settings are present and the
-manual setup is ready for a future live transcription slice.
-
-It also confirms: No Speech client was created, it did not process audio, no
-audio was uploaded, no FastAPI route was called, no cases were persisted, no
-notifications were sent, and the script did not make an Azure network call.
-
-## What It Does Not Prove
-
-This preflight does not prove:
-
-- Azure Speech credentials or resource access work
-- Audio can be uploaded or transcribed
-- Phone intake or ACS call automation works
-- The FastAPI intake contract changed
-- Notifications were sent or delivered
-- The app is production-ready clinical software
-
-Manual/live Azure Speech transcription remains deferred until a later explicit
-implementation slice.
-
-## Roll Back To Mock Mode
-
-After any manual preparation, restore the safe local default:
-
-```bash
-SPEECH_PROVIDER=mock
-```
-
-Normal local tests and demos should continue to use already-transcribed text
-with the mock/offline Speech provider boundary.
-
-## Safety Notes
-
-- Use fictional/demo-only sample text.
-- Do not use PHI or real patient data.
-- Do not use real phone numbers or real email addresses.
-- Do not commit secrets, keys, credentials, or live provider settings.
-- This capstone project is for local demo and AI-103 preparation only, with no
-  production clinical use.
+Use fictional repository-owned audio only. Do not use PHI, patient recordings,
+real contact information, or downloaded/runtime-generated replacement audio.
+Mock Speech remains the safe default.
