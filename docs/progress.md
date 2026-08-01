@@ -5,7 +5,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,015 passed full suite
+- 3,078 passed full suite
 - 21 shell-wrapper tests and 43 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
@@ -396,13 +396,13 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The packaged synchronous hosted proof operation, fixed future App Service SSH command contract, offline check, and prerequisite runbook are complete. The next separately frozen slice is the narrow SSH transport/prerequisite acceptance and, only with every fresh gate and separate approval satisfied, one supervised live proof. No WebJob mechanism or additional compute is part of that path.
+The packaged synchronous hosted proof operation remains the fixed non-invoking remote boundary. The prior SSH acceptance stopped before Azure or SSH because the runbook lacked a compliant tunnel owner, prerequisite probes, and reaping contract. The repository now has an offline-tested one-tunnel lifecycle and corrected procedure. Live SSH transport remains unproven. The next separately frozen slice is the narrow SSH transport/prerequisite acceptance as a fresh supervised SSH transport acceptance using the corrected runbook; managed-identity metadata access and Agent invocation require a later slice.
 
 ## Current Slice Status
 
 - `src/app/services/hosted_foundry_agent_proof.py` composes the existing hosted metadata verifier and fixed-fictional invocation boundary in one exact-type, exact-boolean, fail-closed sequence. `src/app/operations/prove_hosted_foundry_agent.py` is included by the ordinary `src` package allowlist, and `scripts/run_hosted_foundry_agent_proof.py` validates the fixed future command without subprocess, SSH, credential, Azure, metadata, or Agent activity. Check mode is deterministic and sanitized. Live mode is implemented but has not run.
-- The selected future transport is operator-supervised direct App Service SSH to the existing Linux application container. The proof has no route, persistence, notification, deterministic-rule, arbitrary-input, alternate-credential, retry, polling, WebJob, Kudu command, or additional-compute surface. The checked-in prerequisite runbook owns the future supervised gate.
-Architecture impact: updated the existing hosted Foundry execution sections because the repository now contains a packaged synchronous proof operation intended for operator-supervised direct execution inside the existing Linux App Service container, while live managed-identity proof remains pending and the WebJob trigger-and-correlation mechanism remains retired.
+- `HostedFoundryAgentSshTransport` and its wrapper now own one fixed `create-remote-connection` process, bounded readiness observation, three approvals, exactly two `APP_PATH` probes and one packaged check, private output and host-key handling, and guaranteed interrupt/terminate/kill reaping. Check mode is deterministic and constructs no subprocess, socket, SSH client, credential, or Azure runner. No live tunnel or remote command ran, and the WebJob trigger-and-correlation mechanism remains retired.
+Architecture impact: updated the existing hosted Foundry execution section because the SSH candidate now has a repository-owned single-tunnel lifecycle, exact APP_PATH-based prerequisite probes, and guaranteed termination/reaping, while live SSH transport and managed-identity execution remain unproven.
 - The blocked application-output adapter slice exposed a canonical representation mismatch: invalid Agent fallback output could safely contain `Unknown`, while the candidate contract required a fabricated binary urgency. The canonical evaluator now keeps expected advisory, final, and deterministic-rule labels binary while allowing only application-consistent `Unknown` urgency states on contract-invalid observed candidates. `Unknown` remains an ordinary advisory/final mismatch; deterministic-rule agreement and mandatory nurse review remain scoreable. No adapter was implemented in this correction.
 - Verification for the canonical correction is 50 focused evaluator/CLI tests, 38 documentation guardrails, and 2,814 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. Python compilation, CLI JSON validation, repeated-run determinism, and diff checks also pass.
 - The offline evaluation baseline continues to score contract validity, structured-field exact matches, symptom precision/recall/F1, missing-field recall, advisory and final urgency accuracy, deterministic-rule agreement, and the nurse-review invariant. Invalid candidates remain isolated per case, zero denominators return `0.0`, results sort by case ID, and the CLI emits one deterministic sanitized JSON document. The baseline remains provider-neutral, fixture-driven, exact-match only, and offline; it is not a live Foundry run, model-as-judge evaluation, subjective clinical-quality score, or clinical validation.

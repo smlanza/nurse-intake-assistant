@@ -584,17 +584,17 @@ def test_hosted_foundry_ssh_proof_is_documented_as_offline_packaged_boundary() -
     _assert_contains_all(
         runbook,
         {
-            "daily_environment_ready=true",
-            "current application artifact equality",
+            "current application artifact proven equal",
             "direct project-scoped foundry agent consumer assignment",
-            "ordinary package contains the exact proof operation",
-            "explicit operator approval before opening",
-            "non-invoking remote check",
-            "exactly one synchronous execution",
-            "python -m src.app.operations.prove_hosted_foundry_agent --live --json",
+            "repository wrapper owns the one tunnel process",
+            "three separate approval gates",
+            "interpreter/runtime-root probe",
+            "packaged-module probe",
+            "packaged non-invoking check",
+            "python -m src.app.operations.prove_hosted_foundry_agent --check --json",
             "stop immediately",
-            "kudu `/api/command`",
-            "no patient data",
+            "kudu command",
+            "clinical content",
         },
     )
 
@@ -903,7 +903,10 @@ def test_completed_foundry_and_speech_paths_are_not_deferred_or_recommended() ->
     assert "docs/foundry-prompt-schema-evaluation.md" in mapping
     assert "packaged synchronous hosted proof operation" in progress_next
     assert "narrow ssh transport/prerequisite acceptance" in progress_next
-    assert "one supervised live proof" in progress_next
+    assert "fresh supervised ssh transport acceptance" in progress_next
+    assert "managed-identity metadata access and agent invocation require a later slice" in (
+        progress_next
+    )
     assert "structured-extraction smoke" not in progress_next
     assert "foundry agent smoke" not in progress_next
     assert "hosted managed-identity execution remains unproven" in mapping.casefold()
@@ -1301,6 +1304,66 @@ def test_hosted_foundry_verification_runbook_enforces_prerequisite_gate() -> Non
         "az webapp ssh",
     }:
         assert unauthorized_command not in runbook
+
+
+def test_hosted_foundry_ssh_transport_contract_is_owned_and_still_unproven() -> None:
+    runbook = _normalized(
+        _read("docs/runbooks/live-hosted-foundry-agent-ssh-prerequisites.md")
+    )
+    architecture = _normalized(_read("docs/architecture.md"))
+    progress = _normalized(_read("docs/progress.md"))
+    mapping = _normalized(_read("docs/ai-103-mapping.md"))
+
+    _assert_contains_all(
+        runbook.casefold(),
+        {
+            "az webapp create-remote-connection",
+            "repository wrapper owns the one tunnel process",
+            "bounded readiness observations",
+            "owned child's readiness evidence",
+            "app_path",
+            "interpreter/runtime-root probe",
+            "packaged-module probe",
+            "python -m src.app.operations.prove_hosted_foundry_agent --check --json",
+            "exactly three permitted remote commands",
+            "terminated and reaped",
+            "resolved module and entry-point origins",
+            "does not return after kill until the child has been reaped",
+            "`az webapp ssh` is prohibited",
+            "no tunnel restart",
+            "live ssh transport remains unproven",
+            "webjob trigger-and-correlation mechanism remains retired",
+        },
+    )
+    _assert_contains_all(
+        architecture.casefold(),
+        {
+            "hostedfoundryagentsshtransport",
+            "create-remote-connection",
+            "one tunnel process",
+            "app_path",
+            "two fixed prerequisite probes",
+            "live ssh remains unproven",
+            "webjob trigger-and-correlation mechanism remains retired",
+        },
+    )
+    _assert_contains_all(
+        progress.casefold(),
+        {
+            "stopped before azure or ssh",
+            "offline-tested one-tunnel lifecycle",
+            "live ssh transport remains unproven",
+            "fresh supervised ssh transport acceptance",
+        },
+    )
+    _assert_contains_all(
+        mapping.casefold(),
+        {
+            "ssh transport lifecycle and probes are offline-tested",
+            "direct ssh transport remains unproven live",
+            "application-integrated foundry execution remains separately live-proven",
+        },
+    )
 
 
 def test_blocked_trigger_reconciliation_is_a_separate_read_only_boundary() -> None:

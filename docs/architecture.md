@@ -51,6 +51,7 @@ Browser or API client
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
 | `HostedFoundryAgentProof` | Packaged synchronous combined proof operation that composes the existing metadata verification and fixed-fictional invocation boundaries with exact result validation; direct operator-supervised App Service SSH is the selected future transport |
+| `HostedFoundryAgentSshTransport` | Offline-tested transport lifecycle for one tunnel process created through `create-remote-connection`, bounded readiness, two fixed `APP_PATH` probes, one packaged check, private output handling, and guaranteed termination/reaping |
 | Speech transcription services | Mock transcript handling remains the default; the opt-in Azure service uses a lazy SDK adapter with injected-fake tests, in-memory audio input, application-owned normalized outcomes, and sanitized failures. The standalone provider boundary is live-proven for one repository-owned fixed-fictional WAV through the production factory, service, and adapter, isolated from routes and side effects |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
@@ -766,11 +767,18 @@ The operation is selected by the ordinary application package's existing
 exposed through an application route and has no persistence, notification,
 case-processing, deterministic-rule, arbitrary-input, or Azure-mutation path.
 Operator-supervised direct App Service SSH to the existing Linux application
-container is the selected future execution transport. The repository does not
-automate the tunnel or interpreter discovery, and no additional compute
-resource, Kudu command mechanism, or HTTP proof endpoint is part of the current
-architecture. No live SSH, managed-identity metadata access, or hosted Agent
-invocation is proven by this offline implementation.
+container remains the selected future execution transport.
+`HostedFoundryAgentSshTransport` owns exactly one
+`az webapp create-remote-connection` process with a fixed loopback boundary,
+one deadline, bounded readiness observation, private raw-output capture, and
+interrupt/terminate/kill shutdown followed by reaping. It permits only two
+fixed prerequisite probes and one packaged non-invoking check. Both probes use
+the active Oryx application root only through `APP_PATH`; no fixed deployment
+path or filesystem search is permitted. The preview `az webapp ssh` mechanism
+is unsupported. No additional compute resource, Kudu command execution, or HTTP
+proof endpoint is part of this boundary. Live SSH remains unproven, as do managed-identity
+metadata access and hosted Agent invocation. The WebJob trigger-and-correlation
+mechanism remains retired.
 
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
@@ -869,8 +877,9 @@ invocation remain outside the coordinator; their false result fields mean they
 were not part of the coordinator run. Consumer RBAC remains optional. The
 current WebJob execution path is retired, and metadata verification and
 invocation remain unproven. The supported candidate is the packaged synchronous
-proof operation under separately approved operator-supervised direct App
-Service SSH; the WebJob trigger-and-correlation mechanism remains retired.
+proof operation behind the owned one-process SSH transport lifecycle and its
+separate approvals; the WebJob trigger-and-correlation mechanism remains
+retired.
 Hosted defaults remain mock-only with
 notifications suppressed. Code deployment does not provision infrastructure,
 and human nurse review remains mandatory for every fictional result. The
