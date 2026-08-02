@@ -170,6 +170,37 @@ def _azure_deleted(
     return record
 
 
+def _deleted_speech(
+    name: str = "nurse-intake-speech-20990101",
+    *,
+    resource_group: str = "fictional-daily-rg",
+    location: str = "eastus2",
+    subscription_id: str = SUBSCRIPTION_ID,
+    tags: object = None,
+) -> dict[str, object]:
+    return {
+        "id": (
+            f"/subscriptions/{subscription_id}/providers/"
+            f"Microsoft.CognitiveServices/locations/{location}/resourceGroups/"
+            f"{resource_group}/deletedAccounts/{name}"
+        ),
+        "name": name,
+        "resourceGroup": resource_group,
+        "location": location,
+        "subscriptionId": subscription_id,
+        "kind": "SpeechServices",
+        "type": "Microsoft.CognitiveServices/deletedAccounts",
+        "tags": (
+            {
+                "purpose": "nurse-intake-speech",
+                "environment": "capstone",
+            }
+            if tags is None
+            else tags
+        ),
+    }
+
+
 def _without(
     record: dict[str, object],
     field: str,
@@ -239,7 +270,265 @@ def test_absent_group_and_no_tombstones_is_already_clean(tmp_path: Path) -> None
     assert result.daily_environment_clean is True
     assert result.resource_group_absent is True
     assert result.foundry_tombstones_absent is True
+    assert result.speech_tombstones_absent is True
+    assert result.soft_deleted_speech_account_count == 0
     assert all("delete" not in call and "purge" not in call for call in runner.calls)
+
+
+def test_mixed_foundry_and_speech_tombstones_are_classified_independently(
+    tmp_path: Path,
+) -> None:
+    runner = ScriptedRunner(
+        _inspection(deleted=[_deleted(), _deleted_speech()])
+    )
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.category == "cleanup_required"
+    assert result.soft_deleted_foundry_account_count == 1
+    assert result.soft_deleted_speech_account_count == 1
+    assert result.foundry_purge_required is True
+    assert result.speech_purge_required is True
+    assert result.manual_review_required is False
+    deleted_query = next(call for call in runner.calls if "list-deleted" in call)
+    assert "tags:tags" in deleted_query[deleted_query.index("--query") + 1]
+
+
+def test_owned_speech_tombstone_requires_cleanup(tmp_path: Path) -> None:
+    runner = ScriptedRunner(_inspection(deleted=[_deleted_speech()]))
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.category == "cleanup_required"
+    assert result.soft_deleted_speech_accounts_found is True
+    assert result.soft_deleted_speech_account_count == 1
+    assert result.speech_purge_required is True
+    assert result.speech_tombstones_absent is False
+    assert result.daily_environment_clean is False
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {**_deleted_speech(), "tags": {}},
+        {**_deleted_speech(), "tags": {"purpose": "different"}},
+        {**_deleted_speech(), "id": "not-an-arm-id"},
+        {**_deleted_speech(), "tags": 7},
+    ],
+)
+def test_near_matching_or_malformed_speech_tombstone_fails_closed(
+    tmp_path: Path,
+    record: dict[str, object],
+) -> None:
+    runner = ScriptedRunner(_inspection(deleted=[record]))
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: pytest.fail("ambiguous evidence prompted"),
+    )
+
+    assert result.ok is False
+    assert result.category == "deleted_speech_account_ambiguous"
+    assert result.manual_review_required is True
+    assert result.azure_mutation_made is False
+    assert not any("purge" in call for call in runner.calls)
+
+
+def test_clearly_unrelated_speech_record_is_ignored_without_poisoning_foundry(
+    tmp_path: Path,
+) -> None:
+    unrelated = _deleted_speech(
+        "fictional-transcription-account",
+        resource_group="unrelated-rg",
+        location="westus2",
+        tags={"purpose": "unrelated", "environment": "test"},
+    )
+    runner = ScriptedRunner(_inspection(deleted=[_deleted(), unrelated]))
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is True
+    assert result.soft_deleted_foundry_account_count == 1
+    assert result.soft_deleted_speech_account_count == 0
+    assert result.speech_tombstones_absent is True
+
+
+def test_speech_cleanup_denied_makes_no_mutation(tmp_path: Path) -> None:
+    runner = ScriptedRunner(_inspection(deleted=[_deleted_speech()]))
+    summaries = []
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda summary: summaries.append(summary) or False,
+    )
+
+    assert result.category == "cleanup_approval_declined"
+    assert result.cleanup_attempted is False
+    assert result.speech_purge_attempted is False
+    assert result.azure_mutation_made is False
+    assert len(summaries) == 1
+    assert summaries[0].soft_deleted_speech_account_count == 1
+    assert summaries[0].speech_purge_required is True
+    assert not any("purge" in call for call in runner.calls)
+
+
+def test_changed_speech_ownership_evidence_invalidates_approval(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_speech()
+    changed = {
+        **tombstone,
+        "tags": {
+            "purpose": "nurse-intake-speech",
+            "environment": "different",
+        },
+    }
+    runner = ScriptedRunner(
+        _inspection(deleted=[tombstone])
+        + _inspection(deleted=[changed], include_account=False)
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is False
+    assert result.category == "cleanup_evidence_changed"
+    assert result.cleanup_attempted is False
+    assert result.azure_mutation_made is False
+    assert not any("purge" in call for call in runner.calls)
+
+
+def test_contradictory_duplicate_speech_identity_fails_closed(
+    tmp_path: Path,
+) -> None:
+    owned = _deleted_speech()
+    contradictory = _deleted_speech(resource_group="unrelated-rg")
+    runner = ScriptedRunner(_inspection(deleted=[owned, contradictory]))
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.END_OF_DAY)
+
+    assert result.ok is False
+    assert result.category == "deleted_speech_account_ambiguous"
+    assert result.manual_review_required is True
+    assert result.speech_tombstones_absent is False
+    assert result.azure_mutation_made is False
+
+
+def test_multiple_speech_tombstones_are_bound_purged_once_and_sanitized(
+    tmp_path: Path,
+) -> None:
+    first = _deleted_speech("nurse-intake-speech-20990101")
+    second = _deleted_speech("nurse-intake-speech-20990102")
+    unrelated = _deleted_speech(
+        "fictional-speech",
+        resource_group="unrelated-rg",
+        tags={"purpose": "unrelated", "environment": "test"},
+    )
+    inspected = _inspection(
+        deleted=[second, unrelated, first],
+        include_account=False,
+    )
+    runner = ScriptedRunner(
+        [_account()]
+        + inspected
+        + inspected
+        + [
+            _ok([]),
+            _ok([second, unrelated, first]),
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([unrelated]),
+        ]
+    )
+    summaries = []
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda summary: summaries.append(summary) or True,
+    )
+
+    assert result.ok is True
+    assert result.category == "cleanup_completed"
+    assert result.speech_purge_attempted is True
+    assert result.speech_tombstones_absent is True
+    assert result.daily_environment_clean is True
+    assert len(summaries) == 1
+    assert summaries[0].soft_deleted_speech_account_count == 2
+    purge_calls = [call for call in runner.calls if "purge" in call]
+    assert [call[call.index("--name") + 1] for call in purge_calls] == [
+        "nurse-intake-speech-20990101",
+        "nurse-intake-speech-20990102",
+    ]
+    serialized = json.dumps(result.to_json_dict(), sort_keys=True)
+    assert "nurse-intake-speech-" not in serialized
+    assert "fictional-daily-rg" not in serialized
+
+
+def test_cleanup_fails_final_verification_when_speech_tombstone_remains(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_speech()
+    inspected = _inspection(deleted=[tombstone], include_account=False)
+    runner = ScriptedRunner(
+        [_account()]
+        + inspected
+        + inspected
+        + [
+            _ok([]),
+            _ok([tombstone]),
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([tombstone]),
+        ]
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is False
+    assert result.category == "speech_tombstone_still_present"
+    assert result.speech_purge_attempted is True
+    assert result.daily_environment_clean is False
+
+
+def test_malformed_speech_purge_result_fails_closed(tmp_path: Path) -> None:
+    tombstone = _deleted_speech()
+    inspected = _inspection(deleted=[tombstone], include_account=False)
+    runner = ScriptedRunner(
+        [_account()]
+        + inspected
+        + inspected
+        + [
+            _ok([]),
+            _ok([tombstone]),
+            SimpleNamespace(return_code=0),
+        ]
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is False
+    assert result.category == "speech_purge_failed"
+    assert result.speech_purge_attempted is True
+    assert result.azure_mutation_made is None
 
 
 def test_healthy_owned_group_is_reusable_only_at_startup(tmp_path: Path) -> None:
@@ -262,7 +551,10 @@ def test_healthy_owned_group_is_reusable_only_at_startup(tmp_path: Path) -> None
 
     assert startup.category == "healthy_environment_reusable"
     assert startup.cleanup_required is False
-    assert startup.daily_environment_clean is True
+    assert startup.daily_environment_clean is False
+    assert startup.resource_group_absent is False
+    assert startup.foundry_tombstones_absent is True
+    assert startup.speech_tombstones_absent is True
     assert end.category == "cleanup_required"
     assert end.cleanup_required is True
     assert end.resource_group_deletion_required is True
@@ -887,7 +1179,8 @@ def test_startup_purges_blocker_without_deleting_healthy_owned_group(
     assert result.resource_group_delete_attempted is False
     assert result.resource_group_absent is False
     assert result.foundry_tombstones_absent is True
-    assert result.daily_environment_clean is True
+    assert result.speech_tombstones_absent is True
+    assert result.daily_environment_clean is False
     assert not any(
         call[:3] == ["az", "group", "delete"] for call in runner.calls
     )
@@ -929,6 +1222,41 @@ def test_startup_cleanup_purges_null_group_tombstone_and_returns_clean_proof(
     assert result.cleanup_approved is True
     assert result.foundry_purge_attempted is True
     assert result.foundry_tombstones_absent is True
+    assert result.speech_tombstones_absent is True
+    assert result.daily_environment_clean is False
+    assert sum("purge" in call for call in runner.calls) == 1
+
+
+def test_startup_cleanup_blocks_until_speech_tombstone_is_purged_and_absent(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_speech()
+    inspected = _inspection(deleted=[tombstone], include_account=False)
+    runner = ScriptedRunner(
+        inspected
+        + inspected
+        + [
+            _ok([]),
+            _ok([tombstone]),
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([]),
+        ]
+    )
+
+    result = _service(tmp_path, runner).startup_preflight(
+        runner,
+        _verified_account(),
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is True
+    assert result.category == "cleanup_completed"
+    assert result.resource_group_absent is True
+    assert result.speech_purge_required is True
+    assert result.speech_purge_attempted is True
+    assert result.speech_tombstones_absent is True
     assert result.daily_environment_clean is True
     assert sum("purge" in call for call in runner.calls) == 1
 

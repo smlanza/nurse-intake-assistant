@@ -102,6 +102,16 @@ def prompt_for_cleanup_approval(
             file=destination,
         )
         print(
+            "Matching soft-deleted Speech accounts: "
+            f"{summary.soft_deleted_speech_account_count}",
+            file=destination,
+        )
+        print(
+            "Speech purge required: "
+            + ("yes" if summary.speech_purge_required else "no"),
+            file=destination,
+        )
+        print(
             "Healthy reusable environment: "
             + ("yes" if summary.healthy_reusable_environment else "no"),
             file=destination,

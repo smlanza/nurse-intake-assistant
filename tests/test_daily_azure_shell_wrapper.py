@@ -143,6 +143,9 @@ def test_stop_uses_default_no_destructive_cleanup_without_bypass(
         ),
     ]
     _assert_json_pipeline_count(log, 1)
+    source = WRAPPER.read_text()
+    assert "SpeechServices" not in source
+    assert "nurse-intake-speech" not in source
 
 
 def test_check_runs_cleanup_then_rebuild_offline_contracts(

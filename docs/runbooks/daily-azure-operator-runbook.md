@@ -100,7 +100,10 @@ scripts/daily_azure.sh start
 `start` reruns the offline rebuild contract, verifies the current account, and
 performs the authoritative startup cleanup preflight. It either safely reuses
 the exact healthy repository-owned environment or guides a fresh disposable
-build. Do not run destructive cleanup before `start`.
+build. The preflight independently inspects bounded repository-owned Foundry
+`AIServices` and Speech `SpeechServices` tombstones; when either remains, it
+requires the existing explicit approval and final absence proof before any
+resource-group creation. Do not run destructive cleanup before `start`.
 
 Review every sanitized summary. The default, EOF, malformed input, or `n`
 declines that stage. Approval is current-run and evidence-bound; never infer
@@ -262,8 +265,10 @@ scripts/daily_azure.sh stop
 
 Review the sanitized plan and approve only the exact configured disposable
 environment. Cleanup reinspects after approval, synchronously deletes the
-owned resource group when present, purges only conclusively matching Foundry
-tombstones, and performs final read-only reconciliation.
+owned resource group when present, purges only independently and conclusively
+owned bounded Foundry `AIServices` and Speech `SpeechServices` tombstones, and
+performs final read-only reconciliation. Conclusively unrelated records are
+ignored; ambiguous or near-matching records fail closed for manual review.
 
 Success is either `category=cleanup_completed` or `category=already_clean` and
 must include the implementation's final-absence proof:
@@ -274,6 +279,7 @@ account_verified=true
 inspection_completed=true
 resource_group_absent=true
 foundry_tombstones_absent=true
+speech_tombstones_absent=true
 daily_environment_clean=true
 ```
 
@@ -298,7 +304,7 @@ before the next workday.
 | `.venv/bin/python scripts/prepare_hosted_foundry_agent_webjob_handoff.py --live ...` | Projected Azure reads plus one private immutable local handoff write | Current READY receipt, hosted artifact, Web App identity, Foundry project, and environment generation are bound together | RBAC, WebJob discovery, trigger, execution, metadata, or invocation |
 | `.venv/bin/python scripts/run_hosted_foundry_agent_verification.py --live-discover ...` | One authenticated read-only fixed-resource Kudu GET | The exact fixed triggered WebJob name and `run.py` command are registered | Trigger acceptance, execution, status, metadata, or invocation |
 | Retired `--live-trigger`, `--live-reconcile-blocked-trigger`, and `--live-status` modes | Former trigger and correlation reads; unsupported for current operations | No supported current proof; preserved only as retired implementation evidence | Any reliable capstone claim for correlated execution, managed-identity metadata access, invocation, or inference |
-| `scripts/daily_azure.sh stop` | May delete the exact owned group and purge matching tombstones after default-no approval | Final resource-group and matching Foundry-tombstone absence | A future session's readiness or any retained live proof |
+| `scripts/daily_azure.sh stop` | May delete the exact owned group and purge bounded owned Foundry and Speech tombstones after default-no approval | Final resource-group, Foundry-tombstone, and Speech-tombstone absence | A future session's readiness or any retained live proof |
 
 ## Exceptional immutable WebJob evidence recovery
 
@@ -413,4 +419,5 @@ scripts/daily_azure.sh stop
 ```
 
 Require `resource_group_absent=true`,
-`foundry_tombstones_absent=true`, and `daily_environment_clean=true`.
+`foundry_tombstones_absent=true`, `speech_tombstones_absent=true`, and
+`daily_environment_clean=true`.

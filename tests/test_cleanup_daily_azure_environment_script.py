@@ -122,7 +122,16 @@ def test_inspect_mode_never_receives_an_approver(monkeypatch, capsys) -> None:
         )
         == 0
     )
-    assert json.loads(capsys.readouterr().out)["category"] == "already_clean"
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert payload["category"] == "already_clean"
+    assert payload["speech_tombstones_absent"] is True
+    assert payload["soft_deleted_speech_account_count"] == 0
+    assert payload["soft_deleted_speech_accounts_found"] is False
+    assert payload["speech_purge_required"] is False
+    assert payload["speech_purge_attempted"] is False
+    assert output.endswith("\n")
+    assert len(output.splitlines()) == 1
 
 
 @pytest.mark.parametrize("response", ("", "\n", "n\n", "maybe\n"))
@@ -174,6 +183,8 @@ def test_cleanup_cli_uses_one_prompt_and_sanitized_json(
                 soft_deleted_foundry_account_count=0,
                 foundry_purge_required=True,
                 healthy_reusable_environment=False,
+                soft_deleted_speech_account_count=1,
+                speech_purge_required=True,
             )
             assert approver(summary) is True
             return CleanupResult.cleanup_completed(purpose)
@@ -197,7 +208,14 @@ def test_cleanup_cli_uses_one_prompt_and_sanitized_json(
     assert payload["category"] == "cleanup_completed"
     assert payload["resource_group_absent"] is True
     assert payload["foundry_tombstones_absent"] is True
+    assert payload["speech_tombstones_absent"] is True
+    assert payload["soft_deleted_speech_account_count"] == 0
+    assert payload["soft_deleted_speech_accounts_found"] is False
+    assert payload["speech_purge_required"] is True
+    assert payload["speech_purge_attempted"] is True
     assert output.err.count("Proceed? [y/N]") == 1
+    assert "Matching soft-deleted Speech accounts: 1" in output.err
+    assert "Speech purge required: no" not in output.err
     assert "fictional-daily-rg" not in output.out
 
 

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import time
 from typing import Callable, Protocol
 from uuid import UUID
@@ -20,6 +21,10 @@ from src.app.services.daily_azure_environment_rebuild import (
 
 CLEANUP_OPERATION = "cleanup_daily_azure_environment"
 _SUPPORTED_FOUNDRY_KINDS = frozenset({"AIServices", "OpenAI"})
+_SPEECH_KIND = "SpeechServices"
+_SPEECH_NAME_PATTERN = re.compile(r"nurse-intake-speech-[0-9]{8}")
+_SPEECH_PURPOSE = "nurse-intake-speech"
+_SPEECH_ENVIRONMENT = "capstone"
 _COGNITIVE_ACCOUNT_TYPE = "Microsoft.CognitiveServices/accounts"
 _COGNITIVE_DELETED_ACCOUNT_TYPE = (
     "Microsoft.CognitiveServices/deletedAccounts"
@@ -76,6 +81,8 @@ class CleanupApprovalSummary:
     soft_deleted_foundry_account_count: int
     foundry_purge_required: bool
     healthy_reusable_environment: bool
+    soft_deleted_speech_account_count: int = 0
+    speech_purge_required: bool = False
 
     @property
     def manual_review_required(self) -> bool:
@@ -86,6 +93,7 @@ class CleanupApprovalSummary:
         return (
             self.resource_group_deletion_required
             or self.foundry_purge_required
+            or self.speech_purge_required
         )
 
 
@@ -109,6 +117,11 @@ class CleanupResult:
     foundry_purge_required: bool = False
     foundry_purge_attempted: bool = False
     foundry_tombstones_absent: bool = False
+    speech_tombstones_absent: bool = False
+    soft_deleted_speech_account_count: int = 0
+    soft_deleted_speech_accounts_found: bool = False
+    speech_purge_required: bool = False
+    speech_purge_attempted: bool = False
     active_name_conflict_found: bool = False
     manual_review_required: bool = False
     daily_environment_clean: bool = False
@@ -141,6 +154,7 @@ class CleanupResult:
             inspection_completed=True,
             resource_group_absent=True,
             foundry_tombstones_absent=True,
+            speech_tombstones_absent=True,
             daily_environment_clean=True,
             next_step="No cleanup action is required.",
         )
@@ -163,9 +177,12 @@ class CleanupResult:
             foundry_purge_required=True,
             foundry_purge_attempted=True,
             foundry_tombstones_absent=True,
+            speech_tombstones_absent=True,
+            speech_purge_required=True,
+            speech_purge_attempted=True,
             daily_environment_clean=True,
             azure_mutation_made=True,
-            next_step="The configured disposable Azure environment is absent.",
+            next_step="The approved cleanup completed and final state was verified.",
         )
 
     def to_json_dict(self) -> dict[str, object]:
@@ -197,6 +214,15 @@ class CleanupResult:
             "foundry_purge_required": self.foundry_purge_required,
             "foundry_purge_attempted": self.foundry_purge_attempted,
             "foundry_tombstones_absent": self.foundry_tombstones_absent,
+            "speech_tombstones_absent": self.speech_tombstones_absent,
+            "soft_deleted_speech_account_count": (
+                self.soft_deleted_speech_account_count
+            ),
+            "soft_deleted_speech_accounts_found": (
+                self.soft_deleted_speech_accounts_found
+            ),
+            "speech_purge_required": self.speech_purge_required,
+            "speech_purge_attempted": self.speech_purge_attempted,
             "active_name_conflict_found": self.active_name_conflict_found,
             "manual_review_required": self.manual_review_required,
             "daily_environment_clean": self.daily_environment_clean,
@@ -226,6 +252,19 @@ class _FoundryAccountEvidence:
 
 
 @dataclass(frozen=True, repr=False)
+class _SpeechAccountEvidence:
+    resource_id: str
+    name: str
+    resource_group: str
+    location: str
+    subscription_id: str
+    kind: str
+    resource_type: str
+    purpose_tag: str | None
+    environment_tag: str | None
+
+
+@dataclass(frozen=True, repr=False)
 class _CleanupPlan:
     purpose: CleanupPurpose
     account: VerifiedAzureAccount
@@ -233,6 +272,7 @@ class _CleanupPlan:
     delete_resource_group: bool
     active_owned_accounts: tuple[_FoundryAccountEvidence, ...]
     deleted_accounts: tuple[_FoundryAccountEvidence, ...]
+    deleted_speech_accounts: tuple[_SpeechAccountEvidence, ...]
 
     @property
     def resource_group_deletion_required(self) -> bool:
@@ -243,6 +283,10 @@ class _CleanupPlan:
         return bool(self.deleted_accounts or self.active_owned_accounts)
 
     @property
+    def speech_purge_required(self) -> bool:
+        return bool(self.deleted_speech_accounts)
+
+    @property
     def approved_account_names(self) -> frozenset[str]:
         return frozenset(
             evidence.name
@@ -250,6 +294,12 @@ class _CleanupPlan:
                 *self.active_owned_accounts,
                 *self.deleted_accounts,
             )
+        )
+
+    @property
+    def approved_speech_account_names(self) -> frozenset[str]:
+        return frozenset(
+            evidence.name for evidence in self.deleted_speech_accounts
         )
 
 
@@ -481,7 +531,7 @@ class DailyAzureEnvironmentCleanup:
                     ),
                 )
             )
-        active_owned, deleted = accounts
+        active_owned, deleted, deleted_speech = accounts
         plan = _CleanupPlan(
             purpose=purpose,
             account=account,
@@ -496,6 +546,7 @@ class DailyAzureEnvironmentCleanup:
             ),
             active_owned_accounts=active_owned,
             deleted_accounts=deleted,
+            deleted_speech_accounts=deleted_speech,
         )
         if group is None and active_owned:
             return _Inspection(
@@ -511,6 +562,7 @@ class DailyAzureEnvironmentCleanup:
             group is not None
             and group.provisioning_state == _REUSABLE_RESOURCE_GROUP_STATE
             and not deleted
+            and not deleted_speech
         )
         if (
             group is not None
@@ -533,6 +585,7 @@ class DailyAzureEnvironmentCleanup:
             )
         cleanup_required = bool(
             deleted
+            or deleted_speech
             or (
                 group is not None
                 and (
@@ -555,7 +608,8 @@ class DailyAzureEnvironmentCleanup:
                         resource_group_owned=True,
                         resource_group_absent=False,
                         foundry_tombstones_absent=True,
-                        daily_environment_clean=True,
+                        speech_tombstones_absent=True,
+                        daily_environment_clean=False,
                         next_step=(
                             "Continue through the verified environment reuse path."
                         ),
@@ -583,6 +637,10 @@ class DailyAzureEnvironmentCleanup:
             soft_deleted_foundry_account_count=len(deleted),
             foundry_purge_required=plan.foundry_purge_required,
             foundry_tombstones_absent=not deleted,
+            speech_tombstones_absent=not deleted_speech,
+            soft_deleted_speech_account_count=len(deleted_speech),
+            soft_deleted_speech_accounts_found=bool(deleted_speech),
+            speech_purge_required=plan.speech_purge_required,
             next_step=(
                 "Review the current sanitized cleanup summary; approval defaults to no."
             ),
@@ -610,6 +668,10 @@ class DailyAzureEnvironmentCleanup:
             soft_deleted_foundry_account_count=len(plan.deleted_accounts),
             foundry_purge_required=plan.foundry_purge_required,
             healthy_reusable_environment=False,
+            soft_deleted_speech_account_count=(
+                len(plan.deleted_speech_accounts)
+            ),
+            speech_purge_required=plan.speech_purge_required,
         )
         approvals = _ApprovalSession(
             environment_binding=self._environment_binding(),
@@ -710,7 +772,7 @@ class DailyAzureEnvironmentCleanup:
                 resource_group_delete_attempted=delete_attempted,
                 azure_mutation_made=mutation_made,
             )
-        active_after, deleted_after = post_accounts
+        active_after, deleted_after, deleted_speech_after = post_accounts
         if (
             plan.resource_group_deletion_required
             and active_after
@@ -749,9 +811,22 @@ class DailyAzureEnvironmentCleanup:
                 resource_group_delete_attempted=delete_attempted,
                 azure_mutation_made=mutation_made,
             )
-        purge_attempted = False
+        if any(
+            evidence.name not in plan.approved_speech_account_names
+            for evidence in deleted_speech_after
+        ):
+            return replace(
+                inspection.result,
+                ok=False,
+                category="cleanup_evidence_changed",
+                cleanup_approved=True,
+                cleanup_attempted=delete_attempted,
+                resource_group_delete_attempted=delete_attempted,
+                azure_mutation_made=mutation_made,
+            )
+        foundry_purge_attempted = False
         for evidence in sorted(deleted_after, key=lambda item: item.name):
-            purge_attempted = True
+            foundry_purge_attempted = True
             purged = runner.run(
                 [
                     "az",
@@ -779,6 +854,48 @@ class DailyAzureEnvironmentCleanup:
                     azure_mutation_made=None,
                 )
             mutation_made = True
+        speech_purge_attempted = False
+        for evidence in sorted(
+            deleted_speech_after,
+            key=lambda item: item.name,
+        ):
+            speech_purge_attempted = True
+            purged = runner.run(
+                [
+                    "az",
+                    "cognitiveservices",
+                    "account",
+                    "purge",
+                    "--name",
+                    evidence.name,
+                    "--resource-group",
+                    evidence.resource_group,
+                    "--location",
+                    evidence.location,
+                    "--only-show-errors",
+                ]
+            )
+            if (
+                not isinstance(purged, CleanupCommandResult)
+                or type(purged.return_code) is not int
+                or purged.return_code != 0
+                or not isinstance(purged.stdout, str)
+                or not isinstance(purged.stderr, str)
+                or type(purged.timed_out) is not bool
+                or purged.timed_out
+            ):
+                return replace(
+                    inspection.result,
+                    ok=False,
+                    category="speech_purge_failed",
+                    cleanup_approved=True,
+                    cleanup_attempted=True,
+                    resource_group_delete_attempted=delete_attempted,
+                    foundry_purge_attempted=foundry_purge_attempted,
+                    speech_purge_attempted=True,
+                    azure_mutation_made=None,
+                )
+            mutation_made = True
         final = self._inspect(runner, purpose, account)
         if not final.result.ok:
             return replace(
@@ -788,7 +905,8 @@ class DailyAzureEnvironmentCleanup:
                 cleanup_approved=True,
                 cleanup_attempted=True,
                 resource_group_delete_attempted=delete_attempted,
-                foundry_purge_attempted=purge_attempted,
+                foundry_purge_attempted=foundry_purge_attempted,
+                speech_purge_attempted=speech_purge_attempted,
                 azure_mutation_made=mutation_made,
             )
         if (
@@ -802,7 +920,8 @@ class DailyAzureEnvironmentCleanup:
                 cleanup_approved=True,
                 cleanup_attempted=True,
                 resource_group_delete_attempted=delete_attempted,
-                foundry_purge_attempted=purge_attempted,
+                foundry_purge_attempted=foundry_purge_attempted,
+                speech_purge_attempted=speech_purge_attempted,
                 azure_mutation_made=mutation_made,
             )
         if not final.result.foundry_tombstones_absent:
@@ -813,7 +932,20 @@ class DailyAzureEnvironmentCleanup:
                 cleanup_approved=True,
                 cleanup_attempted=True,
                 resource_group_delete_attempted=delete_attempted,
-                foundry_purge_attempted=purge_attempted,
+                foundry_purge_attempted=foundry_purge_attempted,
+                speech_purge_attempted=speech_purge_attempted,
+                azure_mutation_made=mutation_made,
+            )
+        if not final.result.speech_tombstones_absent:
+            return replace(
+                inspection.result,
+                ok=False,
+                category="speech_tombstone_still_present",
+                cleanup_approved=True,
+                cleanup_attempted=True,
+                resource_group_delete_attempted=delete_attempted,
+                foundry_purge_attempted=foundry_purge_attempted,
+                speech_purge_attempted=speech_purge_attempted,
                 azure_mutation_made=mutation_made,
             )
         expected_final_category = (
@@ -829,7 +961,8 @@ class DailyAzureEnvironmentCleanup:
                 category="cleanup_evidence_changed",
                 cleanup_approved=True,
                 cleanup_attempted=True,
-                foundry_purge_attempted=purge_attempted,
+                foundry_purge_attempted=foundry_purge_attempted,
+                speech_purge_attempted=speech_purge_attempted,
                 azure_mutation_made=mutation_made,
             )
         return CleanupResult(
@@ -847,7 +980,7 @@ class DailyAzureEnvironmentCleanup:
                 inspection.result.resource_group_deletion_required
             ),
             resource_group_delete_attempted=delete_attempted,
-            resource_group_absent=plan.resource_group_deletion_required,
+            resource_group_absent=final.result.resource_group_absent,
             soft_deleted_foundry_accounts_found=(
                 inspection.result.soft_deleted_foundry_accounts_found
             ),
@@ -855,11 +988,20 @@ class DailyAzureEnvironmentCleanup:
                 inspection.result.soft_deleted_foundry_account_count
             ),
             foundry_purge_required=inspection.result.foundry_purge_required,
-            foundry_purge_attempted=purge_attempted,
+            foundry_purge_attempted=foundry_purge_attempted,
             foundry_tombstones_absent=True,
-            daily_environment_clean=True,
+            speech_tombstones_absent=True,
+            soft_deleted_speech_account_count=(
+                inspection.result.soft_deleted_speech_account_count
+            ),
+            soft_deleted_speech_accounts_found=(
+                inspection.result.soft_deleted_speech_accounts_found
+            ),
+            speech_purge_required=inspection.result.speech_purge_required,
+            speech_purge_attempted=speech_purge_attempted,
+            daily_environment_clean=final.result.daily_environment_clean,
             azure_mutation_made=mutation_made,
-            next_step="The configured disposable Azure environment is absent.",
+            next_step="The approved cleanup completed and final state was verified.",
         )
 
     def _reconcile_resource_group_absence(
@@ -956,6 +1098,7 @@ class DailyAzureEnvironmentCleanup:
     ) -> tuple[
         tuple[_FoundryAccountEvidence, ...],
         tuple[_FoundryAccountEvidence, ...],
+        tuple[_SpeechAccountEvidence, ...],
     ] | str:
         active_outcome = runner.run(
             [
@@ -983,7 +1126,7 @@ class DailyAzureEnvironmentCleanup:
                 (
                     "[].{id:id,name:name,resourceGroup:resourceGroup,"
                     "location:location,subscriptionId:subscriptionId,"
-                    "kind:kind,type:type}"
+                    "kind:kind,type:type,tags:tags}"
                 ),
                 "--output",
                 "json",
@@ -1008,7 +1151,8 @@ class DailyAzureEnvironmentCleanup:
         deleted = self._select_deleted_accounts(deleted_payload, account)
         if isinstance(deleted, str):
             return deleted
-        return active, deleted
+        deleted_foundry, deleted_speech = deleted
+        return active, deleted_foundry, deleted_speech
 
     def _select_active_accounts(
         self,
@@ -1042,27 +1186,96 @@ class DailyAzureEnvironmentCleanup:
         self,
         records: list[object],
         account: VerifiedAzureAccount,
-    ) -> tuple[_FoundryAccountEvidence, ...] | str:
-        selected: list[_FoundryAccountEvidence] = []
+    ) -> tuple[
+        tuple[_FoundryAccountEvidence, ...],
+        tuple[_SpeechAccountEvidence, ...],
+    ] | str:
+        selected_foundry: list[_FoundryAccountEvidence] = []
+        selected_speech: list[_SpeechAccountEvidence] = []
+        seen_speech_names: set[str] = set()
         for record in records:
             if not isinstance(record, dict):
                 return "cleanup_inspection_failed"
+            kind = record.get("kind")
+            if kind == _SPEECH_KIND:
+                evidence = _deleted_speech_account_evidence(record)
+                if evidence is None:
+                    return "deleted_speech_account_ambiguous"
+                owned_speech = self._owned_speech_account(evidence, account)
+                near_owned_speech = self._near_owned_speech_account(
+                    evidence,
+                    account,
+                )
+                if _speech_evidence_appears_owned(evidence):
+                    if evidence.name in seen_speech_names:
+                        return "deleted_speech_account_ambiguous"
+                    seen_speech_names.add(evidence.name)
+                if owned_speech:
+                    selected_speech.append(evidence)
+                elif near_owned_speech:
+                    return "deleted_speech_account_ambiguous"
+                continue
+            if kind not in _SUPPORTED_FOUNDRY_KINDS:
+                if _record_appears_speech_owned(record):
+                    return "deleted_speech_account_ambiguous"
+                name = record.get("name")
+                if isinstance(name, str) and self._daily_foundry_name(name):
+                    return "deleted_foundry_account_ambiguous"
+                continue
             evidence = _deleted_account_evidence(record)
             if evidence is None:
                 return "deleted_foundry_account_ambiguous"
-            if not self._daily_foundry_name(evidence.name):
-                continue
-            if (
+            if self._daily_foundry_name(evidence.name) and (
                 evidence.subscription_id.casefold()
-                != account.subscription_id.casefold()
-                or evidence.resource_group != self.config.resource_group
-                or evidence.location != self.config.location
+                == account.subscription_id.casefold()
+                and evidence.resource_group == self.config.resource_group
+                and evidence.location == self.config.location
             ):
-                continue
-            selected.append(evidence)
-        if _duplicate_account_evidence(selected):
+                selected_foundry.append(evidence)
+        if _duplicate_account_evidence(selected_foundry):
             return "deleted_foundry_account_ambiguous"
-        return tuple(sorted(selected, key=lambda item: item.name))
+        return (
+            tuple(sorted(selected_foundry, key=lambda item: item.name)),
+            tuple(sorted(selected_speech, key=lambda item: item.name)),
+        )
+
+    def _owned_speech_account(
+        self,
+        evidence: _SpeechAccountEvidence,
+        account: VerifiedAzureAccount,
+    ) -> bool:
+        return bool(
+            evidence.subscription_id.casefold()
+            == account.subscription_id.casefold()
+            and evidence.resource_group == self.config.resource_group
+            and evidence.location == self.config.location
+            and _SPEECH_NAME_PATTERN.fullmatch(evidence.name)
+            and evidence.purpose_tag == _SPEECH_PURPOSE
+            and evidence.environment_tag == _SPEECH_ENVIRONMENT
+        )
+
+    def _near_owned_speech_account(
+        self,
+        evidence: _SpeechAccountEvidence,
+        account: VerifiedAzureAccount,
+    ) -> bool:
+        in_current_subscription = (
+            evidence.subscription_id.casefold()
+            == account.subscription_id.casefold()
+        )
+        configured_group = (
+            evidence.resource_group == self.config.resource_group
+        )
+        matching_name = bool(_SPEECH_NAME_PATTERN.fullmatch(evidence.name))
+        matching_tags = bool(
+            evidence.purpose_tag == _SPEECH_PURPOSE
+            and evidence.environment_tag == _SPEECH_ENVIRONMENT
+        )
+        return bool(
+            in_current_subscription
+            and configured_group
+            and (matching_name or matching_tags)
+        )
 
     def _daily_foundry_name(self, name: str) -> bool:
         return bool(
@@ -1083,6 +1296,10 @@ class DailyAzureEnvironmentCleanup:
                 "foundry_account_name": (
                     self.config.configured_foundry_account_name
                 ),
+                "speech_kind": _SPEECH_KIND,
+                "speech_name_pattern": _SPEECH_NAME_PATTERN.pattern,
+                "speech_purpose": _SPEECH_PURPOSE,
+                "speech_environment": _SPEECH_ENVIRONMENT,
             },
             separators=(",", ":"),
             sort_keys=True,
@@ -1224,11 +1441,15 @@ def _deleted_account_evidence(
         "subscriptionId",
         "kind",
         "type",
+        "tags",
     }
     if (
         not set(payload).issubset(projected_fields)
         or not {"id", "kind"}.issubset(payload)
     ):
+        return None
+    tags = payload.get("tags")
+    if tags is not None and not isinstance(tags, dict):
         return None
     required_values = tuple(payload.get(field) for field in ("id", "kind"))
     optional_values = tuple(
@@ -1308,6 +1529,136 @@ def _deleted_account_evidence(
     )
 
 
+def _deleted_speech_account_evidence(
+    payload: dict[str, object],
+) -> _SpeechAccountEvidence | None:
+    projected_fields = {
+        "id",
+        "name",
+        "resourceGroup",
+        "location",
+        "subscriptionId",
+        "kind",
+        "type",
+        "tags",
+    }
+    if (
+        not set(payload).issubset(projected_fields)
+        or not {"id", "kind"}.issubset(payload)
+        or payload.get("kind") != _SPEECH_KIND
+    ):
+        return None
+    required_values = (payload.get("id"), payload.get("kind"))
+    optional_values = tuple(
+        payload.get(field)
+        for field in (
+            "name",
+            "resourceGroup",
+            "location",
+            "subscriptionId",
+            "type",
+        )
+    )
+    if not all(
+        isinstance(value, str) and value and value == value.strip()
+        for value in required_values
+    ) or not all(
+        value is None
+        or (isinstance(value, str) and value and value == value.strip())
+        for value in optional_values
+    ):
+        return None
+    tags = payload.get("tags")
+    if tags is not None and not isinstance(tags, dict):
+        return None
+    purpose_tag = tags.get("purpose") if isinstance(tags, dict) else None
+    environment_tag = (
+        tags.get("environment") if isinstance(tags, dict) else None
+    )
+    if (
+        purpose_tag is not None and not isinstance(purpose_tag, str)
+    ) or (
+        environment_tag is not None
+        and not isinstance(environment_tag, str)
+    ):
+        return None
+    resource_id = str(payload["id"])
+    parts = resource_id.split("/")
+    if (
+        len(parts) != 11
+        or parts[0] != ""
+        or parts[1] != "subscriptions"
+        or not _uuid_string(parts[2])
+        or parts[3] != "providers"
+        or parts[4] != "Microsoft.CognitiveServices"
+        or parts[5] != "locations"
+        or not parts[6]
+        or parts[7] != "resourceGroups"
+        or not parts[8]
+        or parts[9] != "deletedAccounts"
+        or not parts[10]
+    ):
+        return None
+    subscription_id = parts[2]
+    location = parts[6]
+    group = parts[8]
+    name = parts[10]
+    if (
+        payload.get("name") is not None and payload["name"] != name
+    ) or (
+        payload.get("resourceGroup") is not None
+        and payload["resourceGroup"] != group
+    ) or (
+        payload.get("location") is not None
+        and payload["location"] != location
+    ) or (
+        payload.get("subscriptionId") is not None
+        and (
+            not _uuid_string(payload["subscriptionId"])
+            or str(payload["subscriptionId"]).casefold()
+            != subscription_id.casefold()
+        )
+    ) or (
+        payload.get("type") is not None
+        and payload["type"] != _COGNITIVE_DELETED_ACCOUNT_TYPE
+    ):
+        return None
+    return _SpeechAccountEvidence(
+        resource_id=resource_id,
+        name=name,
+        resource_group=group,
+        location=location,
+        subscription_id=subscription_id,
+        kind=_SPEECH_KIND,
+        resource_type=_COGNITIVE_DELETED_ACCOUNT_TYPE,
+        purpose_tag=purpose_tag,
+        environment_tag=environment_tag,
+    )
+
+
+def _record_appears_speech_owned(payload: dict[str, object]) -> bool:
+    name = payload.get("name")
+    tags = payload.get("tags")
+    return bool(
+        isinstance(name, str) and _SPEECH_NAME_PATTERN.fullmatch(name)
+        or isinstance(tags, dict)
+        and (
+            tags.get("purpose") == _SPEECH_PURPOSE
+            or tags.get("environment") == _SPEECH_ENVIRONMENT
+        )
+    )
+
+
+def _speech_evidence_appears_owned(
+    evidence: _SpeechAccountEvidence,
+) -> bool:
+    return bool(
+        _SPEECH_NAME_PATTERN.fullmatch(evidence.name)
+        or evidence.purpose_tag == _SPEECH_PURPOSE
+        or evidence.environment_tag == _SPEECH_ENVIRONMENT
+    )
+
+
 def _duplicate_account_evidence(
     evidence: list[_FoundryAccountEvidence],
 ) -> bool:
@@ -1347,6 +1698,10 @@ def _private_plan_binding(plan: _CleanupPlan) -> bytes:
             _private_account_binding(account)
             for account in plan.deleted_accounts
         ],
+        "deleted_speech_accounts": [
+            _private_speech_account_binding(account)
+            for account in plan.deleted_speech_accounts
+        ],
     }
     return hashlib.sha256(
         json.dumps(
@@ -1368,4 +1723,20 @@ def _private_account_binding(
         "subscription_id": account.subscription_id,
         "kind": account.kind,
         "resource_type": account.resource_type,
+    }
+
+
+def _private_speech_account_binding(
+    account: _SpeechAccountEvidence,
+) -> dict[str, str | None]:
+    return {
+        "resource_id": account.resource_id,
+        "name": account.name,
+        "resource_group": account.resource_group,
+        "location": account.location,
+        "subscription_id": account.subscription_id,
+        "kind": account.kind,
+        "resource_type": account.resource_type,
+        "purpose_tag": account.purpose_tag,
+        "environment_tag": account.environment_tag,
     }

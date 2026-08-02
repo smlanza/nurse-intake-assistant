@@ -2649,9 +2649,23 @@ class DailyAzureEnvironmentRebuild:
         progress["startup_cleanup_completed"] = (
             getattr(cleanup, "category", None) == "cleanup_completed"
         )
-        progress["startup_environment_clean"] = (
+        fully_absent = bool(
             getattr(cleanup, "daily_environment_clean", False) is True
+            and getattr(cleanup, "resource_group_absent", False) is True
+            and getattr(cleanup, "foundry_tombstones_absent", False) is True
+            and getattr(cleanup, "speech_tombstones_absent", False) is True
         )
+        reusable_owned = bool(
+            getattr(cleanup, "resource_group_owned", False) is True
+            and getattr(cleanup, "resource_group_absent", False) is False
+            and getattr(cleanup, "resource_group_deletion_required", False)
+            is False
+            and getattr(cleanup, "foundry_tombstones_absent", False) is True
+            and getattr(cleanup, "speech_tombstones_absent", False) is True
+            and getattr(cleanup, "category", None)
+            in {"healthy_environment_reusable", "cleanup_completed"}
+        )
+        progress["startup_environment_clean"] = fully_absent or reusable_owned
         if (
             getattr(cleanup, "ok", False) is not True
             or progress["startup_cleanup_inspected"] is not True

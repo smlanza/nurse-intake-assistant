@@ -356,8 +356,11 @@ repository cleanup service in startup-preflight mode before resource-group
 creation or Foundry deployment. That boundary reuses a conclusively healthy
 owned environment, stops on ambiguous or unowned state, and requires a
 separate current-run, one-use approval before deleting proven stale owned state
-or purging matching deleted Foundry records. Cleanup must finish with verified
-absence before the coordinator continues. Resource-group creation, Foundry
+or purging independently classified, bounded repository-owned Foundry
+`AIServices` or Speech `SpeechServices` tombstones. Cleanup must conclusively
+prove required tombstone absence before the coordinator continues; a fresh
+resource-group creation additionally requires resource-group absence.
+Resource-group creation, Foundry
 infrastructure deployment, Web App infrastructure deployment, and current
 package deployment retain their own current-evidence approvals; changed
 evidence cannot reuse an approval.
@@ -441,14 +444,18 @@ same manifest and atomically retires the complete unchanged directory with an
 immutable external receipt. Extra entries, replacement, mutation, symlinks, or
 permission drift fail closed.
 
-The same cleanup service owns the explicit standalone end-of-day boundary. It
-is limited to the exact configured subscription context, resource group,
-location, repository ownership tag, and bounded daily Foundry naming contract.
-It deletes no unowned or ambiguous resource, never adopts by name, and never
-acts on an active exact-name conflict outside the owned group. End-of-day
-cleanup requires separate default-no approval, synchronous group deletion,
-matching Foundry tombstone purge, and final read-only absence proof. Operational
-commands remain in the canonical daily Azure operator runbook.
+The same cleanup service owns exact bounded Foundry and Speech tombstone
+policies for the startup and explicit standalone end-of-day boundaries. It
+requires independent conclusive ownership classification under the configured
+subscription context, resource group, location, ownership tags, and bounded
+naming contracts; conclusively unrelated records are ignored, while malformed,
+contradictory, or ambiguous records fail closed. It deletes or purges no
+unowned account, never adopts by name, and never acts on an active exact-name
+conflict outside the owned group. Cleanup requires separate current-run,
+default-no approval bound to the complete evidence, synchronous group deletion
+when required, and final read-only proof of resource-group, Foundry-tombstone,
+and Speech-tombstone absence. Operational commands remain in the canonical
+daily Azure operator runbook.
 
 Two resource-group-scoped entry points reuse the
 `infra/modules/foundry.bicep` module. `main.bicep` preserves Cosmos DB, Storage,

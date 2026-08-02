@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,078 passed full suite
-- 21 shell-wrapper tests and 43 documentation tests
+- 3,093 passed full suite
+- 21 shell-wrapper tests and 44 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -34,9 +34,12 @@ duplicated here.
 operator-facing Azure procedure. `start` delegates to the authoritative rebuild
 coordinator and includes startup cleanup preflight. `stop` delegates to the
 default-no `scripts/cleanup_daily_azure_environment.py` service. Cleanup
-success still requires
-`resource_group_absent=true`, `foundry_tombstones_absent=true`, and
-`daily_environment_clean=true`.
+success requires `resource_group_absent=true`,
+`foundry_tombstones_absent=true`, `speech_tombstones_absent=true`, and
+`daily_environment_clean=true`. A live deleted-account inspection exposed a
+mixed owned Foundry `AIServices` and owned Speech `SpeechServices` shape; the
+shared correction is verified offline without retaining names, IDs, locations,
+tags, or raw Azure output. Supervised live cleanup acceptance remains pending.
 
 Consumer RBAC remains among the standalone optional workflows and requires successful exact reuse or `assignment_verified=true` after a separately approved deployment. WebJob evidence recovery remains exceptional. The current WebJob trigger-and-correlation path is retired from supported operations and must not be reused without a new explicit architecture decision.
 
@@ -396,10 +399,11 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The packaged synchronous hosted proof operation remains the fixed non-invoking remote boundary. The prior SSH acceptance stopped before Azure or SSH because the runbook lacked a compliant tunnel owner, prerequisite probes, and reaping contract. The repository now has an offline-tested one-tunnel lifecycle and corrected procedure. Live SSH transport remains unproven. The next separately frozen slice is the narrow SSH transport/prerequisite acceptance as a fresh supervised SSH transport acceptance using the corrected runbook; managed-identity metadata access and Agent invocation require a later slice.
+The packaged synchronous hosted proof operation remains the fixed non-invoking remote boundary. The prior SSH acceptance stopped before Azure or SSH, and the repository has an offline-tested one-tunnel lifecycle and corrected procedure. Live SSH transport remains unproven. The narrow SSH transport/prerequisite acceptance as a fresh supervised SSH transport acceptance is paused until supervised cleanup acceptance succeeds and a fresh daily READY proof is obtained; managed-identity metadata access and Agent invocation require a later slice.
 
 ## Current Slice Status
 
+- The shared daily cleanup service now independently classifies bounded owned Foundry and Speech tombstones, binds both to one default-no approval, purges only approved evidence, and requires resource-group, Foundry-tombstone, and Speech-tombstone absence for a clean state. Offline verification is complete; supervised live cleanup acceptance remains pending, and SSH transport acceptance remains paused pending cleanup and fresh READY proof.
 - `src/app/services/hosted_foundry_agent_proof.py` composes the existing hosted metadata verifier and fixed-fictional invocation boundary in one exact-type, exact-boolean, fail-closed sequence. `src/app/operations/prove_hosted_foundry_agent.py` is included by the ordinary `src` package allowlist, and `scripts/run_hosted_foundry_agent_proof.py` validates the fixed future command without subprocess, SSH, credential, Azure, metadata, or Agent activity. Check mode is deterministic and sanitized. Live mode is implemented but has not run.
 - `HostedFoundryAgentSshTransport` and its wrapper now own one fixed `create-remote-connection` process, bounded readiness observation, three approvals, exactly two `APP_PATH` probes and one packaged check, private output and host-key handling, and guaranteed interrupt/terminate/kill reaping. Check mode is deterministic and constructs no subprocess, socket, SSH client, credential, or Azure runner. No live tunnel or remote command ran, and the WebJob trigger-and-correlation mechanism remains retired.
 Architecture impact: updated the existing hosted Foundry execution section because the SSH candidate now has a repository-owned single-tunnel lifecycle, exact APP_PATH-based prerequisite probes, and guaranteed termination/reaping, while live SSH transport and managed-identity execution remain unproven.

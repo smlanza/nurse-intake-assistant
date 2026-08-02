@@ -834,7 +834,8 @@ def test_existing_environment_reuses_without_optional_hosted_workflows(
         resource_group_present=True,
         resource_group_owned=True,
         foundry_tombstones_absent=True,
-        daily_environment_clean=True,
+        speech_tombstones_absent=True,
+        daily_environment_clean=False,
     )
     runner.foundry_absent = False
     runner.web_app_absent = False
@@ -1066,6 +1067,7 @@ def test_approved_startup_cleanup_continues_only_after_verified_clean_state(
         foundry_purge_required=True,
         foundry_purge_attempted=True,
         foundry_tombstones_absent=True,
+        speech_tombstones_absent=True,
         daily_environment_clean=True,
         azure_mutation_made=True,
     )
@@ -1086,6 +1088,34 @@ def test_approved_startup_cleanup_continues_only_after_verified_clean_state(
         "startup_cleanup",
         "inspect_resource_group",
     ]
+
+
+def test_startup_cleanup_without_speech_absence_proof_blocks_group_creation(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.startup_cleanup_result = CleanupResult(
+        ok=True,
+        category="already_clean",
+        purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+        account_verified=True,
+        inspection_completed=True,
+        resource_group_absent=True,
+        foundry_tombstones_absent=True,
+        speech_tombstones_absent=False,
+        daily_environment_clean=True,
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "already_clean"
+    assert result.startup_environment_clean is False
+    assert "inspect_resource_group" not in runner.calls
 
 
 def test_ready_factory_rejects_unclean_startup_environment() -> None:
