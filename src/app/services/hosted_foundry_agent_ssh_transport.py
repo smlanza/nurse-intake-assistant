@@ -20,6 +20,8 @@ from typing import Callable, Literal, Protocol
 
 
 TransportMode = Literal["check", "live-tunnel"]
+TunnelReadinessOutcome = Literal["ready", "unavailable", "ambiguous"]
+TunnelProcessState = Literal["alive", "unavailable", "ambiguous"]
 TransportCategory = Literal[
     "check_passed",
     "success",
@@ -503,16 +505,17 @@ class HostedFoundryAgentSshTransport:
                 interruption.arm()
                 output_observer = deps.observe_tunnel_output(process)
                 deadline = deps.monotonic() + TUNNEL_TIMEOUT_SECONDS
-                if not _observe_tunnel_ready(
+                readiness = _observe_tunnel_ready(
                     process,
                     output_observer,
                     deadline,
                     deps,
-                ):
+                )
+                if readiness != "ready":
                     category: TransportCategory = (
-                        "tunnel_unavailable"
-                        if process.poll() is not None or output_observer.failed()
-                        else "tunnel_outcome_ambiguous"
+                        "tunnel_outcome_ambiguous"
+                        if readiness == "ambiguous"
+                        else "tunnel_unavailable"
                     )
                     result = HostedFoundryAgentSshTransportResult.build(
                         ok=False,
@@ -715,22 +718,67 @@ def _observe_tunnel_ready(
     output_observer: TunnelOutputObserver,
     deadline: float,
     deps: HostedFoundryAgentSshTransportDependencies,
-) -> bool:
+) -> TunnelReadinessOutcome:
     while deps.monotonic() < deadline:
-        if process.poll() is not None:
-            return False
-        if output_observer.failed():
-            return False
-        if (
-            output_observer.ready()
-            and deps.tunnel_ready(LOOPBACK_HOST, LOCAL_PORT) is True
-        ):
-            return True
+        process_state = _tunnel_process_state(process)
+        if process_state != "alive":
+            return process_state
+        output_failed = _tunnel_output_failed(output_observer)
+        if output_failed is None:
+            return "ambiguous"
+        if output_failed:
+            return "unavailable"
+        try:
+            listener_ready = deps.tunnel_ready(LOOPBACK_HOST, LOCAL_PORT)
+        except (KeyboardInterrupt, _TransportInterrupted):
+            raise
+        except BaseException:
+            return "unavailable"
+        if type(listener_ready) is not bool:
+            return "ambiguous"
+        if listener_ready:
+            if deps.monotonic() >= deadline:
+                return "unavailable"
+            process_state = _tunnel_process_state(process)
+            if process_state != "alive":
+                return process_state
+            output_failed = _tunnel_output_failed(output_observer)
+            if output_failed is None:
+                return "ambiguous"
+            if output_failed or deps.monotonic() >= deadline:
+                return "unavailable"
+            return "ready"
         remaining = deadline - deps.monotonic()
         if remaining <= 0:
             break
         deps.sleep(min(READINESS_INTERVAL_SECONDS, remaining))
-    return False
+    return "unavailable"
+
+
+def _tunnel_process_state(process: ProcessLike) -> TunnelProcessState:
+    try:
+        return_code = process.poll()
+    except (KeyboardInterrupt, _TransportInterrupted):
+        raise
+    except BaseException:
+        return "ambiguous"
+    if return_code is None:
+        return "alive"
+    if type(return_code) is int:
+        return "unavailable"
+    return "ambiguous"
+
+
+def _tunnel_output_failed(
+    output_observer: TunnelOutputObserver,
+) -> bool | None:
+    try:
+        failed = output_observer.failed()
+    except (KeyboardInterrupt, _TransportInterrupted):
+        raise
+    except BaseException:
+        return None
+    return failed if type(failed) is bool else None
 
 
 def _run_ssh(

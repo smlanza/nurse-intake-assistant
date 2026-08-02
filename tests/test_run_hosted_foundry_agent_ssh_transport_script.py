@@ -32,6 +32,12 @@ def test_check_cli_emits_one_sanitized_newline_terminated_json(capsys) -> None:
     assert payload["tunnel_process_started"] is False
     assert payload["ssh_command_attempted"] is False
     assert payload["azure_call_made"] is False
+    assert None not in payload.values()
+    assert all(
+        type(value) is bool
+        for key, value in payload.items()
+        if key not in {"category", "mode", "operation", "transport"}
+    )
 
 
 def test_repeated_check_cli_output_is_byte_identical(capsys) -> None:

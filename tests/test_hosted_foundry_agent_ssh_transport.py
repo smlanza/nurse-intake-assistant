@@ -120,6 +120,18 @@ class FakeOutputObserver:
         self.closed = True
 
 
+class ChunkStream:
+    def __init__(self, chunks: list[str]) -> None:
+        self.chunks = list(chunks)
+        self.closed = False
+
+    def readline(self) -> str:
+        return self.chunks.pop(0) if self.chunks else ""
+
+    def close(self) -> None:
+        self.closed = True
+
+
 def _proof_payload() -> dict[str, object]:
     return {
         "ok": True,
@@ -437,7 +449,7 @@ def test_readiness_observation_is_bounded_and_never_restarts() -> None:
         _request(), approvals=_approvals(), dependencies=deps
     )
 
-    assert result.category == "tunnel_outcome_ambiguous"
+    assert result.category == "tunnel_unavailable"
     assert len(starts) == 1
     assert clock.now == transport.TUNNEL_TIMEOUT_SECONDS
     assert len(clock.sleeps) > 1
@@ -445,12 +457,191 @@ def test_readiness_observation_is_bounded_and_never_restarts() -> None:
     assert result.tunnel_process_reaped is True
 
 
-def test_foreign_listener_cannot_establish_owned_process_readiness() -> None:
+def test_owned_listener_establishes_readiness_without_output_marker() -> None:
     observer = FakeOutputObserver(ready=False)
     runner = FakeSshRunner()
     deps, starts, _, _ = _dependencies(
         tunnel_ready=True,
         output_observer=observer,
+        ssh_runner=runner,
+    )
+
+    result = _service().run_live_tunnel(
+        _request(), approvals=_approvals(probes=False), dependencies=deps
+    )
+
+    assert result.category == "approval_denied"
+    assert result.tunnel_ready is True
+    assert len(starts) == 1
+    assert runner.calls == []
+    assert observer.closed is True
+    assert result.tunnel_process_reaped is True
+
+
+@pytest.mark.parametrize(
+    ("stdout_chunks", "stderr_chunks"),
+    [
+        ([], []),
+        (["unrecognized stdout text\n"], []),
+        ([], ["unrecognized stderr text"]),
+        (["Ctrl + ", "C to close\n"], []),
+    ],
+    ids=["empty-output", "stdout-output", "stderr-no-newline", "partial-marker"],
+)
+def test_listener_readiness_does_not_require_useful_or_complete_cli_output(
+    stdout_chunks: list[str],
+    stderr_chunks: list[str],
+) -> None:
+    process = FakeProcess()
+    process.stdout = ChunkStream(stdout_chunks)
+    process.stderr = ChunkStream(stderr_chunks)
+    observer = transport._PrivateTunnelOutputObserver(process)
+    for thread in observer._threads:
+        thread.join(1)
+    runner = FakeSshRunner()
+    deps, starts, _, _ = _dependencies(
+        process=process,
+        tunnel_ready=True,
+        output_observer=observer,
+        ssh_runner=runner,
+    )
+
+    result = _service().run_live_tunnel(
+        _request(), approvals=_approvals(probes=False), dependencies=deps
+    )
+
+    assert result.category == "approval_denied"
+    assert result.tunnel_ready is True
+    assert len(starts) == 1
+    assert runner.calls == []
+    assert "unrecognized" not in json.dumps(result.to_json_dict())
+
+
+def test_listener_probe_error_is_sanitized_as_tunnel_unavailable() -> None:
+    runner = FakeSshRunner()
+
+    def listener_error(_host: str, _port: int) -> bool:
+        raise OSError("private listener error")
+
+    deps, starts, _, _ = _dependencies(
+        tunnel_ready=listener_error,
+        ssh_runner=runner,
+    )
+
+    result = _service().run_live_tunnel(
+        _request(), approvals=_approvals(), dependencies=deps
+    )
+
+    assert result.category == "tunnel_unavailable"
+    assert result.tunnel_ready is False
+    assert len(starts) == 1
+    assert runner.calls == []
+    assert result.tunnel_process_reaped is True
+    assert "private listener error" not in json.dumps(result.to_json_dict())
+
+
+def test_multiple_output_lines_in_one_chunk_remain_private_and_bounded() -> None:
+    process = FakeProcess()
+    process.stdout = ChunkStream(
+        ["first line\nCtrl + C to close\nlast private line\n"]
+    )
+    process.stderr = ChunkStream([])
+    observer = transport._PrivateTunnelOutputObserver(process)
+    for thread in observer._threads:
+        thread.join(1)
+
+    assert observer.ready() is True
+    assert observer.failed() is False
+    assert not hasattr(observer, "raw_output")
+    observer.close()
+
+
+@pytest.mark.parametrize(
+    ("observed_at", "expected_category", "expected_ready"),
+    [
+        (transport.TUNNEL_TIMEOUT_SECONDS - 0.01, "approval_denied", True),
+        (transport.TUNNEL_TIMEOUT_SECONDS, "tunnel_unavailable", False),
+    ],
+)
+def test_listener_readiness_obeys_strict_absolute_deadline(
+    observed_at: float,
+    expected_category: str,
+    expected_ready: bool,
+) -> None:
+    process = FakeProcess()
+    clock = FakeClock()
+
+    def listener_ready(_host: str, _port: int) -> bool:
+        clock.now = observed_at
+        return True
+
+    deps, starts, _, _ = _dependencies(
+        process=process,
+        tunnel_ready=listener_ready,
+        clock=clock,
+    )
+
+    result = _service().run_live_tunnel(
+        _request(), approvals=_approvals(probes=False), dependencies=deps
+    )
+
+    assert result.category == expected_category
+    assert result.tunnel_ready is expected_ready
+    assert len(starts) == 1
+    assert result.tunnel_process_reaped is True
+
+
+def test_zero_exit_before_listener_readiness_is_not_success() -> None:
+    process = FakeProcess(poll_result=0)
+    runner = FakeSshRunner()
+    deps, starts, _, _ = _dependencies(
+        process=process,
+        tunnel_ready=True,
+        ssh_runner=runner,
+    )
+
+    result = _service().run_live_tunnel(
+        _request(), approvals=_approvals(), dependencies=deps
+    )
+
+    assert result.category == "tunnel_unavailable"
+    assert result.tunnel_ready is False
+    assert len(starts) == 1
+    assert runner.calls == []
+    assert result.tunnel_process_reaped is True
+
+
+def test_malformed_process_poll_state_is_sanitized_and_ambiguous() -> None:
+    process = FakeProcess(poll_result=None)
+    process.poll_result = object()
+    runner = FakeSshRunner()
+    deps, starts, _, _ = _dependencies(process=process, ssh_runner=runner)
+
+    result = _service().run_live_tunnel(
+        _request(), approvals=_approvals(), dependencies=deps
+    )
+
+    assert result.category == "tunnel_outcome_ambiguous"
+    assert len(starts) == 1
+    assert runner.calls == []
+    assert result.tunnel_process_reaped is True
+    assert all(
+        type(value) is bool
+        for key, value in result.to_json_dict().items()
+        if key not in {"category", "mode", "operation", "transport"}
+    )
+
+
+def test_output_observation_error_is_sanitized_and_ambiguous() -> None:
+    class FailingObserver(FakeOutputObserver):
+        def failed(self) -> bool:
+            raise OSError("private read failure")
+
+    observer = FailingObserver(ready=False)
+    runner = FakeSshRunner()
+    deps, starts, _, _ = _dependencies(
+        output_observer=observer,
+        tunnel_ready=True,
         ssh_runner=runner,
     )
 
@@ -461,8 +652,8 @@ def test_foreign_listener_cannot_establish_owned_process_readiness() -> None:
     assert result.category == "tunnel_outcome_ambiguous"
     assert len(starts) == 1
     assert runner.calls == []
-    assert observer.closed is True
     assert result.tunnel_process_reaped is True
+    assert "private read failure" not in json.dumps(result.to_json_dict())
 
 
 def test_private_output_observer_drains_without_retaining_sensitive_text() -> None:
