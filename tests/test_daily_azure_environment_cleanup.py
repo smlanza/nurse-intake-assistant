@@ -7,6 +7,7 @@ import pytest
 from src.app.services.daily_azure_environment_cleanup import (
     CleanupCommandResult,
     CleanupPurpose,
+    CleanupResult,
     DailyAzureEnvironmentCleanup,
     VerifiedAzureAccount,
     _RESOURCE_GROUP_DELETE_RECONCILIATION_POLICY,
@@ -486,7 +487,12 @@ def test_cleanup_fails_final_verification_when_speech_tombstone_remains(
         + [
             _ok([]),
             _ok([tombstone]),
-            CleanupCommandResult(0, "", ""),
+            SimpleNamespace(
+                return_code=0,
+                stdout="",
+                stderr="",
+                timed_out=False,
+            ),
             CleanupCommandResult(0, "false\n", ""),
             _ok([]),
             _ok([tombstone]),
@@ -503,6 +509,43 @@ def test_cleanup_fails_final_verification_when_speech_tombstone_remains(
     assert result.category == "speech_tombstone_still_present"
     assert result.speech_purge_attempted is True
     assert result.daily_environment_clean is False
+    assert result.azure_mutation_made is True
+
+
+def test_non_successful_speech_purge_is_sanitized_with_boolean_result(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_speech()
+    inspected = _inspection(deleted=[tombstone], include_account=False)
+    runner = ScriptedRunner(
+        [_account()]
+        + inspected
+        + inspected
+        + [
+            _ok([]),
+            _ok([tombstone]),
+            SimpleNamespace(
+                return_code=1,
+                stdout="private output",
+                stderr="private error",
+                timed_out=False,
+            ),
+        ]
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is False
+    assert result.category == "speech_purge_failed"
+    assert result.speech_purge_attempted is True
+    assert result.azure_mutation_made is False
+    serialized = json.dumps(result.to_json_dict())
+    assert "private output" not in serialized
+    assert "private error" not in serialized
 
 
 def test_malformed_speech_purge_result_fails_closed(tmp_path: Path) -> None:
@@ -528,7 +571,153 @@ def test_malformed_speech_purge_result_fails_closed(tmp_path: Path) -> None:
     assert result.ok is False
     assert result.category == "speech_purge_failed"
     assert result.speech_purge_attempted is True
-    assert result.azure_mutation_made is None
+    assert result.azure_mutation_made is False
+
+
+@pytest.mark.parametrize("stdout", ["", "  \n", "not-json\n"])
+def test_compatible_successful_speech_purge_envelope_reaches_final_verification(
+    tmp_path: Path,
+    stdout: str,
+) -> None:
+    tombstone = _deleted_speech()
+    inspected = _inspection(deleted=[tombstone], include_account=False)
+    runner = ScriptedRunner(
+        [_account()]
+        + inspected
+        + inspected
+        + [
+            _ok([]),
+            _ok([tombstone]),
+            SimpleNamespace(
+                return_code=0,
+                stdout=stdout,
+                stderr="",
+                timed_out=False,
+            ),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([]),
+        ]
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is True
+    assert result.category == "cleanup_completed"
+    assert result.speech_purge_attempted is True
+    assert result.speech_tombstones_absent is True
+    assert result.daily_environment_clean is True
+    assert result.azure_mutation_made is True
+
+
+def test_speech_purge_exception_is_sanitized_with_boolean_result(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_speech()
+    inspected = _inspection(deleted=[tombstone], include_account=False)
+
+    class RaisingPurgeRunner(ScriptedRunner):
+        def run(self, args: list[str]) -> CleanupCommandResult:
+            if "purge" in args:
+                self.calls.append(args)
+                raise RuntimeError("private runner exception")
+            return super().run(args)
+
+    runner = RaisingPurgeRunner(
+        [_account()] + inspected + inspected + [_ok([]), _ok([tombstone])]
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is False
+    assert result.category == "speech_purge_failed"
+    assert result.speech_purge_attempted is True
+    assert result.azure_mutation_made is False
+    assert "private runner exception" not in json.dumps(result.to_json_dict())
+
+
+def test_prior_group_deletion_mutation_survives_later_speech_purge_failure(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_speech()
+    initial = _inspection(
+        group=_group(state="Failed"),
+        active=[_active()],
+        deleted=[tombstone],
+    )
+    fresh = _inspection(
+        group=_group(state="Failed"),
+        active=[_active()],
+        deleted=[tombstone],
+        include_account=False,
+    )
+    runner = ScriptedRunner(
+        initial
+        + fresh
+        + [
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([tombstone]),
+            CleanupCommandResult(1, "", "private"),
+        ]
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is False
+    assert result.category == "speech_purge_failed"
+    assert result.resource_group_delete_attempted is True
+    assert result.speech_purge_attempted is True
+    assert result.azure_mutation_made is True
+
+
+def test_cleanup_result_serializes_every_boolean_as_json_boolean() -> None:
+    payload = CleanupResult(
+        ok=False,
+        category="fictional_failure",
+        purpose=CleanupPurpose.END_OF_DAY.value,
+        azure_mutation_made=None,
+    ).to_json_dict()
+    boolean_fields = {
+        "ok",
+        "account_verified",
+        "inspection_completed",
+        "cleanup_required",
+        "cleanup_approved",
+        "cleanup_attempted",
+        "resource_group_present",
+        "resource_group_owned",
+        "resource_group_deletion_required",
+        "resource_group_delete_attempted",
+        "resource_group_absent",
+        "soft_deleted_foundry_accounts_found",
+        "foundry_purge_required",
+        "foundry_purge_attempted",
+        "foundry_tombstones_absent",
+        "speech_tombstones_absent",
+        "soft_deleted_speech_accounts_found",
+        "speech_purge_required",
+        "speech_purge_attempted",
+        "active_name_conflict_found",
+        "manual_review_required",
+        "daily_environment_clean",
+        "azure_mutation_made",
+    }
+
+    assert all(type(payload[field]) is bool for field in boolean_fields)
 
 
 def test_healthy_owned_group_is_reusable_only_at_startup(tmp_path: Path) -> None:
@@ -1279,7 +1468,7 @@ def test_group_delete_failure_stops_before_purge(tmp_path: Path) -> None:
     )
 
     assert result.category == "resource_group_delete_failed"
-    assert result.azure_mutation_made is None
+    assert result.azure_mutation_made is False
     assert not any("purge" in call for call in runner.calls)
     assert "private failure" not in json.dumps(result.to_json_dict())
 
@@ -1384,7 +1573,7 @@ def test_purge_failure_is_sanitized_and_not_retried(tmp_path: Path) -> None:
 
     assert result.category == "foundry_purge_failed"
     assert result.foundry_purge_attempted is True
-    assert result.azure_mutation_made is None
+    assert result.azure_mutation_made is False
     assert sum("purge" in call for call in runner.calls) == 1
     assert "private" not in json.dumps(result.to_json_dict())
 

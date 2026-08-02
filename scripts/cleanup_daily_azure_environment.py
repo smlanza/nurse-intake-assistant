@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
             ok=False,
             category="unexpected_error",
             purpose="local_check" if args.check else purpose.value,
-            azure_mutation_made=None if args.cleanup else False,
+            azure_mutation_made=False,
         )
     print(json.dumps(result.to_json_dict(), separators=(",", ":"), sort_keys=True))
     if result.ok:

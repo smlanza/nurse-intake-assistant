@@ -125,10 +125,39 @@ class CleanupResult:
     active_name_conflict_found: bool = False
     manual_review_required: bool = False
     daily_environment_clean: bool = False
-    azure_mutation_made: bool | None = False
+    azure_mutation_made: bool = False
     next_step: str = (
         "Review the sanitized category and rerun only through an explicit new command."
     )
+
+    def __post_init__(self) -> None:
+        boolean_fields = (
+            "ok",
+            "account_verified",
+            "inspection_completed",
+            "cleanup_required",
+            "cleanup_approved",
+            "cleanup_attempted",
+            "resource_group_present",
+            "resource_group_owned",
+            "resource_group_deletion_required",
+            "resource_group_delete_attempted",
+            "resource_group_absent",
+            "soft_deleted_foundry_accounts_found",
+            "foundry_purge_required",
+            "foundry_purge_attempted",
+            "foundry_tombstones_absent",
+            "speech_tombstones_absent",
+            "soft_deleted_speech_accounts_found",
+            "speech_purge_required",
+            "speech_purge_attempted",
+            "active_name_conflict_found",
+            "manual_review_required",
+            "daily_environment_clean",
+            "azure_mutation_made",
+        )
+        for name in boolean_fields:
+            object.__setattr__(self, name, getattr(self, name) is True)
 
     @classmethod
     def local_contract_valid(cls) -> "CleanupResult":
@@ -698,7 +727,7 @@ class DailyAzureEnvironmentCleanup:
                 cleanup_approved=True,
                 next_step="Evidence changed; rerun for a new approval.",
             )
-        mutation_made: bool | None = False
+        mutation_made = False
         delete_attempted = False
         if plan.resource_group_deletion_required:
             assert plan.resource_group is not None
@@ -725,11 +754,9 @@ class DailyAzureEnvironmentCleanup:
                     cleanup_approved=True,
                     cleanup_attempted=True,
                     resource_group_delete_attempted=True,
-                    azure_mutation_made=(
-                        False if deleted.return_code == 127 else None
-                    ),
+                    azure_mutation_made=False,
                 )
-            mutation_made = None if delete_timed_out else True
+            mutation_made = not delete_timed_out
             group_absent, group_category = (
                 self._reconcile_resource_group_absence(
                     runner,
@@ -851,7 +878,7 @@ class DailyAzureEnvironmentCleanup:
                     cleanup_attempted=True,
                     resource_group_delete_attempted=delete_attempted,
                     foundry_purge_attempted=True,
-                    azure_mutation_made=None,
+                    azure_mutation_made=mutation_made,
                 )
             mutation_made = True
         speech_purge_attempted = False
@@ -860,29 +887,41 @@ class DailyAzureEnvironmentCleanup:
             key=lambda item: item.name,
         ):
             speech_purge_attempted = True
-            purged = runner.run(
-                [
-                    "az",
-                    "cognitiveservices",
-                    "account",
-                    "purge",
-                    "--name",
-                    evidence.name,
-                    "--resource-group",
-                    evidence.resource_group,
-                    "--location",
-                    evidence.location,
-                    "--only-show-errors",
-                ]
-            )
+            try:
+                purged = runner.run(
+                    [
+                        "az",
+                        "cognitiveservices",
+                        "account",
+                        "purge",
+                        "--name",
+                        evidence.name,
+                        "--resource-group",
+                        evidence.resource_group,
+                        "--location",
+                        evidence.location,
+                        "--only-show-errors",
+                    ]
+                )
+            except Exception:
+                return replace(
+                    inspection.result,
+                    ok=False,
+                    category="speech_purge_failed",
+                    cleanup_approved=True,
+                    cleanup_attempted=True,
+                    resource_group_delete_attempted=delete_attempted,
+                    foundry_purge_attempted=foundry_purge_attempted,
+                    speech_purge_attempted=True,
+                    azure_mutation_made=mutation_made,
+                )
             if (
-                not isinstance(purged, CleanupCommandResult)
-                or type(purged.return_code) is not int
-                or purged.return_code != 0
-                or not isinstance(purged.stdout, str)
-                or not isinstance(purged.stderr, str)
-                or type(purged.timed_out) is not bool
-                or purged.timed_out
+                type(getattr(purged, "return_code", None)) is not int
+                or getattr(purged, "return_code", None) != 0
+                or not isinstance(getattr(purged, "stdout", None), str)
+                or not isinstance(getattr(purged, "stderr", None), str)
+                or type(getattr(purged, "timed_out", None)) is not bool
+                or getattr(purged, "timed_out", None) is True
             ):
                 return replace(
                     inspection.result,
@@ -893,7 +932,7 @@ class DailyAzureEnvironmentCleanup:
                     resource_group_delete_attempted=delete_attempted,
                     foundry_purge_attempted=foundry_purge_attempted,
                     speech_purge_attempted=True,
-                    azure_mutation_made=None,
+                    azure_mutation_made=mutation_made,
                 )
             mutation_made = True
         final = self._inspect(runner, purpose, account)

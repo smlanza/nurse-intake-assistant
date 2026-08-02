@@ -213,6 +213,13 @@ def test_cleanup_cli_uses_one_prompt_and_sanitized_json(
     assert payload["soft_deleted_speech_accounts_found"] is False
     assert payload["speech_purge_required"] is True
     assert payload["speech_purge_attempted"] is True
+    assert type(payload["azure_mutation_made"]) is bool
+    assert type(payload["speech_purge_attempted"]) is bool
+    assert type(payload["speech_tombstones_absent"]) is bool
+    assert type(payload["daily_environment_clean"]) is bool
+    assert None not in payload.values()
+    assert output.out.endswith("\n")
+    assert len(output.out.splitlines()) == 1
     assert output.err.count("Proceed? [y/N]") == 1
     assert "Matching soft-deleted Speech accounts: 1" in output.err
     assert "Speech purge required: no" not in output.err

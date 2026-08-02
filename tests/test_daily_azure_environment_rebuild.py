@@ -1024,6 +1024,20 @@ def test_startup_cleanup_runs_after_account_and_before_infrastructure(
             cleanup_attempted=True,
             azure_mutation_made=None,
         ),
+        CleanupResult(
+            ok=False,
+            category="speech_tombstone_still_present",
+            purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+            account_verified=True,
+            inspection_completed=True,
+            cleanup_required=True,
+            cleanup_approved=True,
+            cleanup_attempted=True,
+            speech_purge_attempted=True,
+            speech_tombstones_absent=False,
+            daily_environment_clean=False,
+            azure_mutation_made=True,
+        ),
     ],
 )
 def test_failed_startup_cleanup_stops_before_infrastructure_and_ready(
@@ -1043,6 +1057,9 @@ def test_failed_startup_cleanup_stops_before_infrastructure_and_ready(
     assert result.startup_cleanup_inspected is True
     assert result.startup_environment_clean is False
     assert result.daily_environment_ready is False
+    assert type(cleanup_result.azure_mutation_made) is bool
+    assert type(result.azure_mutation_made) is bool
+    assert result.azure_mutation_made is cleanup_result.azure_mutation_made
     assert "inspect_resource_group" not in runner.calls
     assert "plan_foundry" not in runner.calls
     assert "deploy_foundry" not in runner.calls
