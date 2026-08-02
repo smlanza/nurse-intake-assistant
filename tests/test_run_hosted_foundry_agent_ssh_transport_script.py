@@ -106,6 +106,178 @@ def test_live_requires_existing_validated_configuration() -> None:
         _script().main(["--live-tunnel", "--json"])
 
 
+def test_metadata_mode_is_explicit_mutually_exclusive_and_requires_config() -> None:
+    script = _script()
+
+    with pytest.raises(SystemExit):
+        script._parse_args(["--live-metadata-verification", "--json"])
+    with pytest.raises(SystemExit):
+        script._parse_args(
+            [
+                "--live-tunnel",
+                "--live-metadata-verification",
+                "--config",
+                "fictional.env",
+                "--json",
+            ]
+        )
+    args = script._parse_args(
+        [
+            "--live-metadata-verification",
+            "--config",
+            "fictional.env",
+            "--json",
+        ]
+    )
+    assert args.live_metadata_verification is True
+    assert args.live_tunnel is False
+
+
+@pytest.mark.parametrize("receipt_state", ["missing", "stale", "mismatched"])
+def test_metadata_mode_invalid_receipt_stops_before_service_construction(
+    monkeypatch, receipt_state: str
+) -> None:
+    script = _script()
+    config = SimpleNamespace(subscription_name="contract-subscription")
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        script,
+        "_create_service",
+        lambda: pytest.fail(f"{receipt_state} receipt must stop before service"),
+    )
+    args = SimpleNamespace(
+        live_tunnel=False,
+        live_metadata_verification=True,
+        config=Path("fictional-config"),
+        readiness_receipt=Path("fictional-receipt"),
+    )
+
+    result = script.run_live(
+        args,
+        input_stream=io.StringIO("y\ny\ny\n"),
+        output_stream=io.StringIO(),
+    )
+
+    assert result.category == "configuration_invalid"
+    assert result.mode == "live-metadata-verification"
+    assert result.tunnel_process_started is False
+
+
+def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
+    monkeypatch,
+) -> None:
+    script = _script()
+    config = SimpleNamespace(subscription_name="contract-subscription")
+    receipt = SimpleNamespace(
+        resource_group="contract-rg",
+        web_app_name="contract-web-app",
+    )
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_a, **_k: receipt,
+    )
+    captured: list[object] = []
+
+    class Service:
+        def run_live_tunnel(self, request, *, approvals):
+            captured.append(request)
+            assert approvals.approve_tunnel() is True
+            assert approvals.approve_probes() is True
+            assert approvals.approve_metadata_verification() is True
+            return script.HostedFoundryAgentSshTransportResult.build(
+                ok=True,
+                category="success",
+                mode="live-metadata-verification",
+                metadata_verification_attempted=True,
+                managed_identity_attempted=True,
+                metadata_verification_valid=True,
+                tunnel_process_reaped=True,
+                private_known_hosts_removed=True,
+            )
+
+    monkeypatch.setattr(script, "_create_service", lambda: Service())
+    args = SimpleNamespace(
+        live_tunnel=False,
+        live_metadata_verification=True,
+        config=Path("fictional-config"),
+        readiness_receipt=Path("fictional-receipt"),
+    )
+    prompts = io.StringIO()
+
+    result = script.run_live(
+        args,
+        input_stream=io.StringIO("y\ny\ny\n"),
+        output_stream=prompts,
+    )
+
+    assert result.ok is True
+    assert len(captured) == 1
+    assert captured[0].mode == "live-metadata-verification"
+    summary = prompts.getvalue()
+    for expected in (
+        "Remote execution count: one",
+        "Mode: hosted metadata verification",
+        "System-assigned managed identity: required",
+        "Foundry metadata reads: permitted",
+        "Agent invocation: prohibited",
+        "Azure mutation: prohibited",
+        "Retry permitted: no",
+    ):
+        assert expected in summary
+
+
+def test_changed_readiness_evidence_invalidates_current_prompt_approval(
+    monkeypatch,
+) -> None:
+    script = _script()
+    config = SimpleNamespace(subscription_name="contract-subscription")
+    receipt = SimpleNamespace(
+        resource_group="contract-rg",
+        web_app_name="contract-web-app",
+    )
+    receipt_results = iter((receipt, receipt, None))
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_a, **_k: next(receipt_results),
+    )
+
+    class Service:
+        def run_live_tunnel(self, request, *, approvals):
+            assert request.mode == "live-metadata-verification"
+            assert approvals.approve_tunnel() is False
+            return script.HostedFoundryAgentSshTransportResult.build(
+                ok=False,
+                category="approval_denied",
+                mode=request.mode,
+            )
+
+    monkeypatch.setattr(script, "_create_service", lambda: Service())
+    args = SimpleNamespace(
+        live_tunnel=False,
+        live_metadata_verification=True,
+        config=Path("fictional-config"),
+        readiness_receipt=Path("fictional-receipt"),
+    )
+
+    result = script.run_live(
+        args,
+        input_stream=io.StringIO("y\n"),
+        output_stream=io.StringIO(),
+    )
+
+    assert result.category == "approval_denied"
+    assert result.tunnel_process_started is False
+
+
 def test_live_loads_matching_receipt_and_delegates_fixed_request(monkeypatch) -> None:
     script = _script()
     config = SimpleNamespace(

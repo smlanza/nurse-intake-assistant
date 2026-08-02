@@ -19,7 +19,7 @@ import time
 from typing import Callable, Literal, Protocol
 
 
-TransportMode = Literal["check", "live-tunnel"]
+TransportMode = Literal["check", "live-tunnel", "live-metadata-verification"]
 TunnelReadinessOutcome = Literal["ready", "unavailable", "ambiguous"]
 TunnelProcessState = Literal["alive", "unavailable", "ambiguous"]
 TransportCategory = Literal[
@@ -35,6 +35,7 @@ TransportCategory = Literal[
     "interpreter_probe_failed",
     "module_probe_failed",
     "remote_check_failed",
+    "metadata_verification_failed",
     "remote_output_invalid",
     "interrupted",
     "cleanup_failed",
@@ -50,6 +51,7 @@ READINESS_INTERVAL_SECONDS = 0.25
 CLEANUP_WAIT_SECONDS = 2.0
 REMOTE_TARGET = "root@127.0.0.1"
 PACKAGED_MODULE = "src.app.operations.prove_hosted_foundry_agent"
+METADATA_VERIFICATION_MODULE = "src.app.operations.verify_hosted_foundry_agent"
 
 _INTERPRETER_PROGRAM = (
     "import json,os;"
@@ -83,10 +85,15 @@ REMOTE_CHECK_COMMAND = (
     'cd "$APP_PATH" && python -m '
     f"{PACKAGED_MODULE} --check --json"
 )
+REMOTE_METADATA_VERIFICATION_COMMAND = (
+    'cd "$APP_PATH" && python -m '
+    f"{METADATA_VERIFICATION_MODULE} --live --json"
+)
 PERMITTED_REMOTE_COMMANDS = (
     INTERPRETER_PROBE_COMMAND,
     MODULE_PROBE_COMMAND,
     REMOTE_CHECK_COMMAND,
+    REMOTE_METADATA_VERIFICATION_COMMAND,
 )
 
 _REQUIRED_CREATE_REMOTE_CONNECTION_OPTIONS = (
@@ -123,11 +130,16 @@ class HostedFoundryAgentSshTransportRequest:
     web_app_name: str
 
 
+def _deny_approval() -> bool:
+    return False
+
+
 @dataclass(frozen=True)
 class HostedFoundryAgentSshTransportApprovals:
     approve_tunnel: Callable[[], bool]
     approve_probes: Callable[[], bool]
     approve_remote_check: Callable[[], bool]
+    approve_metadata_verification: Callable[[], bool] = _deny_approval
 
 
 @dataclass(frozen=True)
@@ -201,6 +213,7 @@ class HostedFoundryAgentSshTransportResult:
     packaged_module_valid: bool
     remote_check_attempted: bool
     remote_check_valid: bool
+    metadata_verification_valid: bool
     tunnel_interrupt_sent: bool
     tunnel_terminate_sent: bool
     tunnel_kill_sent: bool
@@ -237,6 +250,7 @@ class HostedFoundryAgentSshTransportResult:
             "packaged_module_valid": False,
             "remote_check_attempted": False,
             "remote_check_valid": False,
+            "metadata_verification_valid": False,
             "tunnel_interrupt_sent": False,
             "tunnel_terminate_sent": False,
             "tunnel_kill_sent": False,
@@ -254,7 +268,11 @@ class HostedFoundryAgentSshTransportResult:
             ok=ok,
             category=category,
             operation=OPERATION,
-            mode=mode if mode in {"check", "live-tunnel"} else "invalid",
+            mode=(
+                mode
+                if mode in {"check", "live-tunnel", "live-metadata-verification"}
+                else "invalid"
+            ),
             transport=TRANSPORT,
             **values,
         )
@@ -382,7 +400,7 @@ def build_ssh_command(command: str, known_hosts_path: str) -> tuple[str, ...]:
 
 
 class HostedFoundryAgentSshTransport:
-    """Own exactly one tunnel process and three immutable remote commands."""
+    """Own one tunnel and exactly three mode-selected remote commands."""
 
     def __init__(
         self,
@@ -434,17 +452,21 @@ class HostedFoundryAgentSshTransport:
         approvals: HostedFoundryAgentSshTransportApprovals,
         dependencies: HostedFoundryAgentSshTransportDependencies | None = None,
     ) -> HostedFoundryAgentSshTransportResult:
-        if not _request_valid(request, expected_mode="live-tunnel"):
+        if not any(
+            _request_valid(request, expected_mode=mode)
+            for mode in ("live-tunnel", "live-metadata-verification")
+        ):
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="configuration_invalid",
                 mode=request.mode,
             )
+        mode = request.mode
         if not self._cli_contract_valid() or not _fixed_contract_valid(request):
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="cli_unsupported",
-                mode="live-tunnel",
+                mode=mode,
             )
         progress = {
             "cli_help_contract_valid": True,
@@ -458,14 +480,14 @@ class HostedFoundryAgentSshTransport:
                 return HostedFoundryAgentSshTransportResult.build(
                     ok=False,
                     category="approval_denied",
-                    mode="live-tunnel",
+                    mode=mode,
                     **progress,
                 )
         except BaseException:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="approval_denied",
-                mode="live-tunnel",
+                mode=mode,
                 **progress,
             )
 
@@ -474,7 +496,7 @@ class HostedFoundryAgentSshTransport:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="port_unavailable",
-                mode="live-tunnel",
+                mode=mode,
                 **progress,
             )
 
@@ -484,7 +506,7 @@ class HostedFoundryAgentSshTransport:
         result = HostedFoundryAgentSshTransportResult.build(
             ok=False,
             category="unexpected_error",
-            mode="live-tunnel",
+            mode=mode,
             **progress,
         )
         signal_context = (
@@ -520,7 +542,7 @@ class HostedFoundryAgentSshTransport:
                     result = HostedFoundryAgentSshTransportResult.build(
                         ok=False,
                         category=category,
-                        mode="live-tunnel",
+                        mode=mode,
                         **progress,
                     )
                 else:
@@ -531,12 +553,13 @@ class HostedFoundryAgentSshTransport:
                         known_hosts_path,
                         deadline,
                         progress,
+                        mode,
                     )
             except (KeyboardInterrupt, _TransportInterrupted):
                 result = HostedFoundryAgentSshTransportResult.build(
                     ok=False,
                     category="interrupted",
-                    mode="live-tunnel",
+                    mode=mode,
                     **progress,
                 )
             except OSError:
@@ -547,14 +570,14 @@ class HostedFoundryAgentSshTransport:
                         if process is None
                         else "unexpected_error"
                     ),
-                    mode="live-tunnel",
+                    mode=mode,
                     **progress,
                 )
             except BaseException:
                 result = HostedFoundryAgentSshTransportResult.build(
                     ok=False,
                     category="unexpected_error",
-                    mode="live-tunnel",
+                    mode=mode,
                     **progress,
                 )
             finally:
@@ -580,12 +603,13 @@ class HostedFoundryAgentSshTransport:
         known_hosts_path: str,
         deadline: float,
         progress: dict[str, bool],
+        mode: str,
     ) -> HostedFoundryAgentSshTransportResult:
         if approvals.approve_probes() is not True:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="approval_denied",
-                mode="live-tunnel",
+                mode=mode,
                 **progress,
             )
         progress.update(
@@ -605,7 +629,7 @@ class HostedFoundryAgentSshTransport:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="interpreter_probe_failed",
-                mode="live-tunnel",
+                mode=mode,
                 **progress,
             )
         progress.update(interpreter_valid=True, module_probe_attempted=True)
@@ -619,10 +643,18 @@ class HostedFoundryAgentSshTransport:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="module_probe_failed",
-                mode="live-tunnel",
+                mode=mode,
                 **progress,
             )
         progress["packaged_module_valid"] = True
+        if mode == "live-metadata-verification":
+            return self._run_metadata_verification(
+                approvals,
+                deps,
+                known_hosts_path,
+                deadline,
+                progress,
+            )
         if approvals.approve_remote_check() is not True:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
@@ -656,6 +688,59 @@ class HostedFoundryAgentSshTransport:
             ok=True,
             category="success",
             mode="live-tunnel",
+            **progress,
+        )
+
+    def _run_metadata_verification(
+        self,
+        approvals: HostedFoundryAgentSshTransportApprovals,
+        deps: HostedFoundryAgentSshTransportDependencies,
+        known_hosts_path: str,
+        deadline: float,
+        progress: dict[str, bool],
+    ) -> HostedFoundryAgentSshTransportResult:
+        try:
+            approved = approvals.approve_metadata_verification() is True
+        except (KeyboardInterrupt, _TransportInterrupted):
+            raise
+        except BaseException:
+            approved = False
+        if not approved:
+            return HostedFoundryAgentSshTransportResult.build(
+                ok=False,
+                category="approval_denied",
+                mode="live-metadata-verification",
+                **progress,
+            )
+        progress["metadata_verification_attempted"] = True
+        remote = _run_ssh(
+            deps,
+            REMOTE_METADATA_VERIFICATION_COMMAND,
+            known_hosts_path,
+            deadline,
+        )
+        if type(remote) is not RemoteCommandResult or remote.return_code != 0:
+            return HostedFoundryAgentSshTransportResult.build(
+                ok=False,
+                category="metadata_verification_failed",
+                mode="live-metadata-verification",
+                **progress,
+            )
+        if not _metadata_verification_result_valid(remote):
+            return HostedFoundryAgentSshTransportResult.build(
+                ok=False,
+                category="remote_output_invalid",
+                mode="live-metadata-verification",
+                **progress,
+            )
+        progress.update(
+            managed_identity_attempted=True,
+            metadata_verification_valid=True,
+        )
+        return HostedFoundryAgentSshTransportResult.build(
+            ok=True,
+            category="success",
+            mode="live-metadata-verification",
             **progress,
         )
 
@@ -703,9 +788,22 @@ def _fixed_contract_valid(request: HostedFoundryAgentSshTransportRequest) -> boo
         and "--instance" not in command
         and "--debug" not in command
         and "--verbose" not in command
-        and len(PERMITTED_REMOTE_COMMANDS) == 3
-        and PERMITTED_REMOTE_COMMANDS[-1].endswith("--check --json")
-        and all("--live" not in remote for remote in PERMITTED_REMOTE_COMMANDS)
+        and PERMITTED_REMOTE_COMMANDS
+        == (
+            INTERPRETER_PROBE_COMMAND,
+            MODULE_PROBE_COMMAND,
+            REMOTE_CHECK_COMMAND,
+            REMOTE_METADATA_VERIFICATION_COMMAND,
+        )
+        and REMOTE_CHECK_COMMAND.endswith("--check --json")
+        and REMOTE_METADATA_VERIFICATION_COMMAND.endswith("--live --json")
+        and all(
+            "--live" not in remote
+            for remote in PERMITTED_REMOTE_COMMANDS[:-1]
+        )
+        and PACKAGED_MODULE not in REMOTE_METADATA_VERIFICATION_COMMAND
+        and "invoke_hosted_foundry_agent"
+        not in REMOTE_METADATA_VERIFICATION_COMMAND
         and "APP_PATH" in INTERPRETER_PROBE_COMMAND
         and "APP_PATH" in MODULE_PROBE_COMMAND
         and "APP_PATH" in REMOTE_CHECK_COMMAND
@@ -852,6 +950,44 @@ def _remote_check_result_valid(value: object) -> bool:
         "deterministic_rules_executed": False,
         "azure_call_made": False,
         "azure_mutation_made": False,
+    }
+    return bool(
+        type(payload) is dict
+        and payload.keys() == expected.keys()
+        and all(_exact_value(payload[key], value) for key, value in expected.items())
+    )
+
+
+def _metadata_verification_result_valid(result: RemoteCommandResult) -> bool:
+    if (
+        type(result) is not RemoteCommandResult
+        or result.return_code != 0
+        or result.stderr != ""
+        or not _one_json_document(result.stdout)
+    ):
+        return False
+    try:
+        payload = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        return False
+    expected = {
+        "ok": True,
+        "category": "success",
+        "operation": "verify_hosted_foundry_agent",
+        "mode": "live",
+        "local_contract_validated": True,
+        "hosted_environment_present": True,
+        "managed_identity_attempted": True,
+        "managed_identity_authenticated": True,
+        "project_access_verified": True,
+        "agent_present": True,
+        "configured_version_present": True,
+        "agent_contract_verified": True,
+        "agent_invocation_attempted": False,
+        "azure_mutation_made": False,
+        "recommended_next_step": (
+            "Run the separate fictional-data hosted agent invocation."
+        ),
     }
     return bool(
         type(payload) is dict

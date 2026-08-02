@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -157,6 +158,44 @@ def _proof_payload() -> dict[str, object]:
     }
 
 
+def _metadata_payload() -> dict[str, object]:
+    return {
+        "ok": True,
+        "category": "success",
+        "operation": "verify_hosted_foundry_agent",
+        "mode": "live",
+        "local_contract_validated": True,
+        "hosted_environment_present": True,
+        "managed_identity_attempted": True,
+        "managed_identity_authenticated": True,
+        "project_access_verified": True,
+        "agent_present": True,
+        "configured_version_present": True,
+        "agent_contract_verified": True,
+        "agent_invocation_attempted": False,
+        "azure_mutation_made": False,
+        "recommended_next_step": (
+            "Run the separate fictional-data hosted agent invocation."
+        ),
+    }
+
+
+def _metadata_approvals(
+    *,
+    tunnel: bool = True,
+    probes: bool = True,
+    metadata: bool = True,
+):
+    return SimpleNamespace(
+        approve_tunnel=lambda: tunnel,
+        approve_probes=lambda: probes,
+        approve_remote_check=lambda: pytest.fail(
+            "metadata mode must not request non-invoking check approval"
+        ),
+        approve_metadata_verification=lambda: metadata,
+    )
+
+
 def _line(payload: dict[str, object]) -> str:
     return json.dumps(payload, separators=(",", ":"), sort_keys=True) + "\n"
 
@@ -174,6 +213,13 @@ def _successful_remote_results() -> list[transport.RemoteCommandResult]:
             "",
         ),
         transport.RemoteCommandResult(0, _line(_proof_payload()), ""),
+    ]
+
+
+def _successful_metadata_results() -> list[transport.RemoteCommandResult]:
+    return [
+        *_successful_remote_results()[:2],
+        transport.RemoteCommandResult(0, _line(_metadata_payload()), ""),
     ]
 
 
@@ -297,18 +343,20 @@ def test_malformed_cli_help_fails_closed(surface: object) -> None:
     assert result.category == "cli_unsupported"
 
 
-def test_only_the_three_fixed_remote_commands_are_representable() -> None:
+def test_only_the_mode_selected_fixed_remote_commands_are_representable() -> None:
     commands = _service().permitted_remote_commands()
 
     assert commands == (
         transport.INTERPRETER_PROBE_COMMAND,
         transport.MODULE_PROBE_COMMAND,
         transport.REMOTE_CHECK_COMMAND,
+        transport.REMOTE_METADATA_VERIFICATION_COMMAND,
     )
     assert all("APP_PATH" in command for command in commands)
     assert all("/home/site/wwwroot" not in command for command in commands)
-    assert all("--live" not in command for command in commands)
-    assert commands[-1].endswith("--check --json")
+    assert all("--live" not in command for command in commands[:-1])
+    assert commands[-2].endswith("--check --json")
+    assert commands[-1].endswith("--live --json")
     request_fields = set(
         transport.HostedFoundryAgentSshTransportRequest.__dataclass_fields__
     )
@@ -406,14 +454,259 @@ def test_success_uses_one_process_three_commands_and_reaps() -> None:
     assert result.category == "success"
     assert len(starts) == 1
     assert [call[0][-1] for call in runner.calls] == list(
-        transport.PERMITTED_REMOTE_COMMANDS
+        transport.PERMITTED_REMOTE_COMMANDS[:3]
     )
+    assert result.metadata_verification_attempted is False
+    assert result.metadata_verification_valid is False
+    assert result.managed_identity_attempted is False
+    assert result.agent_invocation_attempted is False
     assert signals == ["interrupt"]
     assert process.reaped is True
     assert result.tunnel_process_reaped is True
     assert result.private_known_hosts_removed is True
     assert len(removed) == 1
     assert "secret tunnel output" not in json.dumps(result.to_json_dict())
+
+
+def test_metadata_mode_uses_one_tunnel_two_probes_and_one_metadata_command() -> None:
+    process = FakeProcess()
+    runner = FakeSshRunner(_successful_metadata_results())
+    deps, starts, removed, signals = _dependencies(
+        process=process,
+        ssh_runner=runner,
+    )
+
+    result = _service().run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(),
+        dependencies=deps,
+    )
+
+    assert result.ok is True
+    assert result.category == "success"
+    assert result.mode == "live-metadata-verification"
+    assert len(starts) == 1
+    assert [call[0][-1] for call in runner.calls] == [
+        transport.INTERPRETER_PROBE_COMMAND,
+        transport.MODULE_PROBE_COMMAND,
+        transport.REMOTE_METADATA_VERIFICATION_COMMAND,
+    ]
+    assert result.interpreter_valid is True
+    assert result.packaged_module_valid is True
+    assert result.remote_check_attempted is False
+    assert result.remote_check_valid is False
+    assert result.metadata_verification_attempted is True
+    assert result.managed_identity_attempted is True
+    assert result.metadata_verification_valid is True
+    assert result.agent_invocation_attempted is False
+    assert result.azure_mutation_made is False
+    assert signals == ["interrupt"]
+    assert result.tunnel_process_reaped is True
+    assert result.private_known_hosts_removed is True
+    assert len(removed) == 1
+
+
+def test_metadata_command_is_the_only_live_remote_command_permitted() -> None:
+    command = transport.REMOTE_METADATA_VERIFICATION_COMMAND
+
+    assert command == (
+        'cd "$APP_PATH" && python -m '
+        "src.app.operations.verify_hosted_foundry_agent --live --json"
+    )
+    assert "prove_hosted_foundry_agent" not in command
+    assert "invoke_hosted_foundry_agent" not in command
+    assert _service().permitted_remote_commands().count(command) == 1
+    assert transport.build_ssh_command(
+        command, "/private/current-run-known-hosts"
+    )[-1] == command
+    for unauthorized in (
+        "python -m src.app.operations.prove_hosted_foundry_agent --live --json",
+        "python -m src.app.operations.invoke_hosted_foundry_agent --live --json",
+        command + " --prompt arbitrary",
+        command + " --agent override",
+        command + " --version override",
+        command + " --endpoint override",
+        command + " --credential override",
+    ):
+        with pytest.raises(ValueError):
+            transport.build_ssh_command(
+                unauthorized, "/private/current-run-known-hosts"
+            )
+
+
+@pytest.mark.parametrize(
+    ("tunnel", "probes", "metadata", "expected_calls", "expected_starts"),
+    [
+        (False, True, True, 0, 0),
+        (True, False, True, 0, 1),
+        (True, True, False, 2, 1),
+    ],
+    ids=["tunnel-denied", "probes-denied", "metadata-denied"],
+)
+def test_metadata_mode_preserves_each_default_no_approval_boundary(
+    tunnel: bool,
+    probes: bool,
+    metadata: bool,
+    expected_calls: int,
+    expected_starts: int,
+) -> None:
+    runner = FakeSshRunner(_successful_metadata_results())
+    deps, starts, _, _ = _dependencies(ssh_runner=runner)
+
+    result = _service().run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(
+            tunnel=tunnel,
+            probes=probes,
+            metadata=metadata,
+        ),
+        dependencies=deps,
+    )
+
+    assert result.category == "approval_denied"
+    assert len(starts) == expected_starts
+    assert len(runner.calls) == expected_calls
+    assert result.metadata_verification_attempted is False
+    assert result.agent_invocation_attempted is False
+    if expected_starts:
+        assert result.tunnel_process_reaped is True
+
+
+def test_metadata_mode_uses_authoritative_listener_readiness_without_marker() -> None:
+    observer = FakeOutputObserver(ready=False)
+    runner = FakeSshRunner(_successful_metadata_results())
+    deps, starts, _, _ = _dependencies(
+        tunnel_ready=True,
+        output_observer=observer,
+        ssh_runner=runner,
+    )
+
+    result = _service().run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(probes=False),
+        dependencies=deps,
+    )
+
+    assert result.category == "approval_denied"
+    assert result.tunnel_ready is True
+    assert len(starts) == 1
+    assert runner.calls == []
+    assert result.tunnel_process_reaped is True
+
+
+def _metadata_result(payload: object, *, stderr: str = ""):
+    stdout = payload if isinstance(payload, str) else _line(payload)
+    return transport.RemoteCommandResult(0, stdout, stderr)
+
+
+@pytest.mark.parametrize(
+    "remote",
+    [
+        _metadata_result({}),
+        _metadata_result({**_metadata_payload(), "ok": 1}),
+        _metadata_result({**_metadata_payload(), "category": "check_passed"}),
+        _metadata_result({**_metadata_payload(), "mode": "check"}),
+        _metadata_result(
+            {**_metadata_payload(), "operation": "prove_hosted_foundry_agent"}
+        ),
+        _metadata_result(
+            {**_metadata_payload(), "managed_identity_attempted": False}
+        ),
+        _metadata_result(
+            {**_metadata_payload(), "managed_identity_authenticated": False}
+        ),
+        _metadata_result({**_metadata_payload(), "project_access_verified": False}),
+        _metadata_result({**_metadata_payload(), "agent_present": False}),
+        _metadata_result(
+            {**_metadata_payload(), "configured_version_present": False}
+        ),
+        _metadata_result(
+            {**_metadata_payload(), "agent_contract_verified": False}
+        ),
+        _metadata_result(
+            {**_metadata_payload(), "agent_invocation_attempted": True}
+        ),
+        _metadata_result({**_metadata_payload(), "azure_mutation_made": True}),
+        _metadata_result({**_metadata_payload(), "unexpected": False}),
+        _metadata_result("not-json\n"),
+        _metadata_result(_line(_metadata_payload()) + _line(_metadata_payload())),
+        _metadata_result("prefix" + _line(_metadata_payload())),
+        _metadata_result(_line(_metadata_payload()) + "suffix\n"),
+        _metadata_result(_metadata_payload(), stderr="private authentication text"),
+    ],
+)
+def test_metadata_remote_result_is_an_exact_untrusted_boundary(remote) -> None:
+    runner = FakeSshRunner([*_successful_remote_results()[:2], remote])
+    deps, starts, _, _ = _dependencies(ssh_runner=runner)
+
+    result = _service().run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(),
+        dependencies=deps,
+    )
+
+    assert result.category == "remote_output_invalid"
+    assert len(starts) == 1
+    assert len(runner.calls) == 3
+    assert result.metadata_verification_attempted is True
+    assert result.metadata_verification_valid is False
+    assert result.agent_invocation_attempted is False
+    assert result.tunnel_process_reaped is True
+    assert "private authentication text" not in json.dumps(result.to_json_dict())
+
+
+@pytest.mark.parametrize(
+    "remote",
+    [
+        transport.RemoteCommandResult(1, "", "private authentication failure"),
+        transport.RemoteCommandResult(3, "", "private authorization failure"),
+        transport.RemoteCommandResult(4, "", "private contract drift"),
+    ],
+)
+def test_metadata_remote_failure_is_sanitized_and_never_invokes(remote) -> None:
+    runner = FakeSshRunner([*_successful_remote_results()[:2], remote])
+    deps, starts, _, _ = _dependencies(ssh_runner=runner)
+
+    result = _service().run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(),
+        dependencies=deps,
+    )
+
+    assert result.category == "metadata_verification_failed"
+    assert len(starts) == 1
+    assert len(runner.calls) == 3
+    assert result.metadata_verification_attempted is True
+    assert result.managed_identity_attempted is False
+    assert result.agent_invocation_attempted is False
+    assert result.tunnel_process_reaped is True
+    serialized = json.dumps(result.to_json_dict())
+    assert remote.stderr not in serialized
+
+
+def test_metadata_runner_exception_is_sanitized_reaped_and_not_retried() -> None:
+    runner = FakeSshRunner(
+        [*_successful_remote_results()[:2], RuntimeError("private runner error")]
+    )
+    deps, starts, _, _ = _dependencies(ssh_runner=runner)
+
+    result = _service().run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(),
+        dependencies=deps,
+    )
+
+    assert result.category == "unexpected_error"
+    assert len(starts) == 1
+    assert len(runner.calls) == 3
+    assert result.agent_invocation_attempted is False
+    assert result.tunnel_process_reaped is True
+    assert "private runner error" not in json.dumps(result.to_json_dict())
+    assert all(
+        type(value) is bool
+        for key, value in result.to_json_dict().items()
+        if key not in {"category", "mode", "operation", "transport"}
+    )
 
 
 def test_early_child_exit_stops_without_ssh_and_reaps() -> None:

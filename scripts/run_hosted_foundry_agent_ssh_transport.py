@@ -31,6 +31,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--check", action="store_true")
     modes.add_argument("--live-tunnel", action="store_true")
+    modes.add_argument("--live-metadata-verification", action="store_true")
     parser.add_argument("--config", type=Path)
     parser.add_argument(
         "--readiness-receipt",
@@ -41,8 +42,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.check and args.config is not None:
         parser.error("--config is live-only")
-    if args.live_tunnel and args.config is None:
-        parser.error("--config is required for --live-tunnel")
+    if (args.live_tunnel or args.live_metadata_verification) and args.config is None:
+        parser.error("--config is required for live modes")
     return args
 
 
@@ -76,13 +77,18 @@ def run_live(
     input_stream: TextIO,
     output_stream: TextIO,
 ) -> HostedFoundryAgentSshTransportResult:
+    mode = (
+        "live-metadata-verification"
+        if getattr(args, "live_metadata_verification", False)
+        else "live-tunnel"
+    )
     try:
         config = load_daily_azure_config(args.config, repository_root=PROJECT_ROOT)
     except ConfigValidationError:
         return HostedFoundryAgentSshTransportResult.build(
             ok=False,
             category="configuration_invalid",
-            mode="live-tunnel",
+            mode=mode,
         )
     receipt = load_matching_daily_azure_readiness_receipt(
         args.readiness_receipt,
@@ -92,35 +98,68 @@ def run_live(
         return HostedFoundryAgentSshTransportResult.build(
             ok=False,
             category="configuration_invalid",
-            mode="live-tunnel",
+            mode=mode,
         )
+
+    def evidence_unchanged() -> bool:
+        try:
+            current_config = load_daily_azure_config(
+                args.config,
+                repository_root=PROJECT_ROOT,
+            )
+            current_receipt = load_matching_daily_azure_readiness_receipt(
+                args.readiness_receipt,
+                current_config,
+            )
+        except (ConfigValidationError, OSError):
+            return False
+        return current_config == config and current_receipt == receipt
+
+    def approve(summary: str) -> bool:
+        return bool(
+            evidence_unchanged()
+            and _prompt(
+                summary,
+                input_stream=input_stream,
+                output_stream=output_stream,
+            )
+            and evidence_unchanged()
+        )
+
     approvals = HostedFoundryAgentSshTransportApprovals(
-        approve_tunnel=lambda: _prompt(
+        approve_tunnel=lambda: approve(
             "Action: start one owned App Service TCP tunnel process\n"
             "Tunnel restart permitted: no\n"
-            "Raw tunnel output retained: no",
-            input_stream=input_stream,
-            output_stream=output_stream,
+            "Raw tunnel output retained: no"
         ),
-        approve_probes=lambda: _prompt(
+        approve_probes=lambda: approve(
             "Remote commands: two fixed APP_PATH prerequisite probes\n"
             "Arbitrary shell exploration permitted: no\n"
-            "Probe retry permitted: no",
-            input_stream=input_stream,
-            output_stream=output_stream,
+            "Probe retry permitted: no"
         ),
-        approve_remote_check=lambda: _prompt(
+        approve_remote_check=lambda: approve(
             "Remote execution count: one\n"
             "Mode: check\n"
             "Managed identity, metadata, and Agent activity: prohibited\n"
-            "Retry permitted: no",
-            input_stream=input_stream,
-            output_stream=output_stream,
+            "Retry permitted: no"
+        ),
+        approve_metadata_verification=lambda: (
+            approve(
+                "Remote execution count: one\n"
+                "Mode: hosted metadata verification\n"
+                "System-assigned managed identity: required\n"
+                "Foundry metadata reads: permitted\n"
+                "Agent invocation: prohibited\n"
+                "Azure mutation: prohibited\n"
+                "Retry permitted: no"
+            )
+            if mode == "live-metadata-verification"
+            else False
         ),
     )
     return _create_service().run_live_tunnel(
         HostedFoundryAgentSshTransportRequest(
-            mode="live-tunnel",
+            mode=mode,
             subscription=config.subscription_name,
             resource_group=receipt.resource_group,
             web_app_name=receipt.web_app_name,
