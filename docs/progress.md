@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,101 passed full suite
-- 21 shell-wrapper tests and 44 documentation tests
+- 3,167 passed full suite
+- 21 shell-wrapper tests and 45 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -39,7 +39,7 @@ success requires `resource_group_absent=true`, `foundry_tombstones_absent=true`,
 Azure removed the owned tombstone, but the service incorrectly classified the
 successful empty-output completion as `speech_purge_failed`; an immediate
 read-only inspection conclusively proved the environment clean. The offline
-correction accepts command-style process success while retaining final absence proof. Fresh daily READY must precede the paused SSH transport acceptance.
+correction accepts command-style process success while retaining final absence proof. Fresh daily READY and exact read-only hosted-verifier configuration proof must precede any new metadata-only SSH acceptance.
 
 Consumer RBAC remains among the standalone optional workflows and requires successful exact reuse or `assignment_verified=true` after a separately approved deployment. WebJob evidence recovery remains exceptional. The current WebJob trigger-and-correlation path is retired from supported operations and must not be reused without a new explicit architecture decision.
 
@@ -82,8 +82,7 @@ Multiple fresh supervised WebJob trigger attempts returned sanitized
 record for those attempts. The trigger-and-correlation implementation is now
 retired from supported operations; it was not reliably provable enough for this
 capstone. This decision does not claim that Azure WebJobs are universally
-impossible. Hosted managed-identity token acquisition, Foundry metadata access,
-and invocation remain unproven. The next candidate is frozen as an offline-tested packaged synchronous hosted proof operation intended for operator-supervised direct App Service SSH. No SSH or live managed-identity proof has run. The WebJob trigger-and-correlation mechanism remains retired; Container Apps Jobs, Functions, HTTP proof routes, and Kudu command execution were not added. Separately, application-integrated Microsoft Foundry Agent execution and application-integrated structured extraction through production composition are both live-proven.
+impossible. Operator-supervised direct App Service SSH transport, its two fixed `APP_PATH` probes, and the packaged non-invoking check are live-proven. A later separately approved metadata-only SSH attempt reached the packaged verifier, which returned a sanitized failure before managed-identity construction. That result does not prove an RBAC, token, or Foundry authorization failure. Hosted managed-identity token acquisition, Foundry metadata access, and invocation remain unproven. The WebJob trigger-and-correlation mechanism remains retired; Container Apps Jobs, Functions, HTTP proof routes, and Kudu command execution were not added. Separately, application-integrated Microsoft Foundry Agent execution and application-integrated structured extraction through production composition are both live-proven.
 Offline Foundry evaluation baseline v1 is implemented with eight fictional intake cases, a separate intentionally imperfect candidate fixture, strict provider-neutral contracts, deterministic exact/set metrics, and sanitized JSON output. Expected urgency labels remain `Routine` or `Urgent`; observed contract-invalid output may carry safe `Unknown` urgency under strict fallback invariants, where it scores as a mismatch without aborting evaluation. The baseline makes no Azure or network call and performs no persistence or notification work.
 
 Safe to demo today:
@@ -399,13 +398,14 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The packaged synchronous hosted proof operation remains the fixed non-invoking boundary, and direct App Service SSH transport is live-proven. One fresh supervised acceptance used exactly one tunnel; both fixed `APP_PATH` prerequisite probes passed, and the packaged non-invoking check passed. The tunnel was then interrupted and reaped with no matching process remaining. No managed-identity metadata verification or Agent invocation occurred. The metadata-only SSH extension is implemented offline and awaits one separate supervised live acceptance after fresh current-artifact READY evidence; Agent invocation remains a later slice.
+The packaged synchronous hosted proof operation remains the fixed non-invoking boundary, and direct App Service SSH transport is live-proven. One fresh supervised acceptance used exactly one tunnel; both fixed `APP_PATH` prerequisite probes passed, and the packaged non-invoking check passed. A later metadata-only attempt reached the verifier but failed before managed-identity construction, so it proves no identity, token, RBAC, metadata-access, or Agent authorization outcome. The metadata-only SSH extension is implemented offline with an exact pre-tunnel Web App configuration proof and bounded sanitized verifier failure attribution. It awaits a new separate supervised acceptance after fresh current-artifact READY evidence; Agent invocation remains a later slice.
 
 ## Current Slice Status
 
 - Direct App Service SSH transport is live-proven. Fresh matching READY evidence preceded one supervised acceptance that started exactly one tunnel and proved readiness; both fixed `APP_PATH` probes passed, and the packaged non-invoking check passed. No managed-identity metadata verification or Agent invocation occurred. Interrupt and private host-key cleanup completed, the process was reaped, and sanitized inspection found no matching tunnel process. No retry or alternate transport occurred.
 - `src/app/services/hosted_foundry_agent_proof.py` composes the existing hosted metadata verifier and fixed-fictional invocation boundary in one exact-type, exact-boolean, fail-closed sequence. `src/app/operations/prove_hosted_foundry_agent.py` is included by the ordinary `src` package allowlist, and `scripts/run_hosted_foundry_agent_proof.py` validates the fixed future command without subprocess, SSH, credential, Azure, metadata, or Agent activity. Check mode is deterministic and sanitized. Live mode is implemented but has not run.
 - `HostedFoundryAgentSshTransport` and its wrapper preserve the live-proven one-tunnel lifecycle, authoritative loopback readiness proof, two fixed `APP_PATH` probes, private output and host-key handling, and guaranteed interrupt/terminate/kill reaping. The existing `--live-tunnel` mode remains non-invoking. A new metadata-only mode adds one distinct default-no approval and exactly one packaged read-only metadata verifier command; its exact success contract prohibits Agent invocation and Azure mutation. The metadata-only SSH extension is implemented offline and awaiting separate supervised live acceptance. Hosted managed-identity metadata access remains unproven, Agent invocation remains a later slice, and the WebJob trigger-and-correlation path remains retired.
+- Metadata-only SSH now consumes the existing typed Web App configuration verification result and requires an exact match for all five non-secret hosted-verifier settings before service, tunnel, listener, SSH, credential, or metadata activity. A failed or malformed proof returns `hosted_verifier_configuration_invalid`. When the packaged verifier emits one exact authoritative failure document, the outer result retains only its allowlisted `metadata_verifier_category`; malformed, contradictory, unknown, duplicate, or additional output remains generic and fail-closed. Raw remote stdout and stderr remain private. This correction is offline-tested only and made no Azure, SSH, managed-identity, metadata, Agent, deployment, or mutation call.
 Architecture impact: updated the existing hosted Foundry execution section because the SSH candidate now has a repository-owned single-tunnel lifecycle, exact APP_PATH-based prerequisite probes, and guaranteed termination/reaping, while live SSH transport and managed-identity execution remain unproven.
 - The blocked application-output adapter slice exposed a canonical representation mismatch: invalid Agent fallback output could safely contain `Unknown`, while the candidate contract required a fabricated binary urgency. The canonical evaluator now keeps expected advisory, final, and deterministic-rule labels binary while allowing only application-consistent `Unknown` urgency states on contract-invalid observed candidates. `Unknown` remains an ordinary advisory/final mismatch; deterministic-rule agreement and mandatory nurse review remain scoreable. No adapter was implemented in this correction.
 - Verification for the canonical correction is 50 focused evaluator/CLI tests, 38 documentation guardrails, and 2,814 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. Python compilation, CLI JSON validation, repeated-run determinism, and diff checks also pass.

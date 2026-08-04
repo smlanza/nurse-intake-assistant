@@ -14,6 +14,35 @@ def _script():
     return importlib.import_module("scripts.run_hosted_foundry_agent_ssh_transport")
 
 
+def _hosted_verifier_args() -> list[str]:
+    return [
+        "--hosted-verifier-project-endpoint",
+        "https://account.services.ai.azure.com/api/projects/project",
+        "--hosted-verifier-stable-agent-endpoint",
+        "https://account.services.ai.azure.com/api/projects/project/agents/agent/endpoint/protocols/openai",
+        "--hosted-verifier-agent-name",
+        "agent",
+        "--hosted-verifier-agent-version",
+        "1",
+        "--hosted-verifier-model-deployment-name",
+        "model",
+    ]
+
+
+def _hosted_verifier_values() -> dict[str, str]:
+    return {
+        "hosted_verifier_project_endpoint": (
+            "https://account.services.ai.azure.com/api/projects/project"
+        ),
+        "hosted_verifier_stable_agent_endpoint": (
+            "https://account.services.ai.azure.com/api/projects/project/agents/agent/endpoint/protocols/openai"
+        ),
+        "hosted_verifier_agent_name": "agent",
+        "hosted_verifier_agent_version": "1",
+        "hosted_verifier_model_deployment_name": "model",
+    }
+
+
 def test_check_cli_emits_one_sanitized_newline_terminated_json(capsys) -> None:
     script = _script()
 
@@ -127,6 +156,7 @@ def test_metadata_mode_is_explicit_mutually_exclusive_and_requires_config() -> N
             "--config",
             "fictional.env",
             "--json",
+            *_hosted_verifier_args(),
         ]
     )
     assert args.live_metadata_verification is True
@@ -138,7 +168,10 @@ def test_metadata_mode_invalid_receipt_stops_before_service_construction(
     monkeypatch, receipt_state: str
 ) -> None:
     script = _script()
-    config = SimpleNamespace(subscription_name="contract-subscription")
+    config = SimpleNamespace(
+        subscription_name="contract-subscription",
+        enable_hosted_foundry_verifier=True,
+    )
     monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
     monkeypatch.setattr(
         script,
@@ -168,7 +201,7 @@ def test_metadata_mode_invalid_receipt_stops_before_service_construction(
     assert result.tunnel_process_started is False
 
 
-def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
+def test_metadata_mode_invalid_hosted_configuration_stops_before_service(
     monkeypatch,
 ) -> None:
     script = _script()
@@ -182,6 +215,154 @@ def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
         script,
         "load_matching_daily_azure_readiness_receipt",
         lambda *_a, **_k: receipt,
+    )
+    monkeypatch.setattr(
+        script,
+        "_verify_hosted_verifier_configuration",
+        lambda *_a, **_k: script.WebAppConfigurationVerificationResult.failure(
+            "hosted_verifier_configuration_invalid",
+            local_contract_validated=True,
+            azure_request_attempted=True,
+        ),
+    )
+    monkeypatch.setattr(
+        script,
+        "_create_service",
+        lambda: pytest.fail("invalid hosted configuration must stop first"),
+    )
+    args = SimpleNamespace(
+        live_tunnel=False,
+        live_metadata_verification=True,
+        config=Path("fictional-config"),
+        readiness_receipt=Path("fictional-receipt"),
+        **_hosted_verifier_values(),
+    )
+
+    result = script.run_live(
+        args,
+        input_stream=io.StringIO("y\ny\ny\n"),
+        output_stream=io.StringIO(),
+    )
+
+    assert result.category == "hosted_verifier_configuration_invalid"
+    assert result.azure_call_made is True
+    assert result.tunnel_process_started is False
+    assert result.ssh_command_attempted is False
+    assert result.managed_identity_attempted is False
+
+
+def test_metadata_cli_requires_exact_hosted_verifier_projection() -> None:
+    script = _script()
+    base = [
+        "--live-metadata-verification",
+        "--config",
+        "fictional.env",
+        "--json",
+    ]
+
+    with pytest.raises(SystemExit):
+        script._parse_args(base)
+
+    args = script._parse_args(
+        [
+            *base,
+            *_hosted_verifier_args(),
+        ]
+    )
+
+    assert args.hosted_verifier_agent_version == "1"
+
+
+def test_metadata_preflight_reuses_exact_configuration_verifier_contract(
+    monkeypatch,
+) -> None:
+    script = _script()
+    runner = object()
+    captured: list[tuple[object, ...]] = []
+    expected = script.WebAppConfigurationVerificationResult.live_success(
+        hosted_verifier_configuration_verified=True
+    )
+    monkeypatch.setattr(script, "_create_configuration_runner", lambda: runner)
+
+    def verify(*args, **kwargs):
+        captured.append((*args, kwargs))
+        return expected
+
+    monkeypatch.setattr(script, "verify_web_app_configuration", verify)
+    args = SimpleNamespace(**_hosted_verifier_values())
+
+    result = script._verify_hosted_verifier_configuration(
+        SimpleNamespace(enable_hosted_foundry_verifier=True),
+        SimpleNamespace(resource_group="contract-rg", web_app_name="contract-app"),
+        args,
+    )
+
+    assert result == expected
+    assert len(captured) == 1
+    resource_group, web_app_name, settings, kwargs = captured[0]
+    assert resource_group == "contract-rg"
+    assert web_app_name == "contract-app"
+    assert settings == {
+        setting_name: getattr(args, attribute)
+        for setting_name, attribute in script.HOSTED_SETTING_OPTIONS.items()
+    }
+    assert set(settings) == set(script.HOSTED_SETTING_OPTIONS)
+    assert kwargs == {
+        "verify_hosted_foundry_verifier": True,
+        "runner": runner,
+    }
+
+
+def test_disabled_metadata_preflight_stops_before_runner_or_verifier(
+    monkeypatch,
+) -> None:
+    script = _script()
+    monkeypatch.setattr(
+        script,
+        "_create_configuration_runner",
+        lambda: pytest.fail("disabled preflight must not construct runner"),
+    )
+    monkeypatch.setattr(
+        script,
+        "verify_web_app_configuration",
+        lambda *_a, **_k: pytest.fail("disabled preflight must not read Azure"),
+    )
+
+    result = script._verify_hosted_verifier_configuration(
+        SimpleNamespace(enable_hosted_foundry_verifier=False),
+        SimpleNamespace(resource_group="contract-rg", web_app_name="contract-app"),
+        SimpleNamespace(**_hosted_verifier_values()),
+    )
+
+    assert result.category == "hosted_verifier_configuration_invalid"
+    assert result.azure_request_attempted is False
+
+
+def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
+    monkeypatch,
+) -> None:
+    script = _script()
+    config = SimpleNamespace(
+        subscription_name="contract-subscription",
+        enable_hosted_foundry_verifier=True,
+    )
+    receipt = SimpleNamespace(
+        resource_group="contract-rg",
+        web_app_name="contract-web-app",
+    )
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_a, **_k: receipt,
+    )
+    proof = script.WebAppConfigurationVerificationResult.live_success(
+        hosted_verifier_configuration_verified=True
+    )
+    monkeypatch.setattr(
+        script,
+        "_verify_hosted_verifier_configuration",
+        lambda *_a, **_k: proof,
     )
     captured: list[object] = []
 
@@ -202,12 +383,19 @@ def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
                 private_known_hosts_removed=True,
             )
 
-    monkeypatch.setattr(script, "_create_service", lambda: Service())
+    monkeypatch.setattr(
+        script,
+        "_create_service",
+        lambda received: Service()
+        if received == proof
+        else pytest.fail("metadata service requires the exact proof"),
+    )
     args = SimpleNamespace(
         live_tunnel=False,
         live_metadata_verification=True,
         config=Path("fictional-config"),
         readiness_receipt=Path("fictional-receipt"),
+        **_hosted_verifier_values(),
     )
     prompts = io.StringIO()
 
@@ -237,7 +425,10 @@ def test_changed_readiness_evidence_invalidates_current_prompt_approval(
     monkeypatch,
 ) -> None:
     script = _script()
-    config = SimpleNamespace(subscription_name="contract-subscription")
+    config = SimpleNamespace(
+        subscription_name="contract-subscription",
+        enable_hosted_foundry_verifier=True,
+    )
     receipt = SimpleNamespace(
         resource_group="contract-rg",
         web_app_name="contract-web-app",
@@ -248,6 +439,14 @@ def test_changed_readiness_evidence_invalidates_current_prompt_approval(
         script,
         "load_matching_daily_azure_readiness_receipt",
         lambda *_a, **_k: next(receipt_results),
+    )
+    proof = script.WebAppConfigurationVerificationResult.live_success(
+        hosted_verifier_configuration_verified=True
+    )
+    monkeypatch.setattr(
+        script,
+        "_verify_hosted_verifier_configuration",
+        lambda *_a, **_k: proof,
     )
 
     class Service:
@@ -260,12 +459,13 @@ def test_changed_readiness_evidence_invalidates_current_prompt_approval(
                 mode=request.mode,
             )
 
-    monkeypatch.setattr(script, "_create_service", lambda: Service())
+    monkeypatch.setattr(script, "_create_service", lambda _proof: Service())
     args = SimpleNamespace(
         live_tunnel=False,
         live_metadata_verification=True,
         config=Path("fictional-config"),
         readiness_receipt=Path("fictional-receipt"),
+        **_hosted_verifier_values(),
     )
 
     result = script.run_live(

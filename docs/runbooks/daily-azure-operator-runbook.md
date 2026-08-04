@@ -234,6 +234,44 @@ daily workflow. Their successful historical use proves generation binding and
 fixed WebJob registration respectively; neither proves trigger acceptance,
 execution, identity access, metadata, invocation, or inference.
 
+### Separate metadata-only SSH prerequisite
+
+Metadata-only SSH verification is not a normal daily step and remains
+separately approved. Before any future supervised attempt, first obtain fresh
+READY and any separately required Consumer RBAC proof. The wrapper now also
+requires the exact five current non-secret hosted-verifier values and passes
+them to the existing read-only Web App configuration verifier before it
+constructs the SSH transport service or tunnel:
+
+```bash
+.venv/bin/python scripts/run_hosted_foundry_agent_ssh_transport.py \
+  --live-metadata-verification \
+  --config .env.daily-azure.local \
+  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
+  --hosted-verifier-project-endpoint <current-project-endpoint> \
+  --hosted-verifier-stable-agent-endpoint <current-stable-agent-endpoint> \
+  --hosted-verifier-agent-name <current-agent-name> \
+  --hosted-verifier-agent-version <current-immutable-agent-version> \
+  --hosted-verifier-model-deployment-name <current-model-deployment-name> \
+  --json
+```
+
+Keep generation-specific values in approved ignored operator evidence; never
+paste real values into documentation or commits. Missing, disabled, blank,
+malformed, duplicate, mismatched, ambiguous, or failed configuration proof
+returns `hosted_verifier_configuration_invalid` before tunnel or SSH activity.
+Stop and restore the authoritative deployed configuration; do not work around
+this gate with direct app-setting reads or ad hoc Azure CLI commands.
+
+The most recent separately approved attempt reached the packaged verifier but
+returned a sanitized failure before managed-identity construction. The outer
+result may now include one allowlisted `metadata_verifier_category` only when
+the remote document has the exact authoritative shape. A generic
+`metadata_verification_failed` or `remote_output_invalid` result does not prove
+RBAC, token, identity, Foundry authorization, or metadata-contract cause. Raw
+remote output remains private. A new attempt still requires fresh evidence and
+separate approval; do not retry merely to diagnose the prior result.
+
 ## Step 7 — Use the environment
 
 Perform only the approved development, testing, or demonstration slice. Keep
@@ -304,6 +342,7 @@ before the next workday.
 | `.venv/bin/python scripts/prepare_hosted_foundry_agent_webjob_handoff.py --live ...` | Projected Azure reads plus one private immutable local handoff write | Current READY receipt, hosted artifact, Web App identity, Foundry project, and environment generation are bound together | RBAC, WebJob discovery, trigger, execution, metadata, or invocation |
 | `.venv/bin/python scripts/run_hosted_foundry_agent_verification.py --live-discover ...` | One authenticated read-only fixed-resource Kudu GET | The exact fixed triggered WebJob name and `run.py` command are registered | Trigger acceptance, execution, status, metadata, or invocation |
 | Retired `--live-trigger`, `--live-reconcile-blocked-trigger`, and `--live-status` modes | Former trigger and correlation reads; unsupported for current operations | No supported current proof; preserved only as retired implementation evidence | Any reliable capstone claim for correlated execution, managed-identity metadata access, invocation, or inference |
+| `.venv/bin/python scripts/run_hosted_foundry_agent_ssh_transport.py --live-metadata-verification ...` | Read-only Web App configuration proof, one owned tunnel, two fixed probes, and one read-only packaged verifier after separate approvals | Exact current hosted-verifier configuration and, only on an authoritative result, a bounded sanitized verifier outcome | RBAC repair, Azure mutation, Agent invocation, or any cause not established by the allowlisted verifier category |
 | `scripts/daily_azure.sh stop` | May delete the exact owned group and purge bounded owned Foundry and Speech tombstones after default-no approval | Final resource-group, Foundry-tombstone, and Speech-tombstone absence | A future session's readiness or any retained live proof |
 
 ## Exceptional immutable WebJob evidence recovery

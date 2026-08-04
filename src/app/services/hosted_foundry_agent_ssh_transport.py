@@ -18,6 +18,13 @@ import threading
 import time
 from typing import Callable, Literal, Protocol
 
+from src.app.services.hosted_foundry_agent_verification import (
+    HostedFoundryAgentVerificationResult,
+)
+from src.app.services.web_app_configuration_verification import (
+    WebAppConfigurationVerificationResult,
+)
+
 
 TransportMode = Literal["check", "live-tunnel", "live-metadata-verification"]
 TunnelReadinessOutcome = Literal["ready", "unavailable", "ambiguous"]
@@ -26,6 +33,7 @@ TransportCategory = Literal[
     "check_passed",
     "success",
     "configuration_invalid",
+    "hosted_verifier_configuration_invalid",
     "cli_unsupported",
     "approval_denied",
     "port_unavailable",
@@ -225,6 +233,7 @@ class HostedFoundryAgentSshTransportResult:
     agent_invocation_attempted: bool
     azure_call_made: bool
     azure_mutation_made: bool
+    metadata_verifier_category: str | None = None
 
     @classmethod
     def build(
@@ -233,7 +242,7 @@ class HostedFoundryAgentSshTransportResult:
         ok: bool,
         category: TransportCategory,
         mode: str,
-        **progress: bool,
+        **progress: object,
     ) -> "HostedFoundryAgentSshTransportResult":
         values = {
             "cli_help_contract_valid": False,
@@ -281,6 +290,7 @@ class HostedFoundryAgentSshTransportResult:
         return {
             field: getattr(self, field)
             for field in self.__dataclass_fields__
+            if getattr(self, field) is not None
         }
 
 
@@ -406,8 +416,14 @@ class HostedFoundryAgentSshTransport:
         self,
         *,
         help_reader: Callable[[], AzureCliHelpSurface | None] | None = None,
+        hosted_verifier_configuration_proof: (
+            WebAppConfigurationVerificationResult | None
+        ) = None,
     ) -> None:
         self._help_reader = help_reader or InstalledAzureCliHelpReader().read
+        self._hosted_verifier_configuration_proof = (
+            hosted_verifier_configuration_proof
+        )
 
     def permitted_remote_commands(self) -> tuple[str, ...]:
         return PERMITTED_REMOTE_COMMANDS
@@ -475,6 +491,21 @@ class HostedFoundryAgentSshTransport:
             "sanitization_policy_valid": True,
             "cleanup_policy_valid": True,
         }
+        if mode == "live-metadata-verification":
+            proof = self._hosted_verifier_configuration_proof
+            proof_attempted = bool(
+                type(proof) is WebAppConfigurationVerificationResult
+                and proof.azure_request_attempted is True
+            )
+            if not _hosted_verifier_configuration_proof_valid(proof):
+                return HostedFoundryAgentSshTransportResult.build(
+                    ok=False,
+                    category="hosted_verifier_configuration_invalid",
+                    mode=mode,
+                    azure_call_made=proof_attempted,
+                    **progress,
+                )
+            progress["azure_call_made"] = True
         try:
             if approvals.approve_tunnel() is not True:
                 return HostedFoundryAgentSshTransportResult.build(
@@ -719,7 +750,27 @@ class HostedFoundryAgentSshTransport:
             known_hosts_path,
             deadline,
         )
-        if type(remote) is not RemoteCommandResult or remote.return_code != 0:
+        if type(remote) is not RemoteCommandResult:
+            return HostedFoundryAgentSshTransportResult.build(
+                ok=False,
+                category="metadata_verification_failed",
+                mode="live-metadata-verification",
+                **progress,
+            )
+        if remote.return_code != 0:
+            failure = _recognized_metadata_verification_failure(remote)
+            if failure is not None:
+                verifier_category, managed_identity_attempted = failure
+                progress["managed_identity_attempted"] = (
+                    managed_identity_attempted
+                )
+                return HostedFoundryAgentSshTransportResult.build(
+                    ok=False,
+                    category="metadata_verification_failed",
+                    mode="live-metadata-verification",
+                    metadata_verifier_category=verifier_category,
+                    **progress,
+                )
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="metadata_verification_failed",
@@ -760,6 +811,16 @@ class HostedFoundryAgentSshTransport:
             and _TUNNEL_READY_MARKER in surface.create_remote_connection
             and "webapp ssh" in surface.preview_ssh
         )
+
+
+def _hosted_verifier_configuration_proof_valid(value: object) -> bool:
+    return bool(
+        type(value) is WebAppConfigurationVerificationResult
+        and value
+        == WebAppConfigurationVerificationResult.live_success(
+            hosted_verifier_configuration_verified=True
+        )
+    )
 
 
 def _request_valid(
@@ -994,6 +1055,116 @@ def _metadata_verification_result_valid(result: RemoteCommandResult) -> bool:
         and payload.keys() == expected.keys()
         and all(_exact_value(payload[key], value) for key, value in expected.items())
     )
+
+
+_FAILURE_STATE = tuple[bool, bool, bool, bool, bool, bool, bool]
+_RECOGNIZED_METADATA_FAILURE_STATES: dict[str, tuple[_FAILURE_STATE, ...]] = {
+    "missing_configuration": ((False, False, False, False, False, False, False),),
+    "sdk_unavailable": (
+        (True, False, False, False, False, False, False),
+        (True, True, True, False, False, False, False),
+    ),
+    "not_running_in_hosted_environment": (
+        (True, False, False, False, False, False, False),
+    ),
+    "managed_identity_unavailable": (
+        (True, True, True, False, False, False, False),
+    ),
+    "authentication_or_authorization_failed": (
+        (True, True, True, False, False, False, False),
+        (True, True, True, True, True, True, False),
+    ),
+    "project_access_failed": (
+        (True, True, True, False, False, False, False),
+    ),
+    "agent_not_found": (
+        (True, True, True, True, True, False, False),
+    ),
+    "configured_version_not_found": (
+        (True, True, True, True, True, True, False),
+    ),
+    "agent_contract_invalid": (
+        (True, True, True, True, True, True, True),
+    ),
+    "azure_request_failed": (
+        (True, True, True, False, False, False, False),
+        (True, True, True, True, True, True, False),
+        (True, True, True, True, True, True, True),
+    ),
+    "response_parse_failed": (
+        (True, True, True, False, False, False, False),
+        (True, True, True, True, True, False, False),
+        (True, True, True, True, True, True, False),
+    ),
+    "unexpected_error": (
+        (True, True, True, False, False, False, False),
+    ),
+}
+
+
+def _recognized_metadata_verification_failure(
+    result: RemoteCommandResult,
+) -> tuple[str, bool] | None:
+    if (
+        type(result.return_code) is not int
+        or result.return_code not in {1, 2}
+        or result.stderr != ""
+        or not _one_json_document(result.stdout)
+    ):
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        return None
+    if type(payload) is not dict:
+        return None
+    category = payload.get("category")
+    if type(category) is not str:
+        return None
+    states = _RECOGNIZED_METADATA_FAILURE_STATES.get(category)
+    if states is None:
+        return None
+    for state in states:
+        (
+            local_contract_validated,
+            hosted_environment_present,
+            managed_identity_attempted,
+            managed_identity_authenticated,
+            project_access_verified,
+            agent_present,
+            configured_version_present,
+        ) = state
+        expected = HostedFoundryAgentVerificationResult.failure(
+            "live",
+            category,
+            local_contract_validated=local_contract_validated,
+            hosted_environment_present=hosted_environment_present,
+            managed_identity_attempted=managed_identity_attempted,
+            managed_identity_authenticated=managed_identity_authenticated,
+            project_access_verified=project_access_verified,
+            agent_present=agent_present,
+            configured_version_present=configured_version_present,
+        ).to_json_dict()
+        expected_return_code = (
+            2
+            if category
+            in {
+                "missing_configuration",
+                "sdk_unavailable",
+                "not_running_in_hosted_environment",
+            }
+            else 1
+        )
+        if (
+            result.return_code == expected_return_code
+            and payload.keys() == expected.keys()
+            and all(
+                _exact_value(payload[key], value)
+                for key, value in expected.items()
+            )
+        ):
+            return category, managed_identity_attempted
+    return None
 
 
 def _exact_value(observed: object, expected: object) -> bool:

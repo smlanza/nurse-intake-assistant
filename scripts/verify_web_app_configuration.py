@@ -11,24 +11,12 @@ if str(ROOT) not in sys.path:
 
 from src.app.services.web_app_configuration_verification import (
     CommandResult,
+    HOSTED_SETTING_OPTIONS,
     WebAppConfigurationVerificationResult,
     check_web_app_configuration_contract,
     verify_web_app_configuration,
 )
-from src.app.services.web_app_hosting_contract import (
-    HOSTED_VERIFIER_SETTING_NAMES,
-)
-
-
-HOSTED_SETTING_OPTIONS = {
-    "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": "hosted_verifier_project_endpoint",
-    "AZURE_AI_FOUNDRY_AGENT_ENDPOINT": "hosted_verifier_stable_agent_endpoint",
-    "AZURE_AI_FOUNDRY_AGENT_NAME": "hosted_verifier_agent_name",
-    "AZURE_AI_FOUNDRY_AGENT_VERSION": "hosted_verifier_agent_version",
-    "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": (
-        "hosted_verifier_model_deployment_name"
-    ),
-}
+from src.app.services.web_app_hosting_contract import HOSTED_VERIFIER_SETTING_NAMES
 
 
 class SubprocessAzureCliRunner:

@@ -20,9 +20,22 @@ VALID_HELP = transport.AzureCliHelpSurface(
 )
 
 
-def _service(help_surface: object = VALID_HELP):
+_DEFAULT_CONFIGURATION_PROOF = object()
+
+
+def _service(
+    help_surface: object = VALID_HELP,
+    configuration_proof: object = _DEFAULT_CONFIGURATION_PROOF,
+):
+    if configuration_proof is _DEFAULT_CONFIGURATION_PROOF:
+        configuration_proof = (
+            transport.WebAppConfigurationVerificationResult.live_success(
+                hosted_verifier_configuration_verified=True
+            )
+        )
     return transport.HostedFoundryAgentSshTransport(
         help_reader=lambda: help_surface,
+        hosted_verifier_configuration_proof=configuration_proof,
     )
 
 
@@ -178,6 +191,33 @@ def _metadata_payload() -> dict[str, object]:
             "Run the separate fictional-data hosted agent invocation."
         ),
     }
+
+
+def _metadata_failure_payload(
+    category: str = "not_running_in_hosted_environment",
+    **changes: object,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "ok": False,
+        "category": category,
+        "operation": "verify_hosted_foundry_agent",
+        "mode": "live",
+        "local_contract_validated": True,
+        "hosted_environment_present": False,
+        "managed_identity_attempted": False,
+        "managed_identity_authenticated": False,
+        "project_access_verified": False,
+        "agent_present": False,
+        "configured_version_present": False,
+        "agent_contract_verified": False,
+        "agent_invocation_attempted": False,
+        "azure_mutation_made": False,
+        "recommended_next_step": (
+            "Review the sanitized category before retrying verification."
+        ),
+    }
+    payload.update(changes)
+    return payload
 
 
 def _metadata_approvals(
@@ -506,6 +546,43 @@ def test_metadata_mode_uses_one_tunnel_two_probes_and_one_metadata_command() -> 
     assert len(removed) == 1
 
 
+def test_metadata_mode_requires_configuration_proof_before_live_dependencies(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        transport,
+        "_default_dependencies",
+        lambda: pytest.fail("configuration proof must stop before dependencies"),
+    )
+    approvals = transport.HostedFoundryAgentSshTransportApprovals(
+        approve_tunnel=lambda: pytest.fail("configuration proof must stop first"),
+        approve_probes=lambda: pytest.fail("configuration proof must stop first"),
+        approve_remote_check=lambda: pytest.fail("configuration proof must stop first"),
+        approve_metadata_verification=lambda: pytest.fail(
+            "configuration proof must stop first"
+        ),
+    )
+
+    result = _service(configuration_proof=None).run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=approvals,
+    )
+
+    assert result.category == "hosted_verifier_configuration_invalid"
+    for field in (
+        "tunnel_process_started",
+        "tunnel_ready",
+        "ssh_command_attempted",
+        "interpreter_probe_attempted",
+        "module_probe_attempted",
+        "metadata_verification_attempted",
+        "managed_identity_attempted",
+        "agent_invocation_attempted",
+        "azure_mutation_made",
+    ):
+        assert getattr(result, field) is False
+
+
 def test_metadata_command_is_the_only_live_remote_command_permitted() -> None:
     command = transport.REMOTE_METADATA_VERIFICATION_COMMAND
 
@@ -597,6 +674,139 @@ def test_metadata_mode_uses_authoritative_listener_readiness_without_marker() ->
 def _metadata_result(payload: object, *, stderr: str = ""):
     stdout = payload if isinstance(payload, str) else _line(payload)
     return transport.RemoteCommandResult(0, stdout, stderr)
+
+
+@pytest.mark.parametrize(
+    ("category", "return_code", "progress"),
+    [
+        ("not_running_in_hosted_environment", 2, {}),
+        (
+            "managed_identity_unavailable",
+            1,
+            {"hosted_environment_present": True, "managed_identity_attempted": True},
+        ),
+        (
+            "sdk_unavailable",
+            2,
+            {"hosted_environment_present": True, "managed_identity_attempted": True},
+        ),
+        (
+            "project_access_failed",
+            1,
+            {"hosted_environment_present": True, "managed_identity_attempted": True},
+        ),
+        (
+            "agent_contract_invalid",
+            1,
+            {
+                "hosted_environment_present": True,
+                "managed_identity_attempted": True,
+                "managed_identity_authenticated": True,
+                "project_access_verified": True,
+                "agent_present": True,
+                "configured_version_present": True,
+            },
+        ),
+    ],
+    ids=[
+        "before-managed-identity",
+        "managed-identity",
+        "sdk-during-managed-identity",
+        "foundry-metadata-access",
+        "metadata-contract-validation",
+    ],
+)
+def test_recognized_metadata_failure_preserves_only_allowlisted_category(
+    category: str,
+    return_code: int,
+    progress: dict[str, bool],
+) -> None:
+    payload = _metadata_failure_payload(category)
+    payload.update(progress)
+    remote = transport.RemoteCommandResult(
+        return_code,
+        _line(payload),
+        "",
+    )
+    runner = FakeSshRunner([*_successful_remote_results()[:2], remote])
+    deps, starts, _, _ = _dependencies(ssh_runner=runner)
+
+    result = _service().run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(),
+        dependencies=deps,
+    )
+
+    assert result.category == "metadata_verification_failed"
+    assert result.metadata_verifier_category == category
+    assert result.managed_identity_attempted is progress.get(
+        "managed_identity_attempted", False
+    )
+    assert len(starts) == 1
+    assert "metadata_verifier_category" in result.to_json_dict()
+
+
+@pytest.mark.parametrize(
+    "remote",
+    [
+        transport.RemoteCommandResult(
+            2,
+            _line(_metadata_failure_payload("unknown_remote_category")),
+            "",
+        ),
+        transport.RemoteCommandResult(
+            2,
+            _line(_metadata_failure_payload(operation="wrong_operation")),
+            "",
+        ),
+        transport.RemoteCommandResult(
+            2,
+            _line(_metadata_failure_payload(ok=0)),
+            "",
+        ),
+        transport.RemoteCommandResult(
+            2,
+            _line(_metadata_failure_payload(managed_identity_attempted=True)),
+            "",
+        ),
+        transport.RemoteCommandResult(
+            2,
+            _line({key: value for key, value in _metadata_failure_payload().items() if key != "mode"}),
+            "",
+        ),
+        transport.RemoteCommandResult(
+            2,
+            _line(_metadata_failure_payload()) + _line(_metadata_failure_payload()),
+            "",
+        ),
+        transport.RemoteCommandResult(
+            2,
+            "prefix" + _line(_metadata_failure_payload()),
+            "",
+        ),
+        transport.RemoteCommandResult(
+            2,
+            _line(_metadata_failure_payload()),
+            "private hosted environment detail",
+        ),
+        transport.RemoteCommandResult(2, "not-json\n", ""),
+    ],
+)
+def test_non_authoritative_metadata_failure_remains_generic(remote) -> None:
+    runner = FakeSshRunner([*_successful_remote_results()[:2], remote])
+    deps, _, _, _ = _dependencies(ssh_runner=runner)
+
+    result = _service().run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(),
+        dependencies=deps,
+    )
+
+    assert result.category == "metadata_verification_failed"
+    assert "metadata_verifier_category" not in result.to_json_dict()
+    assert "private hosted environment detail" not in json.dumps(
+        result.to_json_dict()
+    )
 
 
 @pytest.mark.parametrize(
