@@ -53,17 +53,17 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.check and args.config is not None:
         parser.error("--config is live-only")
-    if (args.live_tunnel or args.live_metadata_verification) and args.config is None:
-        parser.error("--config is required for live modes")
+    if args.live_tunnel and args.config is None:
+        parser.error("--config is required with --live-tunnel")
     for attribute in HOSTED_SETTING_OPTIONS.values():
         values = getattr(args, attribute)
         if args.live_metadata_verification:
-            if not isinstance(values, list) or len(values) != 1:
+            if values is not None and len(values) > 1:
                 parser.error(
-                    f"--{attribute.replace('_', '-')} is required exactly once "
-                    "with --live-metadata-verification"
+                    f"--{attribute.replace('_', '-')} may be supplied at most "
+                    "once with retired --live-metadata-verification"
                 )
-            setattr(args, attribute, values[0])
+            setattr(args, attribute, values[0] if values else None)
         elif values:
             parser.error(
                 "hosted verifier values require --live-metadata-verification"
@@ -74,6 +74,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def run_check() -> HostedFoundryAgentSshTransportResult:
     return HostedFoundryAgentSshTransport().check(
         build_hosted_foundry_agent_ssh_transport_check_request()
+    )
+
+
+def _retired_metadata_mode_result() -> HostedFoundryAgentSshTransportResult:
+    return HostedFoundryAgentSshTransportResult.build(
+        ok=False,
+        category="ssh_hosted_identity_execution_unsupported",
+        mode="live-metadata-verification",
     )
 
 
@@ -129,6 +137,7 @@ def _verify_hosted_verifier_configuration(
     receipt: object,
     args: argparse.Namespace,
 ) -> WebAppConfigurationVerificationResult:
+    """Retain the historical exact-proof contract outside supported SSH use."""
     if getattr(config, "enable_hosted_foundry_verifier", None) is not True:
         return WebAppConfigurationVerificationResult.failure(
             "hosted_verifier_configuration_invalid"
@@ -148,6 +157,8 @@ def run_live(
     input_stream: TextIO,
     output_stream: TextIO,
 ) -> HostedFoundryAgentSshTransportResult:
+    if getattr(args, "live_metadata_verification", False):
+        return _retired_metadata_mode_result()
     mode = (
         "live-metadata-verification"
         if getattr(args, "live_metadata_verification", False)
@@ -293,6 +304,8 @@ def main(
     result = (
         run_check()
         if args.check
+        else _retired_metadata_mode_result()
+        if args.live_metadata_verification
         else run_live(
             args,
             input_stream=input_stream or sys.stdin,

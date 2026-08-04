@@ -50,7 +50,7 @@ Browser or API client
 | Offline Foundry evaluation | Strictly validates a repository-owned fictional v1 dataset and provider-neutral candidate contract, then produces deterministic per-case evidence and sanitized aggregate metrics |
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
-| `HostedFoundryAgentProof` | Packaged synchronous combined proof operation that composes the existing metadata verification and fixed-fictional invocation boundaries with exact result validation; direct operator-supervised App Service SSH is the selected future transport |
+| `HostedFoundryAgentProof` | Packaged synchronous combined proof operation that composes the existing metadata verification and fixed-fictional invocation boundaries with exact result validation; it remains execution-mechanism-neutral and has no selected hosted execution topology |
 | `HostedFoundryAgentSshTransport` | One tunnel process lifecycle created through `create-remote-connection`, with bounded readiness, two fixed `APP_PATH` probes, a fixed packaged check or metadata-verifier execution, private configuration and output handling, and guaranteed termination/reaping |
 | Speech transcription services | Mock transcript handling remains the default; the opt-in Azure service uses a lazy SDK adapter with injected-fake tests, in-memory audio input, application-owned normalized outcomes, and sanitized failures. The standalone provider boundary is live-proven for one repository-owned fixed-fictional WAV through the production factory, service, and adapter, isolated from routes and side effects |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
@@ -377,8 +377,9 @@ trigger-and-correlation path is retired from supported operations.
 Managed-identity access, metadata verification, and hosted agent invocation
 remain unproven and are not daily readiness requirements. A packaged
 synchronous combined proof operation is present in the ordinary application
-package, but no live SSH, managed-identity metadata access, or hosted Agent
-invocation is proven. The independent
+package, but no application-worker managed-identity metadata access or hosted
+Agent invocation is proven. Direct SSH transport and its non-invoking checks
+are separately proven. The independent
 deployment, packaging, read-only verification, RBAC, readiness, and WebJob
 lifecycle boundaries below remain authoritative for their resource-specific
 parsing and proof. Intake processing and notifications remain outside
@@ -773,33 +774,29 @@ The operation is selected by the ordinary application package's existing
 `src` allowlist; no `App_Data` member or separate package is involved. It is not
 exposed through an application route and has no persistence, notification,
 case-processing, deterministic-rule, arbitrary-input, or Azure-mutation path.
-Operator-supervised direct App Service SSH to the existing Linux application
-container remains the selected future execution transport.
 `HostedFoundryAgentSshTransport` owns exactly one
 `az webapp create-remote-connection` process with a fixed loopback boundary,
 one deadline, bounded readiness observation, private raw-output capture, and
-interrupt/terminate/kill shutdown followed by reaping. It permits only two
-fixed prerequisite probes followed by either one packaged non-invoking check or
-one fixed packaged metadata-verifier execution. Both probes use the active Oryx
-application root only through `APP_PATH`; no fixed deployment path or
-filesystem search is permitted.
+interrupt/terminate/kill shutdown followed by reaping. Its supported live mode
+permits only two fixed prerequisite probes followed by one packaged
+non-invoking check. Both probes use the active Oryx application root only
+through `APP_PATH`; no fixed deployment path or filesystem search is permitted.
 
-For metadata mode, the CLI first validates the five explicit canonical
-hosted-verifier settings and proves that they exactly equal the current Web App
-configuration. Only then does it construct an immutable private runtime
-configuration and pass exactly those five non-secret values, in repository-owned
-order and under their canonical names, to the one fixed metadata command. The
-transport never reads application settings, operator environment variables, or
-local operational artifacts. Values and the rendered command remain absent
-from approvals, results, and diagnostics. `WEBSITE_INSTANCE_ID`,
-`IDENTITY_ENDPOINT`, and `IDENTITY_HEADER` remain App Service-owned runtime
-markers and are never propagated or overridden by the CLI or transport.
+An SSH process does not run in the App Service application-worker identity
+environment. Runtime identity markers remain App Service-owned and are never
+read, copied, synthesized, propagated, or overridden by the CLI or transport.
+Metadata verification and Agent invocation through SSH are unsupported, and
+the compatibility CLI mode rejects deterministically before configuration,
+approval, service, tunnel, or remote-command construction. The lower-level
+packaged metadata-verification, invocation, and combined-proof operations
+remain execution-mechanism-neutral boundaries. No replacement hosted execution
+topology is selected.
 
 The preview `az webapp ssh` mechanism is unsupported. No additional compute
 resource, Kudu command execution, or HTTP proof endpoint is part of this
-boundary. Direct transport and prerequisite probes are live-proven; live SSH
-remains unproven for managed-identity metadata access and hosted Agent
-invocation. The WebJob trigger-and-correlation mechanism remains retired.
+boundary. Direct transport and prerequisite probes are live-proven; hosted
+managed-identity metadata access and hosted Agent invocation remain unproven.
+The WebJob trigger-and-correlation mechanism remains retired.
 
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
@@ -897,9 +894,10 @@ execution, managed-identity metadata verification, and fixed fictional
 invocation remain outside the coordinator; their false result fields mean they
 were not part of the coordinator run. Consumer RBAC remains optional. The
 current WebJob execution path is retired, and metadata verification and
-invocation remain unproven. The supported candidate is the packaged synchronous
-proof operation behind the owned one-process SSH transport lifecycle and its
-separate approvals; the WebJob trigger-and-correlation mechanism remains
+invocation remain unproven. The packaged synchronous proof operations remain
+available without selecting an execution mechanism; direct SSH
+managed-identity execution is unsupported, and no replacement hosted execution
+topology is selected. The WebJob trigger-and-correlation mechanism remains
 retired.
 Hosted defaults remain mock-only with
 notifications suppressed. Code deployment does not provision infrastructure,
@@ -962,9 +960,10 @@ implementation:
 - Implemented Azure AI Foundry structured-extraction and Agent runtime
   boundaries through `FoundryAiService`, `NurseIntakeAgent`, and production
   application composition
-- Offline packaged hosted proof composition with direct App Service SSH as the
-  selected future supervised transport; live hosted managed-identity access
-  remains unproven and the WebJob trigger mechanism remains retired
+- Offline packaged hosted proof composition remains execution-mechanism-neutral;
+  direct SSH is limited to its live-proven non-invoking transport checks,
+  hosted managed-identity access remains unproven, and no replacement hosted
+  execution topology is selected
 - Azure Speech through a lazy SDK adapter boundary that is offline-tested with
   injected fakes and live-proven for one standalone fixed-fictional fixture,
   while intake routes remain text/already-transcribed-text only

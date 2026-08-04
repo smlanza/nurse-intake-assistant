@@ -39,6 +39,7 @@ TransportCategory = Literal[
     "success",
     "configuration_invalid",
     "hosted_verifier_configuration_invalid",
+    "ssh_hosted_identity_execution_unsupported",
     "cli_unsupported",
     "approval_denied",
     "port_unavailable",
@@ -145,7 +146,7 @@ class HostedFoundryAgentSshTransportRequest:
 
 @dataclass(frozen=True, repr=False, init=False)
 class HostedVerifierRuntimeConfiguration:
-    """Private exact hosted-verifier settings for one metadata command."""
+    """Historical private settings contract for the retired SSH metadata path."""
 
     _ordered_values: tuple[str, ...]
 
@@ -476,7 +477,7 @@ def build_ssh_command(
 
 
 class HostedFoundryAgentSshTransport:
-    """Own one tunnel and exactly three mode-selected remote commands."""
+    """Own supported non-invoking SSH; retain retired metadata test evidence."""
 
     def __init__(
         self,

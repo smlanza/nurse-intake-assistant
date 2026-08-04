@@ -6,9 +6,10 @@ This is the only operator procedure for a supervised connection to the exact
 owned Linux App Service container. Direct App Service SSH transport is
 live-proven: one owned tunnel reached readiness, both fixed `APP_PATH` probes
 passed, the packaged non-invoking check passed, and shutdown/reaping completed.
-The metadata-only extension is offline-tested but not live-proven. No hosted
+SSH hosted managed-identity execution is unsupported because its process does
+not run in the App Service application-worker identity environment. No hosted
 managed-identity metadata access or hosted Agent invocation is proven through
-this boundary.
+this boundary, and no replacement hosted execution topology is selected.
 
 The repository-owned transport service and wrapper separate transport from the
 packaged Foundry proof. They do not own daily readiness, RBAC, Agent lifecycle,
@@ -44,10 +45,10 @@ The current wrapper modes are mutually exclusive:
 - `--check` performs only the offline contract check shown above.
 - `--live-tunnel` performs one tunnel, the two prerequisite probes, and one
   packaged non-invoking check.
-- `--live-metadata-verification` performs one tunnel, the same two probes, and
-  one separately approved packaged metadata verification.
+- `--live-metadata-verification` is retired and returns one deterministic
+  sanitized unsupported result before configuration or transport activity.
 
-Both live modes require `--config .env.daily-azure.local`, the current matching
+The supported live mode requires `--config .env.daily-azure.local`, the current matching
 `--readiness-receipt`, and `--json`. Obtain READY through the canonical daily
 runbook; do not duplicate or improvise the environment rebuild here.
 
@@ -61,15 +62,11 @@ For the already proven non-invoking transport acceptance, use only:
   --json
 ```
 
-For the later metadata-only acceptance, use only:
-
-```bash
-.venv/bin/python scripts/run_hosted_foundry_agent_ssh_transport.py \
-  --live-metadata-verification \
-  --config .env.daily-azure.local \
-  --readiness-receipt .artifacts/daily-azure-rebuild/readiness-receipt.json \
-  --json
-```
+Do not run another metadata-only SSH acceptance. Operators must not forward,
+retrieve, inspect, synthesize, or override App Service runtime identity
+markers. Do not substitute the retired WebJob trigger-and-correlation path or
+improvise another remote command. Any future hosted metadata or invocation
+proof requires a separately approved architecture decision.
 
 ## Selected Tunnel Mechanism
 
@@ -96,9 +93,9 @@ is never sufficient. The wrapper remains active until the result is final.
 The wrapper owns the SSH subprocesses and their private current-run
 `known_hosts` file. Authentication remains an explicit operator interaction;
 the repository stores no password and uses no password helper or generated
-credential file. Each mode runs exactly three fixed SSH commands: two probes
-and its one approved remote operation. This is not permission for a general
-remote shell.
+credential file. The supported live mode runs exactly three fixed SSH commands:
+two probes and its one approved non-invoking operation. This is not permission
+for a general remote shell.
 
 ### Interactive SSH password
 
@@ -129,27 +126,22 @@ password, deployment credential, or application secret. Do not automate entry.
 Success is impossible until the wrapper confirms that it terminated and reaped
 the tunnel process and removed the private current-run host-key file.
 
-## Three Separate Approval Gates Per Mode
+## Three Separate Approval Gates
 
 The supervised wrapper requires three default-no approvals, in order:
 
 1. Start exactly one owned tunnel process.
 2. Execute the two fixed prerequisite probes.
-3. Execute exactly one mode-selected remote operation:
-   - non-invoking `--check --json` for `--live-tunnel`; or
-   - hosted metadata verification for `--live-metadata-verification`.
+3. Execute exactly one packaged non-invoking `--check --json` operation.
 
-For metadata mode, the final sanitized approval summary states: remote execution
-count one; mode hosted metadata verification; system-assigned managed identity
-required; Foundry metadata reads permitted; Agent invocation: prohibited; Azure
-mutation prohibited; retry permitted no. No approval authorizes invocation,
-another tunnel, another remote command, mutation, or automatic retry.
+No approval authorizes identity execution, metadata access, invocation, another
+tunnel, another remote command, mutation, or automatic retry.
 
-## Exact Mode-Selected Remote Commands
+## Exact Supported Remote Commands
 
-Each attempt permits the same two probes and exactly one operation selected by
-the explicit CLI mode. These commands are exceptions to the general prohibition
-on remote shell commands. Their complete strings are immutable constants in the
+The supported live mode permits the same two probes and exactly one packaged
+non-invoking check. These commands are exceptions to the general prohibition on
+remote shell commands. Their complete strings are immutable constants in the
 transport service; the operator cannot provide command text or a module name.
 
 ### 1. Interpreter/runtime-root probe
@@ -199,28 +191,14 @@ identity, metadata, or Agent activity.
 This third command is permitted only in `--live-tunnel` mode. That mode retains
 its live-proven non-invoking semantics and never selects metadata verification.
 
-### Metadata-mode operation
+### Retired compatibility mode
 
-After both probes pass and the operator grants the separate metadata approval,
-`--live-metadata-verification` uses only `APP_PATH` and runs exactly:
-
-```bash
-python -m src.app.operations.verify_hosted_foundry_agent --live --json
-```
-
-The packaged verifier requires valid App Service identity markers before it
-constructs one system-assigned managed-identity credential. It accepts no
-client ID or credential override. It performs only the configured prompt-Agent
-and immutable-version metadata reads, validates the stable endpoint, Responses
-protocol, exclusive routing, model, and centralized instructions, then closes
-the client and credential. It creates no inference client, submits no prompt,
-invokes no Agent, and makes no Azure mutation.
-
-The wrapper accepts success only from one exact newline-terminated JSON
-document proving every hosted, managed-identity, metadata, Agent-contract, and
-non-invocation boolean. Nonzero exit, stderr output, malformed or extra JSON,
-non-boolean evidence, invocation evidence, mutation evidence, or contract drift
-fails closed without serializing remote content.
+`--live-metadata-verification` constructs no remote command. Its deterministic
+unsupported result occurs before configuration proof, approval callbacks,
+service or runner construction, tunnel startup, password prompts, probes,
+credentials, metadata access, or Agent invocation. Historical lower-level
+parsers and packaged operations remain technical evidence, not operator
+authorization.
 
 No other command is permitted. In particular, do not run a login shell,
 filesystem listing, environment listing, diagnostic command, package install,
@@ -240,7 +218,7 @@ The durable rules are:
 - one absolute monotonic deadline;
 - bounded readiness observations of the original process only;
 - no repeat of a failed probe;
-- no repeat of the packaged check or metadata verification; and
+- no repeat of the packaged check; and
 - interrupt/terminate/kill cleanup escalation is permitted and is not a retry.
 
 ## Stop, Shutdown, And Reaping
@@ -268,7 +246,7 @@ The wrapper installs its interruption boundary before process construction,
 defers any construction-time or cleanup-time `SIGINT`/`SIGTERM` until cleanup
 owns the child, and does not return after kill until the child has been reaped.
 
-For transport acceptance, stop after the packaged non-invoking check. For the
-later separately supervised metadata acceptance, stop after metadata
-verification. Do not invoke the Agent. Every failure or denial is a stop
-condition, and neither mode permits retry within the attempt.
+For transport acceptance, stop after the packaged non-invoking check. Do not
+attempt metadata verification or invoke the Agent. Every failure or denial is
+a stop condition, and the supported live mode permits no retry within the
+attempt.

@@ -49,13 +49,13 @@ The implementation should prioritize demoability, cost control, and clear Azure 
   from deployment, readiness, RBAC, and metadata verification. Only check mode
   has been exercised; no live hosted metadata verification or invocation has
   run.
-- A packaged synchronous combined proof operation now composes those exact
-  metadata and fixed-fictional invocation boundaries fail-closed. The selected
-  future direct App Service SSH path now has an offline-tested repository-owned
-  lifecycle for one `create-remote-connection` process, two fixed `APP_PATH`
-  probes, one packaged check, and guaranteed reaping. Live SSH remains
-  unproven; resume only with a fresh supervised transport acceptance. No live
-  hosted managed-identity proof has run, no route or additional compute was
+- A packaged synchronous combined proof operation composes those exact metadata
+  and fixed-fictional invocation boundaries fail-closed while remaining
+  execution-mechanism-neutral. Direct App Service SSH preserves its live-proven
+  repository-owned lifecycle, two fixed `APP_PATH` probes, one packaged
+  non-invoking check, and guaranteed reaping. SSH hosted managed-identity
+  execution is unsupported, and no replacement hosted topology is selected. No
+  live hosted managed-identity proof has run, no route or additional compute was
   added, and the WebJob trigger mechanism remains retired.
 - Azure Speech remains scaffolded with offline/manual preflight only; no live
   audio transcription or phone intake is part of the default demo.

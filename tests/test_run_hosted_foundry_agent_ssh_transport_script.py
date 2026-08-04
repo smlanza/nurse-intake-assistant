@@ -135,11 +135,9 @@ def test_live_requires_existing_validated_configuration() -> None:
         _script().main(["--live-tunnel", "--json"])
 
 
-def test_metadata_mode_is_explicit_mutually_exclusive_and_requires_config() -> None:
+def test_retired_metadata_mode_is_explicit_and_mutually_exclusive() -> None:
     script = _script()
 
-    with pytest.raises(SystemExit):
-        script._parse_args(["--live-metadata-verification", "--json"])
     with pytest.raises(SystemExit):
         script._parse_args(
             [
@@ -150,7 +148,8 @@ def test_metadata_mode_is_explicit_mutually_exclusive_and_requires_config() -> N
                 "--json",
             ]
         )
-    args = script._parse_args(
+    minimal = script._parse_args(["--live-metadata-verification", "--json"])
+    compatible = script._parse_args(
         [
             "--live-metadata-verification",
             "--config",
@@ -159,118 +158,135 @@ def test_metadata_mode_is_explicit_mutually_exclusive_and_requires_config() -> N
             *_hosted_verifier_args(),
         ]
     )
-    assert args.live_metadata_verification is True
-    assert args.live_tunnel is False
+    assert minimal.live_metadata_verification is True
+    assert minimal.live_tunnel is False
+    assert compatible.live_metadata_verification is True
+    assert compatible.live_tunnel is False
 
 
-@pytest.mark.parametrize("receipt_state", ["missing", "stale", "mismatched"])
-def test_metadata_mode_invalid_receipt_stops_before_service_construction(
-    monkeypatch, receipt_state: str
+def test_retired_metadata_mode_main_rejects_before_run_live(
+    monkeypatch,
+    capsys,
 ) -> None:
     script = _script()
-    config = SimpleNamespace(
-        subscription_name="contract-subscription",
-        enable_hosted_foundry_verifier=True,
-    )
-    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
     monkeypatch.setattr(
         script,
-        "load_matching_daily_azure_readiness_receipt",
-        lambda *_a, **_k: None,
+        "run_live",
+        lambda *_a, **_k: pytest.fail("retired mode must stop before run_live"),
     )
-    monkeypatch.setattr(
-        script,
-        "_create_service",
-        lambda: pytest.fail(f"{receipt_state} receipt must stop before service"),
-    )
-    args = SimpleNamespace(
-        live_tunnel=False,
-        live_metadata_verification=True,
-        config=Path("fictional-config"),
-        readiness_receipt=Path("fictional-receipt"),
-    )
-
-    result = script.run_live(
-        args,
+    exit_code = script.main(
+        [
+            "--live-metadata-verification",
+            "--config",
+            "fictional.env",
+            "--json",
+            *_hosted_verifier_args(),
+        ],
         input_stream=io.StringIO("y\ny\ny\n"),
         output_stream=io.StringIO(),
     )
 
-    assert result.category == "configuration_invalid"
-    assert result.mode == "live-metadata-verification"
-    assert result.tunnel_process_started is False
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert exit_code == 2
+    assert captured.err == ""
+    assert payload["category"] == "ssh_hosted_identity_execution_unsupported"
+    assert payload["mode"] == "live-metadata-verification"
+    assert payload["ok"] is False
 
 
-def test_metadata_mode_invalid_hosted_configuration_stops_before_service(
+def test_retired_metadata_mode_run_live_rejects_before_every_live_boundary(
     monkeypatch,
 ) -> None:
     script = _script()
-    config = SimpleNamespace(subscription_name="contract-subscription")
-    receipt = SimpleNamespace(
-        resource_group="contract-rg",
-        web_app_name="contract-web-app",
-    )
-    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
-    monkeypatch.setattr(
-        script,
+    for name in (
+        "load_daily_azure_config",
         "load_matching_daily_azure_readiness_receipt",
-        lambda *_a, **_k: receipt,
-    )
-    monkeypatch.setattr(
-        script,
         "_verify_hosted_verifier_configuration",
-        lambda *_a, **_k: script.WebAppConfigurationVerificationResult.failure(
-            "hosted_verifier_configuration_invalid",
-            local_contract_validated=True,
-            azure_request_attempted=True,
-        ),
-    )
+        "_create_configuration_runner",
+        "_create_service",
+        "_prompt",
+    ):
+        monkeypatch.setattr(
+            script,
+            name,
+            lambda *_a, _name=name, **_k: pytest.fail(
+                f"retired mode reached {_name}"
+            ),
+        )
     monkeypatch.setattr(
         script,
-        "_create_service",
-        lambda: pytest.fail("invalid hosted configuration must stop first"),
+        "HostedVerifierRuntimeConfiguration",
+        SimpleNamespace(
+            from_mapping=lambda *_a, **_k: pytest.fail(
+                "retired mode constructed runtime configuration"
+            )
+        ),
     )
     args = SimpleNamespace(
         live_tunnel=False,
         live_metadata_verification=True,
-        config=Path("fictional-config"),
-        readiness_receipt=Path("fictional-receipt"),
-        **_hosted_verifier_values(),
     )
 
     result = script.run_live(
         args,
-        input_stream=io.StringIO("y\ny\ny\n"),
+        input_stream=io.StringIO("y\n"),
         output_stream=io.StringIO(),
     )
 
-    assert result.category == "hosted_verifier_configuration_invalid"
-    assert result.azure_call_made is True
-    assert result.tunnel_process_started is False
-    assert result.ssh_command_attempted is False
-    assert result.managed_identity_attempted is False
+    assert result.category == "ssh_hosted_identity_execution_unsupported"
+    assert result.mode == "live-metadata-verification"
+    for field in (
+        "azure_call_made",
+        "tunnel_process_started",
+        "ssh_command_attempted",
+        "interpreter_probe_attempted",
+        "module_probe_attempted",
+        "remote_check_attempted",
+        "metadata_verification_attempted",
+        "managed_identity_attempted",
+        "agent_invocation_attempted",
+        "azure_mutation_made",
+    ):
+        assert getattr(result, field) is False
 
 
-def test_metadata_cli_requires_exact_hosted_verifier_projection() -> None:
+def test_retired_metadata_mode_is_deterministic_and_sanitized(capsys) -> None:
     script = _script()
-    base = [
-        "--live-metadata-verification",
-        "--config",
-        "fictional.env",
-        "--json",
-    ]
+    argv = ["--live-metadata-verification", "--json"]
 
-    with pytest.raises(SystemExit):
-        script._parse_args(base)
+    assert script.main(argv) == 2
+    first = capsys.readouterr()
+    assert script.main(argv) == 2
+    second = capsys.readouterr()
 
-    args = script._parse_args(
-        [
-            *base,
-            *_hosted_verifier_args(),
-        ]
+    assert first == second
+    assert first.err == ""
+    assert first.out.endswith("\n")
+    assert first.out.count("\n") == 1
+    payload = json.loads(first.out)
+    assert payload["category"] == "ssh_hosted_identity_execution_unsupported"
+    assert payload["mode"] == "live-metadata-verification"
+    assert payload["ok"] is False
+    assert "metadata_verifier_category" not in payload
+    for private_text in (
+        *_hosted_verifier_values().values(),
+        "WEBSITE_INSTANCE_ID",
+        "IDENTITY_ENDPOINT",
+        "IDENTITY_HEADER",
+    ):
+        assert private_text not in first.out
+
+
+def test_retired_metadata_cli_requires_no_configuration_projection() -> None:
+    script = _script()
+    args = script._parse_args(["--live-metadata-verification", "--json"])
+
+    assert args.config is None
+    assert all(
+        getattr(args, attribute) is None
+        for attribute in script.HOSTED_SETTING_OPTIONS.values()
     )
-
-    assert args.hosted_verifier_agent_version == "fictional-version"
 
 
 def test_metadata_preflight_reuses_exact_configuration_verifier_contract(
@@ -350,7 +366,7 @@ def test_disabled_metadata_preflight_stops_before_runner_or_verifier(
         ("hosted_verifier_model_deployment_name", "x" * 257),
     ],
 )
-def test_invalid_runtime_value_stops_before_ssh_service(
+def test_retired_mode_ignores_runtime_values_before_ssh_service(
     monkeypatch,
     attribute: str,
     value: str,
@@ -400,13 +416,13 @@ def test_invalid_runtime_value_stops_before_ssh_service(
         output_stream=io.StringIO(),
     )
 
-    assert result.category == "hosted_verifier_configuration_invalid"
-    assert result.azure_call_made is True
+    assert result.category == "ssh_hosted_identity_execution_unsupported"
+    assert result.azure_call_made is False
     assert result.tunnel_process_started is False
     assert result.ssh_command_attempted is False
 
 
-def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
+def test_retired_metadata_mode_never_reaches_approval_or_service(
     monkeypatch,
 ) -> None:
     script = _script()
@@ -474,27 +490,18 @@ def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
         output_stream=prompts,
     )
 
-    assert result.ok is True
-    assert len(captured) == 1
-    assert captured[0].mode == "live-metadata-verification"
+    assert result.ok is False
+    assert result.category == "ssh_hosted_identity_execution_unsupported"
+    assert captured == []
     summary = prompts.getvalue()
-    for expected in (
-        "Remote execution count: one",
-        "Mode: hosted metadata verification",
-        "System-assigned managed identity: required",
-        "Foundry metadata reads: permitted",
-        "Agent invocation: prohibited",
-        "Azure mutation: prohibited",
-        "Retry permitted: no",
-    ):
-        assert expected in summary
+    assert summary == ""
     serialized_result = json.dumps(result.to_json_dict())
     for private_value in _hosted_verifier_values().values():
         assert private_value not in summary
         assert private_value not in serialized_result
 
 
-def test_successful_preflight_constructs_exact_typed_runtime_configuration(
+def test_retired_metadata_mode_never_constructs_typed_runtime_configuration(
     monkeypatch,
 ) -> None:
     script = _script()
@@ -561,11 +568,11 @@ def test_successful_preflight_constructs_exact_typed_runtime_configuration(
         output_stream=io.StringIO(),
     )
 
-    assert result.category == "approval_denied"
-    assert events == ["proof", "service"]
+    assert result.category == "ssh_hosted_identity_execution_unsupported"
+    assert events == []
 
 
-def test_changed_readiness_evidence_invalidates_current_prompt_approval(
+def test_retired_metadata_mode_does_not_consult_readiness_evidence(
     monkeypatch,
 ) -> None:
     script = _script()
@@ -622,7 +629,7 @@ def test_changed_readiness_evidence_invalidates_current_prompt_approval(
         output_stream=io.StringIO(),
     )
 
-    assert result.category == "approval_denied"
+    assert result.category == "ssh_hosted_identity_execution_unsupported"
     assert result.tunnel_process_started is False
 
 
