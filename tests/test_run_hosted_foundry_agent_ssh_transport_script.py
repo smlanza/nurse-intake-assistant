@@ -17,29 +17,29 @@ def _script():
 def _hosted_verifier_args() -> list[str]:
     return [
         "--hosted-verifier-project-endpoint",
-        "https://account.services.ai.azure.com/api/projects/project",
+        "https://fictional.invalid/api/projects/example",
         "--hosted-verifier-stable-agent-endpoint",
-        "https://account.services.ai.azure.com/api/projects/project/agents/agent/endpoint/protocols/openai",
+        "https://fictional.invalid/api/projects/example/agents/fictional-agent/endpoint/protocols/openai",
         "--hosted-verifier-agent-name",
-        "agent",
+        "fictional-agent",
         "--hosted-verifier-agent-version",
-        "1",
+        "fictional-version",
         "--hosted-verifier-model-deployment-name",
-        "model",
+        "fictional-model",
     ]
 
 
 def _hosted_verifier_values() -> dict[str, str]:
     return {
         "hosted_verifier_project_endpoint": (
-            "https://account.services.ai.azure.com/api/projects/project"
+            "https://fictional.invalid/api/projects/example"
         ),
         "hosted_verifier_stable_agent_endpoint": (
-            "https://account.services.ai.azure.com/api/projects/project/agents/agent/endpoint/protocols/openai"
+            "https://fictional.invalid/api/projects/example/agents/fictional-agent/endpoint/protocols/openai"
         ),
-        "hosted_verifier_agent_name": "agent",
-        "hosted_verifier_agent_version": "1",
-        "hosted_verifier_model_deployment_name": "model",
+        "hosted_verifier_agent_name": "fictional-agent",
+        "hosted_verifier_agent_version": "fictional-version",
+        "hosted_verifier_model_deployment_name": "fictional-model",
     }
 
 
@@ -270,7 +270,7 @@ def test_metadata_cli_requires_exact_hosted_verifier_projection() -> None:
         ]
     )
 
-    assert args.hosted_verifier_agent_version == "1"
+    assert args.hosted_verifier_agent_version == "fictional-version"
 
 
 def test_metadata_preflight_reuses_exact_configuration_verifier_contract(
@@ -338,6 +338,74 @@ def test_disabled_metadata_preflight_stops_before_runner_or_verifier(
     assert result.azure_request_attempted is False
 
 
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("hosted_verifier_project_endpoint", "not-an-endpoint"),
+        ("hosted_verifier_agent_name", "different-agent"),
+        ("hosted_verifier_agent_version", " "),
+        ("hosted_verifier_agent_version", "bad\x00version"),
+        ("hosted_verifier_agent_version", "bad\rversion"),
+        ("hosted_verifier_agent_version", "bad\nversion"),
+        ("hosted_verifier_model_deployment_name", "x" * 257),
+    ],
+)
+def test_invalid_runtime_value_stops_before_ssh_service(
+    monkeypatch,
+    attribute: str,
+    value: str,
+) -> None:
+    script = _script()
+    config = SimpleNamespace(
+        subscription_name="contract-subscription",
+        enable_hosted_foundry_verifier=True,
+    )
+    receipt = SimpleNamespace(
+        resource_group="contract-rg",
+        web_app_name="contract-web-app",
+    )
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_a, **_k: receipt,
+    )
+    monkeypatch.setattr(
+        script,
+        "_verify_hosted_verifier_configuration",
+        lambda *_a, **_k: (
+            script.WebAppConfigurationVerificationResult.live_success(
+                hosted_verifier_configuration_verified=True
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        script,
+        "_create_service",
+        lambda *_a: pytest.fail("invalid value must stop before SSH service"),
+    )
+    values = _hosted_verifier_values()
+    values[attribute] = value
+    args = SimpleNamespace(
+        live_tunnel=False,
+        live_metadata_verification=True,
+        config=Path("fictional-config"),
+        readiness_receipt=Path("fictional-receipt"),
+        **values,
+    )
+
+    result = script.run_live(
+        args,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+    )
+
+    assert result.category == "hosted_verifier_configuration_invalid"
+    assert result.azure_call_made is True
+    assert result.tunnel_process_started is False
+    assert result.ssh_command_attempted is False
+
+
 def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
     monkeypatch,
 ) -> None:
@@ -386,8 +454,9 @@ def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
     monkeypatch.setattr(
         script,
         "_create_service",
-        lambda received: Service()
+        lambda received, runtime: Service()
         if received == proof
+        and type(runtime) is script.HostedVerifierRuntimeConfiguration
         else pytest.fail("metadata service requires the exact proof"),
     )
     args = SimpleNamespace(
@@ -419,6 +488,81 @@ def test_metadata_mode_loads_matching_receipt_and_uses_distinct_approval(
         "Retry permitted: no",
     ):
         assert expected in summary
+    serialized_result = json.dumps(result.to_json_dict())
+    for private_value in _hosted_verifier_values().values():
+        assert private_value not in summary
+        assert private_value not in serialized_result
+
+
+def test_successful_preflight_constructs_exact_typed_runtime_configuration(
+    monkeypatch,
+) -> None:
+    script = _script()
+    config = SimpleNamespace(
+        subscription_name="contract-subscription",
+        enable_hosted_foundry_verifier=True,
+    )
+    receipt = SimpleNamespace(
+        resource_group="contract-rg",
+        web_app_name="contract-web-app",
+    )
+    proof = script.WebAppConfigurationVerificationResult.live_success(
+        hosted_verifier_configuration_verified=True
+    )
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *_a, **_k: receipt,
+    )
+    events: list[str] = []
+
+    def verify(*_args, **_kwargs):
+        events.append("proof")
+        return proof
+
+    monkeypatch.setattr(script, "_verify_hosted_verifier_configuration", verify)
+
+    class Service:
+        def run_live_tunnel(self, request, *, approvals):
+            assert request.mode == "live-metadata-verification"
+            return script.HostedFoundryAgentSshTransportResult.build(
+                ok=False,
+                category="approval_denied",
+                mode=request.mode,
+            )
+
+    def create_service(received_proof, runtime_configuration):
+        assert events == ["proof"]
+        assert received_proof == proof
+        assert (
+            type(runtime_configuration)
+            is script.HostedVerifierRuntimeConfiguration
+        )
+        assert tuple(
+            name
+            for name, _value in runtime_configuration._assignment_pairs()
+        ) == tuple(script.HOSTED_SETTING_OPTIONS)
+        events.append("service")
+        return Service()
+
+    monkeypatch.setattr(script, "_create_service", create_service)
+    args = SimpleNamespace(
+        live_tunnel=False,
+        live_metadata_verification=True,
+        config=Path("fictional-config"),
+        readiness_receipt=Path("fictional-receipt"),
+        **_hosted_verifier_values(),
+    )
+
+    result = script.run_live(
+        args,
+        input_stream=io.StringIO(),
+        output_stream=io.StringIO(),
+    )
+
+    assert result.category == "approval_denied"
+    assert events == ["proof", "service"]
 
 
 def test_changed_readiness_evidence_invalidates_current_prompt_approval(
@@ -459,7 +603,11 @@ def test_changed_readiness_evidence_invalidates_current_prompt_approval(
                 mode=request.mode,
             )
 
-    monkeypatch.setattr(script, "_create_service", lambda _proof: Service())
+    monkeypatch.setattr(
+        script,
+        "_create_service",
+        lambda _proof, _runtime: Service(),
+    )
     args = SimpleNamespace(
         live_tunnel=False,
         live_metadata_verification=True,

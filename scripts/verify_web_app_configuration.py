@@ -11,12 +11,14 @@ if str(ROOT) not in sys.path:
 
 from src.app.services.web_app_configuration_verification import (
     CommandResult,
-    HOSTED_SETTING_OPTIONS,
     WebAppConfigurationVerificationResult,
     check_web_app_configuration_contract,
     verify_web_app_configuration,
 )
-from src.app.services.web_app_hosting_contract import HOSTED_VERIFIER_SETTING_NAMES
+from src.app.services.web_app_hosting_contract import (
+    HOSTED_SETTING_OPTIONS,
+    HOSTED_VERIFIER_SETTING_NAMES,
+)
 
 
 class SubprocessAzureCliRunner:

@@ -6,6 +6,7 @@ from typing import Literal, Protocol
 from src.app.services.web_app_hosting_contract import (
     ALWAYS_ON_REQUIRED,
     BASELINE_APP_SETTINGS,
+    HOSTED_SETTING_OPTIONS,
     HOSTED_VERIFIER_SETTING_NAMES,
     REMOTE_BUILD_SETTING,
     SAFE_HOSTED_SETTINGS,
@@ -30,15 +31,6 @@ EXPECTED_STARTUP_COMMAND = EXPECTED_LOCAL_CONTRACT["startup_command"]
 EXPECTED_HEALTH_CHECK_PATH = EXPECTED_LOCAL_CONTRACT["health_check_path"]
 SAFE_APP_SETTINGS = dict(EXPECTED_SAFE_APP_SETTINGS)
 EXPECTED_HOSTED_VERIFIER_SETTING_NAMES = HOSTED_VERIFIER_SETTING_NAMES
-HOSTED_SETTING_OPTIONS = {
-    "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": "hosted_verifier_project_endpoint",
-    "AZURE_AI_FOUNDRY_AGENT_ENDPOINT": "hosted_verifier_stable_agent_endpoint",
-    "AZURE_AI_FOUNDRY_AGENT_NAME": "hosted_verifier_agent_name",
-    "AZURE_AI_FOUNDRY_AGENT_VERSION": "hosted_verifier_agent_version",
-    "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": (
-        "hosted_verifier_model_deployment_name"
-    ),
-}
 
 SITE_QUERY = (
     "{state:state,enabled:enabled,httpsOnly:httpsOnly,kind:kind,"

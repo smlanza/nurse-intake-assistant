@@ -3,6 +3,9 @@ from src.app.services import web_app_hosting_contract as hosting_contract
 from src.app.services.hosted_foundry_agent_verification import (
     build_hosted_foundry_agent_verification_request,
 )
+from src.app.services.web_app_configuration_verification import (
+    HOSTED_SETTING_OPTIONS as CONFIGURATION_HOSTED_SETTING_OPTIONS,
+)
 from src.app.services.web_app_hosting_contract import (
     HOSTED_VERIFIER_SETTING_NAMES,
     hosted_verifier_foundry_identity,
@@ -70,6 +73,17 @@ def test_exact_five_settings_map_from_environment_to_existing_verifier_request(
         "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME"
     ]
     assert hosted_verifier_settings_valid(SETTINGS) is True
+
+
+def test_one_authoritative_mapping_owns_cli_and_runtime_setting_order() -> None:
+    assert tuple(hosting_contract.HOSTED_SETTING_OPTIONS) == tuple(SETTINGS)
+    assert (
+        CONFIGURATION_HOSTED_SETTING_OPTIONS
+        is hosting_contract.HOSTED_SETTING_OPTIONS
+    )
+    assert tuple(hosting_contract.HOSTED_VERIFIER_SETTING_NAMES) == tuple(
+        hosting_contract.HOSTED_SETTING_OPTIONS
+    )
 
 
 def test_missing_blank_extra_or_mismatched_settings_fail_closed() -> None:

@@ -17,6 +17,9 @@ from src.app.services.foundry_agent_verification import (
 from src.app.services.nurse_intake_agent_instructions import (
     build_nurse_intake_agent_instructions,
 )
+from src.app.services.web_app_hosting_contract import (
+    HOSTED_VERIFIER_SETTING_NAMES,
+)
 
 
 HostedVerificationMode = Literal["check", "live"]
@@ -159,19 +162,19 @@ def build_hosted_foundry_agent_verification_request(
     *,
     mode: str,
 ) -> HostedFoundryAgentVerificationRequest:
+    values = {
+        name: getattr(settings, name.lower(), None)
+        for name in HOSTED_VERIFIER_SETTING_NAMES
+    }
     return HostedFoundryAgentVerificationRequest(
         mode=mode,
-        project_endpoint=getattr(
-            settings, "azure_ai_foundry_agent_project_endpoint", None
-        ),
-        stable_agent_endpoint=getattr(
-            settings, "azure_ai_foundry_agent_endpoint", None
-        ),
-        agent_name=getattr(settings, "azure_ai_foundry_agent_name", None),
-        agent_version=getattr(settings, "azure_ai_foundry_agent_version", None),
-        model_deployment_name=getattr(
-            settings, "azure_ai_foundry_model_deployment_name", None
-        ),
+        project_endpoint=values["AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT"],
+        stable_agent_endpoint=values["AZURE_AI_FOUNDRY_AGENT_ENDPOINT"],
+        agent_name=values["AZURE_AI_FOUNDRY_AGENT_NAME"],
+        agent_version=values["AZURE_AI_FOUNDRY_AGENT_VERSION"],
+        model_deployment_name=values[
+            "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME"
+        ],
         instructions=build_nurse_intake_agent_instructions(),
     )
 

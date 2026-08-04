@@ -263,8 +263,17 @@ returns `hosted_verifier_configuration_invalid` before tunnel or SSH activity.
 Stop and restore the authoritative deployed configuration; do not work around
 this gate with direct app-setting reads or ad hoc Azure CLI commands.
 
-The most recent separately approved attempt reached the packaged verifier but
-returned a sanitized failure before managed-identity construction. The outer
+After that exact proof succeeds, the wrapper privately carries only the five
+validated canonical verifier values through an immutable runtime configuration
+into the one repository-fixed metadata command. It does not forward the local
+process environment. Do not export, supply, or override `WEBSITE_INSTANCE_ID`,
+`IDENTITY_ENDPOINT`, or `IDENTITY_HEADER`; those markers remain owned by the App
+Service runtime. The five values and the rendered command remain absent from
+approval prompts and JSON results.
+
+The most recent separately approved attempt, before private runtime propagation
+was implemented, reached the packaged verifier but returned a sanitized
+missing-configuration failure before managed-identity construction. The outer
 result may now include one allowlisted `metadata_verifier_category` only when
 the remote document has the exact authoritative shape. A generic
 `metadata_verification_failed` or `remote_output_invalid` result does not prove

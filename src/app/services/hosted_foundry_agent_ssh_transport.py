@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 import json
@@ -23,6 +24,10 @@ from src.app.services.hosted_foundry_agent_verification import (
 )
 from src.app.services.web_app_configuration_verification import (
     WebAppConfigurationVerificationResult,
+)
+from src.app.services.web_app_hosting_contract import (
+    HOSTED_VERIFIER_SETTING_NAMES,
+    hosted_verifier_settings_valid,
 )
 
 
@@ -136,6 +141,39 @@ class HostedFoundryAgentSshTransportRequest:
     subscription: str
     resource_group: str
     web_app_name: str
+
+
+@dataclass(frozen=True, repr=False, init=False)
+class HostedVerifierRuntimeConfiguration:
+    """Private exact hosted-verifier settings for one metadata command."""
+
+    _ordered_values: tuple[str, ...]
+
+    def __init__(self, values: Mapping[str, object]) -> None:
+        try:
+            if (
+                not isinstance(values, Mapping)
+                or not hosted_verifier_settings_valid(values)
+            ):
+                raise ValueError
+            ordered_values = tuple(
+                values[name] for name in HOSTED_VERIFIER_SETTING_NAMES
+            )
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(
+                "Hosted verifier runtime configuration is invalid."
+            ) from None
+        object.__setattr__(self, "_ordered_values", ordered_values)
+
+    @classmethod
+    def from_mapping(
+        cls,
+        values: Mapping[str, object],
+    ) -> "HostedVerifierRuntimeConfiguration":
+        return cls(values)
+
+    def _assignment_pairs(self) -> tuple[tuple[str, str], ...]:
+        return tuple(zip(HOSTED_VERIFIER_SETTING_NAMES, self._ordered_values))
 
 
 def _deny_approval() -> bool:
@@ -386,9 +424,37 @@ def build_tunnel_command(
     )
 
 
-def build_ssh_command(command: str, known_hosts_path: str) -> tuple[str, ...]:
+def _build_metadata_verification_command(
+    configuration: HostedVerifierRuntimeConfiguration,
+) -> str:
+    if type(configuration) is not HostedVerifierRuntimeConfiguration:
+        raise ValueError("Hosted verifier runtime configuration is invalid.")
+    assignments = " ".join(
+        shlex.quote(f"{name}={value}")
+        for name, value in configuration._assignment_pairs()
+    )
+    return (
+        'cd "$APP_PATH" && env '
+        f"{assignments} python -m {METADATA_VERIFICATION_MODULE} --live --json"
+    )
+
+
+def build_ssh_command(
+    command: str,
+    known_hosts_path: str,
+    *,
+    hosted_verifier_runtime_configuration: (
+        HostedVerifierRuntimeConfiguration | None
+    ) = None,
+) -> tuple[str, ...]:
     if command not in PERMITTED_REMOTE_COMMANDS:
         raise ValueError("unsupported remote command")
+    if command == REMOTE_METADATA_VERIFICATION_COMMAND:
+        command = _build_metadata_verification_command(
+            hosted_verifier_runtime_configuration
+        )
+    elif hosted_verifier_runtime_configuration is not None:
+        raise ValueError("unsupported remote configuration")
     if not isinstance(known_hosts_path, str) or not known_hosts_path:
         raise ValueError("invalid known-hosts path")
     return (
@@ -419,10 +485,16 @@ class HostedFoundryAgentSshTransport:
         hosted_verifier_configuration_proof: (
             WebAppConfigurationVerificationResult | None
         ) = None,
+        hosted_verifier_runtime_configuration: (
+            HostedVerifierRuntimeConfiguration | None
+        ) = None,
     ) -> None:
         self._help_reader = help_reader or InstalledAzureCliHelpReader().read
         self._hosted_verifier_configuration_proof = (
             hosted_verifier_configuration_proof
+        )
+        self._hosted_verifier_runtime_configuration = (
+            hosted_verifier_runtime_configuration
         )
 
     def permitted_remote_commands(self) -> tuple[str, ...]:
@@ -493,11 +565,16 @@ class HostedFoundryAgentSshTransport:
         }
         if mode == "live-metadata-verification":
             proof = self._hosted_verifier_configuration_proof
+            runtime_configuration = self._hosted_verifier_runtime_configuration
             proof_attempted = bool(
                 type(proof) is WebAppConfigurationVerificationResult
                 and proof.azure_request_attempted is True
             )
-            if not _hosted_verifier_configuration_proof_valid(proof):
+            if (
+                not _hosted_verifier_configuration_proof_valid(proof)
+                or type(runtime_configuration)
+                is not HostedVerifierRuntimeConfiguration
+            ):
                 return HostedFoundryAgentSshTransportResult.build(
                     ok=False,
                     category="hosted_verifier_configuration_invalid",
@@ -749,6 +826,9 @@ class HostedFoundryAgentSshTransport:
             REMOTE_METADATA_VERIFICATION_COMMAND,
             known_hosts_path,
             deadline,
+            hosted_verifier_runtime_configuration=(
+                self._hosted_verifier_runtime_configuration
+            ),
         )
         if type(remote) is not RemoteCommandResult:
             return HostedFoundryAgentSshTransportResult.build(
@@ -945,12 +1025,22 @@ def _run_ssh(
     command: str,
     known_hosts_path: str,
     deadline: float,
+    *,
+    hosted_verifier_runtime_configuration: (
+        HostedVerifierRuntimeConfiguration | None
+    ) = None,
 ) -> RemoteCommandResult:
     remaining = deadline - deps.monotonic()
     if remaining <= 0:
         return RemoteCommandResult(124, "", "")
     return deps.ssh_runner.run(
-        build_ssh_command(command, known_hosts_path),
+        build_ssh_command(
+            command,
+            known_hosts_path,
+            hosted_verifier_runtime_configuration=(
+                hosted_verifier_runtime_configuration
+            ),
+        ),
         remaining,
     )
 

@@ -45,6 +45,22 @@ HOSTED_VERIFIER_BICEP_PROPERTIES: Final[Mapping[str, str]] = MappingProxyType(
     }
 )
 HOSTED_VERIFIER_BICEP_PARAMETERS: Final = HOSTED_VERIFIER_BICEP_PROPERTIES
+_HOSTED_VERIFIER_CLI_ATTRIBUTES: Final = (
+    "hosted_verifier_project_endpoint",
+    "hosted_verifier_stable_agent_endpoint",
+    "hosted_verifier_agent_name",
+    "hosted_verifier_agent_version",
+    "hosted_verifier_model_deployment_name",
+)
+HOSTED_SETTING_OPTIONS: Final[Mapping[str, str]] = MappingProxyType(
+    dict(
+        zip(
+            HOSTED_VERIFIER_BICEP_PROPERTIES,
+            _HOSTED_VERIFIER_CLI_ATTRIBUTES,
+            strict=True,
+        )
+    )
+)
 HOSTED_VERIFIER_SETTING_NAMES: Final = tuple(HOSTED_VERIFIER_BICEP_PROPERTIES)
 
 

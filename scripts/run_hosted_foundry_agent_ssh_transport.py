@@ -14,6 +14,7 @@ from src.app.services.hosted_foundry_agent_ssh_transport import (
     HostedFoundryAgentSshTransportApprovals,
     HostedFoundryAgentSshTransportRequest,
     HostedFoundryAgentSshTransportResult,
+    HostedVerifierRuntimeConfiguration,
     build_hosted_foundry_agent_ssh_transport_check_request,
 )
 from src.app.services.daily_azure_environment_rebuild import (
@@ -23,10 +24,10 @@ from src.app.services.daily_azure_environment_rebuild import (
     load_matching_daily_azure_readiness_receipt,
 )
 from src.app.services.web_app_configuration_verification import (
-    HOSTED_SETTING_OPTIONS,
     WebAppConfigurationVerificationResult,
     verify_web_app_configuration,
 )
+from src.app.services.web_app_hosting_contract import HOSTED_SETTING_OPTIONS
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -94,11 +95,17 @@ def _create_service(
     hosted_verifier_configuration_proof: (
         WebAppConfigurationVerificationResult | None
     ) = None,
+    hosted_verifier_runtime_configuration: (
+        HostedVerifierRuntimeConfiguration | None
+    ) = None,
 ) -> HostedFoundryAgentSshTransport:
     return HostedFoundryAgentSshTransport(
         hosted_verifier_configuration_proof=(
             hosted_verifier_configuration_proof
-        )
+        ),
+        hosted_verifier_runtime_configuration=(
+            hosted_verifier_runtime_configuration
+        ),
     )
 
 
@@ -165,6 +172,7 @@ def run_live(
             mode=mode,
         )
     configuration_proof: WebAppConfigurationVerificationResult | None = None
+    runtime_configuration: HostedVerifierRuntimeConfiguration | None = None
     if mode == "live-metadata-verification":
         try:
             candidate = _verify_hosted_verifier_configuration(
@@ -191,6 +199,17 @@ def run_live(
                 ),
             )
         configuration_proof = candidate
+        try:
+            runtime_configuration = HostedVerifierRuntimeConfiguration.from_mapping(
+                _expected_hosted_verifier_settings(args)
+            )
+        except ValueError:
+            return HostedFoundryAgentSshTransportResult.build(
+                ok=False,
+                category="hosted_verifier_configuration_invalid",
+                mode=mode,
+                azure_call_made=True,
+            )
 
     def evidence_unchanged() -> bool:
         try:
@@ -249,7 +268,7 @@ def run_live(
         ),
     )
     service = (
-        _create_service(configuration_proof)
+        _create_service(configuration_proof, runtime_configuration)
         if mode == "live-metadata-verification"
         else _create_service()
     )

@@ -2,6 +2,7 @@ from dataclasses import replace
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -9,6 +10,9 @@ from types import SimpleNamespace
 import pytest
 
 from src.app.services import hosted_foundry_agent_ssh_transport as transport
+from src.app.services.web_app_hosting_contract import (
+    HOSTED_VERIFIER_SETTING_NAMES,
+)
 
 
 VALID_HELP = transport.AzureCliHelpSurface(
@@ -19,13 +23,28 @@ VALID_HELP = transport.AzureCliHelpSurface(
     preview_ssh="webapp ssh preview",
 )
 
+FICTIONAL_RUNTIME_SETTINGS = {
+    "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": (
+        "https://fictional.invalid/api/projects/example"
+    ),
+    "AZURE_AI_FOUNDRY_AGENT_ENDPOINT": (
+        "https://fictional.invalid/api/projects/example/agents/"
+        "fictional-agent/endpoint/protocols/openai"
+    ),
+    "AZURE_AI_FOUNDRY_AGENT_NAME": "fictional-agent",
+    "AZURE_AI_FOUNDRY_AGENT_VERSION": "fictional-version",
+    "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": "fictional-model",
+}
+
 
 _DEFAULT_CONFIGURATION_PROOF = object()
+_DEFAULT_RUNTIME_CONFIGURATION = object()
 
 
 def _service(
     help_surface: object = VALID_HELP,
     configuration_proof: object = _DEFAULT_CONFIGURATION_PROOF,
+    runtime_configuration: object = _DEFAULT_RUNTIME_CONFIGURATION,
 ):
     if configuration_proof is _DEFAULT_CONFIGURATION_PROOF:
         configuration_proof = (
@@ -33,9 +52,12 @@ def _service(
                 hosted_verifier_configuration_verified=True
             )
         )
+    if runtime_configuration is _DEFAULT_RUNTIME_CONFIGURATION:
+        runtime_configuration = _runtime_configuration()
     return transport.HostedFoundryAgentSshTransport(
         help_reader=lambda: help_surface,
         hosted_verifier_configuration_proof=configuration_proof,
+        hosted_verifier_runtime_configuration=runtime_configuration,
     )
 
 
@@ -526,10 +548,17 @@ def test_metadata_mode_uses_one_tunnel_two_probes_and_one_metadata_command() -> 
     assert result.category == "success"
     assert result.mode == "live-metadata-verification"
     assert len(starts) == 1
-    assert [call[0][-1] for call in runner.calls] == [
+    commands = [call[0][-1] for call in runner.calls]
+    assert commands[:2] == [
         transport.INTERPRETER_PROBE_COMMAND,
         transport.MODULE_PROBE_COMMAND,
-        transport.REMOTE_METADATA_VERIFICATION_COMMAND,
+    ]
+    assert shlex.split(commands[2])[-5:] == [
+        "python",
+        "-m",
+        transport.METADATA_VERIFICATION_MODULE,
+        "--live",
+        "--json",
     ]
     assert result.interpreter_valid is True
     assert result.packaged_module_valid is True
@@ -583,6 +612,35 @@ def test_metadata_mode_requires_configuration_proof_before_live_dependencies(
         assert getattr(result, field) is False
 
 
+def test_metadata_mode_requires_runtime_configuration_before_live_dependencies(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        transport,
+        "_default_dependencies",
+        lambda: pytest.fail("runtime configuration must stop before dependencies"),
+    )
+    approvals = transport.HostedFoundryAgentSshTransportApprovals(
+        approve_tunnel=lambda: pytest.fail("runtime configuration must stop first"),
+        approve_probes=lambda: pytest.fail("runtime configuration must stop first"),
+        approve_remote_check=lambda: pytest.fail("runtime configuration must stop first"),
+        approve_metadata_verification=lambda: pytest.fail(
+            "runtime configuration must stop first"
+        ),
+    )
+
+    result = _service(runtime_configuration=None).run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=approvals,
+    )
+
+    assert result.category == "hosted_verifier_configuration_invalid"
+    assert result.tunnel_process_started is False
+    assert result.ssh_command_attempted is False
+    assert result.metadata_verification_attempted is False
+    assert result.managed_identity_attempted is False
+
+
 def test_metadata_command_is_the_only_live_remote_command_permitted() -> None:
     command = transport.REMOTE_METADATA_VERIFICATION_COMMAND
 
@@ -594,8 +652,15 @@ def test_metadata_command_is_the_only_live_remote_command_permitted() -> None:
     assert "invoke_hosted_foundry_agent" not in command
     assert _service().permitted_remote_commands().count(command) == 1
     assert transport.build_ssh_command(
-        command, "/private/current-run-known-hosts"
-    )[-1] == command
+        command,
+        "/private/current-run-known-hosts",
+        hosted_verifier_runtime_configuration=_runtime_configuration(),
+    )[-1] != command
+    with pytest.raises(ValueError, match="configuration is invalid"):
+        transport.build_ssh_command(
+            command,
+            "/private/current-run-known-hosts",
+        )
     for unauthorized in (
         "python -m src.app.operations.prove_hosted_foundry_agent --live --json",
         "python -m src.app.operations.invoke_hosted_foundry_agent --live --json",
@@ -609,6 +674,189 @@ def test_metadata_command_is_the_only_live_remote_command_permitted() -> None:
             transport.build_ssh_command(
                 unauthorized, "/private/current-run-known-hosts"
             )
+
+
+def _runtime_configuration(settings=None):
+    return transport.HostedVerifierRuntimeConfiguration.from_mapping(
+        FICTIONAL_RUNTIME_SETTINGS if settings is None else settings
+    )
+
+
+def test_metadata_runtime_configuration_is_exact_typed_and_private() -> None:
+    configuration = _runtime_configuration()
+
+    assignments = configuration._assignment_pairs()
+
+    assert type(configuration) is transport.HostedVerifierRuntimeConfiguration
+    assert tuple(name for name, _value in assignments) == tuple(
+        HOSTED_VERIFIER_SETTING_NAMES
+    )
+    assert len(assignments) == 5
+    assert not any(
+        value in repr(configuration)
+        for value in FICTIONAL_RUNTIME_SETTINGS.values()
+    )
+
+
+def test_metadata_ssh_command_has_only_five_fixed_assignments_and_invocation() -> None:
+    args = transport.build_ssh_command(
+        transport.REMOTE_METADATA_VERIFICATION_COMMAND,
+        "/private/current-run-known-hosts",
+        hosted_verifier_runtime_configuration=_runtime_configuration(),
+    )
+
+    tokens = shlex.split(args[-1])
+    assignments = tokens[4:9]
+
+    assert tokens[:4] == ["cd", "$APP_PATH", "&&", "env"]
+    assert tuple(item.split("=", 1)[0] for item in assignments) == tuple(
+        HOSTED_VERIFIER_SETTING_NAMES
+    )
+    assert tokens[9:] == [
+        "python",
+        "-m",
+        transport.METADATA_VERIFICATION_MODULE,
+        "--live",
+        "--json",
+    ]
+    assert tokens.count("&&") == 1
+    assert tokens.count("python") == 1
+
+
+def test_metadata_command_never_forwards_local_or_identity_environment(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("UNRELATED_LOCAL_SETTING", "fictional-local-value")
+    monkeypatch.setenv("WEBSITE_INSTANCE_ID", "fictional-instance")
+    monkeypatch.setenv("IDENTITY_ENDPOINT", "https://identity.invalid")
+    monkeypatch.setenv("IDENTITY_HEADER", "fictional-header")
+
+    args = transport.build_ssh_command(
+        transport.REMOTE_METADATA_VERIFICATION_COMMAND,
+        "/private/current-run-known-hosts",
+        hosted_verifier_runtime_configuration=_runtime_configuration(),
+    )
+    assignment_names = tuple(
+        item.split("=", 1)[0] for item in shlex.split(args[-1])[4:9]
+    )
+
+    assert assignment_names == tuple(HOSTED_VERIFIER_SETTING_NAMES)
+    for prohibited in (
+        "UNRELATED_LOCAL_SETTING",
+        "WEBSITE_INSTANCE_ID",
+        "IDENTITY_ENDPOINT",
+        "IDENTITY_HEADER",
+    ):
+        assert prohibited not in assignment_names
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {},
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "EXTRA_SETTING": "fictional-extra",
+        },
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": "",
+        },
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "AZURE_AI_FOUNDRY_AGENT_VERSION": " ",
+        },
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "AZURE_AI_FOUNDRY_AGENT_VERSION": "bad\x00version",
+        },
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "AZURE_AI_FOUNDRY_AGENT_VERSION": "bad\rversion",
+        },
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "AZURE_AI_FOUNDRY_AGENT_VERSION": "bad\nversion",
+        },
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT": "not-an-endpoint",
+        },
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "AZURE_AI_FOUNDRY_AGENT_NAME": "different-agent",
+        },
+        {
+            **FICTIONAL_RUNTIME_SETTINGS,
+            "AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME": "x" * 257,
+        },
+    ],
+)
+def test_invalid_metadata_runtime_configuration_fails_closed(settings) -> None:
+    with pytest.raises(ValueError, match="configuration is invalid"):
+        _runtime_configuration(settings)
+
+
+@pytest.mark.parametrize(
+    ("setting_name", "injection_shape"),
+    [
+        ("AZURE_AI_FOUNDRY_AGENT_VERSION", "fictional; touch /tmp/other"),
+        ("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", "fictional && false"),
+        ("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", "fictional $(false)"),
+        ("AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME", "fictional ' quoted"),
+    ],
+)
+def test_injection_shaped_value_cannot_change_fixed_metadata_command(
+    setting_name: str,
+    injection_shape: str,
+) -> None:
+    configuration = _runtime_configuration(
+        {**FICTIONAL_RUNTIME_SETTINGS, setting_name: injection_shape}
+    )
+
+    args = transport.build_ssh_command(
+        transport.REMOTE_METADATA_VERIFICATION_COMMAND,
+        "/private/current-run-known-hosts",
+        hosted_verifier_runtime_configuration=configuration,
+    )
+    tokens = shlex.split(args[-1])
+
+    assert len(tokens[4:9]) == 5
+    assert tokens.count("&&") == 1
+    assert tokens.count("python") == 1
+    assert tokens[9:] == [
+        "python",
+        "-m",
+        transport.METADATA_VERIFICATION_MODULE,
+        "--live",
+        "--json",
+    ]
+
+
+def test_metadata_runtime_values_never_enter_serialized_transport_result() -> None:
+    runner = FakeSshRunner(_successful_metadata_results())
+    deps, _, _, _ = _dependencies(ssh_runner=runner)
+    service = transport.HostedFoundryAgentSshTransport(
+        help_reader=lambda: VALID_HELP,
+        hosted_verifier_configuration_proof=(
+            transport.WebAppConfigurationVerificationResult.live_success(
+                hosted_verifier_configuration_verified=True
+            )
+        ),
+        hosted_verifier_runtime_configuration=_runtime_configuration(),
+    )
+
+    result = service.run_live_tunnel(
+        _request("live-metadata-verification"),
+        approvals=_metadata_approvals(),
+        dependencies=deps,
+    )
+
+    serialized = json.dumps(result.to_json_dict())
+    assert result.ok is True
+    assert not any(
+        value in serialized for value in FICTIONAL_RUNTIME_SETTINGS.values()
+    )
 
 
 @pytest.mark.parametrize(

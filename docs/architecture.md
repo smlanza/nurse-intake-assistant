@@ -51,7 +51,7 @@ Browser or API client
 | `FoundryAgentVerification` | Explicit read-only boundary that validates stable-endpoint metadata, reads Responses support from `agent_endpoint.protocols`, verifies exclusive immutable-version routing, and compares the configured version definition without mutation or invocation |
 | `HostedFoundryAgentInvocation` | Separate packaged proof boundary for exactly one fixed fictional prompt-agent invocation from an App Service system identity; validates only the application-owned output contract and returns no clinical content |
 | `HostedFoundryAgentProof` | Packaged synchronous combined proof operation that composes the existing metadata verification and fixed-fictional invocation boundaries with exact result validation; direct operator-supervised App Service SSH is the selected future transport |
-| `HostedFoundryAgentSshTransport` | Offline-tested transport lifecycle for one tunnel process created through `create-remote-connection`, bounded readiness, two fixed `APP_PATH` probes, one packaged check, private output handling, and guaranteed termination/reaping |
+| `HostedFoundryAgentSshTransport` | One tunnel process lifecycle created through `create-remote-connection`, with bounded readiness, two fixed `APP_PATH` probes, a fixed packaged check or metadata-verifier execution, private configuration and output handling, and guaranteed termination/reaping |
 | Speech transcription services | Mock transcript handling remains the default; the opt-in Azure service uses a lazy SDK adapter with injected-fake tests, in-memory audio input, application-owned normalized outcomes, and sanitized failures. The standalone provider boundary is live-proven for one repository-owned fixed-fictional WAV through the production factory, service, and adapter, isolated from routes and side effects |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
@@ -779,13 +779,27 @@ container remains the selected future execution transport.
 `az webapp create-remote-connection` process with a fixed loopback boundary,
 one deadline, bounded readiness observation, private raw-output capture, and
 interrupt/terminate/kill shutdown followed by reaping. It permits only two
-fixed prerequisite probes and one packaged non-invoking check. Both probes use
-the active Oryx application root only through `APP_PATH`; no fixed deployment
-path or filesystem search is permitted. The preview `az webapp ssh` mechanism
-is unsupported. No additional compute resource, Kudu command execution, or HTTP
-proof endpoint is part of this boundary. Live SSH remains unproven, as do managed-identity
-metadata access and hosted Agent invocation. The WebJob trigger-and-correlation
-mechanism remains retired.
+fixed prerequisite probes followed by either one packaged non-invoking check or
+one fixed packaged metadata-verifier execution. Both probes use the active Oryx
+application root only through `APP_PATH`; no fixed deployment path or
+filesystem search is permitted.
+
+For metadata mode, the CLI first validates the five explicit canonical
+hosted-verifier settings and proves that they exactly equal the current Web App
+configuration. Only then does it construct an immutable private runtime
+configuration and pass exactly those five non-secret values, in repository-owned
+order and under their canonical names, to the one fixed metadata command. The
+transport never reads application settings, operator environment variables, or
+local operational artifacts. Values and the rendered command remain absent
+from approvals, results, and diagnostics. `WEBSITE_INSTANCE_ID`,
+`IDENTITY_ENDPOINT`, and `IDENTITY_HEADER` remain App Service-owned runtime
+markers and are never propagated or overridden by the CLI or transport.
+
+The preview `az webapp ssh` mechanism is unsupported. No additional compute
+resource, Kudu command execution, or HTTP proof endpoint is part of this
+boundary. Direct transport and prerequisite probes are live-proven; live SSH
+remains unproven for managed-identity metadata access and hosted Agent
+invocation. The WebJob trigger-and-correlation mechanism remains retired.
 
 Project scope permits the identity to interact with agent endpoints in that
 project without granting agent creation or modification. Agent-specific scope
