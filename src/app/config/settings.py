@@ -5,6 +5,9 @@ class AppSettings:
     """Read MVP runtime, notification, and Cosmos configuration."""
 
     app_mode: str
+    telemetry_provider: str
+    telemetry_provider_normalized: str
+    applicationinsights_connection_string: str | None
     demo_suppress_notifications: bool
     email_provider: str
     email_provider_normalized: str
@@ -45,6 +48,13 @@ class AppSettings:
 
     def __init__(self) -> None:
         self.app_mode = os.getenv("APP_MODE", "mock")
+        self.telemetry_provider = os.getenv("TELEMETRY_PROVIDER", "none")
+        self.telemetry_provider_normalized = (
+            self.telemetry_provider.strip().lower() or "none"
+        )
+        self.applicationinsights_connection_string = self._optional_env(
+            "APPLICATIONINSIGHTS_CONNECTION_STRING"
+        )
         self.demo_suppress_notifications = self._parse_bool(
             os.getenv("DEMO_SUPPRESS_NOTIFICATIONS", "false")
         )

@@ -915,6 +915,18 @@ capstone. It provisions:
 - Application Insights component
 - Optional Linux App Service plan and Web App hosting contract
 
+Application telemetry is an application-owned boundary at the terminal point of
+each `CaseProcessingService` attempt. It permits only a typed allowlist of
+sanitized categorical and Boolean intake-outcome properties; clinical content,
+identifiers, exception details, endpoints, credentials, and other free-form
+values cannot enter the event contract. The default sink is no-op and imports
+or constructs no Azure telemetry client. `TELEMETRY_PROVIDER=azure-monitor`
+explicitly selects a lazy Application Insights adapter, whose client is created
+only on first emission. Event construction and delivery failures are swallowed
+without logging the telemetry error, changing processing behavior, or replacing
+the primary exception. The adapter boundary is verified offline with injected
+fakes; live telemetry delivery remains separate and unproven.
+
 The infrastructure files contain no secrets. Deployment acceptance never proves
 configuration, code deployment, startup, managed-identity access, or agent
 behavior; each remains a separately authorized and verified boundary.

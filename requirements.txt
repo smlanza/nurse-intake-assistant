@@ -15,3 +15,4 @@ azure-ai-inference
 azure-ai-projects>=2.3.0,<3
 azure-identity
 openai
+applicationinsights

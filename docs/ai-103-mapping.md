@@ -19,6 +19,7 @@ APP_MODE=mock
 AI_PROVIDER=mock
 EMAIL_PROVIDER=mock
 SMS_PROVIDER=mock
+TELEMETRY_PROVIDER=none
 ```
 
 With those defaults, the demo makes no live Azure calls and sends no real email
@@ -33,7 +34,7 @@ or SMS.
 | Offline Foundry evaluation baseline and guidance | A strict repository-owned fictional v1 dataset, provider-neutral candidate contract, deterministic exact/set scorer, application-composed single-mode runner and CLI, and prompt/schema/evaluation guidance establish a reusable offline baseline. Expected urgency labels remain `Routine` or `Urgent`; observed contract-invalid output may use safe `Unknown` urgency only in application-consistent fallback states | `evaluation/fictional-intake-baseline-v1.json`, `evaluation/fictional-intake-baseline-v1-candidates.json`, `src/app/services/foundry_evaluation.py`, `src/app/services/foundry_application_evaluation.py`, `scripts/evaluate_foundry_application.py`, `docs/foundry-prompt-schema-evaluation.md` | Implemented offline without Azure, network, external persistence, or notifications. Each CLI run selects one application mode, uses deterministic fake clients, and emits sanitized JSON. Observed `Unknown` scores as an ordinary mismatch instead of being fabricated or crashing evaluation; deterministic-rule and nurse-review evidence remain scoreable. It is not a live Foundry evaluation run, not model-as-judge evaluation, not a provider comparison, not subjective clinical-quality scoring, and not clinical validation |
 | Responsible AI / human oversight | Responsible AI pattern: urgency is advisory only; invalid agent output uses safe fallback values instead of crashing intake processing; deterministic red-flag rules supplement AI and may promote final urgency; red-flag matching is negation-aware; nurse review is persisted; no autonomous clinical decision-making is implemented | `src/app/services/urgency_rules_service.py`, `src/app/services/nurse_intake_agent_contract.py`, `src/app/config/red_flags.yaml`, `src/app/routes/cases.py`, `tests/test_red_flags.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented human review and deterministic safety rules |
 | Natural language processing and Speech readiness | Text intake and voicemail transcript intake convert natural language into patient fields, reason, symptoms, summary, missing fields, intake status, and advisory urgency. The offline/mock provider boundary remains implemented, the Azure SDK adapter is implemented, and one fixed-fictional standalone Azure Speech transcription is live-proven through the production factory/service/adapter | `src/app/routes/intake.py`, `src/app/services/speech_transcription_service.py`, `src/app/services/speech_transcription_factory.py`, `src/app/services/azure_speech_transcription_adapter.py`, `scripts/smoke_azure_speech_transcription.py`, `tests/fixtures/fictional_speech_intake.wav`, `tests/test_azure_speech_transcription_smoke.py`, `docs/runbooks/live-azure-speech-transcription-prerequisites.md` | Check mode validates the owned PCM fixture and emits deterministic sanitized JSON without recognition. One supervised standalone attempt returned the expected normalized transcript, made one Azure call and no mutation, and used no route, persistence, or notification path. Application routes remain text/already-transcribed-text only; human nurse review remains mandatory; route-level audio ingestion and voice automation remain deferred |
-| Azure service integration boundaries | Cosmos repository and container factory with point reads/upserts plus cross-partition filtered case-list queries; ACS Email/SMS boundaries; Bicep baseline for Cosmos, storage, Log Analytics, Application Insights, and optional Azure Web App hosting | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `infra/main.bicep`, `infra/modules/web-app.bicep`, `infra/README.md` | Case-list/query-filter parity is covered offline with fakes; queue-summary and voicemail-idempotency lookup parity, live Cosmos validation, and production hardening are deferred |
+| Azure service integration boundaries | Cosmos repository and container factory with point reads/upserts plus cross-partition filtered case-list queries; ACS Email/SMS boundaries; a typed sanitized intake telemetry boundary with a no-op default and lazy Azure Monitor adapter; Bicep baseline for Cosmos, storage, Log Analytics, Application Insights, and optional Azure Web App hosting | `src/app/services/cosmos_case_repository.py`, `src/app/services/cosmos_container_factory.py`, `src/app/services/email_notification_sender.py`, `src/app/services/sms_notification_sender.py`, `src/app/models/intake_telemetry.py`, `src/app/services/azure_monitor_intake_telemetry.py`, `infra/main.bicep`, `infra/modules/web-app.bicep`, `infra/README.md` | Intake telemetry is covered offline with fakes and cannot carry clinical content or identifiers; live telemetry delivery, queue-summary and voicemail-idempotency lookup parity, live Cosmos validation, and production hardening are deferred |
 | Application architecture | FastAPI routes support intake, case list, filtering, summary, lookup, nurse review, demo seed/reset, notification inspection, health, and static demo/legal pages | `src/app/routes/`, `src/app/main.py`, `src/app/static/demo.html`, `tests/test_cases_route.py`, `tests/test_demo_page_route.py`, `tests/test_demo_reset_route.py`, `tests/test_notifications_route.py` | Implemented local MVP |
 | Notification status semantics | Legacy booleans remain backward-compatible while explicit email/SMS status fields distinguish `MockRecorded`, `Accepted`, `Failed`, `Suppressed`, and `NotAttempted`; SMS delivery confirmation remains false until future tracking exists | `src/app/models/case.py`, `src/app/services/case_processing_service.py`, `tests/test_case_processing_service.py`, `docs/architecture.md` | Implemented semantics |
 | Testing and reliability | Pytest covers provider factories, repositories, routes, safety rules, notification behavior, static pages, and stable documentation guardrails. Azure-dependent slices additionally require a checked-in prerequisite runbook with authentication, authoritative Bicep, fail-fast stages, and current read-only proof | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` | Implemented project discipline; automated tests make no Azure calls |
@@ -167,6 +168,8 @@ Azure services for the local demo:
 - ACS Email sender boundary and completed ACS Email smoke-test documentation
 - ACS SMS sender boundary that reaches SDK/send-request path
 - Mock providers as the safe local default
+- One typed terminal intake telemetry event per processing attempt, with a no-op
+  default and an explicitly selected lazy Azure Monitor adapter
 - One standalone fixed-fictional Azure Speech transcription through the
   production factory/service/adapter, with no route or application side effect
 
@@ -174,7 +177,8 @@ Scope boundaries:
 
 - Cosmos queue-summary and voicemail-idempotency lookup parity are deferred
 - Cosmos live list-query validation, pagination, and aggregation tuning are deferred
-- Application Insights runtime logging/telemetry hardening is deferred
+- Live Application Insights telemetry delivery and verification are deferred;
+  the sanitized application boundary is implemented and offline-tested
 - Web App infrastructure, its explicit deployment CLI, remote-build setting,
   deterministic packaging, read-only configuration verifier, code-deployment request, and
   read-only hosted-readiness verifier are represented and offline-tested; live
@@ -247,7 +251,7 @@ The following are future work, not current implementation:
 - Agent-specific RBAC scope
 - Key Vault
 - App Service Authentication / Entra ID protection
-- Application Insights runtime logging/telemetry hardening
+- Live Application Insights telemetry delivery verification
 - Audio upload, microphone capture, ACS recording ingestion, streaming
   transcription, audio retention/cleanup, and production clinical audio workflows
 - ACS phone intake/call automation
@@ -265,7 +269,7 @@ Medium AI-103 ROI:
 
 - Key Vault
 - App Service Authentication / Entra ID route protection
-- Application Insights telemetry hardening
+- Live Application Insights telemetry delivery verification
 
 Lower direct exam ROI but strong portfolio value:
 
@@ -278,7 +282,7 @@ Lower direct exam ROI but strong portfolio value:
 1. Select the next slice later from medium-value security and operations work; do not continue SSH acceptance or automatically select a replacement hosted execution mechanism
 2. Key Vault
 3. App Service Authentication and protected routes
-4. Application Insights telemetry hardening
+4. Live Application Insights telemetry delivery verification
 5. ACS phone intake and route-level audio ingestion
 6. Retry/durable processing
 7. Advanced Foundry Agent/tool orchestration only if useful

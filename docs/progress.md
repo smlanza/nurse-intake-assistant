@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,194 passed full suite
-- 31 SSH transport wrapper tests and 45 documentation tests
+- 3,229 passed full suite
+- 35 focused intake telemetry tests and 45 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -50,8 +50,9 @@ Azure-first Microsoft Foundry Agent implementation through disposable Foundry,
 immutable agents, evaluation, managed-identity-ready hosting, deterministic
 deployment, and hosted application readiness.
 
-Mock mode remains the safe default, hosted notifications remain suppressed,
-and all AI output continues to require human nurse review.
+Mock mode and no-op intake telemetry remain the safe defaults, hosted
+notifications remain suppressed, and all AI output continues to require human
+nurse review.
 
 The current MVP is a local mock/demo only Nurse Intake Assistant capstone flow covering intake, mock AI extraction, urgency, nurse review, notifications, and a local demo UI.
 
@@ -254,6 +255,7 @@ Safe local defaults:
 - `EMAIL_PROVIDER=mock`
 - `SMS_PROVIDER=mock`
 - `DEMO_SUPPRESS_NOTIFICATIONS=false`
+- `TELEMETRY_PROVIDER=none`
 
 Provider settings:
 - `APP_MODE=mock` uses `InMemoryCaseRepository`.
@@ -290,6 +292,8 @@ Provider settings:
 - `SMS_PROVIDER=acs` selects ACS SMS and requires
   `ACS_SMS_CONNECTION_STRING`, `ACS_SMS_FROM_PHONE_NUMBER`, and
   `NURSE_NOTIFICATION_PHONE_NUMBER`.
+- `TELEMETRY_PROVIDER=none` selects the inert sink; `azure-monitor` selects a
+  lazy adapter whose client is created only on emission. Live delivery is unverified.
 
 `.env.example` keeps mock as the safe local default and includes placeholders
 only. Do not commit connection strings, access keys, real phone numbers, real
@@ -334,6 +338,7 @@ Completed work by feature area:
 - Email/SMS notification provider scaffolding, fake-client tests, ACS Email
   smoke-test documentation, and ACS SMS SDK/send-request boundary
 - Notification status semantics and queue summary notification counts
+- Typed allowlisted terminal intake telemetry with no-op, collecting, and lazy Azure adapter sinks
 - Mock queue filtering, ordering, summary, and pagination
 - Deterministic copy-friendly nurse handoff notes for saved cases
 - Demo seed/reset endpoints and local demo UI with handoff note display
@@ -398,28 +403,23 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The repository resumes from a clean architectural decision point. Direct App Service SSH transport is live-proven for both fixed `APP_PATH` probes and the packaged non-invoking check, while SSH hosted managed-identity execution is unsupported. The packaged synchronous hosted proof operation and its metadata and invocation components remain execution-mechanism-neutral; no replacement hosted execution topology is selected. The next AI-103 slice should be chosen later from remaining medium-value work such as Key Vault, App Service Authentication, or telemetry hardening rather than continued transport experimentation.
+The repository resumes from a clean architectural decision point. Direct App Service SSH transport is live-proven for both fixed `APP_PATH` probes and the packaged non-invoking check, while SSH hosted managed-identity execution is unsupported. The packaged synchronous hosted proof operation and its metadata and invocation components remain execution-mechanism-neutral; no replacement hosted execution topology is selected. The next AI-103 slice should be chosen later from remaining medium-value work such as Key Vault or App Service Authentication rather than continued transport experimentation.
 
 ## Current Slice Status
 
+- Each `CaseProcessingService` attempt emits one nonblocking, typed terminal
+  event after its outcome is known. Only fixed sanitized categories and
+  Booleans are representable; the no-op default and lazy fake-tested Azure
+  Monitor adapter have no live-delivery proof.
 - Direct App Service SSH transport is live-proven. Fresh matching READY evidence preceded one supervised acceptance that started exactly one tunnel and proved readiness; both fixed `APP_PATH` probes passed, and the packaged non-invoking check passed. No managed-identity metadata verification or Agent invocation occurred. Interrupt and private host-key cleanup completed, the process was reaped, and sanitized inspection found no matching tunnel process. No retry or alternate transport occurred.
 - `src/app/services/hosted_foundry_agent_proof.py` composes the existing hosted metadata verifier and fixed-fictional invocation boundary in one exact-type, exact-boolean, fail-closed sequence. The packaged metadata, invocation, and combined-proof operations remain available as execution-mechanism-neutral boundaries without selecting a hosted topology. Their offline checks remain deterministic and sanitized.
 - `HostedFoundryAgentSshTransport` preserves the live-proven one-tunnel lifecycle, authoritative loopback readiness proof, two fixed `APP_PATH` probes, packaged non-invoking check, private output and host-key handling, and guaranteed interrupt/terminate/kill reaping. `--live-tunnel` remains the only supported live SSH mode. `--live-metadata-verification` now returns `ssh_hosted_identity_execution_unsupported` deterministically before configuration proof, approval, service, tunnel, probe, remote-command, credential, metadata, or Agent activity.
 - The first supervised SSH metadata attempt returned `missing_configuration`; private propagation of the exact five preverified settings corrected that boundary. The next attempt returned `not_running_in_hosted_environment`, proving the SSH process lacks the App Service application-worker identity environment. Managed identity was never attempted. Runtime identity markers remain App Service-owned and are never forwarded. SSH managed-identity execution is retired, hosted metadata access and invocation remain unproven, no replacement mechanism was selected, and the repository is at a clean architectural decision point.
 Architecture impact: updated the existing hosted Foundry SSH execution section because direct SSH managed-identity execution is now unsupported and no replacement hosted execution topology is selected.
 - The blocked application-output adapter slice exposed a canonical representation mismatch: invalid Agent fallback output could safely contain `Unknown`, while the candidate contract required a fabricated binary urgency. The canonical evaluator now keeps expected advisory, final, and deterministic-rule labels binary while allowing only application-consistent `Unknown` urgency states on contract-invalid observed candidates. `Unknown` remains an ordinary advisory/final mismatch; deterministic-rule agreement and mandatory nurse review remain scoreable. No adapter was implemented in this correction.
-- Verification for the canonical correction is 50 focused evaluator/CLI tests, 38 documentation guardrails, and 2,814 full-suite tests passing with the one existing FastAPI/TestClient deprecation warning. Python compilation, CLI JSON validation, repeated-run determinism, and diff checks also pass.
-- The offline evaluation baseline continues to score contract validity, structured-field exact matches, symptom precision/recall/F1, missing-field recall, advisory and final urgency accuracy, deterministic-rule agreement, and the nurse-review invariant. Invalid candidates remain isolated per case, zero denominators return `0.0`, results sort by case ID, and the CLI emits one deterministic sanitized JSON document. The baseline remains provider-neutral, fixture-driven, exact-match only, and offline; it is not a live Foundry run, model-as-judge evaluation, subjective clinical-quality score, or clinical validation.
-- Authoritative architecture and AI-103 mapping now match the two live-proven application-integrated Foundry execution paths. Hosted managed-identity execution remains unproven, and the WebJob trigger-and-correlation path remains retired.
-- The first supervised application-integrated Agent attempt failed because local configuration was stale. Current-generation Agent settings were then synchronized from the deployed Web App without exposing values. Read-only verification succeeded and proved Agent identity and definition, stable-endpoint binding, the Responses protocol, the immutable version, and 100% routing.
-- The second supervised attempt used production application composition, invoked the Agent once, accepted valid output without fallback, persisted only in memory, suppressed notifications, retained pending nurse review, and made no Azure mutation; it failed only because the smoke incorrectly equated deterministic-rule execution with urgency promotion.
-- Correction RED was 3 failed/16 passed: equal-or-higher Agent urgency and no-op rule results proved production `CaseProcessingService` already executed deterministic rules, while a missing authoritative spy call was not representable. GREEN is 19 focused and 136 relevant tests after the smoke began proving one successful rules-boundary call independently of urgency promotion.
-- The final supervised application-integrated Foundry Agent smoke succeeded: production composition was used, Agent output was valid, no fallback occurred, deterministic rules ran, persistence remained in memory, notifications were suppressed, nurse review remained mandatory, and no Azure mutation occurred. Application-integrated Microsoft Foundry Agent execution is now live-proven; hosted managed-identity execution remains unproven, and WebJob invocation remains retired.
 - Final fresh live proof reached READY with Foundry infrastructure,
   prompt-agent configuration, immutable routing, Web App configuration,
   application deployment, artifact equality, and hosted readiness verified.
-- Generation handoff preparation succeeded for that READY generation.
-- The fixed triggered WebJob was successfully discovered.
 - Consumer RBAC reuse succeeded with `assignment_reused=true`,
   `assignment_verified=true`, and `azure_mutation_made=false`.
 - Multiple fresh supervised trigger attempts returned `trigger_acceptance_ambiguous`;

@@ -10,6 +10,7 @@ from src.app.services.nurse_intake_agent import NurseIntakeAgent
 from src.app.services import (
     ai_service_factory,
     email_notification_sender_factory,
+    intake_telemetry_factory,
     nurse_intake_agent_factory,
     repository_factory,
     sms_notification_sender_factory,
@@ -18,6 +19,7 @@ from src.app.services.sms_notification_sender import (
     AcsSmsNotificationSender,
     MockSmsNotificationSender,
 )
+from src.app.services.intake_telemetry import IntakeTelemetrySink
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,7 @@ class ApplicationComposition:
     case_repository: CaseRepository
     email_notification_sender: EmailNotificationSender
     sms_notification_sender: MockSmsNotificationSender | AcsSmsNotificationSender
+    intake_telemetry_sink: IntakeTelemetrySink
     case_processing_service: CaseProcessingService
 
 
@@ -45,6 +48,9 @@ def compose_application(settings: AppSettings) -> ApplicationComposition:
     sms_notification_sender = (
         sms_notification_sender_factory.create_sms_notification_sender(settings)
     )
+    intake_telemetry_sink = intake_telemetry_factory.create_intake_telemetry_sink(
+        settings
+    )
     case_processing_service = CaseProcessingService(
         ai_service=ai_service,
         case_repository=case_repository,
@@ -52,6 +58,7 @@ def compose_application(settings: AppSettings) -> ApplicationComposition:
         sms_notification_sender=sms_notification_sender,
         nurse_intake_agent=nurse_intake_agent,
         suppress_notifications=settings.demo_suppress_notifications,
+        telemetry_sink=intake_telemetry_sink,
     )
     return ApplicationComposition(
         settings=settings,
@@ -60,5 +67,6 @@ def compose_application(settings: AppSettings) -> ApplicationComposition:
         case_repository=case_repository,
         email_notification_sender=email_notification_sender,
         sms_notification_sender=sms_notification_sender,
+        intake_telemetry_sink=intake_telemetry_sink,
         case_processing_service=case_processing_service,
     )

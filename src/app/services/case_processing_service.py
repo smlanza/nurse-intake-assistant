@@ -1,5 +1,8 @@
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from time import monotonic
 from types import SimpleNamespace
 
 from src.app.models.ai_outputs import (
@@ -13,10 +16,15 @@ from src.app.models.case import (
     ProcessingTrace,
     UrgencySource,
 )
+from src.app.models.intake_telemetry import build_intake_telemetry_event
 from src.app.services.case_repository import CaseRepository
 from src.app.services.email_notification_sender import (
     EmailNotificationSender,
     MockEmailNotificationSender,
+)
+from src.app.services.intake_telemetry import (
+    IntakeTelemetrySink,
+    NoopIntakeTelemetrySink,
 )
 from src.app.services.mock_ai_service import MockAiService
 from src.app.services.nurse_intake_agent_contract import (
@@ -30,6 +38,16 @@ from src.app.services.urgency_rules_service import (
     RuleEvaluationResult,
     UrgencyRulesService,
 )
+
+
+@dataclass
+class _IntakeTelemetryState:
+    stage: str = "validation"
+    case: CaseDocument | None = None
+    agent_used: bool = False
+    contract_valid: bool = True
+    fallback_used: bool = False
+    processing_succeeded: bool = False
 
 
 class CaseProcessingService:
@@ -75,6 +93,8 @@ class CaseProcessingService:
         sms_notification_sender: SmsNotificationSender | None = None,
         nurse_intake_agent: object | None = None,
         suppress_notifications: bool = False,
+        telemetry_sink: IntakeTelemetrySink | None = None,
+        monotonic_clock: Callable[[], float] = monotonic,
     ) -> None:
         self.ai_service = ai_service or MockAiService()
         self.rules_service = rules_service or UrgencyRulesService(
@@ -85,12 +105,40 @@ class CaseProcessingService:
         self.sms_notification_sender = sms_notification_sender
         self.nurse_intake_agent = nurse_intake_agent
         self.suppress_notifications = suppress_notifications
+        self.telemetry_sink = (
+            telemetry_sink
+            if telemetry_sink is not None
+            else NoopIntakeTelemetrySink()
+        )
+        self._monotonic_clock = monotonic_clock
 
     async def process(self, raw_text: str, case_type: CaseType) -> CaseDocument:
         """Process supplied text into a completed case document."""
+        telemetry_state = _IntakeTelemetryState(
+            agent_used=self.nurse_intake_agent is not None
+        )
+        started_monotonic = self._read_monotonic_clock()
+        try:
+            case = await self._process_intake(raw_text, case_type, telemetry_state)
+            telemetry_state.processing_succeeded = True
+            return case
+        finally:
+            self._record_terminal_telemetry(
+                requested_case_type=case_type,
+                state=telemetry_state,
+                started_monotonic=started_monotonic,
+            )
+
+    async def _process_intake(
+        self,
+        raw_text: str,
+        case_type: CaseType,
+        telemetry_state: _IntakeTelemetryState,
+    ) -> CaseDocument:
         if case_type not in self._SUPPORTED_CASE_TYPES:
             raise ValueError(f"Unsupported case type: {case_type}")
 
+        telemetry_state.stage = "provider"
         agent_result = None
         processing_trace_warnings: list[str] = []
         agent_contract_valid = True
@@ -126,6 +174,9 @@ class CaseProcessingService:
         else:
             extraction = await self.ai_service.extract_and_summarize(raw_text)
             ai_urgency = await self.ai_service.classify_urgency(raw_text)
+        telemetry_state.contract_valid = agent_contract_valid
+        telemetry_state.fallback_used = agent_used and not agent_contract_valid
+        telemetry_state.stage = "rules"
         rule_result = self.rules_service.evaluate(raw_text)
 
         urgency_source = self._merge_urgency_source(ai_urgency, rule_result)
@@ -176,14 +227,79 @@ class CaseProcessingService:
                 warnings=processing_trace_warnings,
             ),
         )
+        telemetry_state.case = case
 
+        telemetry_state.stage = "notifications"
         self._apply_email_notification_status(case)
         self._apply_sms_notification_status(case)
 
         if self.case_repository is not None:
+            telemetry_state.stage = "persistence"
             await self.case_repository.save(case)
 
         return case
+
+    def _record_terminal_telemetry(
+        self,
+        *,
+        requested_case_type: object,
+        state: _IntakeTelemetryState,
+        started_monotonic: float | None,
+    ) -> None:
+        try:
+            event = build_intake_telemetry_event(
+                case=state.case,
+                requested_case_type=requested_case_type,
+                ai_provider=self._ai_provider_name(),
+                agent_provider=self._agent_provider_name(
+                    nurse_intake_agent=self.nurse_intake_agent,
+                    agent_result=None,
+                ),
+                agent_used=state.agent_used,
+                contract_valid=state.contract_valid,
+                fallback_used=state.fallback_used,
+                processing_succeeded=state.processing_succeeded,
+                safe_failure_category=self._telemetry_failure_category(state),
+                started_monotonic=started_monotonic,
+                finished_monotonic=self._read_monotonic_clock(),
+            )
+            self.telemetry_sink.record_intake_completed(event)
+        except Exception:
+            return
+
+    def _read_monotonic_clock(self) -> float | None:
+        try:
+            return self._monotonic_clock()
+        except Exception:
+            return None
+
+    @staticmethod
+    def _telemetry_failure_category(state: _IntakeTelemetryState) -> str:
+        trace = getattr(state.case, "processing_trace", None)
+        fallback_reason = getattr(trace, "agent_fallback_reason", None)
+        if fallback_reason == "invalid_agent_output":
+            return "invalid_agent_output"
+        if fallback_reason == "agent_execution_failed":
+            return "agent_provider_failure"
+
+        if state.processing_succeeded:
+            email_status = getattr(state.case, "notificationEmailStatus", None)
+            sms_status = getattr(state.case, "notificationSmsStatus", None)
+            if "Failed" in {email_status, sms_status}:
+                return "notification_failure"
+            return "none"
+
+        if state.stage == "validation":
+            return "unsupported_case_type"
+        if state.stage == "provider":
+            if state.agent_used:
+                return "agent_provider_failure"
+            return "ai_provider_failure"
+        if state.stage == "persistence":
+            return "persistence_failure"
+        if state.stage == "notifications":
+            return "notification_failure"
+        return "processing_failure"
 
     def _build_processing_trace(
         self,

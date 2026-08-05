@@ -229,6 +229,7 @@ def test_requirements_include_documented_runtime_and_azure_dependencies() -> Non
         "httpx",
         "azure-communication-email",
         "azure-communication-sms",
+        "applicationinsights",
     } <= requirements
 
 
@@ -905,7 +906,10 @@ def test_completed_foundry_and_speech_paths_are_not_deferred_or_recommended() ->
     assert "metadata-only ssh acceptance" not in recommended
     assert "key vault" in recommended
     assert "app service authentication" in recommended
-    assert "telemetry hardening" in recommended
+    assert "application insights telemetry hardening" not in deferred
+    assert "application insights telemetry hardening" not in recommended
+    assert "live application insights telemetry delivery verification" in deferred
+    assert "live application insights telemetry delivery verification" in recommended
     assert (
         "do not continue ssh acceptance or automatically select a replacement "
         "hosted execution mechanism"
