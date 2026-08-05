@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,229 passed full suite
-- 35 focused intake telemetry tests and 45 documentation tests
+- 3,259 passed full suite
+- 65 focused intake telemetry tests and 45 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -293,7 +293,7 @@ Provider settings:
   `ACS_SMS_CONNECTION_STRING`, `ACS_SMS_FROM_PHONE_NUMBER`, and
   `NURSE_NOTIFICATION_PHONE_NUMBER`.
 - `TELEMETRY_PROVIDER=none` selects the inert sink; `azure-monitor` selects a
-  lazy adapter whose client is created only on emission. Live delivery is unverified.
+  lazy adapter. The standalone proof is offline-ready; one live attempt stopped before adapter construction.
 
 `.env.example` keeps mock as the safe local default and includes placeholders
 only. Do not commit connection strings, access keys, real phone numbers, real
@@ -338,7 +338,7 @@ Completed work by feature area:
 - Email/SMS notification provider scaffolding, fake-client tests, ACS Email
   smoke-test documentation, and ACS SMS SDK/send-request boundary
 - Notification status semantics and queue summary notification counts
-- Typed allowlisted terminal intake telemetry with no-op, collecting, and lazy Azure adapter sinks
+- Typed intake telemetry plus a production-composed, fixed-fictional, bounded read-only ingestion proof
 - Mock queue filtering, ordering, summary, and pagination
 - Deterministic copy-friendly nurse handoff notes for saved cases
 - Demo seed/reset endpoints and local demo UI with handoff note display
@@ -407,10 +407,10 @@ The repository resumes from a clean architectural decision point. Direct App Ser
 
 ## Current Slice Status
 
-- Each `CaseProcessingService` attempt emits one nonblocking, typed terminal
-  event after its outcome is known. Only fixed sanitized categories and
-  Booleans are representable; the no-op default and lazy fake-tested Azure
-  Monitor adapter have no live-delivery proof.
+- The standalone Application Insights smoke is offline-tested to use production
+  composition for one fixed-fictional intake, in-memory persistence, suppressed
+  notifications, one emission, and bounded read-only verification; it is neither clinical validation nor production monitoring. Its live result is pending;
+  one supervised attempt returned `application_insights_resource_mismatch` before approval, composition, intake, emission, or query and made no Azure mutation. App Service-hosted telemetry remains unproven.
 - Direct App Service SSH transport is live-proven. Fresh matching READY evidence preceded one supervised acceptance that started exactly one tunnel and proved readiness; both fixed `APP_PATH` probes passed, and the packaged non-invoking check passed. No managed-identity metadata verification or Agent invocation occurred. Interrupt and private host-key cleanup completed, the process was reaped, and sanitized inspection found no matching tunnel process. No retry or alternate transport occurred.
 - `src/app/services/hosted_foundry_agent_proof.py` composes the existing hosted metadata verifier and fixed-fictional invocation boundary in one exact-type, exact-boolean, fail-closed sequence. The packaged metadata, invocation, and combined-proof operations remain available as execution-mechanism-neutral boundaries without selecting a hosted topology. Their offline checks remain deterministic and sanitized.
 - `HostedFoundryAgentSshTransport` preserves the live-proven one-tunnel lifecycle, authoritative loopback readiness proof, two fixed `APP_PATH` probes, packaged non-invoking check, private output and host-key handling, and guaranteed interrupt/terminate/kill reaping. `--live-tunnel` remains the only supported live SSH mode. `--live-metadata-verification` now returns `ssh_hosted_identity_execution_unsupported` deterministically before configuration proof, approval, service, tunnel, probe, remote-command, credential, metadata, or Agent activity.
