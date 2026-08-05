@@ -18,6 +18,7 @@ from src.app.services.application_insights_intake_telemetry_proof import (
     ApplicationInsightsIntakeTelemetryProof,
     CommandResult,
     build_check_result,
+    build_fictional_check_readiness_receipt,
     failure_result,
 )
 from src.app.services.daily_azure_environment_rebuild import (
@@ -111,6 +112,14 @@ def _load_local_contract(config_path: Path, receipt_path: Path):
     return config, receipt
 
 
+def _load_check_contract(config_path: Path):
+    try:
+        config = load_daily_azure_config(config_path, repository_root=ROOT)
+    except ConfigValidationError:
+        raise ProofCliError("invalid_configuration") from None
+    return config, build_fictional_check_readiness_receipt(config)
+
+
 def prompt_for_approval(
     summary: ApplicationInsightsIntakeTelemetryApprovalSummary,
     *,
@@ -143,7 +152,11 @@ def main(argv: list[str] | None = None) -> int:
     mode = "live" if "--live" in (argv or sys.argv[1:]) else "check"
     try:
         args = _parse_args(list(sys.argv[1:] if argv is None else argv))
-        config, receipt = _load_local_contract(args.config, args.readiness_receipt)
+        config, receipt = (
+            _load_check_contract(args.config)
+            if args.check
+            else _load_local_contract(args.config, args.readiness_receipt)
+        )
         sdk_available = _sdk_available()
         cli_available = _cli_available()
         check = build_check_result(
@@ -180,4 +193,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

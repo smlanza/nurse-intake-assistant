@@ -43,7 +43,7 @@ def test_check_mode_is_offline_and_outputs_one_deterministic_json_line(
 ) -> None:
     import scripts.smoke_application_insights_intake_telemetry as script
 
-    monkeypatch.setattr(script, "_load_local_contract", lambda config, receipt: (object(), object()))
+    monkeypatch.setattr(script, "_load_check_contract", lambda config: (object(), object()))
     monkeypatch.setattr(script, "_sdk_available", lambda: True)
     monkeypatch.setattr(script, "_cli_available", lambda: True)
     monkeypatch.setattr(script, "build_check_result", lambda **kwargs: _result())
@@ -157,8 +157,8 @@ def test_unexpected_cli_failure_never_exposes_exception(
 
     monkeypatch.setattr(
         script,
-        "_load_local_contract",
-        lambda config, receipt: (_ for _ in ()).throw(RuntimeError("EXCEPTION_SECRET_SENTINEL")),
+        "_load_check_contract",
+        lambda config: (_ for _ in ()).throw(RuntimeError("EXCEPTION_SECRET_SENTINEL")),
     )
 
     code = script.main(["--check", "--json"])
@@ -179,3 +179,25 @@ def test_check_defaults_use_current_repository_owned_paths() -> None:
     assert args.readiness_receipt == script.ROOT / Path(
         ".artifacts/daily-azure-rebuild/readiness-receipt.json"
     )
+
+
+def test_check_contract_uses_fictional_receipt_without_loading_disk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import scripts.smoke_application_insights_intake_telemetry as script
+
+    config = object()
+    receipt = object()
+    monkeypatch.setattr(script, "load_daily_azure_config", lambda *args, **kwargs: config)
+    monkeypatch.setattr(
+        script,
+        "build_fictional_check_readiness_receipt",
+        lambda value: receipt if value is config else pytest.fail("wrong config"),
+    )
+    monkeypatch.setattr(
+        script,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda *args, **kwargs: pytest.fail("check must not read a receipt"),
+    )
+
+    assert script._load_check_contract(Path("fictional-config")) == (config, receipt)

@@ -18,6 +18,9 @@ from src.app.services.daily_azure_environment_cleanup import (
     CleanupPurpose,
     CleanupResult,
 )
+from src.app.services.application_insights_resource_identity import (
+    build_application_insights_resource_identity,
+)
 from src.app.services.daily_azure_environment_rebuild import (
     ApprovalSummary,
     FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET,
@@ -162,6 +165,8 @@ def test_verified_ready_does_not_require_optional_hosted_workflows() -> None:
         "prompt_agent_verified": True,
         "immutable_routing_verified": True,
         "web_app_configuration_verified": True,
+        "application_insights_identity_verified": True,
+        "application_insights_identity_bound_to_receipt": True,
         "application_package_created": True,
         "application_artifact_current": True,
         "application_deployment_attempted": True,
@@ -181,6 +186,71 @@ def test_verified_ready_does_not_require_optional_hosted_workflows() -> None:
     assert result.webjob_status_read is False
     assert result.managed_identity_verification_performed is False
     assert result.agent_invoked is False
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "application_insights_identity_verified",
+        "application_insights_identity_bound_to_receipt",
+    ],
+)
+def test_verified_ready_requires_private_identity_proofs(missing: str) -> None:
+    proofs = {
+        "local_orchestration_ready": True,
+        "account_verified": True,
+        "startup_cleanup_inspected": True,
+        "startup_environment_clean": True,
+        "resource_group_ready": True,
+        "foundry_infrastructure_verified": True,
+        "prompt_agent_verified": True,
+        "immutable_routing_verified": True,
+        "web_app_configuration_verified": True,
+        "application_insights_identity_verified": True,
+        "application_insights_identity_bound_to_receipt": True,
+        "application_package_created": True,
+        "application_artifact_current": True,
+        "application_deployment_attempted": True,
+        "application_deployment_accepted": True,
+        "hosted_readiness_verified": True,
+    }
+    proofs[missing] = False
+
+    with pytest.raises(ValueError, match="mandatory proof"):
+        DailyAzureEnvironmentRebuildResult._verified_ready(
+            proofs,
+            azure_mutation_made=False,
+        )
+
+
+def test_receipt_reread_failure_prevents_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        daily_rebuild_service,
+        "load_matching_daily_azure_readiness_receipt",
+        lambda path, config: None,
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(FakeRunner(), approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.daily_environment_ready is False
+    assert result.category == "readiness_receipt_reread_failed"
+    assert result.application_insights_identity_verified is True
+    assert result.application_insights_identity_bound_to_receipt is False
+    receipt_path = tmp_path / READINESS_RECEIPT_FILE
+    assert not receipt_path.exists()
+    state_path = daily_rebuild_service.daily_azure_readiness_state_path(
+        receipt_path,
+        _config(tmp_path),
+    )
+    assert json.loads(state_path.read_text())["state"] == "revoked"
 
 
 def test_configuration_rejects_missing_file_and_setting(tmp_path: Path) -> None:
@@ -443,6 +513,40 @@ class FakeRunner:
         if result.ok and self.web_app_absent:
             return StageResult.absent("web_app_absent")
         return result
+
+    def verify_application_insights_identity(
+        self,
+        context,
+        *,
+        configuration_fingerprint,
+        run_epoch,
+    ):
+        result = self._stage(
+            "verify_application_insights_identity",
+            context,
+        )
+        if not result.ok:
+            return result
+        subscription_id = "00000000-0000-0000-0000-000000000001"
+        component_name = "fictional-intake-appi"
+        resource_id = (
+            f"/subscriptions/{subscription_id}/resourceGroups/"
+            f"{context.resource_group}/providers/Microsoft.Insights/"
+            f"components/{component_name}"
+        )
+        identity = build_application_insights_resource_identity(
+            component_name=component_name,
+            resource_id=resource_id,
+            subscription_id=subscription_id,
+            resource_group=context.resource_group,
+            configuration_fingerprint=configuration_fingerprint,
+            run_epoch=run_epoch,
+        )
+        assert identity is not None
+        return replace(
+            result,
+            application_insights_identity=identity,
+        )
 
     def plan_web_app(self, context):
         self._stage("plan_web_app", context)
@@ -774,9 +878,10 @@ def test_full_rebuild_has_exact_order_and_sanitized_ready_result(tmp_path: Path)
         "verify_web_app_configuration",
         "plan_web_app",
         "plan_web_app",
-        "deploy_web_app",
-        "verify_web_app_configuration",
-        "build_package",
+            "deploy_web_app",
+            "verify_web_app_configuration",
+            "verify_application_insights_identity",
+            "build_package",
         "deploy_code",
         "verify_readiness",
     ]

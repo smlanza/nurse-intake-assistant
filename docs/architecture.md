@@ -368,8 +368,16 @@ evidence cannot reuse an approval.
 The daily disposable coordinator ends at verified application-hosting
 readiness. It verifies Foundry infrastructure, prompt-agent identity and
 immutable routing, Web App infrastructure and configuration, the current
-application artifact, and hosted readiness. It returns success immediately
-after those proofs. Consumer RBAC remains one of the separate, explicitly
+application artifact, hosted readiness, and the exact Application Insights
+identity rooted in the named `main.bicep` component-name output and an exact
+projected ARM read. The
+identity contract structurally validates the active subscription, configured
+resource group, `Microsoft.Insights/components` type, exact component name,
+and Azure-returned ARM ID. READY stores the name, ARM ID, and deterministic
+environment-bound fingerprint only in the restrictive private readiness
+receipt, rereads that receipt, and exposes only identity-verified and
+identity-bound booleans publicly. Receipt schema v5 is required; legacy
+receipts fail closed without discovery or migration. Consumer RBAC remains one of the separate, explicitly
 invoked optional workflows outside readiness. WebJob discovery and
 immutable-evidence recovery remain separate technical boundaries, while the
 current WebJob
@@ -925,7 +933,10 @@ explicitly selects a lazy Application Insights adapter, whose client is created
 only on first emission. Event construction and delivery failures are swallowed
 without logging the telemetry error, changing processing behavior, or replacing
 the primary exception. The adapter boundary is verified offline with injected
-fakes; live telemetry delivery remains separate and unproven.
+fakes. The standalone proof obtains the exact component identity only from a
+validated current readiness receipt; it neither derives a name nor lists or
+adopts resources. Live telemetry delivery remains separate and unproven until
+fresh compatible READY evidence and a supervised proof both succeed.
 
 The infrastructure files contain no secrets. Deployment acceptance never proves
 configuration, code deployment, startup, managed-identity access, or agent

@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,259 passed full suite
-- 65 focused intake telemetry tests and 45 documentation tests
+- 3,295 passed full suite
+- 98 focused identity, readiness-receipt, and intake telemetry tests plus 45 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -146,8 +146,9 @@ current-session `daily_environment_ready=true` result. READY now requires
 current startup cleanup inspection and clean-state proof, resource-group,
 Foundry infrastructure, prompt-agent and immutable routing, Web App
 infrastructure/configuration, application artifact deployment or safe reuse,
-and hosted readiness proof. The coordinator returns immediately at that
-boundary. It does not perform Consumer RBAC, WebJob discovery or execution,
+hosted readiness proof, and a validated Application Insights identity privately
+bound to a reread schema-v5 receipt. Public output exposes only proof booleans;
+legacy receipts fail closed. The coordinator does not perform Consumer RBAC, WebJob discovery or execution,
 managed-identity verification, metadata access, hosted agent invocation,
 end-of-day cleanup, intake processing, or notifications. Its primary fresh path
 is startup preflight -> missing disposable environment -> `infra/main.bicep` ->
@@ -408,9 +409,8 @@ The repository resumes from a clean architectural decision point. Direct App Ser
 ## Current Slice Status
 
 - The standalone Application Insights smoke is offline-tested to use production
-  composition for one fixed-fictional intake, in-memory persistence, suppressed
-  notifications, one emission, and bounded read-only verification; it is neither clinical validation nor production monitoring. Its live result is pending;
-  one supervised attempt returned `application_insights_resource_mismatch` before approval, composition, intake, emission, or query and made no Azure mutation. App Service-hosted telemetry remains unproven.
+  composition, in-memory persistence, suppressed notifications, one emission,
+  and bounded read-only verification. It now consumes only the private READY identity; the existing receipt is legacy and no fresh compatible READY evidence exists. Live and App Service-hosted telemetry remain unproven; this is neither clinical validation nor production monitoring.
 - Direct App Service SSH transport is live-proven. Fresh matching READY evidence preceded one supervised acceptance that started exactly one tunnel and proved readiness; both fixed `APP_PATH` probes passed, and the packaged non-invoking check passed. No managed-identity metadata verification or Agent invocation occurred. Interrupt and private host-key cleanup completed, the process was reaped, and sanitized inspection found no matching tunnel process. No retry or alternate transport occurred.
 - `src/app/services/hosted_foundry_agent_proof.py` composes the existing hosted metadata verifier and fixed-fictional invocation boundary in one exact-type, exact-boolean, fail-closed sequence. The packaged metadata, invocation, and combined-proof operations remain available as execution-mechanism-neutral boundaries without selecting a hosted topology. Their offline checks remain deterministic and sanitized.
 - `HostedFoundryAgentSshTransport` preserves the live-proven one-tunnel lifecycle, authoritative loopback readiness proof, two fixed `APP_PATH` probes, packaged non-invoking check, private output and host-key handling, and guaranteed interrupt/terminate/kill reaping. `--live-tunnel` remains the only supported live SSH mode. `--live-metadata-verification` now returns `ssh_hosted_identity_execution_unsupported` deterministically before configuration proof, approval, service, tunnel, probe, remote-command, credential, metadata, or Agent activity.

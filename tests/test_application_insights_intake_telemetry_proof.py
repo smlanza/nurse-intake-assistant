@@ -19,10 +19,14 @@ from src.app.services.application_insights_intake_telemetry_proof import (
     build_check_result,
     build_telemetry_query,
 )
+from src.app.services.application_insights_resource_identity import (
+    build_application_insights_resource_identity,
+)
 from src.app.services.daily_azure_environment_rebuild import (
     RESOURCE_GROUP_PURPOSE,
     DailyAzureConfig,
     DailyAzureReadinessReceipt,
+    daily_azure_configuration_fingerprint,
 )
 
 
@@ -66,11 +70,22 @@ def _config() -> DailyAzureConfig:
 
 
 def _receipt() -> DailyAzureReadinessReceipt:
+    config = _config()
+    configuration_fingerprint = daily_azure_configuration_fingerprint(config)
+    identity = build_application_insights_resource_identity(
+        component_name=APP_NAME,
+        resource_id=RESOURCE_ID,
+        subscription_id=SUBSCRIPTION_ID,
+        resource_group=RESOURCE_GROUP,
+        configuration_fingerprint=configuration_fingerprint,
+        run_epoch="b" * 32,
+    )
+    assert identity is not None
     return DailyAzureReadinessReceipt(
-        schema_version=4,
+        schema_version=5,
         operation="rebuild_daily_azure_environment",
         ready=True,
-        configuration_fingerprint="a" * 64,
+        configuration_fingerprint=configuration_fingerprint,
         run_epoch="b" * 32,
         correlation_fingerprint="c" * 64,
         requested_foundry_account_name="fictional-foundry",
@@ -81,6 +96,7 @@ def _receipt() -> DailyAzureReadinessReceipt:
         resource_group=RESOURCE_GROUP,
         foundry_project_name="fictional-project",
         web_app_name="fictional-web-app",
+        application_insights_identity=identity,
     )
 
 
@@ -329,6 +345,15 @@ def test_success_uses_production_composition_and_one_emission(
     assert result.telemetry_provider_verified is True
     assert result.telemetry_emission_attempted is True
     assert result.telemetry_emission_count == 1
+
+
+def test_resource_validation_consumes_receipt_identity_without_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result, runner = _run_success(monkeypatch)
+
+    assert result.ok is True
+    assert all(args[:3] != ["az", "resource", "list"] for args, _ in runner.calls)
     assert result.eligible_record_count == 1
     assert result.telemetry_record_verified is True
     assert len(FakeTelemetryClient.events) == 1
@@ -478,21 +503,15 @@ def test_account_identity_mismatch_fails_before_resource_reads_or_emission(
     assert FakeTelemetryClient.events == []
 
 
-def test_ambiguous_application_insights_resources_fail_before_approval(
+def test_list_shaped_exact_resource_response_fails_before_approval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = FakeRunner()
     original_run = runner.run
 
     def run(args: list[str], *, timeout_seconds: float | None = None):
-        if args[:3] == ["az", "resource", "list"]:
-            candidate = {
-                "id": RESOURCE_ID,
-                "name": APP_NAME,
-                "type": "Microsoft.Insights/components",
-                "location": "centralus",
-            }
-            return _result([candidate, candidate])
+        if args[:3] == ["az", "resource", "show"]:
+            return _result([{"id": RESOURCE_ID}, {"id": RESOURCE_ID}])
         return original_run(args, timeout_seconds=timeout_seconds)
 
     runner.run = run  # type: ignore[method-assign]
@@ -500,7 +519,7 @@ def test_ambiguous_application_insights_resources_fail_before_approval(
 
     result = proof.run_live()
 
-    assert result.category == "application_insights_resource_ambiguous"
+    assert result.category == "application_insights_resource_mismatch"
     assert FakeTelemetryClient.events == []
 
 

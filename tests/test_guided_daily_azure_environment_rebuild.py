@@ -87,7 +87,7 @@ def test_public_ready_construction_is_rejected() -> None:
         )
 
 
-def test_ready_factory_requires_application_hosting_proofs_only() -> None:
+def test_ready_factory_requires_application_hosting_and_identity_proofs() -> None:
     proofs = {
         "local_orchestration_ready": True,
         "account_verified": True,
@@ -98,6 +98,8 @@ def test_ready_factory_requires_application_hosting_proofs_only() -> None:
         "prompt_agent_verified": True,
         "immutable_routing_verified": True,
         "web_app_configuration_verified": True,
+        "application_insights_identity_verified": True,
+        "application_insights_identity_bound_to_receipt": True,
         "application_package_created": True,
         "application_artifact_current": True,
         "application_deployment_attempted": True,

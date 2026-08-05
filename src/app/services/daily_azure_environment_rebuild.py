@@ -16,6 +16,11 @@ from typing import Callable, Literal, Mapping, Protocol
 from uuid import UUID
 
 from src.app.services.azure_what_if_evidence import SanitizedWhatIfChange
+from src.app.services.application_insights_resource_identity import (
+    ApplicationInsightsResourceIdentity,
+    parse_application_insights_resource_identity,
+    validate_application_insights_resource_identity,
+)
 from src.app.services.bounded_subprocess import run_bounded_subprocess
 from src.app.services.foundry_agent_consumer_rbac_deployment import (
     CONSUMER_ROLE_GUID,
@@ -104,7 +109,7 @@ FOUNDRY_ACCOUNT_NAME_MAX_LENGTH = 64
 FOUNDRY_ACCOUNT_NAME_SUFFIX_LENGTH = 6
 FOUNDRY_ACCOUNT_NAME_SUFFIX_ALPHABET = string.ascii_lowercase + string.digits
 MAX_GENERATED_FOUNDRY_ACCOUNT_NAMES = 3
-READINESS_RECEIPT_SCHEMA_VERSION = 4
+READINESS_RECEIPT_SCHEMA_VERSION = 5
 READINESS_STATE_SCHEMA_VERSION = 1
 _READINESS_RUN_EPOCH = re.compile(r"[0-9a-f]{32}")
 
@@ -280,6 +285,9 @@ class StageResult:
     foundry_account_name_failure_kind: (
         FoundryAccountNameFailureKind | None
     ) = None
+    application_insights_identity: (
+        ApplicationInsightsResourceIdentity | None
+    ) = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.ok and not isinstance(self.mutation_made, bool):
@@ -299,6 +307,9 @@ class StageResult:
         hosted_readiness_retry_performed: bool = False,
         approval_binding: str | None = None,
         consumer_rbac_preview: ConsumerRbacPreviewProof | None = None,
+        application_insights_identity: (
+            ApplicationInsightsResourceIdentity | None
+        ) = None,
     ) -> "StageResult":
         return cls(
             ok=True,
@@ -318,6 +329,7 @@ class StageResult:
             ),
             approval_binding=approval_binding,
             consumer_rbac_preview=consumer_rbac_preview,
+            application_insights_identity=application_insights_identity,
         )
 
     @classmethod
@@ -572,6 +584,13 @@ class DailyAzureStageRunner(Protocol):
     def configure_agent_routing(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_agent(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_web_app_configuration(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def verify_application_insights_identity(
+        self,
+        context: DailyAzureRuntimeContext,
+        *,
+        configuration_fingerprint: str,
+        run_epoch: str,
+    ) -> StageResult: ...
     def plan_web_app(self, context: DailyAzureRuntimeContext) -> PlanResult: ...
     def deploy_web_app(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def plan_web_app_reconciliation(
@@ -639,17 +658,29 @@ class DailyAzureReadinessReceipt:
     resource_group: str
     foundry_project_name: str
     web_app_name: str
+    application_insights_identity: (
+        ApplicationInsightsResourceIdentity | None
+    ) = field(default=None, repr=False)
 
     def to_json_dict(self) -> dict[str, object]:
         result = {
             field.name: getattr(self, field.name)
             for field in fields(self)
-            if field.name != "foundry_account_name_conflicts"
+            if field.name
+            not in {
+                "foundry_account_name_conflicts",
+                "application_insights_identity",
+            }
         }
         result["foundry_account_name_conflicts"] = [
             conflict.to_json_dict()
             for conflict in self.foundry_account_name_conflicts
         ]
+        result["application_insights_identity"] = (
+            self.application_insights_identity.to_private_json_dict()
+            if self.application_insights_identity is not None
+            else None
+        )
         return result
 
 
@@ -686,6 +717,8 @@ class DailyAzureEnvironmentRebuildResult:
     prompt_agent_verified: bool = False
     immutable_routing_verified: bool = False
     web_app_configuration_verified: bool = False
+    application_insights_identity_verified: bool = False
+    application_insights_identity_bound_to_receipt: bool = False
     application_package_created: bool = False
     application_artifact_current: bool = False
     application_deployment_reused: bool = False
@@ -750,6 +783,8 @@ class DailyAzureEnvironmentRebuildResult:
             "prompt_agent_verified",
             "immutable_routing_verified",
             "web_app_configuration_verified",
+            "application_insights_identity_verified",
+            "application_insights_identity_bound_to_receipt",
             "application_package_created",
             "application_artifact_current",
             "hosted_readiness_verified",
@@ -814,6 +849,12 @@ class DailyAzureEnvironmentRebuildResult:
             "prompt_agent_verified": self.prompt_agent_verified,
             "immutable_routing_verified": self.immutable_routing_verified,
             "web_app_configuration_verified": self.web_app_configuration_verified,
+            "application_insights_identity_verified": (
+                self.application_insights_identity_verified
+            ),
+            "application_insights_identity_bound_to_receipt": (
+                self.application_insights_identity_bound_to_receipt
+            ),
             "application_package_created": self.application_package_created,
             "application_artifact_current": self.application_artifact_current,
             "application_deployment_reused": self.application_deployment_reused,
@@ -2134,6 +2175,7 @@ def _readiness_receipt_correlation(
     resource_group: str,
     foundry_project_name: str,
     web_app_name: str,
+    application_insights_identity: ApplicationInsightsResourceIdentity,
 ) -> str:
     payload = {
         "configuration_fingerprint": configuration_fingerprint,
@@ -2151,6 +2193,9 @@ def _readiness_receipt_correlation(
         "resource_group": resource_group,
         "foundry_project_name": foundry_project_name,
         "web_app_name": web_app_name,
+        "application_insights_identity": (
+            application_insights_identity.to_private_json_dict()
+        ),
     }
     return hashlib.sha256(
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
@@ -2162,6 +2207,7 @@ def build_daily_azure_readiness_receipt(
     context: DailyAzureRuntimeContext,
     run_epoch: str,
     *,
+    application_insights_identity: ApplicationInsightsResourceIdentity,
     foundry_account_name_conflicts: tuple[
         FoundryAccountNameConflictEvidence, ...
     ] = (),
@@ -2179,6 +2225,14 @@ def build_daily_azure_readiness_receipt(
     ):
         raise ValueError("Invalid internal Foundry conflict evidence.")
     configuration_fingerprint = daily_azure_configuration_fingerprint(config)
+    if not validate_application_insights_resource_identity(
+        application_insights_identity,
+        subscription_id=None,
+        resource_group=context.resource_group,
+        configuration_fingerprint=configuration_fingerprint,
+        run_epoch=run_epoch,
+    ):
+        raise ValueError("Invalid Application Insights identity evidence.")
     values = {
         "configuration_fingerprint": configuration_fingerprint,
         "run_epoch": run_epoch,
@@ -2194,6 +2248,7 @@ def build_daily_azure_readiness_receipt(
         "resource_group": context.resource_group,
         "foundry_project_name": context.foundry_project_name,
         "web_app_name": context.web_app_name,
+        "application_insights_identity": application_insights_identity,
     }
     return DailyAzureReadinessReceipt(
         schema_version=READINESS_RECEIPT_SCHEMA_VERSION,
@@ -2391,11 +2446,21 @@ def load_matching_daily_azure_readiness_receipt(
         except TypeError:
             return None
         conflicts.append(conflict)
+    identity = parse_application_insights_resource_identity(
+        payload.get("application_insights_identity"),
+        subscription_id=None,
+        resource_group=config.resource_group,
+        configuration_fingerprint=payload.get("configuration_fingerprint"),
+        run_epoch=payload.get("run_epoch"),
+    )
+    if identity is None:
+        return None
     try:
         receipt = DailyAzureReadinessReceipt(
             **{
                 **payload,
                 "foundry_account_name_conflicts": tuple(conflicts),
+                "application_insights_identity": identity,
             }
         )
     except TypeError:
@@ -2439,6 +2504,13 @@ def load_matching_daily_azure_readiness_receipt(
         or receipt.web_app_name != config.web_app_name
         or receipt.configuration_fingerprint
         != daily_azure_configuration_fingerprint(config)
+        or not validate_application_insights_resource_identity(
+            receipt.application_insights_identity,
+            subscription_id=None,
+            resource_group=config.resource_group,
+            configuration_fingerprint=receipt.configuration_fingerprint,
+            run_epoch=receipt.run_epoch,
+        )
         or receipt.foundry_account_name_generated
         is (receipt.foundry_account_name == receipt.requested_foundry_account_name)
         or (
@@ -2477,6 +2549,7 @@ def load_matching_daily_azure_readiness_receipt(
         resource_group=receipt.resource_group,
         foundry_project_name=receipt.foundry_project_name,
         web_app_name=receipt.web_app_name,
+        application_insights_identity=identity,
     )
     return receipt if secrets.compare_digest(
         receipt.correlation_fingerprint,
@@ -3040,6 +3113,34 @@ class DailyAzureEnvironmentRebuild:
             return self._failure(web_config.category, progress, mutation[0])
         progress["web_app_configuration_verified"] = True
 
+        identity_stage = runner.verify_application_insights_identity(
+            context,
+            configuration_fingerprint=(
+                daily_azure_configuration_fingerprint(self.config)
+            ),
+            run_epoch=run_epoch,
+        )
+        identity = identity_stage.application_insights_identity
+        if (
+            not apply(identity_stage)
+            or identity is None
+            or not validate_application_insights_resource_identity(
+                identity,
+                subscription_id=None,
+                resource_group=context.resource_group,
+                configuration_fingerprint=(
+                    daily_azure_configuration_fingerprint(self.config)
+                ),
+                run_epoch=run_epoch,
+            )
+        ):
+            return self._failure(
+                "application_insights_identity_invalid",
+                progress,
+                mutation[0],
+            )
+        progress["application_insights_identity_verified"] = True
+
         package = runner.build_package(context)
         if not apply(package):
             return self._failure(package.category, progress, mutation[0])
@@ -3094,6 +3195,7 @@ class DailyAzureEnvironmentRebuild:
             self.config,
             context,
             run_epoch,
+            application_insights_identity=identity,
             foundry_account_name_conflicts=tuple(
                 foundry_account_name_conflicts
             ),
@@ -3121,6 +3223,42 @@ class DailyAzureEnvironmentRebuild:
                 progress,
                 mutation[0],
             )
+        persisted_receipt = load_matching_daily_azure_readiness_receipt(
+            self.repository_root / READINESS_RECEIPT_FILE,
+            self.config,
+        )
+        if (
+            persisted_receipt is None
+            or persisted_receipt.to_json_dict() != receipt.to_json_dict()
+        ):
+            try:
+                write_daily_azure_readiness_state(
+                    readiness_state_path,
+                    DailyAzureReadinessState(
+                        schema_version=READINESS_STATE_SCHEMA_VERSION,
+                        operation=REBUILD_OPERATION,
+                        configuration_fingerprint=(
+                            receipt.configuration_fingerprint
+                        ),
+                        run_epoch=receipt.run_epoch,
+                        state="revoked",
+                    ),
+                )
+                invalidate_daily_azure_readiness_receipt(
+                    self.repository_root / READINESS_RECEIPT_FILE
+                )
+            except OSError:
+                return self._failure(
+                    "readiness_receipt_revocation_failed",
+                    progress,
+                    mutation[0],
+                )
+            return self._failure(
+                "readiness_receipt_reread_failed",
+                progress,
+                mutation[0],
+            )
+        progress["application_insights_identity_bound_to_receipt"] = True
         handoff = RbacHandoff(
             readiness_receipt=str(READINESS_RECEIPT_FILE),
             requested_foundry_account_name=(
@@ -3895,6 +4033,42 @@ class RepositoryDailyAzureStageRunner:
         if not result.ok or not result.hosted_verifier_configuration_verified:
             return StageResult.failure(result.category)
         return StageResult.success(reused=True)
+
+    def verify_application_insights_identity(
+        self,
+        context: DailyAzureRuntimeContext,
+        *,
+        configuration_fingerprint: str,
+        run_epoch: str,
+    ) -> StageResult:
+        from src.app.services.web_app_infra_deployment import (
+            read_application_insights_deployment_identity,
+        )
+
+        subscription_id = getattr(
+            self._verified_cleanup_account,
+            "subscription_id",
+            None,
+        )
+        if not isinstance(subscription_id, str):
+            return StageResult.failure(
+                "application_insights_identity_invalid"
+            )
+        identity = read_application_insights_deployment_identity(
+            self._web_app_request("check", context),
+            subscription_id=subscription_id,
+            configuration_fingerprint=configuration_fingerprint,
+            run_epoch=run_epoch,
+            runner=self.command_runner,
+        )
+        if identity is None:
+            return StageResult.failure(
+                "application_insights_identity_invalid"
+            )
+        return StageResult.success(
+            reused=True,
+            application_insights_identity=identity,
+        )
 
     def plan_web_app(self, context: DailyAzureRuntimeContext) -> PlanResult:
         from src.app.services.web_app_infra_deployment import (

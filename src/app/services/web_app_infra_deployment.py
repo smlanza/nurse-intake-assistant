@@ -5,6 +5,12 @@ from pathlib import Path
 import re
 from typing import Literal, Protocol
 
+from src.app.services.application_insights_resource_identity import (
+    ApplicationInsightsResourceIdentity,
+    application_insights_component_name_valid,
+    build_application_insights_resource_identity,
+)
+
 from src.app.services.web_app_hosting_contract import (
     ALWAYS_ON_REQUIRED,
     BASELINE_APP_SETTINGS,
@@ -1068,6 +1074,7 @@ def _local_contract_valid(
             r"@minLength\(13\)\s*@maxLength\(13\)\s*param\s+resourceNameSuffix\s+string\?",
             r"var\s+suffix\s*=\s*resourceNameSuffix\s*\?\?\s*uniqueString\([^\r\n]+\)",
             r"module\s+webApp\s+'modules/web-app\.bicep'\s*=\s*if\s*\(deployApp\)",
+            r"output\s+applicationInsightsName\s+string\s*=\s*applicationInsights\.name",
         )
         if any(
             re.search(pattern, template) is None
@@ -1420,6 +1427,103 @@ def _resource_name_suffix(
         )
     ).encode("utf-8")
     return hashlib.sha256(identity).hexdigest()[:13]
+
+
+def read_application_insights_deployment_identity(
+    request: WebAppInfrastructureDeploymentRequest,
+    *,
+    subscription_id: str,
+    configuration_fingerprint: str,
+    run_epoch: str,
+    runner: AzureCliRunner,
+) -> ApplicationInsightsResourceIdentity | None:
+    """Read the exact private identity from the authoritative named deployment."""
+
+    if (
+        request.purpose != "initial_create"
+        or validate_web_app_infrastructure_request(request) is not None
+    ):
+        return None
+    deployment_name = _deployment_name(request)
+    if deployment_name is None:
+        return None
+    try:
+        outcome = runner.run(
+            [
+                "az",
+                "deployment",
+                "group",
+                "show",
+                "--resource-group",
+                request.resource_group,
+                "--name",
+                deployment_name,
+                "--query",
+                "{componentName:properties.outputs.applicationInsightsName.value}",
+                "--output",
+                "json",
+                "--only-show-errors",
+            ]
+        )
+    except Exception:
+        return None
+    try:
+        deployment_payload = (
+            json.loads(outcome.stdout) if outcome.return_code == 0 else None
+        )
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if (
+        not isinstance(deployment_payload, dict)
+        or set(deployment_payload) != {"componentName"}
+    ):
+        return None
+    component_name = deployment_payload.get("componentName")
+    if not application_insights_component_name_valid(component_name):
+        return None
+    try:
+        outcome = runner.run(
+            [
+                "az",
+                "resource",
+                "show",
+                "--resource-group",
+                request.resource_group,
+                "--name",
+                component_name,
+                "--resource-type",
+                "Microsoft.Insights/components",
+                "--api-version",
+                "2020-02-02",
+                "--query",
+                "{id:id,name:name,type:type}",
+                "--output",
+                "json",
+                "--only-show-errors",
+            ]
+        )
+        resource_payload = (
+            json.loads(outcome.stdout) if outcome.return_code == 0 else None
+        )
+    except Exception:
+        return None
+    if (
+        not isinstance(resource_payload, dict)
+        or set(resource_payload) != {"id", "name", "type"}
+        or resource_payload.get("name") != component_name
+        or not isinstance(resource_payload.get("type"), str)
+        or resource_payload["type"].casefold()
+        != "Microsoft.Insights/components".casefold()
+    ):
+        return None
+    return build_application_insights_resource_identity(
+        component_name=component_name,
+        resource_id=resource_payload.get("id"),
+        subscription_id=subscription_id,
+        resource_group=request.resource_group,
+        configuration_fingerprint=configuration_fingerprint,
+        run_epoch=run_epoch,
+    )
 
 
 def _app_service_plan_name(

@@ -20,12 +20,20 @@ from src.app.models.intake_telemetry import (
 from src.app.services.azure_monitor_intake_telemetry import (
     AzureMonitorIntakeTelemetrySink,
 )
+from src.app.services.application_insights_resource_identity import (
+    ApplicationInsightsResourceIdentity,
+    build_application_insights_resource_identity,
+    validate_application_insights_resource_identity,
+)
 from src.app.services.case_processing_service import CaseProcessingService
 from src.app.services.case_repository import InMemoryCaseRepository
 from src.app.services.daily_azure_environment_rebuild import (
     RESOURCE_GROUP_PURPOSE,
     DailyAzureConfig,
     DailyAzureReadinessReceipt,
+    DailyAzureRuntimeContext,
+    build_daily_azure_readiness_receipt,
+    daily_azure_configuration_fingerprint,
 )
 from src.app.services.email_notification_sender import MockEmailNotificationSender
 from src.app.services.intake_telemetry import IntakeTelemetrySink
@@ -218,6 +226,56 @@ def build_check_result(
     )
 
 
+def build_fictional_check_readiness_receipt(
+    config: DailyAzureConfig,
+) -> DailyAzureReadinessReceipt:
+    run_epoch = "c" * 32
+    subscription_id = "11111111-1111-4111-8111-111111111111"
+    component_name = "fictional-application-insights"
+    resource_id = (
+        f"/subscriptions/{subscription_id}/resourceGroups/"
+        f"{config.resource_group}/providers/Microsoft.Insights/"
+        f"components/{component_name}"
+    )
+    identity = build_application_insights_resource_identity(
+        component_name=component_name,
+        resource_id=resource_id,
+        subscription_id=subscription_id,
+        resource_group=config.resource_group,
+        configuration_fingerprint=daily_azure_configuration_fingerprint(config),
+        run_epoch=run_epoch,
+    )
+    if identity is None:
+        raise ValueError("Fictional readiness identity is invalid")
+    project_endpoint = (
+        f"https://{config.foundry_account_name}.services.ai.azure.com/"
+        f"api/projects/{config.foundry_project_name}"
+    )
+    context = DailyAzureRuntimeContext(
+        resource_group=config.resource_group,
+        location=config.location,
+        foundry_account_name=config.foundry_account_name,
+        foundry_project_name=config.foundry_project_name,
+        project_endpoint=project_endpoint,
+        model_deployment_name=config.model_deployment_name,
+        agent_name=config.agent_name,
+        immutable_agent_version="1",
+        stable_agent_endpoint=(
+            f"{project_endpoint}/agents/{config.agent_name}/"
+            "endpoint/protocols/openai"
+        ),
+        web_app_name=config.web_app_name,
+        hosted_origin=f"https://{config.web_app_name}.fictional.invalid",
+        configured_foundry_account_name=config.foundry_account_name,
+    )
+    return build_daily_azure_readiness_receipt(
+        config,
+        context,
+        run_epoch,
+        application_insights_identity=identity,
+    )
+
+
 def build_telemetry_query(lower: datetime, upper: datetime) -> str:
     if not _utc_datetime(lower) or not _utc_datetime(upper) or lower >= upper:
         raise ValueError("Telemetry query window is invalid")
@@ -283,8 +341,24 @@ class ApplicationInsightsIntakeTelemetryProof:
                 "live",
                 readiness_verified=True,
             )
+        identity = current_receipt.application_insights_identity
+        if not validate_application_insights_resource_identity(
+            identity,
+            subscription_id=account.subscription_id,
+            resource_group=self.config.resource_group,
+            configuration_fingerprint=current_receipt.configuration_fingerprint,
+            run_epoch=current_receipt.run_epoch,
+        ):
+            return failure_result(
+                "readiness_invalid",
+                "live",
+                readiness_verified=True,
+                account_verified=True,
+            )
+        assert identity is not None
         resource, resource_category = self._read_owned_application_insights(
-            account
+            account,
+            identity,
         )
         if resource is None:
             return failure_result(
@@ -322,8 +396,22 @@ class ApplicationInsightsIntakeTelemetryProof:
         )
         fresh_account = self._read_account()
         fresh_resource = None
-        if fresh_account is not None:
-            fresh_resource, _ = self._read_owned_application_insights(fresh_account)
+        if fresh_account is not None and fresh_receipt is not None:
+            fresh_identity = fresh_receipt.application_insights_identity
+            if validate_application_insights_resource_identity(
+                fresh_identity,
+                subscription_id=fresh_account.subscription_id,
+                resource_group=self.config.resource_group,
+                configuration_fingerprint=(
+                    fresh_receipt.configuration_fingerprint
+                ),
+                run_epoch=fresh_receipt.run_epoch,
+            ):
+                assert fresh_identity is not None
+                fresh_resource, _ = self._read_owned_application_insights(
+                    fresh_account,
+                    fresh_identity,
+                )
         if (
             fresh_receipt is None
             or fresh_account is None
@@ -542,6 +630,7 @@ class ApplicationInsightsIntakeTelemetryProof:
     def _read_owned_application_insights(
         self,
         account: _AccountEvidence,
+        identity: ApplicationInsightsResourceIdentity,
     ) -> tuple[_ApplicationInsightsResourceEvidence | None, str]:
         group = self.runner.run(
             [
@@ -568,41 +657,13 @@ class ApplicationInsightsIntakeTelemetryProof:
         ):
             return None, "application_insights_resource_mismatch"
 
-        listed = self.runner.run(
-            [
-                "az",
-                "resource",
-                "list",
-                "--resource-group",
-                self.config.resource_group,
-                "--resource-type",
-                "Microsoft.Insights/components",
-                "--query",
-                "[].{id:id,name:name,type:type,location:location}",
-                "--output",
-                "json",
-                "--only-show-errors",
-            ],
-            timeout_seconds=AZURE_READ_TIMEOUT_SECONDS,
-        )
-        resources = _json_value(listed.stdout) if listed.return_code == 0 else None
-        if not isinstance(resources, list):
-            return None, "application_insights_resource_not_found"
-        if len(resources) == 0:
-            return None, "application_insights_resource_not_found"
-        if len(resources) != 1:
-            return None, "application_insights_resource_ambiguous"
-        candidate = resources[0]
-        if not _listed_resource_valid(candidate, account, self.config):
-            return None, "application_insights_resource_mismatch"
-
         shown = self.runner.run(
             [
                 "az",
                 "resource",
                 "show",
                 "--ids",
-                candidate["id"],
+                identity.resource_id,
                 "--api-version",
                 "2020-02-02",
                 "--query",
@@ -614,7 +675,12 @@ class ApplicationInsightsIntakeTelemetryProof:
             timeout_seconds=AZURE_READ_TIMEOUT_SECONDS,
         )
         payload = _json_value(shown.stdout) if shown.return_code == 0 else None
-        if not _shown_resource_valid(payload, candidate, account, self.config):
+        if not _shown_resource_valid(
+            payload,
+            identity,
+            account,
+            self.config,
+        ):
             return None, "application_insights_resource_mismatch"
         return (
             _ApplicationInsightsResourceEvidence(
@@ -693,6 +759,15 @@ def _local_contract_category(
         or receipt.resource_group != config.resource_group
         or receipt.foundry_project_name != config.foundry_project_name
         or receipt.web_app_name != config.web_app_name
+        or not validate_application_insights_resource_identity(
+            receipt.application_insights_identity,
+            subscription_id=None,
+            resource_group=config.resource_group,
+            configuration_fingerprint=(
+                daily_azure_configuration_fingerprint(config)
+            ),
+            run_epoch=receipt.run_epoch,
+        )
     ):
         return "readiness_invalid"
     try:
@@ -894,32 +969,9 @@ def _temporary_environment(values: dict[str, str]):
                 os.environ[name] = value
 
 
-def _listed_resource_valid(
-    candidate: object,
-    account: _AccountEvidence,
-    config: DailyAzureConfig,
-) -> bool:
-    if not isinstance(candidate, dict) or set(candidate) != {"id", "name", "type", "location"}:
-        return False
-    name = candidate.get("name")
-    return bool(
-        _safe_resource_name(name)
-        and candidate.get("type") == "Microsoft.Insights/components"
-        and _location_matches(candidate.get("location"), config.location)
-        and _resource_id_matches(
-            candidate.get("id"),
-            subscription_id=account.subscription_id,
-            resource_group=config.resource_group,
-            provider="Microsoft.Insights",
-            resource_type="components",
-            resource_name=name,
-        )
-    )
-
-
 def _shown_resource_valid(
     payload: object,
-    candidate: dict[str, object],
+    identity: ApplicationInsightsResourceIdentity,
     account: _AccountEvidence,
     config: DailyAzureConfig,
 ) -> bool:
@@ -934,9 +986,10 @@ def _shown_resource_valid(
     }:
         return False
     return bool(
-        payload.get("id") == candidate.get("id")
-        and payload.get("name") == candidate.get("name")
-        and payload.get("type") == "Microsoft.Insights/components"
+        payload.get("id") == identity.resource_id
+        and payload.get("name") == identity.component_name
+        and isinstance(payload.get("type"), str)
+        and payload["type"].casefold() == "Microsoft.Insights/components".casefold()
         and payload.get("kind") == "web"
         and _location_matches(payload.get("location"), config.location)
         and payload.get("provisioningState") == "Succeeded"

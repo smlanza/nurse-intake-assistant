@@ -39,7 +39,8 @@ def test_current_coordinator_documentation_has_new_readiness_boundary() -> None:
     ):
         assert stale not in architecture + progress + runbook
     assert "ends at verified application-hosting readiness" in architecture
-    assert "returns success immediately" in architecture
+    assert "identity-bound booleans publicly" in architecture
+    assert "legacy receipts fail closed" in architecture
     assert "out of scope for daily readiness" in runbook
     assert "no live" in progress
 
@@ -911,6 +912,16 @@ def test_completed_foundry_and_speech_paths_are_not_deferred_or_recommended() ->
     assert "app service-hosted telemetry configuration and verification" in deferred
     assert "live application insights telemetry delivery verification" not in recommended
     assert "standalone telemetry smoke boundary" in mapping.casefold()
+    _assert_contains_all(
+        mapping,
+        {
+            "private READY-bound Application Insights identity",
+            "schema-v5 receipt",
+            "legacy receipts fail closed",
+            "consumes rather than derives or discovers identity",
+            "Live and hosted Web App telemetry remain unproven",
+        },
+    )
     assert (
         "do not continue ssh acceptance or automatically select a replacement "
         "hosted execution mechanism"
