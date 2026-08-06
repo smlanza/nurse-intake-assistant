@@ -230,7 +230,7 @@ def test_azure_adapter_constructs_client_only_on_first_emission() -> None:
     calls: list[str] = []
 
     class FakeClient:
-        def track_event(self, name: str, properties: dict[str, object]) -> None:
+        def track_event(self, name: str, properties: dict[str, str]) -> None:
             calls.append(json.dumps({"name": name, "properties": properties}))
 
         def flush(self) -> None:
@@ -252,12 +252,15 @@ def test_azure_adapter_constructs_client_only_on_first_emission() -> None:
     assert calls[0] == "create:fake-key"
     payload = json.loads(calls[1])
     assert payload["name"] == INTAKE_TELEMETRY_OPERATION
-    assert payload["properties"] == _event().to_properties()
+    assert payload["properties"] == {
+        name: str(value).lower() if isinstance(value, bool) else value
+        for name, value in _event().to_properties().items()
+    }
     assert calls[2] == "flush"
 
 
 def test_azure_adapter_accepts_injected_send_function_without_client() -> None:
-    sent: list[tuple[str, dict[str, object]]] = []
+    sent: list[tuple[str, dict[str, str]]] = []
     adapter = AzureMonitorIntakeTelemetrySink(
         connection_string="EndpointSuffix=ENDPOINT_SECRET_SENTINEL",
         send_function=lambda name, properties: sent.append((name, properties)),
@@ -265,7 +268,15 @@ def test_azure_adapter_accepts_injected_send_function_without_client() -> None:
 
     adapter.record_intake_completed(_event())
 
-    assert sent == [(INTAKE_TELEMETRY_OPERATION, _event().to_properties())]
+    assert sent == [
+        (
+            INTAKE_TELEMETRY_OPERATION,
+            {
+                name: str(value).lower() if isinstance(value, bool) else value
+                for name, value in _event().to_properties().items()
+            },
+        )
+    ]
     assert "ENDPOINT_SECRET_SENTINEL" not in json.dumps(sent)
 
 

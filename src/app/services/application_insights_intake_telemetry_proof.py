@@ -19,6 +19,7 @@ from src.app.models.intake_telemetry import (
 )
 from src.app.services.azure_monitor_intake_telemetry import (
     AzureMonitorIntakeTelemetrySink,
+    intake_telemetry_wire_properties,
 )
 from src.app.services.application_insights_resource_identity import (
     ApplicationInsightsResourceIdentity,
@@ -54,6 +55,9 @@ AZURE_READ_TIMEOUT_SECONDS = 30.0
 QUERY_PROJECTED_COLUMNS = ("timestamp", "name", "customDimensions")
 ALLOWLISTED_DIMENSIONS = frozenset(
     field.name for field in fields(IntakeTelemetryEvent)
+)
+BOOLEAN_DIMENSIONS = frozenset(
+    field.name for field in fields(IntakeTelemetryEvent) if field.type is bool
 )
 SAFE_POSTURE = (
     ("APP_MODE", "mock"),
@@ -509,7 +513,7 @@ class ApplicationInsightsIntakeTelemetryProof:
             or tracking_sink.event is None
         ):
             return replace(execution, category="telemetry_emission_failed")
-        expected = tracking_sink.event.to_properties()
+        expected = intake_telemetry_wire_properties(tracking_sink.event)
         if set(expected) != ALLOWLISTED_DIMENSIONS:
             return replace(execution, category="telemetry_contract_mismatch")
         upper = lower + timedelta(seconds=TELEMETRY_QUERY_MAX_SECONDS)
@@ -526,7 +530,7 @@ class ApplicationInsightsIntakeTelemetryProof:
         self,
         base: ApplicationInsightsIntakeTelemetryProofResult,
         private_config: _PrivateTelemetryConfiguration,
-        expected: dict[str, str | bool],
+        expected: dict[str, str],
         lower: datetime,
         upper: datetime,
         deadline: float,
@@ -882,7 +886,7 @@ def _terminal_application_state(
 def _inspect_query_response(
     raw: str,
     *,
-    expected: dict[str, str | bool],
+    expected: dict[str, str],
     lower: datetime,
     upper: datetime,
 ) -> _QueryInspection:
@@ -922,8 +926,11 @@ def _inspect_query_response(
             return _QueryInspection("telemetry_record_invalid")
         if set(dimensions) != ALLOWLISTED_DIMENSIONS:
             return _QueryInspection("telemetry_contract_mismatch")
+        typed_dimensions = _decode_wire_dimensions(dimensions)
+        if typed_dimensions is None:
+            return _QueryInspection("telemetry_record_invalid")
         try:
-            IntakeTelemetryEvent(**dimensions)
+            IntakeTelemetryEvent(**typed_dimensions)
         except (TypeError, ValueError):
             return _QueryInspection("telemetry_record_invalid")
         if dimensions == expected:
@@ -946,6 +953,24 @@ def _inspect_query_response(
             sensitive_content_absent=True,
         )
     return _QueryInspection("no_eligible_record")
+
+
+def _decode_wire_dimensions(
+    dimensions: dict[str, object],
+) -> dict[str, str | bool] | None:
+    if set(dimensions) != ALLOWLISTED_DIMENSIONS:
+        return None
+    decoded: dict[str, str | bool] = {}
+    for name, value in dimensions.items():
+        if not isinstance(value, str):
+            return None
+        if name in BOOLEAN_DIMENSIONS:
+            if value not in {"true", "false"}:
+                return None
+            decoded[name] = value == "true"
+        else:
+            decoded[name] = value
+    return decoded
 
 
 def _build_safe_settings(connection_string: str) -> AppSettings:

@@ -360,6 +360,33 @@ def test_resource_validation_consumes_receipt_identity_without_listing(
     assert runner.query_count == 1
 
 
+def test_application_insights_string_wire_dimensions_are_strictly_verified(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = FakeRunner()
+    proof = _proof(monkeypatch, runner)
+    original_run = runner.run
+
+    def run(args: list[str], *, timeout_seconds: float | None = None):
+        if args[:2] == ["az", "rest"]:
+            wire_properties = {
+                name: str(value).lower() if isinstance(value, bool) else value
+                for name, value in FakeTelemetryClient.events[0][1].items()
+            }
+            assert all(isinstance(value, str) for value in wire_properties.values())
+            runner.query_payloads.append(_query_response(wire_properties))
+        return original_run(args, timeout_seconds=timeout_seconds)
+
+    runner.run = run  # type: ignore[method-assign]
+
+    result = proof.run_live()
+
+    assert result.ok is True
+    assert result.telemetry_record_verified is True
+    assert result.eligible_record_count == 1
+    assert len(FakeTelemetryClient.events) == 1
+
+
 def test_production_composition_receives_exact_safe_posture(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
