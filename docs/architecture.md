@@ -55,6 +55,7 @@ Browser or API client
 | Speech transcription services | Mock transcript handling remains the default; the opt-in Azure service uses a lazy SDK adapter with injected-fake tests, in-memory audio input, application-owned normalized outcomes, and sanitized failures. The standalone provider boundary is live-proven for one repository-owned fixed-fictional WAV through the production factory, service, and adapter, isolated from routes and side effects |
 | `UrgencyRulesService` | Deterministic red-flag rules with negation-aware matching |
 | `create_case_repository(settings)` | Selects in-memory mock repository or Cosmos repository |
+| `create_secret_provider(settings)` | Selects the no-Azure local default or the explicit lazy Azure Key Vault exact-name retrieval boundary; no existing credential consumer uses this boundary yet |
 | `InMemoryCaseRepository` | Default mock persistence for local demo, filtering, summary, idempotency, and reset |
 | `CosmosCaseRepository` | Cosmos point-read/upsert and cross-partition filtered case-list query support with container factory wiring |
 | Email/SMS sender factories | Select mock senders by default or ACS provider boundaries when configured |
@@ -96,6 +97,7 @@ The default local settings are:
 
 ```text
 APP_MODE=mock
+SECRET_PROVIDER=local
 AI_PROVIDER=mock
 SPEECH_PROVIDER=mock
 EMAIL_PROVIDER=mock
@@ -938,6 +940,19 @@ validated current readiness receipt; it neither derives a name nor lists or
 adopts resources. Live telemetry delivery remains separate and unproven until
 fresh compatible READY evidence and a supervised proof both succeed.
 
+Application composition also owns an optional secret-access provider boundary.
+`SECRET_PROVIDER=local` is the safe default and constructs no Azure credential
+or client. Explicit `SECRET_PROVIDER=azure-key-vault` requires a validated
+`AZURE_KEY_VAULT_URI`, then lazily constructs a managed-identity-compatible
+credential and Key Vault Secrets client only for one caller-specified exact-name
+read. The immediate caller alone receives the secret string; serialized
+diagnostics expose only bounded provider, validation, construction, attempt,
+success, and sanitized failure state. The adapter supports no list, discovery,
+mutation, version-enumeration, key, or certificate operations and is verified
+offline with injected fakes. Key Vault infrastructure, authorization, live
+retrieval, current-credential migration, App Service references, and production
+secret operations remain deferred and unproven.
+
 The infrastructure files contain no secrets. Deployment acceptance never proves
 configuration, code deployment, startup, managed-identity access, or agent
 behavior; each remains a separately authorized and verified boundary.
@@ -945,7 +960,7 @@ behavior; each remains a separately authorized and verified boundary.
 Deferred infrastructure:
 
 - Agent-specific RBAC scope
-- Key Vault
+- Key Vault infrastructure and least-privilege authorization
 - App Service Authentication
 - Private networking
 - Production monitoring
@@ -960,7 +975,8 @@ The following are intentionally not implemented in the current MVP:
 - Agent-specific RBAC scope
 - Authentication / RBAC beyond the proven direct Consumer assignment
 - Application authentication and private networking
-- Key Vault
+- Key Vault infrastructure, authorization, live retrieval, credential migration,
+  App Service references, and production secret operations
 - Route-integrated audio ingestion, audio upload, microphone capture, ACS
   recording ingestion, voice intake and call automation, streaming
   transcription, audio retention/cleanup, and production audio workflows
@@ -995,10 +1011,11 @@ implementation:
 - Responsible AI boundary through explicit human nurse review and no autonomous
   clinical action
 - Azure service integration boundaries for Cosmos DB, ACS Email, ACS SMS,
-  storage, Application Insights, and Log Analytics
+  storage, Application Insights, Log Analytics, and offline-tested optional
+  Key Vault exact-name secret access
 - Infrastructure-as-code baseline through Bicep
 - Monitoring baseline concepts through Application Insights and Log Analytics
 
 Hosted managed-identity Foundry access and invocation, route-integrated audio
-ingestion and voice workflows, authentication, Key Vault, and SMS delivery
-tracking remain deferred.
+ingestion and voice workflows, authentication, live Key Vault infrastructure
+and authorization, and SMS delivery tracking remain deferred.

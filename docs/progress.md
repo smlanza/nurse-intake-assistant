@@ -66,10 +66,8 @@ Important constraints:
 
 ## Current Resume Point
 
-Azure Speech closure is complete. Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
-`.env.speech.local` remains ignored and secret-bearing; mock remains the safe default.
-Consumer RBAC remains optional; WebJob discovery and immutable evidence
-recovery remain separate technical boundaries.
+The offline application-owned Key Vault secret-access boundary is complete with safe local default selection, deterministic URI validation, lazy Azure construction, exact-name fake-client retrieval, private secret values, and sanitized diagnostics. No existing credential consumer was migrated, and live Key Vault infrastructure and authorization remain unproven. Azure Speech closure is complete. Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
+`.env.speech.local` remains ignored and secret-bearing; mock remains the safe default. Consumer RBAC remains optional; WebJob discovery and immutable evidence recovery remain separate technical boundaries.
 
 The final fresh disposable generation reached READY, including live-proven
 Foundry infrastructure, prompt-agent configuration, immutable routing, Web App
@@ -206,7 +204,8 @@ Do not claim as complete:
   review remains mandatory.
 - Route-integrated audio ingestion, audio processing, and voice automation; the standalone fixed-fictional Azure Speech proof is separately live-proven
 - Managed-identity token acquisition, hosted Foundry metadata access, and invocation remain unproven live despite separately proven RBAC deployment and direct assignment
-- ACS phone intake/call automation, Key Vault, App Service authentication,
+- ACS phone intake/call automation, live Key Vault infrastructure and access,
+  migration of current credentials, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 
@@ -349,9 +348,8 @@ Completed work by feature area:
 - Swagger/OpenAPI metadata and safe example for the handoff note route
 - README local mock demo walkthrough and manual demo/smoke-test docs
 - Minimal Bicep infrastructure baseline and manual Cosmos smoke test
-- No Azure calls in tests, PHI, production clinical behavior, hosted
-  authentication, Key Vault, phone intake automation, retry/durable processing,
-  or frontend work were added.
+- Optional offline Key Vault exact-name secret-access boundary with safe local default, lazy Azure construction, private values, and sanitized diagnostics
+- No Azure calls in tests, PHI, production clinical behavior, hosted authentication, live Key Vault infrastructure/authorization or credential migration, phone intake automation, retry/durable processing, or frontend work were added.
 
 ## Infrastructure Summary
 
@@ -395,7 +393,7 @@ Completed work by feature area:
 - Authentication
 - Agent-specific RBAC scope
 - Live hosted managed-identity verification and agent invocation
-- Key Vault
+- Key Vault infrastructure, least-privilege managed-identity authorization, live retrieval, current-credential migration, App Service references, and production secret rotation/operations
 - Route-integrated audio ingestion, voice automation, streaming, retention, and generalized or production clinical audio workflows
 - ACS SMS delivery tracking
 - Application-level durable retry processing
@@ -404,10 +402,11 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-The repository resumes from a clean architectural decision point. Direct App Service SSH transport is live-proven for both fixed `APP_PATH` probes and the packaged non-invoking check, while SSH hosted managed-identity execution is unsupported. The packaged synchronous hosted proof operation and its metadata and invocation components remain execution-mechanism-neutral; no replacement hosted execution topology is selected. The next AI-103 slice should be chosen later from remaining medium-value work such as Key Vault or App Service Authentication rather than continued transport experimentation.
+Direct App Service SSH transport is live-proven, SSH hosted managed-identity execution is unsupported, and the packaged synchronous hosted proof operation remains execution-mechanism-neutral; no replacement hosted execution topology is selected. The next logical slice is Azure-dependent Key Vault infrastructure and least-privilege managed-identity authorization. Do not start it until fresh current-session `daily_environment_ready=true`, then keep infrastructure, RBAC, and one explicit fixed-name live retrieval proof separate from current-credential migration and production secret operations.
 
 ## Current Slice Status
 
+- The newly completed offline optional secret-provider boundary keeps local mode as the no-Azure default; explicit Key Vault mode validates before lazy construction, permits one exact-name read, returns values only to the caller, and serializes only sanitized state. No infrastructure, RBAC, live retrieval, or credential migration occurred.
 - The standalone Application Insights smoke is offline-tested to use production
   composition, in-memory persistence, suppressed notifications, one emission,
   and bounded read-only verification. Two separately authorized supervised runs each used fresh private schema-v5 READY, production-composed one fixed-fictional in-memory intake, suppressed both notification paths, completed one adapter emission call, and made no Azure mutation; both bounded queries rejected an in-window expected-name row as `telemetry_record_invalid`, including the second run after strict string encoding/decoding correction. A sanitized offline diagnostic classifier now identifies only an allowlisted field, fixed mismatch reason, and fixed wire type without relaxing verification or exposing values. No exact failed-attempt window was persisted, so a live diagnostic query is unavailable without guessing or broadening. Live and App Service-hosted telemetry remain unproven; this is neither clinical validation nor production monitoring.

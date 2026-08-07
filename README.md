@@ -53,7 +53,7 @@ Safety boundary:
 
 The current demo can safely show local text intake, already-transcribed voicemail transcript intake, deterministic mock AI extraction, urgency classification, nurse review workflow, queue/recent case views and summary counts, deterministic handoff notes, mock email/SMS notification inspection, and offline-safe consolidated preflight checks.
 
-The demo must not claim production clinical readiness, autonomous medical decision-making, live Azure AI Foundry extraction, live Azure Speech transcription, live phone intake/call automation, confirmed ACS SMS handset delivery, or hosting/auth/Key Vault/retry/durable processing.
+The demo must not claim production clinical readiness, autonomous medical decision-making, live Azure AI Foundry extraction, live Azure Speech transcription, live phone intake/call automation, confirmed ACS SMS handset delivery, hosting/auth, live Key Vault infrastructure/access or production secret management, or retry/durable processing.
 
 The boundary remains: human nurse review is required, use fictional/demo data only,
 commit no secrets or PHI, and default mock mode makes no Azure calls,
@@ -207,9 +207,11 @@ Expected demo workflow:
 9. Inspect mock email/SMS notifications.
 10. reset demo state.
 
-This MVP intentionally does not include hosting, authentication, Key Vault,
-Azure Speech, live Azure AI Foundry extraction, ACS SMS delivery tracking, retry
-logic, or a frontend framework.
+This MVP intentionally does not include hosting, authentication, live Key Vault
+infrastructure/access or credential migration, Azure Speech, live Azure AI
+Foundry extraction, ACS SMS delivery tracking, retry logic, or a frontend
+framework. Its optional Key Vault exact-name access boundary is offline-tested
+only and is unused by current credential consumers.
 
 The current default demo remains local mock/offline. Start with
 `docs/system-overview.md` for the project map. Azure AI Foundry and Azure

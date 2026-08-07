@@ -7,6 +7,9 @@ class AppSettings:
     app_mode: str
     telemetry_provider: str
     telemetry_provider_normalized: str
+    secret_provider: str
+    secret_provider_normalized: str
+    azure_key_vault_uri: str | None
     applicationinsights_connection_string: str | None
     demo_suppress_notifications: bool
     email_provider: str
@@ -52,6 +55,11 @@ class AppSettings:
         self.telemetry_provider_normalized = (
             self.telemetry_provider.strip().lower() or "none"
         )
+        self.secret_provider = os.getenv("SECRET_PROVIDER", "local")
+        self.secret_provider_normalized = (
+            self.secret_provider.strip().lower() or "local"
+        )
+        self.azure_key_vault_uri = self._optional_env("AZURE_KEY_VAULT_URI")
         self.applicationinsights_connection_string = self._optional_env(
             "APPLICATIONINSIGHTS_CONNECTION_STRING"
         )

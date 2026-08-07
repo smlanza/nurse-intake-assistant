@@ -108,6 +108,7 @@ def test_main_env_example_has_safe_defaults_and_required_placeholders() -> None:
         name: values[name]
         for name in {
             "APP_MODE",
+            "SECRET_PROVIDER",
             "AI_PROVIDER",
             "AGENT_PROVIDER",
             "SPEECH_PROVIDER",
@@ -116,6 +117,7 @@ def test_main_env_example_has_safe_defaults_and_required_placeholders() -> None:
         }
     } == {
         "APP_MODE": "mock",
+        "SECRET_PROVIDER": "local",
         "AI_PROVIDER": "mock",
         "AGENT_PROVIDER": "mock",
         "SPEECH_PROVIDER": "mock",
@@ -146,6 +148,7 @@ def test_main_env_example_has_safe_defaults_and_required_placeholders() -> None:
         "AZURE_AI_FOUNDRY_PROJECT_NAME",
         "AZURE_SPEECH_ENDPOINT",
         "AZURE_SPEECH_REGION",
+        "AZURE_KEY_VAULT_URI",
     }
     assert required_placeholders <= values.keys()
     assert all(values[name] == "" for name in required_placeholders)
@@ -231,6 +234,7 @@ def test_requirements_include_documented_runtime_and_azure_dependencies() -> Non
         "azure-communication-email",
         "azure-communication-sms",
         "applicationinsights",
+        "azure-keyvault-secrets",
     } <= requirements
 
 

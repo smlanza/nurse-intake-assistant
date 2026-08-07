@@ -97,7 +97,8 @@ remain active after agent processing, and `final_urgency_source` remains
 | ACS SMS | Boundary implemented; not final-delivery confirmed | Toll-free/regulatory workflow and delivery tracking remain deferred |
 | Azure AI Foundry | Boundary, contract, fake-client seam, lazy adapter, guide, and CLI exist | Live Foundry extraction is deferred |
 | Azure Speech | Mock boundary, Azure scaffold, guide, and preflight CLI exist | Live transcription/audio processing is deferred |
-| Hosting/Auth/Key Vault | Deferred | No App Service hosting, auth/RBAC, or Key Vault integration |
+| Hosting/Auth | Deferred | No App Service hosting or application auth/RBAC |
+| Key Vault | Optional application boundary implemented offline | Local default, validation, lazy client seam, exact-name fake retrieval, and sanitized failures are proven; live infrastructure, authorization, credential migration, and production operations are deferred |
 | Phone intake | Deferred | No ACS phone/call automation |
 | Retry/durable processing | Deferred | No durable queue/retry workflow |
 
@@ -134,13 +135,15 @@ Implemented boundary but not live-confirmed:
 - ACS SMS final handset delivery and delivery tracking
 - Azure AI Foundry provider boundary and live adapter
 - Azure Speech provider boundary and preflight scaffold
+- Optional Key Vault exact-name secret-access boundary with a safe local default
 
 Do not claim complete:
 
 - Live Azure AI Foundry smoke testing or live Foundry extraction
 - Live Azure Speech transcription, audio upload, or audio processing
 - ACS phone intake/call automation
-- Key Vault, App Service hosting/auth, or production deployment
+- Live Key Vault infrastructure/access or production secret management, App
+  Service hosting/auth, or production deployment
 - Retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
 

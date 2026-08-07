@@ -15,6 +15,7 @@ def test_shared_composer_constructs_dependencies_without_side_effects(
         intake_telemetry_factory,
         nurse_intake_agent_factory,
         repository_factory,
+        secret_provider_factory,
         sms_notification_sender_factory,
     )
 
@@ -24,6 +25,7 @@ def test_shared_composer_constructs_dependencies_without_side_effects(
     email_sender = SimpleNamespace()
     sms_sender = SimpleNamespace()
     telemetry_sink = SimpleNamespace()
+    secret_provider = SimpleNamespace()
 
     monkeypatch.setattr(
         ai_service_factory,
@@ -55,6 +57,11 @@ def test_shared_composer_constructs_dependencies_without_side_effects(
         "create_intake_telemetry_sink",
         lambda settings: calls.append("telemetry_factory") or telemetry_sink,
     )
+    monkeypatch.setattr(
+        secret_provider_factory,
+        "create_secret_provider",
+        lambda settings: calls.append("secret_factory") or secret_provider,
+    )
 
     composition = composition_module.compose_application(_settings())
 
@@ -65,6 +72,7 @@ def test_shared_composer_constructs_dependencies_without_side_effects(
         "email_factory",
         "sms_factory",
         "telemetry_factory",
+        "secret_factory",
     ]
     assert composition.ai_service is ai_service
     assert composition.case_repository is repository
@@ -72,6 +80,7 @@ def test_shared_composer_constructs_dependencies_without_side_effects(
     assert composition.sms_notification_sender is sms_sender
     assert composition.nurse_intake_agent is None
     assert composition.intake_telemetry_sink is telemetry_sink
+    assert composition.secret_provider is secret_provider
     assert composition.case_processing_service.ai_service is ai_service
     assert composition.case_processing_service.case_repository is repository
     assert composition.case_processing_service.suppress_notifications is True

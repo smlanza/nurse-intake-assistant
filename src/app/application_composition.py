@@ -13,6 +13,7 @@ from src.app.services import (
     intake_telemetry_factory,
     nurse_intake_agent_factory,
     repository_factory,
+    secret_provider_factory,
     sms_notification_sender_factory,
 )
 from src.app.services.sms_notification_sender import (
@@ -20,6 +21,7 @@ from src.app.services.sms_notification_sender import (
     MockSmsNotificationSender,
 )
 from src.app.services.intake_telemetry import IntakeTelemetrySink
+from src.app.services.secret_provider import SecretProvider
 
 
 @dataclass(frozen=True)
@@ -31,6 +33,7 @@ class ApplicationComposition:
     email_notification_sender: EmailNotificationSender
     sms_notification_sender: MockSmsNotificationSender | AcsSmsNotificationSender
     intake_telemetry_sink: IntakeTelemetrySink
+    secret_provider: SecretProvider
     case_processing_service: CaseProcessingService
 
 
@@ -51,6 +54,7 @@ def compose_application(settings: AppSettings) -> ApplicationComposition:
     intake_telemetry_sink = intake_telemetry_factory.create_intake_telemetry_sink(
         settings
     )
+    secret_provider = secret_provider_factory.create_secret_provider(settings)
     case_processing_service = CaseProcessingService(
         ai_service=ai_service,
         case_repository=case_repository,
@@ -68,5 +72,6 @@ def compose_application(settings: AppSettings) -> ApplicationComposition:
         email_notification_sender=email_notification_sender,
         sms_notification_sender=sms_notification_sender,
         intake_telemetry_sink=intake_telemetry_sink,
+        secret_provider=secret_provider,
         case_processing_service=case_processing_service,
     )

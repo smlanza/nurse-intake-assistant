@@ -9,4 +9,5 @@ nurse_intake_agent = application.nurse_intake_agent
 case_repository = application.case_repository
 email_notification_sender = application.email_notification_sender
 sms_notification_sender = application.sms_notification_sender
+secret_provider = application.secret_provider
 case_processing_service = application.case_processing_service

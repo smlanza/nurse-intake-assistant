@@ -168,6 +168,10 @@ Azure services for the local demo:
 - ACS Email sender boundary and completed ACS Email smoke-test documentation
 - ACS SMS sender boundary that reaches SDK/send-request path
 - Mock providers as the safe local default
+- An application-owned optional Key Vault secret provider boundary with local
+  default selection, deterministic configuration validation, lazy Azure client
+  construction, exact-name fake-client verification, private value handling,
+  and sanitized failure categories, all implemented and proven offline
 - One typed terminal intake telemetry event per processing attempt, with a no-op
   default and an explicitly selected lazy Azure Monitor adapter
 - One standalone telemetry smoke boundary that production-composes a single
@@ -245,7 +249,10 @@ Scope boundaries:
   and deployment-request acceptance do not imply hosted health; hosted readiness
   does not imply RBAC, managed-identity authentication, Foundry access, or
   inference success
-- Key Vault is deferred
+- Key Vault infrastructure deployment, managed-identity authorization and RBAC,
+  live secret retrieval, migration of current Azure service credentials, App
+  Service Key Vault references, and production rotation/operations are deferred
+  and unproven
 - App Service Authentication / Entra ID protection is deferred
 - Confirmed ACS SMS handset delivery is not implemented and remains pending
   external toll-free verification and future delivery tracking
@@ -256,7 +263,9 @@ The following are future work, not current implementation:
 
 - Hosted managed-identity metadata verification and fixed-fictional-data invocation
 - Agent-specific RBAC scope
-- Key Vault
+- Key Vault infrastructure, managed-identity authorization, RBAC, live retrieval,
+  current-credential migration, App Service references, and production secret
+  rotation/operations
 - App Service Authentication / Entra ID protection
 - App Service-hosted telemetry configuration and verification
 - Audio upload, microphone capture, ACS recording ingestion, streaming
@@ -274,7 +283,7 @@ Highest AI-103 ROI:
 
 Medium AI-103 ROI:
 
-- Key Vault
+- Live Key Vault infrastructure and least-privilege authorization
 - App Service Authentication / Entra ID route protection
 
 Lower direct exam ROI but strong portfolio value:
@@ -286,7 +295,7 @@ Lower direct exam ROI but strong portfolio value:
 ## 9. Recommended Azure Implementation Order
 
 1. Select the next slice later from medium-value security and operations work; do not continue SSH acceptance or automatically select a replacement hosted execution mechanism
-2. Key Vault
+2. Key Vault infrastructure and least-privilege authorization
 3. App Service Authentication and protected routes
 4. App Service-hosted telemetry configuration and verification
 5. ACS phone intake and route-level audio ingestion
@@ -304,7 +313,7 @@ When presenting the capstone, do not imply that the current MVP already has:
 - Route-integrated audio ingestion or voice workflows
 - ACS phone intake
 - App Service authentication
-- Key Vault
+- Live Key Vault integration or production secret management
 - Confirmed SMS handset delivery
 - Production clinical readiness
 
