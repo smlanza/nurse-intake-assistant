@@ -48,6 +48,9 @@ param deployFoundry bool = false
 @description('Deploy an Azure Linux Web App for the Nurse Intake Assistant.')
 param deployApp bool = false
 
+@description('Deploy an Azure Key Vault with Azure RBAC authorization and no secrets.')
+param deployKeyVault bool = false
+
 @description('Optional explicit globally unique Microsoft Foundry account name. A deterministic name is used when empty.')
 @maxLength(64)
 param foundryAccountName string = ''
@@ -101,6 +104,7 @@ var cosmosAccountName = toLower('${projectName}-${environmentName}-${suffix}')
 var storageAccountName = 'st${suffix}'
 var logAnalyticsWorkspaceName = '${projectName}-${environmentName}-logs-${suffix}'
 var appInsightsName = '${projectName}-${environmentName}-appi-${suffix}'
+var keyVaultName = 'kv${suffix}'
 var resolvedAppServicePlanName = empty(appServicePlanName) ? take(toLower('${projectName}-${environmentName}-plan-${suffix}'), 40) : appServicePlanName
 var resolvedWebAppName = empty(webAppName) ? take(toLower('${projectName}-${environmentName}-web-${suffix}'), 60) : webAppName
 
@@ -216,6 +220,14 @@ module webApp 'modules/web-app.bicep' = if (deployApp) {
   }
 }
 
+module keyVault 'modules/key-vault.bicep' = if (deployKeyVault) {
+  name: 'key-vault'
+  params: {
+    location: location
+    keyVaultName: keyVaultName
+  }
+}
+
 module foundry 'modules/foundry.bicep' = if (deployFoundry) {
   name: 'foundry'
   params: {
@@ -245,6 +257,7 @@ output applicationInsightsConnectionString string = applicationInsights.properti
 output appHostingRequested bool = deployApp
 output webAppName string = deployApp ? webApp!.outputs.webAppName : ''
 output webAppDefaultHostname string = deployApp ? webApp!.outputs.defaultHostname : ''
+output keyVaultName string = deployKeyVault ? keyVault!.outputs.keyVaultName : ''
 output foundryResourceName string = deployFoundry ? foundry!.outputs.foundryResourceName : ''
 output foundryProjectName string = deployFoundry ? foundry!.outputs.foundryProjectName : ''
 output foundryProjectEndpoint string = deployFoundry ? foundry!.outputs.foundryProjectEndpoint : ''

@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,311 passed full suite
-- 117 focused identity, readiness-receipt, intake telemetry, and wire-diagnostic tests plus 45 documentation tests
+- 3,350 passed full suite
+- 12 focused Key Vault IaC/RBAC tests, 272 relevant infrastructure/provider regressions, and 45 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -66,7 +66,7 @@ Important constraints:
 
 ## Current Resume Point
 
-The offline application-owned Key Vault secret-access boundary is complete with safe local default selection, deterministic URI validation, lazy Azure construction, exact-name fake-client retrieval, private secret values, and sanitized diagnostics. No existing credential consumer was migrated, and live Key Vault infrastructure and authorization remain unproven. Azure Speech closure is complete. Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
+The offline application-owned Key Vault boundary is complete through optional repository-owned infrastructure and a separate least-privilege authorization contract. `main.bicep` defaults Key Vault deployment off, the reusable vault uses Azure RBAC and creates zero secrets, and the independent assignment binds the existing Web App system identity to only Key Vault Secrets User at exact vault scope with a deterministic name. The application provider still defaults to local, no credential consumer was migrated, and live vault deployment, RBAC verification, and secret retrieval remain unproven. Azure Speech closure is complete. Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
 `.env.speech.local` remains ignored and secret-bearing; mock remains the safe default. Consumer RBAC remains optional; WebJob discovery and immutable evidence recovery remain separate technical boundaries.
 
 The final fresh disposable generation reached READY, including live-proven
@@ -102,6 +102,7 @@ Authoritative Foundry infrastructure for future TDD slices:
   plus a separate exact five-setting hosted-verifier contract shared by
   infrastructure deployment and configuration verification.
 - `infra/foundry-agent-consumer-rbac.bicep`: explicit independent assignment entry point; `infra/modules/foundry-agent-consumer-rbac.bicep`: project-scoped Foundry Agent Consumer role module.
+- `infra/modules/key-vault.bicep`: optional RBAC-mode vault with zero secrets; `infra/key-vault-secrets-user-rbac.bicep` and `infra/modules/key-vault-secrets-user-rbac.bicep`: independent exact-vault-scope Key Vault Secrets User assignment for the existing Web App system identity.
 - `src/app/services/foundry_agent_consumer_rbac_deployment.py` and `scripts/deploy_foundry_agent_consumer_rbac.py`: offline check plus explicit what-if/live request boundary for that exact entry point.
 - `src/app/services/foundry_agent_consumer_rbac_verification.py` and `scripts/verify_foundry_agent_consumer_rbac.py`: offline check plus explicit read-only assignment proof for the exact identity, role, and project scope.
 - Packaged `src/app/operations/verify_hosted_foundry_agent.py`: strict system-identity metadata verification using the existing agent contract.
@@ -204,7 +205,7 @@ Do not claim as complete:
   review remains mandatory.
 - Route-integrated audio ingestion, audio processing, and voice automation; the standalone fixed-fictional Azure Speech proof is separately live-proven
 - Managed-identity token acquisition, hosted Foundry metadata access, and invocation remain unproven live despite separately proven RBAC deployment and direct assignment
-- ACS phone intake/call automation, live Key Vault infrastructure and access,
+- ACS phone intake/call automation, live Key Vault deployment, RBAC verification, and access,
   migration of current credentials, App Service authentication,
   retry/durable processing, SMS delivery tracking, production frontend, or
   production clinical readiness
@@ -348,8 +349,8 @@ Completed work by feature area:
 - Swagger/OpenAPI metadata and safe example for the handoff note route
 - README local mock demo walkthrough and manual demo/smoke-test docs
 - Minimal Bicep infrastructure baseline and manual Cosmos smoke test
-- Optional offline Key Vault exact-name secret-access boundary with safe local default, lazy Azure construction, private values, and sanitized diagnostics
-- No Azure calls in tests, PHI, production clinical behavior, hosted authentication, live Key Vault infrastructure/authorization or credential migration, phone intake automation, retry/durable processing, or frontend work were added.
+- Optional offline Key Vault exact-name secret-access boundary plus optional RBAC-mode infrastructure and a separate exact-vault-scope Key Vault Secrets User assignment contract
+- No Azure calls in tests, PHI, production clinical behavior, hosted authentication, live Key Vault deployment/RBAC verification/retrieval or credential migration, phone intake automation, retry/durable processing, or frontend work were added.
 
 ## Infrastructure Summary
 
@@ -357,13 +358,13 @@ Completed work by feature area:
 - It provisions Cosmos DB, a Cosmos SQL database, a `cases` container using
   `/createdDate`, a storage account, Log Analytics, and Application Insights.
 - It can optionally provision a Linux App Service plan and Web App with a system-assigned identity and remote-build setting; `deployApp=false` preserves the existing default.
-- A separate template can explicitly assign Foundry Agent Consumer at project
-  scope without coupling access to `main.bicep`.
+- It can optionally provision a deterministic repository-owned Azure RBAC-mode Key Vault with zero secrets; `deployKeyVault=false` preserves the existing default.
+- A separate template can explicitly assign Foundry Agent Consumer at project scope without coupling access to `main.bicep`.
+- A separate template can assign only Key Vault Secrets User to the existing Web App system identity at exact vault scope without coupling authorization to ordinary vault creation.
 - The allowlisted package builder and explicit deployment CLI keep code upload
   separate from infrastructure, RBAC, startup checks, and Foundry operations.
 - The Web App infrastructure CLI uses `main.bicep` for initial creation and the dedicated reconciliation entry point for an existing drifted Web App; neither path creates the resource group.
-- `infra/README.md` documents Azure CLI build, validate, deploy, and cleanup
-  commands.
+- `infra/README.md` documents Azure CLI build, validate, deploy, and cleanup commands.
 - Manual Cosmos smoke testing verified local `APP_MODE=cosmos` with a deployed
   Cosmos account and a point read via `createdDate`.
 - Manual Azure resource-group validation succeeded July 15, 2026, and created no
@@ -393,7 +394,7 @@ Completed work by feature area:
 - Authentication
 - Agent-specific RBAC scope
 - Live hosted managed-identity verification and agent invocation
-- Key Vault infrastructure, least-privilege managed-identity authorization, live retrieval, current-credential migration, App Service references, and production secret rotation/operations
+- Live Key Vault deployment, exact RBAC verification, live retrieval, current-credential migration, App Service references, and production secret rotation/operations
 - Route-integrated audio ingestion, voice automation, streaming, retention, and generalized or production clinical audio workflows
 - ACS SMS delivery tracking
 - Application-level durable retry processing
@@ -402,11 +403,11 @@ Completed work by feature area:
 
 ## Recommended Next Slice
 
-Direct App Service SSH transport is live-proven, SSH hosted managed-identity execution is unsupported, and the packaged synchronous hosted proof operation remains execution-mechanism-neutral; no replacement hosted execution topology is selected. The next logical slice is Azure-dependent Key Vault infrastructure and least-privilege managed-identity authorization. Do not start it until fresh current-session `daily_environment_ready=true`, then keep infrastructure, RBAC, and one explicit fixed-name live retrieval proof separate from current-credential migration and production secret operations.
+Direct App Service SSH transport is live-proven, SSH hosted managed-identity execution is unsupported, and the packaged synchronous hosted proof operation remains execution-mechanism-neutral; no replacement hosted execution topology is selected. The next Key Vault slice is Azure-dependent deployment and exact RBAC verification of the now-offline-represented boundaries. Do not start it until fresh current-session `daily_environment_ready=true`; keep live retrieval, credential migration, App Service references, and production secret operations in later separate slices.
 
 ## Current Slice Status
 
-- The newly completed offline optional secret-provider boundary keeps local mode as the no-Azure default; explicit Key Vault mode validates before lazy construction, permits one exact-name read, returns values only to the caller, and serializes only sanitized state. No infrastructure, RBAC, live retrieval, or credential migration occurred.
+- The newly completed offline infrastructure slice adds optional `deployKeyVault=false` integration through `infra/main.bicep`, a reusable Azure RBAC-mode vault that creates zero secrets, and a separate deterministic exact-vault-scope Key Vault Secrets User assignment for the existing Web App system identity. Local secret-provider mode remains the no-Azure default, no route reads Key Vault, and no credential was created or migrated. Live deployment, assignment verification, and retrieval remain unproven.
 - The standalone Application Insights smoke is offline-tested to use production
   composition, in-memory persistence, suppressed notifications, one emission,
   and bounded read-only verification. Two separately authorized supervised runs each used fresh private schema-v5 READY, production-composed one fixed-fictional in-memory intake, suppressed both notification paths, completed one adapter emission call, and made no Azure mutation; both bounded queries rejected an in-window expected-name row as `telemetry_record_invalid`, including the second run after strict string encoding/decoding correction. A sanitized offline diagnostic classifier now identifies only an allowlisted field, fixed mismatch reason, and fixed wire type without relaxing verification or exposing values. No exact failed-attempt window was persisted, so a live diagnostic query is unavailable without guessing or broadening. Live and App Service-hosted telemetry remain unproven; this is neither clinical validation nor production monitoring.

@@ -924,6 +924,7 @@ capstone. It provisions:
 - Log Analytics workspace
 - Application Insights component
 - Optional Linux App Service plan and Web App hosting contract
+- Optional Azure RBAC-mode Key Vault with zero secrets
 
 Application telemetry is an application-owned boundary at the terminal point of
 each `CaseProcessingService` attempt. It permits only a typed allowlist of
@@ -949,9 +950,21 @@ read. The immediate caller alone receives the secret string; serialized
 diagnostics expose only bounded provider, validation, construction, attempt,
 success, and sanitized failure state. The adapter supports no list, discovery,
 mutation, version-enumeration, key, or certificate operations and is verified
-offline with injected fakes. Key Vault infrastructure, authorization, live
-retrieval, current-credential migration, App Service references, and production
-secret operations remain deferred and unproven.
+offline with injected fakes.
+
+Key Vault infrastructure and authorization remain separate from retrieval.
+`infra/main.bicep` conditionally owns the reusable resource-group-scoped vault
+behind `deployKeyVault=false`; its deterministic name uses the existing stable
+repository suffix, Azure RBAC authorization is mandatory, legacy access
+policies are absent, and the module creates zero secrets. Authorization is a
+separate entry point that resolves the existing Web App system-assigned
+principal and assigns only the built-in Key Vault Secrets User role at exactly
+the vault resource. The role-assignment name deterministically binds that vault
+ID, principal ID, and fixed role-definition ID. Ordinary vault creation never
+grants access, and no subscription or resource-group role is assigned. Live
+deployment, exact assignment verification, retrieval, current-credential
+migration, App Service references, and production secret operations remain
+deferred and unproven.
 
 The infrastructure files contain no secrets. Deployment acceptance never proves
 configuration, code deployment, startup, managed-identity access, or agent
@@ -960,7 +973,7 @@ behavior; each remains a separately authorized and verified boundary.
 Deferred infrastructure:
 
 - Agent-specific RBAC scope
-- Key Vault infrastructure and least-privilege authorization
+- Live Key Vault deployment and least-privilege assignment verification
 - App Service Authentication
 - Private networking
 - Production monitoring
@@ -975,8 +988,8 @@ The following are intentionally not implemented in the current MVP:
 - Agent-specific RBAC scope
 - Authentication / RBAC beyond the proven direct Consumer assignment
 - Application authentication and private networking
-- Key Vault infrastructure, authorization, live retrieval, credential migration,
-  App Service references, and production secret operations
+- Live Key Vault deployment, exact assignment verification, live retrieval,
+  credential migration, App Service references, and production secret operations
 - Route-integrated audio ingestion, audio upload, microphone capture, ACS
   recording ingestion, voice intake and call automation, streaming
   transcription, audio retention/cleanup, and production audio workflows
@@ -1017,5 +1030,5 @@ implementation:
 - Monitoring baseline concepts through Application Insights and Log Analytics
 
 Hosted managed-identity Foundry access and invocation, route-integrated audio
-ingestion and voice workflows, authentication, live Key Vault infrastructure
-and authorization, and SMS delivery tracking remain deferred.
+ingestion and voice workflows, authentication, live Key Vault deployment and
+exact assignment verification, and SMS delivery tracking remain deferred.

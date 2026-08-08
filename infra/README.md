@@ -1,10 +1,10 @@
 # Nurse Intake Assistant Infrastructure
 
 This folder contains the application infrastructure plus reusable Microsoft
-Foundry and Azure Web App modules. `main.bicep` remains the backward-compatible
-full-stack entry point; Foundry and application hosting are disabled there by
-default. `foundry-only.bicep` is the recommended lightweight entry point for
-disposable daily agent validation.
+Foundry, Azure Web App, and Key Vault modules. `main.bicep` remains the
+backward-compatible full-stack entry point; Foundry, application hosting, and
+Key Vault are disabled there by default. `foundry-only.bicep` is the recommended
+lightweight entry point for disposable daily agent validation.
 
 ## Resources
 
@@ -18,11 +18,12 @@ disposable daily agent validation.
 - Log Analytics workspace
 - Application Insights resource connected to the workspace
 - Optional Linux App Service plan and Linux Web App when `deployApp=true`
+- Optional Azure RBAC-mode Key Vault when `deployKeyVault=true`
 
 The full template creates no Foundry resources unless `deployFoundry=true` and
-no App Service resources unless `deployApp=true`. Neither entry point creates
-Speech, ACS, Key Vault, private networking, or production clinical
-infrastructure.
+no App Service resources unless `deployApp=true`. Key Vault is likewise absent
+unless `deployKeyVault=true`. No entry point creates Speech, ACS, private
+networking, or production clinical infrastructure.
 
 ## Optional Web App Hosting
 
@@ -51,8 +52,34 @@ DEMO_SUPPRESS_NOTIFICATIONS=true
 This module provisions only hosting and a system-assigned identity. It does not
 deploy application code, grant an RBAC role, configure live Foundry access, or
 store endpoints, identity IDs, connection strings, credentials, or secrets.
-The module exposes its principal ID only to its parent template for a future
-conditional RBAC boundary; `main.bicep` does not publish that identifier.
+The module exposes its principal ID only to its parent template;
+`main.bicep` does not publish that identifier. The separate Key Vault
+authorization entry point resolves the existing Web App identity directly.
+
+## Optional Key Vault And Explicit Secrets-User Authorization
+
+`modules/key-vault.bicep` defines a reusable resource-group-owned Key Vault with
+Azure RBAC authorization enabled. `main.bicep` derives its disposable name from
+the same stable repository-owned suffix as the other daily resources and
+deploys it only when `deployKeyVault=true`; the default is `false`. The module
+creates zero secrets, uses no legacy access policies, and outputs only the vault
+name needed by a downstream operator boundary.
+
+Authorization is deliberately separate. `key-vault-secrets-user-rbac.bicep`
+looks up an existing Linux Web App and Key Vault, reads the Web App's
+system-assigned identity, and delegates to
+`modules/key-vault-secrets-user-rbac.bicep`. That module creates one assignment
+at exactly the vault scope for the built-in **Key Vault Secrets User** role
+(`4633458b-17de-408a-b874-0445c86b69e6`). Its assignment name is the stable GUID
+of the exact vault ID, principal ID, and fixed role-definition ID. It grants no
+management, key, certificate, secret-write, subscription, or resource-group
+role.
+
+The two templates contain no secret values and emit no principal ID, resource
+ID, vault URI, role-assignment ID, or raw Azure output. No live deployment,
+assignment verification, or secret retrieval has been run. Those remain
+separate future Azure-dependent slices that first require fresh current-session
+`daily_environment_ready=true` through the canonical daily operator runbook.
 
 ## Explicit Web App Infrastructure Deployment
 
@@ -460,6 +487,8 @@ production clinical infrastructure.
 - `cosmosDatabaseName`: Cosmos SQL database name
 - `cosmosContainerName`: Cosmos SQL container name
 - `deployApp`: optionally create the Web App runtime; defaults to `false`
+- `deployKeyVault`: optionally create the RBAC-mode Key Vault; defaults to
+  `false`
 - `appServicePlanName`: optional explicit plan name
 - `webAppName`: optional explicit globally unique Web App name
 - `appServicePlanSkuName`: configurable plan SKU; defaults to `B1`
@@ -473,11 +502,15 @@ deployment endpoint or create resources:
 
 ```bash
 az bicep build --file infra/main.bicep --stdout > /dev/null
-.venv/bin/python -m pytest tests/test_web_app_bicep.py tests/test_foundry_bicep.py
+az bicep build --file infra/modules/key-vault.bicep --stdout > /dev/null
+az bicep build --file infra/key-vault-secrets-user-rbac.bicep --stdout > /dev/null
+az bicep build --file infra/modules/key-vault-secrets-user-rbac.bicep --stdout > /dev/null
+.venv/bin/python -m pytest tests/test_key_vault_infrastructure_bicep.py tests/test_key_vault_secrets_user_rbac_bicep.py
 ```
 
-Because `deployApp=false` and `deployFoundry=false` are the defaults, compiling
-or deploying the unchanged full template remains backward-compatible.
+Because `deployApp=false`, `deployFoundry=false`, and `deployKeyVault=false` are
+the defaults, compiling or deploying the full template preserves the ordinary
+resource behavior.
 
 ## Future Manual Deployment Flow
 
