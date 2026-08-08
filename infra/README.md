@@ -81,6 +81,33 @@ assignment verification, or secret retrieval has been run. Those remain
 separate future Azure-dependent slices that first require fresh current-session
 `daily_environment_ready=true` through the canonical daily operator runbook.
 
+The focused `scripts/prove_key_vault_live.py` boundary now implements offline
+contract checking plus separate vault and RBAC deploy/reuse and read-only
+verification modes. It consumes the current coordinator readiness receipt,
+privately verifies the active subscription, derives the vault name from the
+same repository-owned resource suffix, and uses only the existing reusable
+vault module and RBAC entry point for mutations. Each missing-resource mutation
+has its own evidence-bound default-no prompt and at most one deployment request;
+request acceptance never substitutes for the independent verifier.
+
+Vault verification projects only fixed resource fields and performs a bounded
+metadata-only secret list with `maxresults=1` to distinguish zero from nonzero
+objects without retrieving a value or version. RBAC verification resolves the
+Web App system identity and accepts exactly one direct Key Vault Secrets User
+assignment at exact vault scope. Public JSON is an application-owned boolean,
+category, and bounded-count allowlist; Azure identifiers, names, URIs, commands,
+raw output, exceptions, and secret metadata remain private. The exact commands
+and stop conditions are in
+[`live-key-vault-deployment-rbac-prerequisites.md`](../docs/runbooks/live-key-vault-deployment-rbac-prerequisites.md).
+
+When the current operator lacks the metadata-list permission needed for the
+zero-secret proof, the same CLI exposes a separate current-user Key Vault
+Reader boundary. Its dedicated `infra/key-vault-reader-rbac.bicep` entry point
+targets only the existing vault, uses the fixed metadata-only role at exact
+vault scope, and accepts the privately resolved signed-in principal only. This
+operator prerequisite neither deploys nor changes the Web App Key Vault
+Secrets User assignment.
+
 ## Explicit Web App Infrastructure Deployment
 
 `scripts/deploy_web_app_infra.py` is the operator boundary for the existing

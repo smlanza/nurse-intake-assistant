@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,350 passed full suite
-- 12 focused Key Vault IaC/RBAC tests, 272 relevant infrastructure/provider regressions, and 45 documentation tests
+- 3,422 passed full suite
+- 84 focused live Key Vault tests, 126 relevant regressions, and 48 documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -66,7 +66,7 @@ Important constraints:
 
 ## Current Resume Point
 
-The offline application-owned Key Vault boundary is complete through optional repository-owned infrastructure and a separate least-privilege authorization contract. `main.bicep` defaults Key Vault deployment off, the reusable vault uses Azure RBAC and creates zero secrets, and the independent assignment binds the existing Web App system identity to only Key Vault Secrets User at exact vault scope with a deterministic name. The application provider still defaults to local, no credential consumer was migrated, and live vault deployment, RBAC verification, and secret retrieval remain unproven. Azure Speech closure is complete. Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
+The application-owned Key Vault boundary includes one approved live deployment of the exact repository-owned vault. Independent control-plane verification proved the Azure-returned identity, successful provisioning, Azure RBAC mode, and no legacy access policies, but the bounded metadata-only zero-secret check failed closed as `secret_metadata_read_failed`. A dedicated fixed-role operator Key Vault Reader Bicep/verification workflow is complete offline; live preflight privately proved the current signed-in user and exact vault, then stopped without mutation at `authorization_scope_mismatch` because only wrong-scope/inherited authorization was returned. Operator Key Vault Reader remains unproven, zero-secret proof remains unknown, exact Web App runtime RBAC verification remains unproven, and no RBAC mutation followed. The application provider still defaults to local; no secret was created, retrieved, deleted, or migrated, and secret retrieval remains deferred. Azure Speech closure is complete. Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
 `.env.speech.local` remains ignored and secret-bearing; mock remains the safe default. Consumer RBAC remains optional; WebJob discovery and immutable evidence recovery remain separate technical boundaries.
 
 The final fresh disposable generation reached READY, including live-proven
