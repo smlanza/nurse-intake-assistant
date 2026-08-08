@@ -415,6 +415,11 @@ class FakeRunner:
         self.startup_cleanup_result = CleanupResult.already_clean(
             CleanupPurpose.STARTUP_PREFLIGHT
         )
+        self.key_vault_runtime_rbac_absent = False
+        self.key_vault_runtime_rbac_failure_category: str | None = None
+        self.key_vault_runtime_rbac_postdeployment_failure = False
+        self.key_vault_runtime_rbac_binding = "runtime-rbac-generation-a"
+        self.fresh_key_vault_runtime_rbac_binding: str | None = None
 
     def _stage(self, name: str, context: DailyAzureRuntimeContext) -> StageResult:
         self.calls.append(name)
@@ -603,6 +608,48 @@ class FakeRunner:
     def verify_readiness(self, context):
         result = self._stage("verify_readiness", context)
         return replace(result, artifact_current=True) if result.ok else result
+
+    def verify_key_vault_runtime_rbac(self, context):
+        result = self._stage("verify_key_vault_runtime_rbac", context)
+        if not result.ok:
+            return result
+        if self.key_vault_runtime_rbac_failure_category is not None:
+            return StageResult.failure(self.key_vault_runtime_rbac_failure_category)
+        if (
+            self.key_vault_runtime_rbac_postdeployment_failure
+            and self.calls.count("deploy_key_vault_runtime_rbac") == 1
+        ):
+            return StageResult.failure(
+                "key_vault_runtime_rbac_verification_failed"
+            )
+        if self.key_vault_runtime_rbac_absent:
+            binding = (
+                self.fresh_key_vault_runtime_rbac_binding
+                if self.calls.count("verify_key_vault_runtime_rbac") > 1
+                and self.fresh_key_vault_runtime_rbac_binding is not None
+                else self.key_vault_runtime_rbac_binding
+            )
+            return StageResult(
+                False,
+                "absent",
+                "key_vault_runtime_rbac_assignment_required",
+                approval_binding=binding,
+            )
+        return StageResult.success(reused=True)
+
+    def deploy_key_vault_runtime_rbac(self, context, approval_binding):
+        if approval_binding != self.key_vault_runtime_rbac_binding:
+            return StageResult.failure("approval_evidence_stale")
+        result = self._stage("deploy_key_vault_runtime_rbac", context)
+        if result.ok:
+            self.key_vault_runtime_rbac_absent = False
+            return replace(
+                result,
+                mutation_made=True,
+                attempted=True,
+                accepted=True,
+            )
+        return result
 
     def verify_rbac(self, context):
         result = self._stage("verify_rbac", context)
@@ -4086,6 +4133,111 @@ class CommandRunner:
         )
 
 
+def test_repository_runtime_rbac_verification_is_control_plane_only(
+    tmp_path: Path,
+) -> None:
+    from src.app.services.key_vault_live_proof import (
+        KEY_VAULT_SECRETS_USER_ROLE_GUID,
+        repository_key_vault_name,
+    )
+
+    subscription_id = "00000000-0000-0000-0000-000000000001"
+    principal_id = "00000000-0000-0000-0000-000000000002"
+    config = _key_vault_runtime_enabled_config(tmp_path)
+    context = DailyAzureEnvironmentRebuild(
+        config,
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    )._initial_context()
+    vault_name = repository_key_vault_name(
+        context.resource_group,
+        config.project_name,
+        config.environment_name,
+    )
+    vault_id = (
+        f"/subscriptions/{subscription_id}/resourceGroups/"
+        f"{context.resource_group}/providers/Microsoft.KeyVault/vaults/"
+        f"{vault_name}"
+    )
+    web_app_id = (
+        f"/subscriptions/{subscription_id}/resourceGroups/"
+        f"{context.resource_group}/providers/Microsoft.Web/sites/"
+        f"{context.web_app_name}"
+    )
+    role_id = (
+        f"/subscriptions/{subscription_id}/providers/"
+        "Microsoft.Authorization/roleDefinitions/"
+        f"{KEY_VAULT_SECRETS_USER_ROLE_GUID}"
+    )
+    command_runner = CommandRunner(
+        [
+            (
+                0,
+                json.dumps(
+                    {
+                        "name": vault_name,
+                        "id": vault_id,
+                        "type": "Microsoft.KeyVault/vaults",
+                        "provisioningState": "Succeeded",
+                        "enableRbacAuthorization": True,
+                        "accessPolicyCount": 0,
+                    }
+                ),
+                "",
+            ),
+            (
+                0,
+                json.dumps(
+                    {
+                        "principalId": principal_id,
+                        "type": "SystemAssigned",
+                        "webAppId": web_app_id,
+                    }
+                ),
+                "",
+            ),
+            (
+                0,
+                json.dumps(
+                    {
+                        "name": vault_name,
+                        "id": vault_id,
+                        "type": "Microsoft.KeyVault/vaults",
+                    }
+                ),
+                "",
+            ),
+            (
+                0,
+                json.dumps(
+                    [
+                        {
+                            "principalId": principal_id,
+                            "roleDefinitionId": role_id,
+                            "scope": vault_id,
+                        }
+                    ]
+                ),
+                "",
+            ),
+        ]
+    )
+    runner = RepositoryDailyAzureStageRunner(
+        config,
+        repository_root=Path(__file__).resolve().parents[1],
+        command_runner=command_runner,
+    )
+    runner._verified_cleanup_account = SimpleNamespace(
+        subscription_id=subscription_id
+    )
+
+    result = runner.verify_key_vault_runtime_rbac(context)
+
+    assert result.ok is True
+    assert result.reused is True
+    assert all("secret" not in argument.casefold() for call in command_runner.calls for argument in call)
+
+
 class ExactCoordinatorCommandRunner:
     def __init__(
         self,
@@ -6474,3 +6626,276 @@ def test_coordinator_source_has_no_forbidden_operation_path() -> None:
         "shell=True",
     ):
         assert forbidden not in source
+
+
+def _key_vault_runtime_enabled_config(tmp_path: Path):
+    return load_daily_azure_config(
+        _config_file(
+            tmp_path,
+            {
+                **CONFIG,
+                "ENABLE_KEY_VAULT_RUNTIME_AUTHORIZATION": "true",
+            },
+        ),
+        repository_root=tmp_path,
+        repository_state_checker=lambda _root, _path: True,
+    )
+
+
+def _live_with_key_vault_runtime(
+    tmp_path: Path,
+    runner: FakeRunner,
+    *,
+    approver=lambda _summary: True,
+):
+    return DailyAzureEnvironmentRebuild(
+        _key_vault_runtime_enabled_config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=approver)
+
+
+def test_main_composes_current_web_app_identity_into_exact_runtime_rbac() -> None:
+    root = Path(__file__).resolve().parents[1]
+    main = (root / "infra/main.bicep").read_text()
+    runtime = (root / "infra/modules/key-vault-secrets-user-rbac.bicep").read_text()
+
+    assert "param enableKeyVaultRuntimeAuthorization bool = false" in main
+    assert (
+        "module keyVaultRuntimeRbac 'modules/key-vault-secrets-user-rbac.bicep'"
+        in main
+    )
+    assert "webAppPrincipalId: webApp!.outputs.systemAssignedIdentityPrincipalId" in main
+    assert "keyVaultName: keyVault!.outputs.keyVaultName" in main
+    assert "enableKeyVaultRuntimeAuthorization && deployApp && deployKeyVault" in main
+    assert "4633458b-17de-408a-b874-0445c86b69e6" in runtime
+    assert "scope: keyVault" in runtime
+    assert "principalId: webAppPrincipalId" in runtime
+    assert "guid(" in runtime and "webAppPrincipalId" in runtime
+    assert "newGuid(" not in main + runtime
+    for forbidden in (
+        "operatorPrincipalId",
+        "21090545-7ca7-4776-b22c-e363652d74d2",
+        "Microsoft.KeyVault/vaults/secrets",
+        "secretValue",
+        "foundry-agent-consumer-rbac.bicep",
+    ):
+        assert forbidden not in main + runtime
+
+
+def test_enabled_current_runtime_assignment_reuses_without_mutation_and_permits_ready(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.web_app_absent = False
+
+    result = _live_with_key_vault_runtime(tmp_path, runner)
+
+    assert result.ok is True
+    assert result.daily_environment_ready is True
+    assert result.key_vault_runtime_authorization_enabled is True
+    assert result.key_vault_verified is True
+    assert result.web_app_identity_verified is True
+    assert result.key_vault_secrets_user_assignment_verified is True
+    assert result.key_vault_runtime_rbac_assignment_reused is True
+    assert "verify_key_vault_runtime_rbac" in runner.calls
+    assert "deploy_key_vault_runtime_rbac" not in runner.calls
+    assert "verify_rbac" not in runner.calls
+
+
+def test_fresh_web_app_generation_verifies_runtime_assignment_before_application(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.web_app_absent = True
+
+    result = _live_with_key_vault_runtime(tmp_path, runner)
+
+    assert result.ok is True
+    assert result.daily_environment_ready is True
+    assert result.key_vault_runtime_rbac_assignment_reused is False
+    assert runner.calls.index("deploy_web_app") < runner.calls.index(
+        "verify_key_vault_runtime_rbac"
+    )
+    assert runner.calls.index("verify_key_vault_runtime_rbac") < runner.calls.index(
+        "build_package"
+    )
+
+
+def test_missing_runtime_assignment_requires_approval_bicep_and_postverification(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.key_vault_runtime_rbac_absent = True
+    approvals: list[ApprovalSummary] = []
+
+    result = _live_with_key_vault_runtime(
+        tmp_path,
+        runner,
+        approver=lambda summary: approvals.append(summary) or True,
+    )
+
+    assert result.ok is True
+    assert result.daily_environment_ready is True
+    assert result.key_vault_runtime_rbac_deployment_attempted is True
+    assert result.key_vault_runtime_rbac_deployment_accepted is True
+    assert result.key_vault_secrets_user_assignment_verified is True
+    assert runner.calls.count("verify_key_vault_runtime_rbac") == 3
+    assert runner.calls.count("deploy_key_vault_runtime_rbac") == 1
+    assert any(
+        summary.stage == "key_vault_runtime_rbac_deployment"
+        for summary in approvals
+    )
+
+
+@pytest.mark.parametrize(
+    "category",
+    [
+        "principal_mismatch",
+        "role_mismatch",
+        "assignment_scope_mismatch",
+        "assignment_ambiguous",
+        "response_parse_failed",
+    ],
+)
+def test_nonexact_runtime_assignment_prevents_ready_without_mutation(
+    tmp_path: Path,
+    category: str,
+) -> None:
+    runner = FakeRunner()
+    runner.key_vault_runtime_rbac_failure_category = category
+
+    result = _live_with_key_vault_runtime(tmp_path, runner)
+
+    assert result.ok is False
+    assert result.daily_environment_ready is False
+    assert result.category == category
+    assert "deploy_key_vault_runtime_rbac" not in runner.calls
+
+
+def test_previous_generation_web_app_principal_cannot_satisfy_ready(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.key_vault_runtime_rbac_failure_category = "principal_mismatch"
+
+    result = _live_with_key_vault_runtime(tmp_path, runner)
+
+    assert result.ok is False
+    assert result.daily_environment_ready is False
+    assert result.category == "principal_mismatch"
+    assert result.key_vault_secrets_user_assignment_verified is False
+
+
+def test_inherited_only_key_vault_authorization_cannot_satisfy_ready(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.key_vault_runtime_rbac_failure_category = (
+        "assignment_scope_mismatch"
+    )
+
+    result = _live_with_key_vault_runtime(tmp_path, runner)
+
+    assert result.ok is False
+    assert result.daily_environment_ready is False
+    assert result.category == "assignment_scope_mismatch"
+    assert result.key_vault_secrets_user_assignment_verified is False
+
+
+def test_postdeployment_runtime_verification_failure_prevents_ready(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.key_vault_runtime_rbac_absent = True
+    runner.key_vault_runtime_rbac_postdeployment_failure = True
+
+    result = _live_with_key_vault_runtime(tmp_path, runner)
+
+    assert result.ok is False
+    assert result.daily_environment_ready is False
+    assert result.category == "key_vault_runtime_rbac_verification_failed"
+    assert result.key_vault_runtime_rbac_deployment_accepted is True
+    assert result.key_vault_secrets_user_assignment_verified is False
+
+
+def test_generation_binding_change_after_approval_prevents_runtime_rbac_deployment(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.key_vault_runtime_rbac_absent = True
+    runner.fresh_key_vault_runtime_rbac_binding = "runtime-rbac-generation-b"
+
+    result = _live_with_key_vault_runtime(tmp_path, runner)
+
+    assert result.ok is False
+    assert result.daily_environment_ready is False
+    assert result.category == "approval_evidence_stale"
+    assert "deploy_key_vault_runtime_rbac" not in runner.calls
+
+
+def test_key_vault_runtime_disabled_preserves_existing_ready_flow(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is True
+    assert result.daily_environment_ready is True
+    assert result.key_vault_runtime_authorization_enabled is False
+    assert "verify_key_vault_runtime_rbac" not in runner.calls
+    assert "deploy_key_vault_runtime_rbac" not in runner.calls
+
+
+def test_ready_constructor_conditionally_requires_runtime_rbac_proofs() -> None:
+    proofs = {
+        "local_orchestration_ready": True,
+        "account_verified": True,
+        "startup_cleanup_inspected": True,
+        "startup_environment_clean": True,
+        "resource_group_ready": True,
+        "foundry_infrastructure_verified": True,
+        "prompt_agent_verified": True,
+        "immutable_routing_verified": True,
+        "web_app_configuration_verified": True,
+        "application_insights_identity_verified": True,
+        "application_insights_identity_bound_to_receipt": True,
+        "application_package_created": True,
+        "application_artifact_current": True,
+        "application_deployment_attempted": True,
+        "application_deployment_accepted": True,
+        "hosted_readiness_verified": True,
+        "key_vault_runtime_authorization_enabled": True,
+        "key_vault_verified": True,
+        "web_app_identity_verified": True,
+        "key_vault_secrets_user_assignment_verified": False,
+    }
+
+    with pytest.raises(ValueError, match="mandatory proof"):
+        DailyAzureEnvironmentRebuildResult._verified_ready(
+            proofs,
+            azure_mutation_made=False,
+        )
+
+
+def test_runtime_rbac_public_result_contains_no_private_identity_material(
+    tmp_path: Path,
+) -> None:
+    result = _live_with_key_vault_runtime(tmp_path, FakeRunner())
+    serialized = json.dumps(result.to_json_dict()).casefold()
+
+    for forbidden in (
+        "principal_id",
+        "role_assignment_id",
+        "vault_resource_id",
+        "subscription_id",
+        "tenant_id",
+        "assignment_guid",
+        "secret_name",
+        "secret_value",
+    ):
+        assert forbidden not in serialized

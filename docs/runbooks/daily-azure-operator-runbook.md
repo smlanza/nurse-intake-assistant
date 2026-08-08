@@ -13,6 +13,7 @@ The normal workflow is:
 scripts/daily_azure.sh check
 -> verify az account
 -> scripts/daily_azure.sh start
+-> when enabled, verify current Web App -> Key Vault runtime RBAC
 -> verify daily_environment_ready=true
 -> optionally verify Consumer RBAC when required
 -> perform development/demo work
@@ -47,6 +48,11 @@ credentials, identity headers, connection strings, secrets, real contact
 information, or patient data. Use placeholders in documentation and keep any
 generation-specific recovery values only in an approved ignored evidence
 location.
+
+Set `ENABLE_KEY_VAULT_RUNTIME_AUTHORIZATION=true` only when the daily
+generation requires Key Vault runtime access. This is a stable Boolean feature
+selection, not an identity setting: never add the Web App principal, vault ARM
+ID, role-assignment ID, or assignment GUID to configuration.
 
 ## Step 1 — Validate the local contract
 
@@ -109,7 +115,10 @@ Review every sanitized summary. The default, EOF, malformed input, or `n`
 declines that stage. Approval is current-run and evidence-bound; never infer
 approval from an earlier run. Depending on verified state, approved stages may
 create or delete disposable resources, deploy infrastructure, configure
-immutable routing, or deploy the current application artifact.
+immutable routing, establish the current Web App's exact Key Vault Secrets User
+assignment, or deploy the current application artifact. A conclusively missing
+runtime assignment enters only the repository Bicep path under a fresh,
+evidence-bound default-no approval.
 
 Stop on unowned, wrong-location, ambiguous, malformed, conflicting, or drifted
 resources. Do not adopt, retag, repair, or delete them ad hoc. Stop on any
@@ -129,11 +138,22 @@ hosted_readiness_verified=true
 application_artifact_current=true
 ```
 
+When `ENABLE_KEY_VAULT_RUNTIME_AUTHORIZATION=true`, also require:
+
+```text
+key_vault_runtime_authorization_enabled=true
+key_vault_verified=true
+web_app_identity_verified=true
+key_vault_secrets_user_assignment_verified=true
+```
+
 READY proves current Foundry infrastructure, prompt-agent configuration,
 exclusive immutable routing, Web App configuration, application deployment or
 safe artifact reuse, exact artifact equality, and hosted application readiness.
-The daily coordinator ends at hosted application readiness and returns success
-immediately at that boundary.
+When Key Vault runtime authorization is enabled, it also proves exactly one
+direct Key Vault Secrets User assignment from the current-generation Web App
+system identity to the exact current vault. Deployment acceptance, inherited
+access, a prior principal, or a prior READY receipt cannot satisfy that proof.
 
 The following fields may correctly remain `false` without invalidating READY:
 
@@ -149,6 +169,8 @@ agent_invoked
 These boundaries are outside READY:
 
 - Foundry Agent Consumer RBAC;
+- human operator Key Vault Reader metadata authorization;
+- Key Vault secret retrieval and zero-secret metadata proof;
 - WebJob trigger acceptance or execution;
 - managed-identity Foundry access;
 - metadata verification;
@@ -318,7 +340,7 @@ before the next workday.
 | --- | --- | --- | --- |
 | `scripts/daily_azure.sh check` | None; offline only | Local cleanup and rebuild contracts are valid | Authentication, Azure state, deployment, or READY |
 | `az account show ...` | None; read-only | Current CLI subscription name, state, and default selection | Resource ownership, deployment, or readiness |
-| `scripts/daily_azure.sh start` | May make separately approved Azure mutations | Exact owned/rebuilt environment through current hosted application readiness and artifact equality | Consumer RBAC, WebJob execution, managed-identity Foundry access, metadata, invocation, inference, or delivery |
+| `scripts/daily_azure.sh start` | May make separately approved Azure mutations | Exact owned/rebuilt environment through current hosted application readiness and artifact equality; when Key Vault runtime authorization is enabled, the exact current-generation Secrets User assignment too | Foundry Consumer RBAC, human Reader authorization, secret retrieval, WebJob execution, managed-identity Foundry access, metadata, invocation, inference, or delivery |
 | `.venv/bin/python scripts/deploy_foundry_agent_consumer_rbac.py --live ...` | Read-only when reusing; one default-no assignment deployment only when conclusively missing | Exactly one direct Consumer assignment for the current Web App identity at the exact project scope | Token acquisition, metadata access, WebJob execution, or invocation |
 | `.venv/bin/python scripts/prepare_hosted_foundry_agent_webjob_handoff.py --live ...` | Projected Azure reads plus one private immutable local handoff write | Current READY receipt, hosted artifact, Web App identity, Foundry project, and environment generation are bound together | RBAC, WebJob discovery, trigger, execution, metadata, or invocation |
 | `.venv/bin/python scripts/run_hosted_foundry_agent_verification.py --live-discover ...` | One authenticated read-only fixed-resource Kudu GET | The exact fixed triggered WebJob name and `run.py` command are registered | Trigger acceptance, execution, status, metadata, or invocation |

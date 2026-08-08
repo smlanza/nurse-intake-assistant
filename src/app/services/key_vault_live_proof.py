@@ -661,7 +661,6 @@ def verify_key_vault_rbac(
         runner,
         [
             "az", "role", "assignment", "list",
-            "--assignee-object-id", principal,
             "--scope", str(vault_id),
             "--include-inherited",
             "--query", "[].{principalId:principalId,roleDefinitionId:roleDefinitionId,scope:scope}",
@@ -697,11 +696,35 @@ def verify_key_vault_rbac(
             assignment_missing_conclusive=True,
             **common,
         )
-    if any(item["principalId"].casefold() != principal.casefold() for item in assignments):
+    secrets_user_assignments = [
+        item
+        for item in assignments
+        if item["roleDefinitionId"].casefold() == role_id.casefold()
+    ]
+    current_principal_assignments = [
+        item
+        for item in assignments
+        if item["principalId"].casefold() == principal.casefold()
+    ]
+    if any(
+        item["principalId"].casefold() != principal.casefold()
+        for item in secrets_user_assignments
+    ):
         return _rbac_result(request, "principal_mismatch", **common)
-    if any(item["scope"].casefold() != str(vault_id).casefold() for item in assignments):
+    if any(
+        item["scope"].casefold() != str(vault_id).casefold()
+        for item in secrets_user_assignments
+        if item["principalId"].casefold() == principal.casefold()
+    ):
         return _rbac_result(request, "assignment_scope_mismatch", **common)
-    return _rbac_result(request, "role_mismatch", **common)
+    if current_principal_assignments:
+        return _rbac_result(request, "role_mismatch", **common)
+    return _rbac_result(
+        request,
+        "assignment_missing",
+        assignment_missing_conclusive=True,
+        **common,
+    )
 
 
 def resolve_current_operator(

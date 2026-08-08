@@ -248,6 +248,29 @@ def test_no_assignment_is_conclusively_missing() -> None:
     assert result.matching_assignment_count == 0
 
 
+def test_unrelated_human_reader_does_not_satisfy_or_block_runtime_assignment() -> None:
+    service = _service()
+    reader_role_id = ROLE_ID.replace(
+        ROLE_GUID,
+        service.KEY_VAULT_READER_ROLE_GUID,
+    )
+
+    result = service.verify_key_vault_rbac(
+        _rbac_request(),
+        runner=_rbac_runner(
+            [
+                _assignment(
+                    principal_id="00000000-0000-0000-0000-000000000099",
+                    role_definition_id=reader_role_id,
+                )
+            ]
+        ),
+    )
+
+    assert result.category == "assignment_missing"
+    assert result.assignment_missing_conclusive is True
+
+
 @pytest.mark.parametrize(
     ("assignments", "category"),
     [

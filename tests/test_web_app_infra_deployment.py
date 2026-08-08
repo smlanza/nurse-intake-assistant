@@ -1213,6 +1213,8 @@ def test_azure_modes_issue_one_allowlisted_infrastructure_command(
     parameters = command[command.index("--parameters") + 1 :]
     assert "deployApp=true" in parameters
     assert "deployFoundry=false" in parameters
+    assert "deployKeyVault=false" in parameters
+    assert "enableKeyVaultRuntimeAuthorization=false" in parameters
     assert f"environmentName={deployment_request.environment_name}" in parameters
     assert f"location={deployment_request.location}" in parameters
     assert f"projectName={deployment_request.project_name}" in parameters
@@ -1239,6 +1241,26 @@ def test_azure_modes_issue_one_allowlisted_infrastructure_command(
     assert not any(parameter.startswith("hostedVerifier") for parameter in parameters)
     assert result.what_if_attempted is (mode == "what-if")
     assert result.deployment_attempted is (mode == "live")
+
+
+def test_runtime_authorization_enables_vault_and_current_generation_composition(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    runner = FakeRunner()
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(
+            deployment_request,
+            mode="live",
+            enable_key_vault_runtime_authorization=True,
+        ),
+        runner=runner,
+    )
+
+    assert result.ok is True
+    parameters = runner.calls[0][runner.calls[0].index("--parameters") + 1 :]
+    assert "deployKeyVault=true" in parameters
+    assert "enableKeyVaultRuntimeAuthorization=true" in parameters
 
 
 @pytest.mark.parametrize(

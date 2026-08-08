@@ -87,6 +87,7 @@ class WebAppInfrastructureDeploymentRequest:
     hosted_verifier_agent_name: str | None = None
     hosted_verifier_agent_version: str | None = None
     hosted_verifier_model_deployment_name: str | None = None
+    enable_key_vault_runtime_authorization: bool = False
     purpose: str = "initial_create"
 
 
@@ -305,6 +306,14 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
         and re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9])?", request.cosmos_container_name)
         is not None
         and _hosted_verifier_arguments_valid(request)
+        and isinstance(
+            request.enable_key_vault_runtime_authorization,
+            bool,
+        )
+        and (
+            request.purpose == "initial_create"
+            or not request.enable_key_vault_runtime_authorization
+        )
     )
 
 
@@ -1071,9 +1080,12 @@ def _local_contract_valid(
         template_contract = (
             r"param\s+deployApp\s+bool\s*=\s*false",
             r"param\s+deployFoundry\s+bool\s*=\s*false",
+            r"param\s+deployKeyVault\s+bool\s*=\s*false",
+            r"param\s+enableKeyVaultRuntimeAuthorization\s+bool\s*=\s*false",
             r"@minLength\(13\)\s*@maxLength\(13\)\s*param\s+resourceNameSuffix\s+string\?",
             r"var\s+suffix\s*=\s*resourceNameSuffix\s*\?\?\s*uniqueString\([^\r\n]+\)",
             r"module\s+webApp\s+'modules/web-app\.bicep'\s*=\s*if\s*\(deployApp\)",
+            r"module\s+keyVaultRuntimeRbac\s+'modules/key-vault-secrets-user-rbac\.bicep'\s*=\s*if\s*\(enableKeyVaultRuntimeAuthorization\s*&&\s*deployApp\s*&&\s*deployKeyVault\)",
             r"output\s+applicationInsightsName\s+string\s*=\s*applicationInsights\.name",
         )
         if any(
@@ -1191,6 +1203,16 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
             f"resourceNameSuffix={_resource_name_suffix(request)}",
             "deployApp=true",
             "deployFoundry=false",
+            "deployKeyVault=" + (
+                "true"
+                if request.enable_key_vault_runtime_authorization
+                else "false"
+            ),
+            "enableKeyVaultRuntimeAuthorization=" + (
+                "true"
+                if request.enable_key_vault_runtime_authorization
+                else "false"
+            ),
             f"webAppName={request.web_app_name}",
             hosted_configuration,
         ]
@@ -1239,6 +1261,11 @@ def _parse_what_if_summary(
         expected_ignored_resources=expected_ignored or (),
         allow_expected_ignored_resources_absent=True,
         allow_expected_ignored_resource_subsets=True,
+        allowed_unidentified_ignore_counts=(
+            frozenset({0, 1})
+            if request.enable_key_vault_runtime_authorization
+            else frozenset({0})
+        ),
         automatically_approved_actions=frozenset({"Create", "Modify", "NoChange"}),
     )
     if parsed is None:
@@ -1405,6 +1432,14 @@ def _expected_web_app_resources(
         ("Microsoft.Web/serverfarms", "app_service_plan", (plan_name,)),
         ("Microsoft.Web/sites", "web_app", (request.web_app_name,)),
     )
+    if request.enable_key_vault_runtime_authorization:
+        expected += (
+            (
+                "Microsoft.KeyVault/vaults",
+                "key_vault",
+                (f"kv{suffix}",),
+            ),
+        )
     return tuple(
         ExpectedWhatIfResource(
             resource_type,

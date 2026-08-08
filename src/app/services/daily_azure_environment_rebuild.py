@@ -82,6 +82,7 @@ _REQUIRED_SETTINGS = (
     "ENABLE_HOSTED_FOUNDRY_VERIFIER",
     "DISCOVER_HOSTED_FOUNDRY_WEBJOB",
 )
+_OPTIONAL_SETTINGS = frozenset({"ENABLE_KEY_VAULT_RUNTIME_AUTHORIZATION"})
 _FORBIDDEN_SETTING_MARKERS = (
     "SECRET",
     "PASSWORD",
@@ -139,6 +140,7 @@ class DailyAzureConfig:
     web_app_sku: str
     enable_hosted_foundry_verifier: bool
     discover_hosted_foundry_webjob: bool
+    enable_key_vault_runtime_authorization: bool = False
 
     @property
     def configured_foundry_account_name(self) -> str:
@@ -468,6 +470,7 @@ ApprovalStage = Literal[
     "web_app_deployment",
     "application_code_deployment",
     "consumer_rbac_deployment",
+    "key_vault_runtime_rbac_deployment",
 ]
 _APPROVAL_STAGES = frozenset(
     {
@@ -476,6 +479,7 @@ _APPROVAL_STAGES = frozenset(
         "web_app_deployment",
         "application_code_deployment",
         "consumer_rbac_deployment",
+        "key_vault_runtime_rbac_deployment",
     }
 )
 
@@ -584,6 +588,14 @@ class DailyAzureStageRunner(Protocol):
     def configure_agent_routing(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_agent(self, context: DailyAzureRuntimeContext) -> StageResult: ...
     def verify_web_app_configuration(self, context: DailyAzureRuntimeContext) -> StageResult: ...
+    def verify_key_vault_runtime_rbac(
+        self, context: DailyAzureRuntimeContext
+    ) -> StageResult: ...
+    def deploy_key_vault_runtime_rbac(
+        self,
+        context: DailyAzureRuntimeContext,
+        approval_binding: str,
+    ) -> StageResult: ...
     def verify_application_insights_identity(
         self,
         context: DailyAzureRuntimeContext,
@@ -717,6 +729,15 @@ class DailyAzureEnvironmentRebuildResult:
     prompt_agent_verified: bool = False
     immutable_routing_verified: bool = False
     web_app_configuration_verified: bool = False
+    key_vault_runtime_authorization_enabled: bool = False
+    key_vault_verified: bool = False
+    web_app_identity_verified: bool = False
+    key_vault_secrets_user_assignment_verified: bool = False
+    key_vault_runtime_rbac_assignment_reused: bool = False
+    key_vault_runtime_rbac_assignment_required: bool = False
+    key_vault_runtime_rbac_assignment_approved: bool = False
+    key_vault_runtime_rbac_deployment_attempted: bool = False
+    key_vault_runtime_rbac_deployment_accepted: bool = False
     application_insights_identity_verified: bool = False
     application_insights_identity_bound_to_receipt: bool = False
     application_package_created: bool = False
@@ -789,6 +810,12 @@ class DailyAzureEnvironmentRebuildResult:
             "application_artifact_current",
             "hosted_readiness_verified",
         )
+        if proofs.get("key_vault_runtime_authorization_enabled") is True:
+            required += (
+                "key_vault_verified",
+                "web_app_identity_verified",
+                "key_vault_secrets_user_assignment_verified",
+            )
         deployment_completed = bool(
             proofs.get("application_deployment_attempted") is True
             and proofs.get("application_deployment_accepted") is True
@@ -849,6 +876,29 @@ class DailyAzureEnvironmentRebuildResult:
             "prompt_agent_verified": self.prompt_agent_verified,
             "immutable_routing_verified": self.immutable_routing_verified,
             "web_app_configuration_verified": self.web_app_configuration_verified,
+            "key_vault_runtime_authorization_enabled": (
+                self.key_vault_runtime_authorization_enabled
+            ),
+            "key_vault_verified": self.key_vault_verified,
+            "web_app_identity_verified": self.web_app_identity_verified,
+            "key_vault_secrets_user_assignment_verified": (
+                self.key_vault_secrets_user_assignment_verified
+            ),
+            "key_vault_runtime_rbac_assignment_reused": (
+                self.key_vault_runtime_rbac_assignment_reused
+            ),
+            "key_vault_runtime_rbac_assignment_required": (
+                self.key_vault_runtime_rbac_assignment_required
+            ),
+            "key_vault_runtime_rbac_assignment_approved": (
+                self.key_vault_runtime_rbac_assignment_approved
+            ),
+            "key_vault_runtime_rbac_deployment_attempted": (
+                self.key_vault_runtime_rbac_deployment_attempted
+            ),
+            "key_vault_runtime_rbac_deployment_accepted": (
+                self.key_vault_runtime_rbac_deployment_accepted
+            ),
             "application_insights_identity_verified": (
                 self.application_insights_identity_verified
             ),
@@ -1041,9 +1091,15 @@ def load_daily_azure_config(
         key, value = line.split("=", 1)
         if key != key.strip() or not key or key in values:
             raise ConfigValidationError("invalid_configuration")
-        if any(marker in key.upper() for marker in _FORBIDDEN_SETTING_MARKERS):
+        if (
+            key not in _OPTIONAL_SETTINGS
+            and any(
+                marker in key.upper()
+                for marker in _FORBIDDEN_SETTING_MARKERS
+            )
+        ):
             raise ConfigValidationError("forbidden_setting")
-        if key not in _REQUIRED_SETTINGS:
+        if key not in _REQUIRED_SETTINGS and key not in _OPTIONAL_SETTINGS:
             raise ConfigValidationError("invalid_configuration")
         values[key] = value
 
@@ -1088,7 +1144,10 @@ def load_daily_azure_config(
         raise ConfigValidationError("invalid_configuration")
     hosted = _parse_bool(values["ENABLE_HOSTED_FOUNDRY_VERIFIER"])
     discovery = _parse_bool(values["DISCOVER_HOSTED_FOUNDRY_WEBJOB"])
-    if hosted is None or discovery is None:
+    key_vault_runtime = _parse_bool(
+        values.get("ENABLE_KEY_VAULT_RUNTIME_AUTHORIZATION", "false")
+    )
+    if hosted is None or discovery is None or key_vault_runtime is None:
         raise ConfigValidationError("invalid_configuration")
     if not hosted:
         raise ConfigValidationError("incompatible_options")
@@ -1111,6 +1170,7 @@ def load_daily_azure_config(
         web_app_sku=values["AZURE_WEB_APP_SKU"],
         enable_hosted_foundry_verifier=hosted,
         discover_hosted_foundry_webjob=discovery,
+        enable_key_vault_runtime_authorization=key_vault_runtime,
     )
 
 
@@ -1891,11 +1951,34 @@ def _yes_no(value: bool) -> str:
     return "yes" if value else "no"
 
 
+def _key_vault_runtime_rbac_template_digest(
+    repository_root: Path,
+) -> str | None:
+    digest = hashlib.sha256()
+    paths = (
+        Path("infra/key-vault-secrets-user-rbac.bicep"),
+        Path("infra/modules/key-vault-secrets-user-rbac.bicep"),
+    )
+    try:
+        for relative in paths:
+            payload = (repository_root / relative).read_bytes()
+            digest.update(str(relative).encode())
+            digest.update(b"\0")
+            digest.update(payload)
+            digest.update(b"\0")
+    except OSError:
+        return None
+    return digest.hexdigest()
+
+
 def validate_local_orchestration_contract(repository_root: Path) -> tuple[str, ...]:
     required = (
         "infra/foundry-only.bicep",
         "infra/main.bicep",
         "infra/modules/web-app.bicep",
+        "infra/modules/key-vault.bicep",
+        "infra/modules/key-vault-secrets-user-rbac.bicep",
+        "infra/key-vault-secrets-user-rbac.bicep",
         "infra/foundry-agent-consumer-rbac.bicep",
         "scripts/deploy_foundry_infra.py",
         "scripts/verify_foundry_infra.py",
@@ -2032,6 +2115,15 @@ def validate_local_orchestration_contract(repository_root: Path) -> tuple[str, .
             failures.append("contract:web_app_infrastructure")
     except Exception:
         failures.append("contract:web_app_infrastructure")
+    try:
+        from src.app.services.key_vault_live_proof import (
+            local_key_vault_contract_valid,
+        )
+
+        if not local_key_vault_contract_valid(repository_root):
+            failures.append("contract:key_vault_runtime_rbac")
+    except Exception:
+        failures.append("contract:key_vault_runtime_rbac")
     try:
         from src.app.services.web_app_configuration_verification import (
             check_web_app_configuration_contract,
@@ -2647,6 +2739,9 @@ class DailyAzureEnvironmentRebuild:
         if failures:
             return self._failure("local_contract_invalid")
         progress["local_orchestration_ready"] = True
+        progress["key_vault_runtime_authorization_enabled"] = (
+            self.config.enable_key_vault_runtime_authorization
+        )
 
         if runner is None:
             if self.runner_factory is None:
@@ -3080,6 +3175,7 @@ class DailyAzureEnvironmentRebuild:
         progress["prompt_agent_verified"] = True
         progress["immutable_routing_verified"] = True
 
+        web_app_deployed_this_run = False
         web_config = runner.verify_web_app_configuration(context)
         if (
             web_config.state == "absent"
@@ -3106,12 +3202,123 @@ class DailyAzureEnvironmentRebuild:
             deployed = runner.deploy_web_app(context)
             if not apply(deployed):
                 return self._failure(deployed.category, progress, mutation[0])
+            web_app_deployed_this_run = True
             web_config = runner.verify_web_app_configuration(context)
         elif web_config.state == "absent":
             return self._failure(web_config.category, progress, mutation[0])
         if not apply(web_config):
             return self._failure(web_config.category, progress, mutation[0])
         progress["web_app_configuration_verified"] = True
+
+        if self.config.enable_key_vault_runtime_authorization:
+            runtime_rbac = runner.verify_key_vault_runtime_rbac(context)
+            runtime_read_only = bool(
+                runtime_rbac.mutation_made is False
+                and runtime_rbac.updates == RuntimeUpdates()
+            )
+            if not runtime_read_only:
+                return self._failure(
+                    "key_vault_runtime_rbac_verification_failed",
+                    progress,
+                    mutation[0],
+                )
+            if runtime_rbac.ok:
+                progress["key_vault_verified"] = True
+                progress["web_app_identity_verified"] = True
+                progress["key_vault_secrets_user_assignment_verified"] = True
+                progress["key_vault_runtime_rbac_assignment_reused"] = (
+                    runtime_rbac.reused
+                    and not web_app_deployed_this_run
+                )
+            elif (
+                runtime_rbac.state == "absent"
+                and runtime_rbac.category
+                == "key_vault_runtime_rbac_assignment_required"
+                and runtime_rbac.approval_binding
+            ):
+                progress["key_vault_runtime_rbac_assignment_required"] = True
+                approval_binding = runtime_rbac.approval_binding
+                if not approvals.request(
+                    ApprovalSummary(
+                        stage="key_vault_runtime_rbac_deployment",
+                        heading="KEY VAULT RUNTIME RBAC DEPLOYMENT",
+                        facts=(
+                            ("Current Web App system identity verified", "yes"),
+                            ("Exact vault scope verified", "yes"),
+                            ("Key Vault Secrets User role", "yes"),
+                            ("Mutation required", "yes"),
+                        ),
+                        evidence_binding=approval_binding,
+                    )
+                ):
+                    return self._failure(
+                        "key_vault_runtime_rbac_approval_required",
+                        progress,
+                        mutation[0],
+                    )
+                progress["key_vault_runtime_rbac_assignment_approved"] = True
+                fresh_runtime_rbac = runner.verify_key_vault_runtime_rbac(
+                    context
+                )
+                if (
+                    fresh_runtime_rbac.state != "absent"
+                    or fresh_runtime_rbac.category
+                    != "key_vault_runtime_rbac_assignment_required"
+                    or fresh_runtime_rbac.approval_binding
+                    != approval_binding
+                    or fresh_runtime_rbac.mutation_made is not False
+                    or fresh_runtime_rbac.updates != RuntimeUpdates()
+                ):
+                    return self._failure(
+                        "approval_evidence_stale", progress, mutation[0]
+                    )
+                deployed_runtime_rbac = runner.deploy_key_vault_runtime_rbac(
+                    context,
+                    approval_binding,
+                )
+                progress["key_vault_runtime_rbac_deployment_attempted"] = (
+                    deployed_runtime_rbac.attempted
+                )
+                progress["key_vault_runtime_rbac_deployment_accepted"] = (
+                    deployed_runtime_rbac.accepted
+                )
+                deployed_runtime_rbac_ok = apply(deployed_runtime_rbac)
+                if (
+                    not deployed_runtime_rbac_ok
+                    or deployed_runtime_rbac.attempted is not True
+                    or deployed_runtime_rbac.accepted is not True
+                ):
+                    return self._failure(
+                        (
+                            deployed_runtime_rbac.category
+                            if not deployed_runtime_rbac.ok
+                            else "key_vault_runtime_rbac_deployment_failed"
+                        ),
+                        progress,
+                        mutation[0],
+                    )
+                verified_runtime_rbac = runner.verify_key_vault_runtime_rbac(
+                    context
+                )
+                if (
+                    not verified_runtime_rbac.ok
+                    or verified_runtime_rbac.mutation_made is not False
+                    or verified_runtime_rbac.updates != RuntimeUpdates()
+                ):
+                    return self._failure(
+                        "key_vault_runtime_rbac_verification_failed",
+                        progress,
+                        mutation[0],
+                    )
+                progress["key_vault_verified"] = True
+                progress["web_app_identity_verified"] = True
+                progress["key_vault_secrets_user_assignment_verified"] = True
+            else:
+                return self._failure(
+                    runtime_rbac.category,
+                    progress,
+                    mutation[0],
+                )
 
         identity_stage = runner.verify_application_insights_identity(
             context,
@@ -3414,6 +3621,14 @@ class DailyAzureEnvironmentRebuild:
             "application_code_deployment_approval_required": (
                 "Rerun guided live mode and review the newly built current package."
             ),
+            "key_vault_runtime_rbac_approval_required": (
+                "Rerun guided live mode and approve only the fresh exact-vault "
+                "Key Vault Secrets User assignment summary."
+            ),
+            "key_vault_runtime_rbac_verification_failed": (
+                "The runtime RBAC deployment was accepted but an independent "
+                "read did not prove the exact current assignment; stop and review."
+            ),
             "consumer_rbac_operator_declined": (
                 "No Consumer RBAC mutation was requested; rerun and approve only "
                 "after reviewing the exact current assignment."
@@ -3625,6 +3840,8 @@ class RepositoryDailyAzureStageRunner:
         self._consumer_rbac_preview_authorization: (
             tuple[str, str, ConsumerRbacPlan] | None
         ) = None
+        self._key_vault_runtime_rbac_evidence: object | None = None
+        self._key_vault_runtime_rbac_run_epoch = secrets.token_hex(16)
         self._verified_cleanup_account: object | None = None
 
     def verify_account(self, context: DailyAzureRuntimeContext) -> StageResult:
@@ -4033,6 +4250,154 @@ class RepositoryDailyAzureStageRunner:
         if not result.ok or not result.hosted_verifier_configuration_verified:
             return StageResult.failure(result.category)
         return StageResult.success(reused=True)
+
+    def verify_key_vault_runtime_rbac(
+        self,
+        context: DailyAzureRuntimeContext,
+    ) -> StageResult:
+        from src.app.services.key_vault_live_proof import (
+            KeyVaultDeploymentEvidence,
+            KeyVaultVerificationRequest,
+            KeyVaultRbacVerificationRequest,
+            evidence_valid,
+            repository_key_vault_name,
+            verify_key_vault,
+            verify_key_vault_rbac,
+        )
+
+        self._key_vault_runtime_rbac_evidence = None
+        subscription_id = getattr(
+            self._verified_cleanup_account,
+            "subscription_id",
+            None,
+        )
+        if not isinstance(subscription_id, str):
+            return StageResult.failure("account_mismatch")
+        vault_name = repository_key_vault_name(
+            context.resource_group,
+            self.config.project_name,
+            self.config.environment_name,
+        )
+        vault = verify_key_vault(
+            KeyVaultVerificationRequest(
+                mode="live",
+                subscription_id=subscription_id,
+                resource_group=context.resource_group,
+                vault_name=vault_name,
+                repository_root=self.repository_root,
+            ),
+            runner=self.command_runner,
+            verify_secret_metadata=False,
+        )
+        if not all(
+            (
+                vault.ok,
+                vault.resource_identity_verified,
+                vault.provisioning_succeeded,
+                vault.rbac_authorization_enabled,
+                vault.legacy_access_policies_absent,
+            )
+        ):
+            return StageResult.failure(vault.category)
+        result = verify_key_vault_rbac(
+            KeyVaultRbacVerificationRequest(
+                mode="live",
+                subscription_id=subscription_id,
+                resource_group=context.resource_group,
+                vault_name=vault_name,
+                web_app_name=context.web_app_name,
+                repository_root=self.repository_root,
+            ),
+            runner=self.command_runner,
+        )
+        if result.ok and result.assignment_verified:
+            return StageResult.success(reused=True)
+        if not result.assignment_missing_conclusive:
+            return StageResult.failure(result.category)
+        template_digest = _key_vault_runtime_rbac_template_digest(
+            self.repository_root
+        )
+        if not all(
+            isinstance(value, str) and value
+            for value in (
+                result.role_definition_id,
+                result.web_app_principal_id,
+                result.vault_resource_id,
+                template_digest,
+            )
+        ):
+            return StageResult.failure("key_vault_runtime_rbac_evidence_invalid")
+        evidence = KeyVaultDeploymentEvidence(
+            subscription_id=subscription_id,
+            resource_group=context.resource_group,
+            vault_name=vault_name,
+            web_app_name=context.web_app_name,
+            role_definition_id=result.role_definition_id,
+            web_app_principal_id=result.web_app_principal_id,
+            vault_resource_id=result.vault_resource_id,
+            template_digest=template_digest,
+            run_epoch=self._key_vault_runtime_rbac_run_epoch,
+        )
+        if not evidence_valid(evidence):
+            return StageResult.failure("key_vault_runtime_rbac_evidence_invalid")
+        self._key_vault_runtime_rbac_evidence = evidence
+        return StageResult(
+            False,
+            "absent",
+            "key_vault_runtime_rbac_assignment_required",
+            approval_binding=evidence.binding(),
+        )
+
+    def deploy_key_vault_runtime_rbac(
+        self,
+        context: DailyAzureRuntimeContext,
+        approval_binding: str,
+    ) -> StageResult:
+        from src.app.services.key_vault_live_proof import (
+            KeyVaultDeploymentEvidence,
+            KeyVaultRbacDeploymentRequest,
+            deploy_key_vault_rbac,
+            evidence_valid,
+        )
+
+        evidence = self._key_vault_runtime_rbac_evidence
+        if (
+            not isinstance(evidence, KeyVaultDeploymentEvidence)
+            or not evidence_valid(evidence)
+            or _key_vault_runtime_rbac_template_digest(
+                self.repository_root
+            )
+            != evidence.template_digest
+            or not secrets.compare_digest(
+                evidence.binding(), approval_binding
+            )
+            or evidence.resource_group != context.resource_group
+            or evidence.web_app_name != context.web_app_name
+        ):
+            return StageResult.failure("approval_evidence_stale")
+        self._key_vault_runtime_rbac_evidence = None
+        result = deploy_key_vault_rbac(
+            KeyVaultRbacDeploymentRequest(
+                mode="live",
+                subscription_id=evidence.subscription_id,
+                resource_group=evidence.resource_group,
+                vault_name=evidence.vault_name,
+                web_app_name=evidence.web_app_name,
+                repository_root=self.repository_root,
+            ),
+            runner=self.command_runner,
+        )
+        if not result.ok or not result.deployment_requested:
+            return StageResult.failure(
+                result.category,
+                mutation_made=result.azure_mutation_made,
+                attempted=result.azure_operation_attempted,
+            )
+        return StageResult.success(
+            mutation_made=result.azure_mutation_made,
+            attempted=result.azure_operation_attempted,
+            accepted=result.deployment_request_accepted,
+        )
 
     def verify_application_insights_identity(
         self,
@@ -4766,6 +5131,10 @@ class RepositoryDailyAzureStageRunner:
             hosted_verifier_agent_name=context.agent_name,
             hosted_verifier_agent_version=context.immutable_agent_version,
             hosted_verifier_model_deployment_name=context.model_deployment_name,
+            enable_key_vault_runtime_authorization=(
+                self.config.enable_key_vault_runtime_authorization
+                and purpose == "initial_create"
+            ),
             purpose=purpose,
         )
 

@@ -13,13 +13,19 @@ def _text(path: str) -> str:
     return (INFRA / path).read_text()
 
 
-def test_authorization_is_a_separate_explicit_boundary() -> None:
+def test_authorization_is_composed_daily_and_retains_explicit_repair_boundary() -> None:
     main = _text("main.bicep")
     entry_point = _text(ENTRY_POINT)
 
     assert "Microsoft.Authorization/roleAssignments" not in main
     assert ROLE_GUID not in main
-    assert ENTRY_POINT not in main
+    assert re.search(
+        r"module\s+keyVaultRuntimeRbac\s+"
+        r"'modules/key-vault-secrets-user-rbac\.bicep'\s*=\s*"
+        r"if\s*\(enableKeyVaultRuntimeAuthorization\s*&&\s*"
+        r"deployApp\s*&&\s*deployKeyVault\)",
+        main,
+    )
     assert "targetScope = 'resourceGroup'" in entry_point
     assert re.search(
         r"module\s+keyVaultSecretsUserRbac\s+"
@@ -99,4 +105,3 @@ def test_rbac_boundary_serializes_no_identity_or_resource_identifiers() -> None:
     assert re.findall(r"^output\s+(\w+)\s+", combined, re.MULTILINE) == []
     assert "listSecrets(" not in combined
     assert "getSecret" not in combined
-

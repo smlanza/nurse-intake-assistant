@@ -379,8 +379,21 @@ and Azure-returned ARM ID. READY stores the name, ARM ID, and deterministic
 environment-bound fingerprint only in the restrictive private readiness
 receipt, rereads that receipt, and exposes only identity-verified and
 identity-bound booleans publicly. Receipt schema v5 is required; legacy
-receipts fail closed without discovery or migration. Consumer RBAC remains one of the separate, explicitly
-invoked optional workflows outside readiness. WebJob discovery and
+receipts fail closed without discovery or migration. When
+`ENABLE_KEY_VAULT_RUNTIME_AUTHORIZATION=true`, the same current-generation
+configuration fingerprint also enables the repository-owned vault and runtime
+assignment composition. READY then additionally requires independent
+control-plane proof of the current vault identity, current Web App
+system-assigned identity, and exactly one direct Key Vault Secrets User
+assignment at that exact vault scope. A conclusively missing assignment may
+enter the evidence-bound, default-no repository Bicep deployment path, but
+deployment acceptance is never proof; the exact assignment must be reread
+successfully before READY. The private current principal and deterministic
+assignment identity are neither operator inputs nor public readiness output,
+and a changed generation or principal invalidates prior proof. Consumer RBAC
+remains one of the separate, explicitly invoked optional workflows outside readiness.
+The human operator Key Vault Reader workflow also remains separate and is not a
+READY dependency. WebJob discovery and
 immutable-evidence recovery remain separate technical boundaries, while the
 current WebJob
 trigger-and-correlation path is retired from supported operations.
@@ -956,15 +969,21 @@ Key Vault infrastructure and authorization remain separate from retrieval.
 `infra/main.bicep` conditionally owns the reusable resource-group-scoped vault
 behind `deployKeyVault=false`; its deterministic name uses the existing stable
 repository suffix, Azure RBAC authorization is mandatory, legacy access
-policies are absent, and the module creates zero secrets. Authorization is a
-separate entry point that resolves the existing Web App system-assigned
-principal and assigns only the built-in Key Vault Secrets User role at exactly
-the vault resource. The role-assignment name deterministically binds that vault
-ID, principal ID, and fixed role-definition ID. Ordinary vault creation never
-grants access, and no subscription or resource-group role is assigned. Live
-deployment, exact assignment verification, retrieval, current-credential
-migration, App Service references, and production secret operations remain
-deferred and unproven.
+policies are absent, and the module creates zero secrets. When runtime
+authorization is enabled, the same authoritative composition privately passes
+the Web App module's current system-assigned principal and the Key Vault
+module's current name to the existing Secrets User RBAC module. That module
+assigns only the fixed built-in Key Vault Secrets User role at exactly the
+vault resource, with a deterministic name derived from the exact vault ID,
+current principal ID, and role-definition ID. The standalone entry point is
+retained as the evidence-bound repair boundary for a conclusively missing
+assignment. It does not accept the principal as operator configuration.
+Human Key Vault Reader authorization remains a separate metadata-verification
+concern, and Foundry Consumer RBAC remains outside daily READY. This daily
+composition and READY gate are implemented and tested offline; live acceptance
+under the changed daily contract remains unproven. Secret retrieval,
+zero-secret metadata proof, current-credential migration, App Service
+references, and production secret operations remain separate and unproven.
 
 The infrastructure files contain no secrets. Deployment acceptance never proves
 configuration, code deployment, startup, managed-identity access, or agent
@@ -973,7 +992,7 @@ behavior; each remains a separately authorized and verified boundary.
 Deferred infrastructure:
 
 - Agent-specific RBAC scope
-- Live Key Vault deployment and least-privilege assignment verification
+- Live daily-generation Key Vault runtime-assignment acceptance
 - App Service Authentication
 - Private networking
 - Production monitoring

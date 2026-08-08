@@ -1181,6 +1181,7 @@ def test_daily_azure_coordinator_docs_define_the_guided_safe_path() -> None:
         "AZURE_WEB_APP_SKU",
         "ENABLE_HOSTED_FOUNDRY_VERIFIER",
         "DISCOVER_HOSTED_FOUNDRY_WEBJOB",
+        "ENABLE_KEY_VAULT_RUNTIME_AUTHORIZATION",
     }
 
 

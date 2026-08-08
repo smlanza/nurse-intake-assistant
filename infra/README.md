@@ -19,6 +19,8 @@ lightweight entry point for disposable daily agent validation.
 - Application Insights resource connected to the workspace
 - Optional Linux App Service plan and Linux Web App when `deployApp=true`
 - Optional Azure RBAC-mode Key Vault when `deployKeyVault=true`
+- Optional current Web App Key Vault Secrets User assignment when
+  `enableKeyVaultRuntimeAuthorization=true` with both optional resources enabled
 
 The full template creates no Foundry resources unless `deployFoundry=true` and
 no App Service resources unless `deployApp=true`. Key Vault is likewise absent
@@ -53,8 +55,9 @@ This module provisions only hosting and a system-assigned identity. It does not
 deploy application code, grant an RBAC role, configure live Foundry access, or
 store endpoints, identity IDs, connection strings, credentials, or secrets.
 The module exposes its principal ID only to its parent template;
-`main.bicep` does not publish that identifier. The separate Key Vault
-authorization entry point resolves the existing Web App identity directly.
+`main.bicep` does not publish that identifier. When daily Key Vault runtime
+authorization is enabled, the parent passes that current principal privately
+to the existing runtime RBAC module.
 
 ## Optional Key Vault And Explicit Secrets-User Authorization
 
@@ -65,21 +68,27 @@ deploys it only when `deployKeyVault=true`; the default is `false`. The module
 creates zero secrets, uses no legacy access policies, and outputs only the vault
 name needed by a downstream operator boundary.
 
-Authorization is deliberately separate. `key-vault-secrets-user-rbac.bicep`
-looks up an existing Linux Web App and Key Vault, reads the Web App's
-system-assigned identity, and delegates to
-`modules/key-vault-secrets-user-rbac.bicep`. That module creates one assignment
-at exactly the vault scope for the built-in **Key Vault Secrets User** role
+Runtime authorization is part of the same daily-generation composition only
+when `enableKeyVaultRuntimeAuthorization=true`, `deployApp=true`, and
+`deployKeyVault=true`. `main.bicep` privately connects the current Web App
+module principal and current Key Vault module name to
+`modules/key-vault-secrets-user-rbac.bicep`. The standalone
+`key-vault-secrets-user-rbac.bicep` remains the evidence-bound repair entry
+point for a conclusively missing assignment and resolves the existing current
+Web App identity itself. The shared module creates one assignment at exactly
+the vault scope for the built-in **Key Vault Secrets User** role
 (`4633458b-17de-408a-b874-0445c86b69e6`). Its assignment name is the stable GUID
 of the exact vault ID, principal ID, and fixed role-definition ID. It grants no
 management, key, certificate, secret-write, subscription, or resource-group
 role.
 
-The two templates contain no secret values and emit no principal ID, resource
-ID, vault URI, role-assignment ID, or raw Azure output. No live deployment,
-assignment verification, or secret retrieval has been run. Those remain
-separate future Azure-dependent slices that first require fresh current-session
-`daily_environment_ready=true` through the canonical daily operator runbook.
+The templates contain no secret values and emit no principal ID, resource ID,
+vault URI, role-assignment ID, or raw Azure output. The daily coordinator now
+requires an independent exact control-plane assignment read before READY when
+runtime authorization is enabled; Bicep acceptance alone is insufficient.
+This daily-generation orchestration is implemented offline only. Live
+acceptance under the changed contract and live secret retrieval remain future
+separate slices.
 
 The focused `scripts/prove_key_vault_live.py` boundary now implements offline
 contract checking plus separate vault and RBAC deploy/reuse and read-only

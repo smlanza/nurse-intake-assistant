@@ -40,7 +40,7 @@ or SMS.
 | Testing and reliability | Pytest covers provider factories, repositories, routes, safety rules, notification behavior, static pages, and stable documentation guardrails. Azure-dependent slices additionally require a checked-in prerequisite runbook with authentication, authoritative Bicep, fail-fast stages, and current read-only proof | `tests/`, `pytest.ini`, `docs/demo-smoke-test.md`, `docs/runbooks/live-foundry-agent-consumer-rbac-prerequisites.md` | Implemented project discipline; automated tests make no Azure calls |
 | Reusable Foundry infrastructure | One Bicep module defines an Entra-oriented AIServices account, child project, and explicitly parameterized model; full-stack and disposable entry points reuse it. The Foundry what-if boundary returns sanitized counts for seven allowed change types and fails closed on malformed or unknown shapes; a separate verifier accepts Azure's qualified `<account>/<project>` child-resource name | `infra/modules/foundry.bicep`, `infra/main.bicep`, `infra/foundry-only.bicep`, `scripts/deploy_foundry_infra.py`, `scripts/verify_foundry_infra.py` | Current read-only verification of an explicit operator-approved parameter set proved the AIServices account, child project, endpoint contract, and model deployment. Disposable names are not permanent defaults |
 | Managed-identity and RBAC readiness | Optional IaC defines a Linux Web App system identity and separate project-scoped Consumer assignment. The verifier resolves and validates Azure's returned project ID without manual construction. The outer deployment name is deterministic while the nested module derives the distinct `${deployment().name}-assignment` name; project scope, fixed role, deterministic assignment GUID, and identity lookup remain unchanged | `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | After the collision correction and a fresh matching preview, Azure accepted the project-scoped Consumer assignment deployment. A separate read-only verifier proved exactly one direct assignment for the Web App system identity at the exact project scope. Token use, hosted metadata access, agent operation, and invocation remain unproven |
-| Key Vault infrastructure and authorization readiness | `main.bicep` optionally reuses a repository-owned module for an Azure RBAC-mode vault with zero secrets; separate Bicep entry points represent current-operator Key Vault Reader metadata verification and future Web App Key Vault Secrets User retrieval at exact vault scope | `infra/main.bicep`, `infra/modules/key-vault.bicep`, `infra/key-vault-reader-rbac.bicep`, `infra/modules/key-vault-reader-rbac.bicep`, `infra/key-vault-secrets-user-rbac.bicep`, `infra/modules/key-vault-secrets-user-rbac.bicep`, `src/app/services/key_vault_live_proof.py`, `scripts/prove_key_vault_live.py`, `tests/test_key_vault_operator_reader.py` | Key Vault infrastructure is live-deployed, and independent control-plane verification proved its exact identity, successful provisioning, RBAC mode, and absent legacy policies. The operator workflow is offline-proven, but live preflight stopped at `authorization_scope_mismatch`; operator Key Vault Reader authorization remains unproven. Zero-secret proof and exact live Web App RBAC verification remain unproven. Secret retrieval, credential migration, App Service references, and production secret operations remain deferred |
+| Key Vault infrastructure and authorization readiness | `main.bicep` optionally composes the repository-owned zero-secret RBAC-mode vault, current Web App system identity, and exact-vault-scope Key Vault Secrets User module. The daily coordinator independently verifies the exact current-generation assignment and conditionally gates READY; the human Reader boundary remains separate | `infra/main.bicep`, `infra/modules/key-vault.bicep`, `infra/key-vault-reader-rbac.bicep`, `infra/modules/key-vault-reader-rbac.bicep`, `infra/key-vault-secrets-user-rbac.bicep`, `infra/modules/key-vault-secrets-user-rbac.bicep`, `src/app/services/key_vault_live_proof.py`, `src/app/services/daily_azure_environment_rebuild.py`, `tests/test_daily_azure_environment_rebuild.py` | Offline daily-generation Key Vault runtime RBAC orchestration is implemented, including principal-churn invalidation, exact independent verification, safe reuse, evidence-bound Bicep repair, and conditional READY proof. Live daily-generation runtime RBAC is not yet proven. Existing live vault infrastructure proof remains valid; operator Reader authorization and zero-secret metadata proof remain unproven. Live secret retrieval, credential migration, App Service references, and production secret operations remain deferred |
 | Repeatable application deployment readiness | An explicit CLI deploys Web App infrastructure through the existing `main.bicep` with Foundry disabled; its local reader enforces the exact shared hosted settings contract, and what-if exposes sanitized change counts only. Separate boundaries verify Bicep-owned configuration, package and deploy code, and check `/health`, `/version`, and `/demo/status` | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_infra_deployment.py`, `scripts/deploy_web_app_infra.py`, `src/app/services/web_app_configuration_verification.py`, `scripts/verify_web_app_configuration.py`, `src/app/services/web_app_package.py`, `scripts/deploy_web_app_code.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/verify_web_app_readiness.py` | Current verification proved configuration, system identity, mock-safe hosted posture, application deployment, artifact equality, and hosted readiness. Check modes make no Azure or HTTP call. Direct project-scoped Consumer RBAC is separately live-proven; managed-identity Foundry access and invocation remain unproven |
 
 ## 3. Generative AI And Foundry Relevance
@@ -252,9 +252,10 @@ Scope boundaries:
   inference success
 - Key Vault infrastructure is live-deployed and its exact control-plane
   identity, successful provisioning, RBAC mode, and absent legacy policies are
-  proven. Zero-secret metadata proof, exact live managed-identity RBAC,
-  retrieval, current-credential migration, App Service Key Vault references,
-  and production rotation/operations remain deferred and unproven
+  proven. Current-generation managed-identity RBAC orchestration and READY
+  gating are implemented offline, but live daily acceptance is unproven.
+  Zero-secret metadata proof, retrieval, current-credential migration, App
+  Service Key Vault references, and production rotation remain deferred
 - App Service Authentication / Entra ID protection is deferred
 - Confirmed ACS SMS handset delivery is not implemented and remains pending
   external toll-free verification and future delivery tracking
@@ -265,9 +266,9 @@ The following are future work, not current implementation:
 
 - Hosted managed-identity metadata verification and fixed-fictional-data invocation
 - Agent-specific RBAC scope
-- Completion of zero-secret metadata proof, exact managed-identity RBAC
-  verification, live retrieval, current-credential migration, App Service
-  references, and production secret rotation/operations
+- Live acceptance of daily-generation Key Vault runtime RBAC, completion of
+  zero-secret metadata proof, live retrieval, current-credential migration,
+  App Service references, and production secret rotation/operations
 - App Service Authentication / Entra ID protection
 - App Service-hosted telemetry configuration and verification
 - Audio upload, microphone capture, ACS recording ingestion, streaming
@@ -285,7 +286,7 @@ Highest AI-103 ROI:
 
 Medium AI-103 ROI:
 
-- Live deployment and verification of the offline Key Vault/RBAC boundaries
+- Live acceptance of the offline daily-generation Key Vault RBAC contract
 - App Service Authentication / Entra ID route protection
 
 Lower direct exam ROI but strong portfolio value:
@@ -297,7 +298,7 @@ Lower direct exam ROI but strong portfolio value:
 ## 9. Recommended Azure Implementation Order
 
 1. Select the next slice later from medium-value security and operations work; do not continue SSH acceptance or automatically select a replacement hosted execution mechanism
-2. Key Vault: deploy and verify the offline-represented infrastructure and least-privilege authorization
+2. Key Vault: run the separate live acceptance of daily-generation least-privilege authorization
 3. App Service Authentication and protected routes
 4. App Service-hosted telemetry configuration and verification
 5. ACS phone intake and route-level audio ingestion

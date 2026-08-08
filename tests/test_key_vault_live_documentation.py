@@ -46,12 +46,13 @@ def test_progress_and_mapping_record_partial_live_vault_proof_without_overclaim(
     mapping = _normalized("docs/ai-103-mapping.md")
 
     assert "secret_metadata_read_failed" in progress
-    assert "exact web app runtime rbac verification remains unproven" in progress
+    assert "runtime rbac orchestration and ready gating are implemented offline" in progress
+    assert "live daily acceptance remains unproven" in progress
     assert "authorization_scope_mismatch" in progress
     assert "operator key vault reader remains unproven" in progress
     assert "key vault infrastructure is live-deployed" in mapping
-    assert "zero-secret proof and exact live web app rbac verification remain unproven" in mapping
-    assert "operator key vault reader authorization remains unproven" in mapping
+    assert "live daily-generation runtime rbac is not yet proven" in mapping
+    assert "operator reader authorization and zero-secret metadata proof remain unproven" in mapping
 
 
 def test_operator_reader_reference_preserves_metadata_only_stop_boundary() -> None:
