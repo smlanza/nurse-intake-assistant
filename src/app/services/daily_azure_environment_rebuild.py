@@ -15,7 +15,15 @@ import time
 from typing import Callable, Literal, Mapping, Protocol
 from uuid import UUID
 
-from src.app.services.azure_what_if_evidence import SanitizedWhatIfChange
+from src.app.services.azure_what_if_evidence import (
+    AZURE_PROVIDER_FAMILIES,
+    AZURE_RESOURCE_FAMILIES,
+    AZURE_RESOURCE_UNKNOWN_REASONS,
+    AzureProviderFamily,
+    AzureResourceFamily,
+    AzureResourceUnknownReason,
+    SanitizedWhatIfChange,
+)
 from src.app.services.application_insights_resource_identity import (
     ApplicationInsightsResourceIdentity,
     parse_application_insights_resource_identity,
@@ -58,6 +66,51 @@ _READY_CONSTRUCTION_SENTINEL = object()
 HOSTED_READINESS_MAX_ATTEMPTS = 31
 HOSTED_READINESS_MAX_ELAPSED_SECONDS = 300.0
 HOSTED_READINESS_BACKOFF_SECONDS = 10.0
+
+WebAppPlanRejectionReason = Literal[
+    "malformed_evidence",
+    "unexpected_resource",
+    "unexpected_change_type",
+    "count_mismatch",
+    "evidence_missing",
+    "boundary_mismatch",
+    "identity_mismatch",
+    "parent_mismatch",
+    "scope_mismatch",
+    "multiplicity_mismatch",
+    "topology_mismatch",
+]
+WebAppUnexpectedResourceCategory = Literal[
+    "foundry_account_reference",
+    "foundry_project_reference",
+    "unidentified",
+]
+_WEB_APP_PLAN_REJECTION_REASONS = frozenset(
+    {
+        "malformed_evidence",
+        "unexpected_resource",
+        "unexpected_change_type",
+        "count_mismatch",
+        "evidence_missing",
+        "boundary_mismatch",
+        "identity_mismatch",
+        "parent_mismatch",
+        "scope_mismatch",
+        "multiplicity_mismatch",
+        "topology_mismatch",
+    }
+)
+_WEB_APP_UNEXPECTED_RESOURCE_CATEGORIES = (
+    "foundry_account_reference",
+    "foundry_project_reference",
+    "unidentified",
+)
+_WEB_APP_UNEXPECTED_RESOURCE_TYPES = {
+    "microsoft.cognitiveservices/accounts": "foundry_account_reference",
+    "microsoft.cognitiveservices/accounts/projects": (
+        "foundry_project_reference"
+    ),
+}
 
 
 def _wait_for_hosted_readiness(seconds: float) -> None:
@@ -382,6 +435,9 @@ class ChangeEvidence:
     expected_scope_match: bool = False
     expected_multiplicity_match: bool = False
     resource_type: str = ""
+    unexpected_resource_family: AzureResourceFamily | None = None
+    unexpected_resource_unknown_reason: AzureResourceUnknownReason | None = None
+    unexpected_resource_provider_family: AzureProviderFamily | None = None
 
 
 @dataclass(frozen=True)
@@ -406,6 +462,82 @@ class PlanResult:
     @classmethod
     def create_only(cls) -> "PlanResult":
         return cls(create_count=1)
+
+
+@dataclass(frozen=True)
+class WebAppPlanSafetyEvaluation:
+    safe: bool
+    rejection_reason: WebAppPlanRejectionReason | None
+    unexpected_resource_category: WebAppUnexpectedResourceCategory | None = None
+    unexpected_resource_family: AzureResourceFamily | None = None
+    unexpected_resource_unknown_reason: AzureResourceUnknownReason | None = None
+    unexpected_resource_provider_family: AzureProviderFamily | None = None
+
+    def __post_init__(self) -> None:
+        if self.safe is not (self.rejection_reason is None):
+            raise ValueError("Web App plan safety and rejection reason disagree.")
+        if (
+            self.rejection_reason is not None
+            and self.rejection_reason not in _WEB_APP_PLAN_REJECTION_REASONS
+        ):
+            raise ValueError("Web App plan rejection reason is not allowlisted.")
+        if (
+            self.unexpected_resource_category is not None
+            and self.unexpected_resource_category
+            not in _WEB_APP_UNEXPECTED_RESOURCE_CATEGORIES
+        ):
+            raise ValueError(
+                "Web App unexpected-resource category is not allowlisted."
+            )
+        if (
+            self.rejection_reason == "unexpected_resource"
+        ) is not (self.unexpected_resource_category is not None):
+            raise ValueError(
+                "Web App unexpected-resource rejection and category disagree."
+            )
+        if (
+            self.unexpected_resource_family is not None
+            and self.unexpected_resource_family not in AZURE_RESOURCE_FAMILIES
+        ):
+            raise ValueError(
+                "Web App unexpected-resource family is not allowlisted."
+            )
+        if (
+            self.rejection_reason == "unexpected_resource"
+            and self.unexpected_resource_category == "unidentified"
+        ) is not (self.unexpected_resource_family is not None):
+            raise ValueError(
+                "Web App unidentified unexpected-resource diagnostic and "
+                "family disagree."
+            )
+        if (
+            self.unexpected_resource_unknown_reason is not None
+            and self.unexpected_resource_unknown_reason
+            not in AZURE_RESOURCE_UNKNOWN_REASONS
+        ):
+            raise ValueError(
+                "Web App unknown-resource reason is not allowlisted."
+            )
+        if (
+            self.unexpected_resource_provider_family is not None
+            and self.unexpected_resource_provider_family
+            not in AZURE_PROVIDER_FAMILIES
+        ):
+            raise ValueError(
+                "Web App unexpected-resource provider is not allowlisted."
+            )
+        if (
+            self.unexpected_resource_family == "unknown"
+        ) is not (self.unexpected_resource_unknown_reason is not None):
+            raise ValueError(
+                "Web App unknown-resource family and reason disagree."
+            )
+        if (
+            self.unexpected_resource_unknown_reason == "valid_type_unmapped"
+        ) is not (self.unexpected_resource_provider_family is not None):
+            raise ValueError(
+                "Web App unknown-resource reason and provider disagree."
+            )
 
 
 @dataclass(frozen=True)
@@ -758,6 +890,17 @@ class DailyAzureEnvironmentRebuildResult:
     webjob_status_read: bool = False
     managed_identity_verification_performed: bool = False
     recommended_next_step: str = FAILURE_NEXT_STEP
+    web_app_plan_rejection_reason: WebAppPlanRejectionReason | None = None
+    web_app_plan_unexpected_resource_category: (
+        WebAppUnexpectedResourceCategory | None
+    ) = None
+    web_app_plan_unexpected_resource_family: AzureResourceFamily | None = None
+    web_app_plan_unexpected_resource_unknown_reason: (
+        AzureResourceUnknownReason | None
+    ) = None
+    web_app_plan_unexpected_resource_provider_family: (
+        AzureProviderFamily | None
+    ) = None
     foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None
     what_if_diagnostic: WhatIfDiagnostic | None = None
     requested_foundry_account_name: str | None = None
@@ -771,6 +914,101 @@ class DailyAzureEnvironmentRebuildResult:
     _ready_authority: InitVar[object | None] = None
 
     def __post_init__(self, _ready_authority: object | None) -> None:
+        if self.web_app_plan_rejection_reason is not None and (
+            self.web_app_plan_rejection_reason
+            not in _WEB_APP_PLAN_REJECTION_REASONS
+            or self.category != "unsafe_web_app_plan"
+            or self.ok
+        ):
+            raise ValueError("Web App plan rejection reason is invalid.")
+        if (
+            self.category == "unsafe_web_app_plan"
+            and self.web_app_plan_rejection_reason is None
+        ):
+            raise ValueError("Unsafe Web App plans require a bounded reason.")
+        if (
+            self.web_app_plan_unexpected_resource_category is not None
+            and (
+                self.web_app_plan_unexpected_resource_category
+                not in _WEB_APP_UNEXPECTED_RESOURCE_CATEGORIES
+                or self.category != "unsafe_web_app_plan"
+                or self.ok
+            )
+        ):
+            raise ValueError(
+                "Web App unexpected-resource category is invalid."
+            )
+        if (
+            self.web_app_plan_rejection_reason == "unexpected_resource"
+        ) is not (
+            self.web_app_plan_unexpected_resource_category is not None
+        ):
+            raise ValueError(
+                "Web App unexpected-resource rejection requires one bounded "
+                "category."
+            )
+        if (
+            self.web_app_plan_unexpected_resource_family is not None
+            and (
+                self.web_app_plan_unexpected_resource_family
+                not in AZURE_RESOURCE_FAMILIES
+                or self.category != "unsafe_web_app_plan"
+                or self.ok
+            )
+        ):
+            raise ValueError(
+                "Web App unexpected-resource family is invalid."
+            )
+        if (
+            self.web_app_plan_rejection_reason == "unexpected_resource"
+            and self.web_app_plan_unexpected_resource_category
+            == "unidentified"
+        ) is not (
+            self.web_app_plan_unexpected_resource_family is not None
+        ):
+            raise ValueError(
+                "Web App unidentified unexpected-resource diagnostic "
+                "requires one bounded family."
+            )
+        if (
+            self.web_app_plan_unexpected_resource_unknown_reason is not None
+            and (
+                self.web_app_plan_unexpected_resource_unknown_reason
+                not in AZURE_RESOURCE_UNKNOWN_REASONS
+                or self.category != "unsafe_web_app_plan"
+                or self.ok
+            )
+        ):
+            raise ValueError("Web App unknown-resource reason is invalid.")
+        if (
+            self.web_app_plan_unexpected_resource_provider_family is not None
+            and (
+                self.web_app_plan_unexpected_resource_provider_family
+                not in AZURE_PROVIDER_FAMILIES
+                or self.category != "unsafe_web_app_plan"
+                or self.ok
+            )
+        ):
+            raise ValueError(
+                "Web App unexpected-resource provider family is invalid."
+            )
+        if (
+            self.web_app_plan_unexpected_resource_family == "unknown"
+        ) is not (
+            self.web_app_plan_unexpected_resource_unknown_reason is not None
+        ):
+            raise ValueError(
+                "Web App unknown-resource family requires one bounded reason."
+            )
+        if (
+            self.web_app_plan_unexpected_resource_unknown_reason
+            == "valid_type_unmapped"
+        ) is not (
+            self.web_app_plan_unexpected_resource_provider_family is not None
+        ):
+            raise ValueError(
+                "Web App unknown-resource reason and provider family disagree."
+            )
         if self.daily_environment_ready:
             if (
                 _ready_authority is not _READY_CONSTRUCTION_SENTINEL
@@ -936,6 +1174,21 @@ class DailyAzureEnvironmentRebuildResult:
                 READY_MESSAGE if self.daily_environment_ready else NOT_READY_MESSAGE
             ),
             "recommended_next_step": self.recommended_next_step,
+            "web_app_plan_rejection_reason": (
+                self.web_app_plan_rejection_reason
+            ),
+            "web_app_plan_unexpected_resource_category": (
+                self.web_app_plan_unexpected_resource_category
+            ),
+            "web_app_plan_unexpected_resource_family": (
+                self.web_app_plan_unexpected_resource_family
+            ),
+            "web_app_plan_unexpected_resource_unknown_reason": (
+                self.web_app_plan_unexpected_resource_unknown_reason
+            ),
+            "web_app_plan_unexpected_resource_provider_family": (
+                self.web_app_plan_unexpected_resource_provider_family
+            ),
         }
         if self.foundry_plan_diagnostic is not None:
             result["foundry_plan_diagnostic"] = (
@@ -1293,13 +1546,15 @@ def safe_guided_plan(
     )
 
 
-def safe_web_app_plan(plan: PlanResult) -> bool:
+def evaluate_web_app_plan_safety(
+    plan: PlanResult,
+) -> WebAppPlanSafetyEvaluation:
     if safe_guided_plan(
         plan,
         expected_boundary="web_app",
         require_create=True,
     ):
-        return True
+        return WebAppPlanSafetyEvaluation(True, None)
     if (
         plan.malformed
         or not plan.exact_topology_match
@@ -1312,26 +1567,207 @@ def safe_web_app_plan(plan: PlanResult) -> bool:
         or not _plan_counts_match_evidence(plan)
         or not plan.change_evidence
     ):
-        return False
+        return _unsafe_web_app_plan_evaluation(plan)
     for change in plan.change_evidence:
         if change.boundary != "web_app":
-            return False
+            return WebAppPlanSafetyEvaluation(False, "boundary_mismatch")
         if change.action == "Modify":
-            if not (
-                change.resource_type == "Microsoft.Web/sites"
-                and change.logical_category == "web_app"
-                and change.approved_boundary
-                and change.expected_identity_match
-                and change.expected_parent_match
-                and change.expected_scope_match
-                and change.expected_multiplicity_match
-            ):
-                return False
+            if not _web_app_modify_change_allowed(change):
+                return _unsafe_web_app_plan_evaluation(plan)
         elif not _guided_change_evidence_allowed(change):
-            return False
+            return _unsafe_web_app_plan_evaluation(plan)
     if plan.modify_count:
-        return plan.modify_count == 1 and plan.no_change_count > 0
-    return plan.no_change_count > 0
+        safe = plan.modify_count == 1 and plan.no_change_count > 0
+    else:
+        safe = plan.no_change_count > 0
+    return (
+        WebAppPlanSafetyEvaluation(True, None)
+        if safe
+        else _unsafe_web_app_plan_evaluation(plan)
+    )
+
+
+def safe_web_app_plan(plan: PlanResult) -> bool:
+    return evaluate_web_app_plan_safety(plan).safe
+
+
+def _unsafe_web_app_plan_evaluation(
+    plan: PlanResult,
+) -> WebAppPlanSafetyEvaluation:
+    """Classify only existing sanitized Web App plan safety invariants."""
+
+    if plan.malformed:
+        return WebAppPlanSafetyEvaluation(False, "malformed_evidence")
+    if plan.unrelated_resource_count or any(
+        change.logical_category == "unexpected_resource"
+        for change in plan.change_evidence
+    ):
+        category, family, unknown_reason, provider_family = (
+            _web_app_unexpected_resource_diagnostic(plan)
+        )
+        return WebAppPlanSafetyEvaluation(
+            False,
+            "unexpected_resource",
+            category,
+            family,
+            unknown_reason,
+            provider_family,
+        )
+    if (
+        plan.delete_count
+        or plan.deploy_count
+        or plan.unsupported_count
+        or plan.unknown_count
+        or (
+            plan.modify_count > 0
+            and any(
+                change.action == "Create"
+                for change in plan.change_evidence
+            )
+        )
+        or any(
+            change.action
+            not in {"Create", "Modify", "NoChange", "Ignore"}
+            for change in plan.change_evidence
+        )
+    ):
+        return WebAppPlanSafetyEvaluation(False, "unexpected_change_type")
+    if not _plan_counts_match_evidence(plan):
+        return WebAppPlanSafetyEvaluation(False, "count_mismatch")
+    if not plan.change_evidence:
+        return WebAppPlanSafetyEvaluation(False, "evidence_missing")
+    if any(change.boundary != "web_app" for change in plan.change_evidence):
+        return WebAppPlanSafetyEvaluation(False, "boundary_mismatch")
+    for change in plan.change_evidence:
+        if _guided_change_evidence_allowed(change) or (
+            change.action == "Modify"
+            and _web_app_modify_change_allowed(change)
+        ):
+            continue
+        if not change.expected_identity_match:
+            return WebAppPlanSafetyEvaluation(False, "identity_mismatch")
+        if not change.expected_parent_match:
+            return WebAppPlanSafetyEvaluation(False, "parent_mismatch")
+        if not change.expected_scope_match:
+            return WebAppPlanSafetyEvaluation(False, "scope_mismatch")
+        if not change.expected_multiplicity_match:
+            return WebAppPlanSafetyEvaluation(False, "multiplicity_mismatch")
+        return WebAppPlanSafetyEvaluation(False, "topology_mismatch")
+    if any(
+        not change.expected_multiplicity_match
+        for change in plan.change_evidence
+    ):
+        return WebAppPlanSafetyEvaluation(False, "multiplicity_mismatch")
+    return WebAppPlanSafetyEvaluation(False, "topology_mismatch")
+
+
+def _web_app_unexpected_resource_diagnostic(
+    plan: PlanResult,
+) -> tuple[
+    WebAppUnexpectedResourceCategory,
+    AzureResourceFamily | None,
+    AzureResourceUnknownReason | None,
+    AzureProviderFamily | None,
+]:
+    category_candidates: list[WebAppUnexpectedResourceCategory] = []
+    family_candidates: list[AzureResourceFamily] = []
+    unknown_candidates: list[
+        tuple[AzureResourceUnknownReason, AzureProviderFamily | None]
+    ] = []
+    for change in plan.change_evidence:
+        if change.logical_category != "unexpected_resource":
+            continue
+        category = _WEB_APP_UNEXPECTED_RESOURCE_TYPES.get(
+            change.resource_type.casefold(),
+            "unidentified",
+        )
+        category_candidates.append(category)
+        if category == "unidentified":
+            family = (
+                change.unexpected_resource_family
+                if change.unexpected_resource_family
+                in AZURE_RESOURCE_FAMILIES
+                else "unknown"
+            )
+            family_candidates.append(family)
+            if family == "unknown":
+                unknown_reason = (
+                    change.unexpected_resource_unknown_reason
+                    if change.unexpected_resource_unknown_reason
+                    in AZURE_RESOURCE_UNKNOWN_REASONS
+                    else "resource_identity_unavailable"
+                )
+                provider_family = (
+                    change.unexpected_resource_provider_family
+                    if change.unexpected_resource_provider_family
+                    in AZURE_PROVIDER_FAMILIES
+                    else None
+                )
+                if unknown_reason == "valid_type_unmapped":
+                    provider_family = provider_family or "unknown_provider"
+                else:
+                    provider_family = None
+                unknown_candidates.append(
+                    (unknown_reason, provider_family)
+                )
+    for category in _WEB_APP_UNEXPECTED_RESOURCE_CATEGORIES:
+        if category not in category_candidates:
+            continue
+        if category != "unidentified":
+            return category, None, None, None
+        for family in AZURE_RESOURCE_FAMILIES:
+            if family not in family_candidates:
+                continue
+            if family != "unknown":
+                return category, family, None, None
+            for unknown_reason in AZURE_RESOURCE_UNKNOWN_REASONS:
+                matching_providers = tuple(
+                    provider
+                    for reason, provider in unknown_candidates
+                    if reason == unknown_reason
+                )
+                if not matching_providers:
+                    continue
+                if unknown_reason != "valid_type_unmapped":
+                    return category, family, unknown_reason, None
+                for provider_family in AZURE_PROVIDER_FAMILIES:
+                    if provider_family in matching_providers:
+                        return (
+                            category,
+                            family,
+                            unknown_reason,
+                            provider_family,
+                        )
+            return (
+                category,
+                family,
+                "resource_identity_unavailable",
+                None,
+            )
+        return (
+            category,
+            "unknown",
+            "resource_identity_unavailable",
+            None,
+        )
+    return (
+        "unidentified",
+        "unknown",
+        "resource_identity_unavailable",
+        None,
+    )
+
+
+def _web_app_modify_change_allowed(change: ChangeEvidence) -> bool:
+    return bool(
+        change.resource_type == "Microsoft.Web/sites"
+        and change.logical_category == "web_app"
+        and change.approved_boundary
+        and change.expected_identity_match
+        and change.expected_parent_match
+        and change.expected_scope_match
+        and change.expected_multiplicity_match
+    )
 
 
 def safe_web_app_reconciliation_plan(plan: PlanResult) -> bool:
@@ -3184,8 +3620,28 @@ class DailyAzureEnvironmentRebuild:
             return self._failure(web_config.category, progress, mutation[0])
         elif web_config.state == "absent" and web_config.category == "web_app_absent":
             plan = runner.plan_web_app(context)
-            if not safe_web_app_plan(plan):
-                return self._failure("unsafe_web_app_plan", progress, mutation[0])
+            plan_evaluation = evaluate_web_app_plan_safety(plan)
+            if not plan_evaluation.safe:
+                return self._failure(
+                    "unsafe_web_app_plan",
+                    progress,
+                    mutation[0],
+                    web_app_plan_rejection_reason=(
+                        plan_evaluation.rejection_reason
+                    ),
+                    web_app_plan_unexpected_resource_category=(
+                        plan_evaluation.unexpected_resource_category
+                    ),
+                    web_app_plan_unexpected_resource_family=(
+                        plan_evaluation.unexpected_resource_family
+                    ),
+                    web_app_plan_unexpected_resource_unknown_reason=(
+                        plan_evaluation.unexpected_resource_unknown_reason
+                    ),
+                    web_app_plan_unexpected_resource_provider_family=(
+                        plan_evaluation.unexpected_resource_provider_family
+                    ),
+                )
             if not approvals.request(
                 _plan_approval_summary(
                     "web_app_deployment", "WEB APP INFRASTRUCTURE DEPLOYMENT", plan
@@ -3574,6 +4030,19 @@ class DailyAzureEnvironmentRebuild:
         progress: dict[str, object] | None = None,
         mutation_made: bool | None = False,
         *,
+        web_app_plan_rejection_reason: WebAppPlanRejectionReason | None = None,
+        web_app_plan_unexpected_resource_category: (
+            WebAppUnexpectedResourceCategory | None
+        ) = None,
+        web_app_plan_unexpected_resource_family: (
+            AzureResourceFamily | None
+        ) = None,
+        web_app_plan_unexpected_resource_unknown_reason: (
+            AzureResourceUnknownReason | None
+        ) = None,
+        web_app_plan_unexpected_resource_provider_family: (
+            AzureProviderFamily | None
+        ) = None,
         foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None,
         what_if_diagnostic: WhatIfDiagnostic | None = None,
         context: DailyAzureRuntimeContext | None = None,
@@ -3648,6 +4117,19 @@ class DailyAzureEnvironmentRebuild:
             mode="live",
             azure_mutation_made=mutation_made,
             recommended_next_step=next_steps.get(category, FAILURE_NEXT_STEP),
+            web_app_plan_rejection_reason=web_app_plan_rejection_reason,
+            web_app_plan_unexpected_resource_category=(
+                web_app_plan_unexpected_resource_category
+            ),
+            web_app_plan_unexpected_resource_family=(
+                web_app_plan_unexpected_resource_family
+            ),
+            web_app_plan_unexpected_resource_unknown_reason=(
+                web_app_plan_unexpected_resource_unknown_reason
+            ),
+            web_app_plan_unexpected_resource_provider_family=(
+                web_app_plan_unexpected_resource_provider_family
+            ),
             foundry_plan_diagnostic=foundry_plan_diagnostic,
             what_if_diagnostic=what_if_diagnostic,
             requested_foundry_account_name=None,
@@ -5294,6 +5776,9 @@ def _change_evidence(value: object) -> tuple[ChangeEvidence, ...] | None:
                     item.expected_scope_match,
                     item.expected_multiplicity_match,
                     item.resource_type,
+                    item.unexpected_resource_family,
+                    item.unexpected_resource_unknown_reason,
+                    item.unexpected_resource_provider_family,
                 )
             )
             continue
@@ -5308,6 +5793,13 @@ def _change_evidence(value: object) -> tuple[ChangeEvidence, ...] | None:
         scope_match = item.get("expected_scope_match")
         multiplicity_match = item.get("expected_multiplicity_match")
         resource_type = item.get("resource_type")
+        unexpected_resource_family = item.get("unexpected_resource_family")
+        unexpected_resource_unknown_reason = item.get(
+            "unexpected_resource_unknown_reason"
+        )
+        unexpected_resource_provider_family = item.get(
+            "unexpected_resource_provider_family"
+        )
         if (
             not isinstance(action, str)
             or not isinstance(category, str)
@@ -5318,6 +5810,20 @@ def _change_evidence(value: object) -> tuple[ChangeEvidence, ...] | None:
             or not isinstance(scope_match, bool)
             or not isinstance(multiplicity_match, bool)
             or not isinstance(resource_type, str)
+            or (
+                unexpected_resource_family is not None
+                and unexpected_resource_family not in AZURE_RESOURCE_FAMILIES
+            )
+            or (
+                unexpected_resource_unknown_reason is not None
+                and unexpected_resource_unknown_reason
+                not in AZURE_RESOURCE_UNKNOWN_REASONS
+            )
+            or (
+                unexpected_resource_provider_family is not None
+                and unexpected_resource_provider_family
+                not in AZURE_PROVIDER_FAMILIES
+            )
         ):
             return None
         parsed.append(
@@ -5331,6 +5837,9 @@ def _change_evidence(value: object) -> tuple[ChangeEvidence, ...] | None:
                 scope_match,
                 multiplicity_match,
                 resource_type,
+                unexpected_resource_family,
+                unexpected_resource_unknown_reason,
+                unexpected_resource_provider_family,
             )
         )
     return tuple(parsed)

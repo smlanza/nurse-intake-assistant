@@ -1,11 +1,50 @@
 import json
 
 from src.app.services.azure_what_if_evidence import (
+    AZURE_PROVIDER_FAMILIES,
+    AZURE_RESOURCE_FAMILIES,
+    AZURE_RESOURCE_UNKNOWN_REASONS,
     ExpectedWhatIfResource,
     normalize_sanitized_what_if_payload,
     parse_sanitized_what_if,
     parse_what_if_resource_identities,
 )
+
+
+def test_sanitized_azure_resource_family_allowlist_is_fixed() -> None:
+    assert AZURE_RESOURCE_FAMILIES == (
+        "authorization_role_assignment",
+        "resource_manager_deployment",
+        "key_vault",
+        "web_site",
+        "app_service_plan",
+        "cosmos_account",
+        "cosmos_database",
+        "cosmos_container",
+        "storage_account",
+        "application_insights",
+        "log_analytics",
+        "foundry_account",
+        "foundry_project",
+        "model_deployment",
+        "unknown",
+    )
+    assert AZURE_RESOURCE_UNKNOWN_REASONS == (
+        "valid_type_unmapped",
+        "resource_identity_unavailable",
+    )
+    assert AZURE_PROVIDER_FAMILIES == (
+        "authorization",
+        "resources",
+        "key_vault",
+        "web",
+        "document_db",
+        "storage",
+        "monitor",
+        "operational_insights",
+        "cognitive_services",
+        "unknown_provider",
+    )
 
 
 def test_expected_foundry_changes_are_sanitized_and_allowlisted() -> None:
@@ -75,7 +114,50 @@ def test_unrelated_create_is_retained_only_as_unidentified_safe_evidence() -> No
     assert summary.all_changes_allowlisted is False
     assert summary.changes[0].resource_type == "unidentified"
     assert summary.changes[0].logical_category == "unexpected_resource"
+    assert summary.changes[0].unexpected_resource_family == "key_vault"
     assert "KeyVault" not in json.dumps(summary.to_json_list())
+    assert "unexpected_resource_family" not in summary.to_json_list()[0]
+
+
+def test_unrecognized_repository_test_type_has_only_bounded_unknown_family() -> None:
+    raw_type = "Microsoft.Network/virtualNetworks"
+    raw = json.dumps(
+        {
+            "changes": [
+                {
+                    "changeType": "Create",
+                    "resourceId": (
+                        "/subscriptions/private/resourceGroups/private/providers/"
+                        f"{raw_type}/private-network"
+                    ),
+                }
+            ]
+        }
+    )
+
+    summary = parse_sanitized_what_if(
+        raw,
+        boundary="web_app",
+        allowlisted_resource_types={"Microsoft.Web/sites": "web_app"},
+    )
+
+    assert summary is not None
+    assert summary.changes[0].unexpected_resource_family == "unknown"
+    assert summary.changes[0].unexpected_resource_unknown_reason == (
+        "valid_type_unmapped"
+    )
+    assert summary.changes[0].unexpected_resource_provider_family == (
+        "unknown_provider"
+    )
+    serialized = json.dumps(summary.to_json_list())
+    assert raw_type not in serialized
+    assert "private-network" not in serialized
+    assert "unexpected_resource_family" not in serialized
+    assert "unexpected_resource_unknown_reason" not in serialized
+    assert "unexpected_resource_provider_family" not in serialized
+    rendered = repr(summary.changes[0])
+    assert "unknown_provider" not in rendered
+    assert "valid_type_unmapped" not in rendered
 
 
 def test_missing_resource_identity_is_not_automatically_allowlisted() -> None:
@@ -88,6 +170,11 @@ def test_missing_resource_identity_is_not_automatically_allowlisted() -> None:
     assert summary is not None
     assert summary.all_changes_allowlisted is False
     assert summary.changes[0].resource_type == "unidentified"
+    assert summary.changes[0].unexpected_resource_family == "unknown"
+    assert summary.changes[0].unexpected_resource_unknown_reason == (
+        "resource_identity_unavailable"
+    )
+    assert summary.changes[0].unexpected_resource_provider_family is None
 
 
 def test_decoded_payload_normalizer_uses_authoritative_incomplete_path_result() -> None:

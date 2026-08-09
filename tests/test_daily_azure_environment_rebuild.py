@@ -39,10 +39,12 @@ from src.app.services.daily_azure_environment_rebuild import (
     RepositoryDailyAzureStageRunner,
     RuntimeUpdates,
     StageResult,
+    WebAppPlanSafetyEvaluation,
     build_foundry_account_name,
     generate_foundry_account_name,
     load_matching_daily_azure_readiness_receipt,
     _plan_from_mapping,
+    evaluate_web_app_plan_safety,
     load_daily_azure_config,
     safe_automatic_plan,
     safe_guided_plan,
@@ -3027,8 +3029,20 @@ def test_inexact_web_app_topology_still_stops_before_deployment(tmp_path: Path) 
                 _exact_change("Create", f"expected-{index}", "web_app")
                 for index in range(8)
             ),
-            ChangeEvidence("Ignore", "unexpected_resource", "web_app", False),
-            ChangeEvidence("Ignore", "unexpected_resource", "web_app", False),
+            ChangeEvidence(
+                "Ignore",
+                "unexpected_resource",
+                "web_app",
+                False,
+                resource_type="private-resource-type-a",
+            ),
+            ChangeEvidence(
+                "Ignore",
+                "unexpected_resource",
+                "web_app",
+                False,
+                resource_type="private-resource-type-b",
+            ),
         ),
     )
 
@@ -3041,6 +3055,216 @@ def test_inexact_web_app_topology_still_stops_before_deployment(tmp_path: Path) 
     assert result.category == "unsafe_web_app_plan"
     assert "deploy_web_app" not in runner.calls
     assert result.daily_environment_ready is False
+    assert result.to_json_dict()["web_app_plan_rejection_reason"] == (
+        "unexpected_resource"
+    )
+    serialized = json.dumps(result.to_json_dict())
+    assert "private-resource-type-a" not in serialized
+    assert "private-resource-type-b" not in serialized
+
+
+def test_distinct_unsafe_web_app_plan_invariant_has_distinct_public_reason(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.plan_overrides["plan_web_app"] = PlanResult(malformed=True)
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.category == "unsafe_web_app_plan"
+    assert result.to_json_dict()["web_app_plan_rejection_reason"] == (
+        "malformed_evidence"
+    )
+    assert "deploy_web_app" not in runner.calls
+
+
+@pytest.mark.parametrize(
+    ("resource_type", "expected_category"),
+    (
+        (
+            "Microsoft.CognitiveServices/accounts",
+            "foundry_account_reference",
+        ),
+        (
+            "Microsoft.CognitiveServices/accounts/projects",
+            "foundry_project_reference",
+        ),
+    ),
+)
+def test_unexpected_web_app_resource_exposes_bounded_public_category(
+    tmp_path: Path,
+    resource_type: str,
+    expected_category: str,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.plan_overrides["plan_web_app"] = PlanResult(
+        ignore_count=1,
+        exact_topology_match=False,
+        change_evidence=(
+            ChangeEvidence(
+                "Ignore",
+                "unexpected_resource",
+                "web_app",
+                False,
+                resource_type=resource_type,
+            ),
+        ),
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    payload = result.to_json_dict()
+    assert payload["category"] == "unsafe_web_app_plan"
+    assert payload["web_app_plan_rejection_reason"] == "unexpected_resource"
+    assert payload["web_app_plan_unexpected_resource_category"] == (
+        expected_category
+    )
+    assert payload["web_app_plan_unexpected_resource_family"] is None
+    assert payload["web_app_plan_unexpected_resource_unknown_reason"] is None
+    assert payload["web_app_plan_unexpected_resource_provider_family"] is None
+    serialized = json.dumps(payload)
+    assert resource_type not in serialized
+    assert "private-resource-name" not in serialized
+    assert "deploy_web_app" not in runner.calls
+
+
+@pytest.mark.parametrize(
+    "family",
+    (
+        "authorization_role_assignment",
+        "resource_manager_deployment",
+        "unknown",
+    ),
+)
+def test_unidentified_unexpected_web_app_resource_exposes_bounded_public_family(
+    tmp_path: Path,
+    family: str,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.plan_overrides["plan_web_app"] = PlanResult(
+        create_count=1,
+        change_evidence=(
+            ChangeEvidence(
+                "Create",
+                "unexpected_resource",
+                "web_app",
+                False,
+                resource_type="unidentified",
+                unexpected_resource_family=family,  # type: ignore[arg-type]
+            ),
+        ),
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    payload = result.to_json_dict()
+    assert payload["category"] == "unsafe_web_app_plan"
+    assert payload["web_app_plan_rejection_reason"] == "unexpected_resource"
+    assert payload["web_app_plan_unexpected_resource_category"] == (
+        "unidentified"
+    )
+    assert payload["web_app_plan_unexpected_resource_family"] == family
+    assert payload["web_app_plan_unexpected_resource_unknown_reason"] == (
+        "resource_identity_unavailable" if family == "unknown" else None
+    )
+    assert payload["web_app_plan_unexpected_resource_provider_family"] is None
+    serialized = json.dumps(payload)
+    assert "Microsoft." not in serialized
+    assert "private-resource-name" not in serialized
+    assert "deploy_web_app" not in runner.calls
+
+
+@pytest.mark.parametrize(
+    ("unknown_reason", "provider_family"),
+    (
+        ("valid_type_unmapped", "authorization"),
+        ("valid_type_unmapped", "unknown_provider"),
+        ("resource_identity_unavailable", None),
+    ),
+)
+def test_unknown_web_app_resource_exposes_final_bounded_public_diagnostic(
+    tmp_path: Path,
+    unknown_reason: str,
+    provider_family: str | None,
+) -> None:
+    runner = FakeRunner()
+    runner.resource_group_absent = False
+    runner.foundry_absent = False
+    runner.plan_overrides["plan_web_app"] = PlanResult(
+        create_count=1,
+        change_evidence=(
+            ChangeEvidence(
+                "Create",
+                "unexpected_resource",
+                "web_app",
+                False,
+                resource_type="unidentified",
+                unexpected_resource_family="unknown",
+                unexpected_resource_unknown_reason=(
+                    unknown_reason  # type: ignore[arg-type]
+                ),
+                unexpected_resource_provider_family=(
+                    provider_family  # type: ignore[arg-type]
+                ),
+            ),
+        ),
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    payload = result.to_json_dict()
+    assert payload["category"] == "unsafe_web_app_plan"
+    assert payload["web_app_plan_rejection_reason"] == "unexpected_resource"
+    assert payload["web_app_plan_unexpected_resource_category"] == (
+        "unidentified"
+    )
+    assert payload["web_app_plan_unexpected_resource_family"] == "unknown"
+    assert payload["web_app_plan_unexpected_resource_unknown_reason"] == (
+        unknown_reason
+    )
+    assert payload["web_app_plan_unexpected_resource_provider_family"] == (
+        provider_family
+    )
+    serialized = json.dumps(payload)
+    for forbidden in (
+        "Microsoft.",
+        "resourceId",
+        "private-subscription",
+        "private-resource-group",
+        "private-resource-name",
+        "private-principal",
+        "private-role-definition",
+        "private-scope",
+        "private-parent",
+        "private-deployment",
+        "private-endpoint",
+        "private-hostname",
+        "az deployment",
+    ):
+        assert forbidden not in serialized
+    assert "deploy_web_app" not in runner.calls
 
 
 def test_exact_web_app_topology_reaches_only_the_existing_approval_prompt(
@@ -3083,6 +3307,7 @@ def test_exact_web_app_topology_reaches_only_the_existing_approval_prompt(
     )
 
     assert result.category == "web_app_deployment_approval_required"
+    assert result.to_json_dict()["web_app_plan_rejection_reason"] is None
     assert prompts == ["web_app_deployment"]
     assert "deploy_web_app" not in runner.calls
 
@@ -3334,6 +3559,15 @@ def test_web_app_plan_policy_preserves_create_nochange_and_exact_modify() -> Non
     assert safe_web_app_plan(create) is True
     assert safe_web_app_plan(no_change) is True
     assert safe_web_app_plan(modify) is True
+    for plan in (create, no_change, modify):
+        evaluation = evaluate_web_app_plan_safety(plan)
+        assert evaluation.safe is True
+        assert evaluation.rejection_reason is None
+        assert evaluation.unexpected_resource_category is None
+        assert evaluation.unexpected_resource_family is None
+        assert evaluation.unexpected_resource_unknown_reason is None
+        assert evaluation.unexpected_resource_provider_family is None
+        assert evaluation.safe is safe_web_app_plan(plan)
     assert safe_guided_plan(
         modify,
         expected_boundary="web_app",
@@ -3460,6 +3694,396 @@ def test_web_app_modify_policy_rejects_unrelated_or_ambiguous_evidence(
     plan = replace(plan, change_evidence=tuple(changes))
 
     assert safe_web_app_plan(plan) is False
+    evaluation = evaluate_web_app_plan_safety(plan)
+    assert evaluation.safe is False
+    assert evaluation.rejection_reason is not None
+
+
+def test_web_app_plan_rejection_precedence_is_deterministic() -> None:
+    unexpected = PlanResult(
+        create_count=1,
+        exact_topology_match=False,
+        change_evidence=(
+            ChangeEvidence(
+                "Create",
+                "unexpected_resource",
+                "web_app",
+                False,
+            ),
+        ),
+    )
+    malformed_unexpected = replace(unexpected, malformed=True)
+    count_mismatch = PlanResult(
+        create_count=2,
+        exact_topology_match=True,
+        change_evidence=(
+            _exact_change("Create", "web_app", "web_app"),
+        ),
+    )
+
+    assert evaluate_web_app_plan_safety(unexpected).rejection_reason == (
+        "unexpected_resource"
+    )
+    assert evaluate_web_app_plan_safety(
+        malformed_unexpected
+    ).rejection_reason == "malformed_evidence"
+    assert evaluate_web_app_plan_safety(count_mismatch).rejection_reason == (
+        "count_mismatch"
+    )
+    assert (
+        evaluate_web_app_plan_safety(count_mismatch)
+        .unexpected_resource_category
+        is None
+    )
+    assert (
+        evaluate_web_app_plan_safety(count_mismatch)
+        .unexpected_resource_family
+        is None
+    )
+    assert (
+        evaluate_web_app_plan_safety(count_mismatch)
+        .unexpected_resource_unknown_reason
+        is None
+    )
+    assert (
+        evaluate_web_app_plan_safety(count_mismatch)
+        .unexpected_resource_provider_family
+        is None
+    )
+
+
+def test_web_app_unexpected_resource_category_selection_is_bounded_and_stable(
+) -> None:
+    account = ChangeEvidence(
+        "Ignore",
+        "unexpected_resource",
+        "web_app",
+        False,
+        resource_type="Microsoft.CognitiveServices/accounts",
+    )
+    project = replace(
+        account,
+        resource_type="Microsoft.CognitiveServices/accounts/projects",
+    )
+    private = replace(account, resource_type="private/resource/type")
+
+    account_evaluation = evaluate_web_app_plan_safety(
+        PlanResult(ignore_count=1, change_evidence=(account,))
+    )
+    project_evaluation = evaluate_web_app_plan_safety(
+        PlanResult(ignore_count=1, change_evidence=(project,))
+    )
+    private_evaluation = evaluate_web_app_plan_safety(
+        PlanResult(ignore_count=1, change_evidence=(private,))
+    )
+    mixed_evaluation = evaluate_web_app_plan_safety(
+        PlanResult(ignore_count=2, change_evidence=(project, account))
+    )
+    reversed_evaluation = evaluate_web_app_plan_safety(
+        PlanResult(ignore_count=2, change_evidence=(account, project))
+    )
+
+    assert account_evaluation.unexpected_resource_category == (
+        "foundry_account_reference"
+    )
+    assert account_evaluation.unexpected_resource_family is None
+    assert account_evaluation.unexpected_resource_unknown_reason is None
+    assert account_evaluation.unexpected_resource_provider_family is None
+    assert project_evaluation.unexpected_resource_category == (
+        "foundry_project_reference"
+    )
+    assert project_evaluation.unexpected_resource_family is None
+    assert project_evaluation.unexpected_resource_unknown_reason is None
+    assert project_evaluation.unexpected_resource_provider_family is None
+    assert private_evaluation.unexpected_resource_category == "unidentified"
+    assert private_evaluation.unexpected_resource_family == "unknown"
+    assert private_evaluation.unexpected_resource_unknown_reason == (
+        "resource_identity_unavailable"
+    )
+    assert private_evaluation.unexpected_resource_provider_family is None
+    assert mixed_evaluation.unexpected_resource_category == (
+        "foundry_account_reference"
+    )
+    assert reversed_evaluation.unexpected_resource_category == (
+        "foundry_account_reference"
+    )
+    private_plan = PlanResult(ignore_count=1, change_evidence=(private,))
+    assert safe_web_app_plan(private_plan) is False
+
+
+def test_web_app_unidentified_resource_family_selection_has_fixed_precedence(
+) -> None:
+    role_assignment = ChangeEvidence(
+        "Create",
+        "unexpected_resource",
+        "web_app",
+        False,
+        resource_type="unidentified",
+        unexpected_resource_family="authorization_role_assignment",
+    )
+    deployment = replace(
+        role_assignment,
+        unexpected_resource_family="resource_manager_deployment",
+    )
+
+    forward = evaluate_web_app_plan_safety(
+        PlanResult(create_count=2, change_evidence=(deployment, role_assignment))
+    )
+    reverse = evaluate_web_app_plan_safety(
+        PlanResult(create_count=2, change_evidence=(role_assignment, deployment))
+    )
+
+    assert forward.unexpected_resource_category == "unidentified"
+    assert reverse.unexpected_resource_category == "unidentified"
+    assert forward.unexpected_resource_family == (
+        "authorization_role_assignment"
+    )
+    assert reverse.unexpected_resource_family == (
+        "authorization_role_assignment"
+    )
+    assert forward.safe is reverse.safe is False
+
+
+def test_web_app_unknown_resource_diagnostic_selection_has_fixed_precedence(
+) -> None:
+    web = ChangeEvidence(
+        "Create",
+        "unexpected_resource",
+        "web_app",
+        False,
+        resource_type="unidentified",
+        unexpected_resource_family="unknown",
+        unexpected_resource_unknown_reason="valid_type_unmapped",
+        unexpected_resource_provider_family="web",
+    )
+    authorization = replace(
+        web,
+        unexpected_resource_provider_family="authorization",
+    )
+    unavailable = replace(
+        web,
+        unexpected_resource_unknown_reason="resource_identity_unavailable",
+        unexpected_resource_provider_family=None,
+    )
+
+    forward = evaluate_web_app_plan_safety(
+        PlanResult(
+            create_count=3,
+            change_evidence=(unavailable, web, authorization),
+        )
+    )
+    reverse = evaluate_web_app_plan_safety(
+        PlanResult(
+            create_count=3,
+            change_evidence=(authorization, web, unavailable),
+        )
+    )
+
+    for evaluation in (forward, reverse):
+        assert evaluation.safe is False
+        assert evaluation.unexpected_resource_family == "unknown"
+        assert evaluation.unexpected_resource_unknown_reason == (
+            "valid_type_unmapped"
+        )
+        assert evaluation.unexpected_resource_provider_family == (
+            "authorization"
+        )
+
+
+def test_web_app_plan_safety_evaluation_rejects_invalid_category_combinations(
+) -> None:
+    with pytest.raises(ValueError, match="category disagree"):
+        WebAppPlanSafetyEvaluation(True, None, "unidentified")
+    with pytest.raises(ValueError, match="category disagree"):
+        WebAppPlanSafetyEvaluation(False, "unexpected_resource")
+    with pytest.raises(ValueError, match="category disagree"):
+        WebAppPlanSafetyEvaluation(
+            False,
+            "count_mismatch",
+            "unidentified",
+        )
+    with pytest.raises(ValueError, match="not allowlisted"):
+        WebAppPlanSafetyEvaluation(
+            False,
+            "unexpected_resource",
+            "private arbitrary value",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="family disagree"):
+        WebAppPlanSafetyEvaluation(False, "unexpected_resource", "unidentified")
+    with pytest.raises(ValueError, match="family is not allowlisted"):
+        WebAppPlanSafetyEvaluation(
+            False,
+            "unexpected_resource",
+            "unidentified",
+            "private arbitrary value",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="family disagree"):
+        WebAppPlanSafetyEvaluation(
+            False,
+            "unexpected_resource",
+            "foundry_account_reference",
+            "key_vault",
+        )
+    with pytest.raises(ValueError, match="family and reason disagree"):
+        WebAppPlanSafetyEvaluation(
+            False,
+            "unexpected_resource",
+            "unidentified",
+            "unknown",
+        )
+    with pytest.raises(ValueError, match="reason is not allowlisted"):
+        WebAppPlanSafetyEvaluation(
+            False,
+            "unexpected_resource",
+            "unidentified",
+            "unknown",
+            "private arbitrary value",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="provider is not allowlisted"):
+        WebAppPlanSafetyEvaluation(
+            False,
+            "unexpected_resource",
+            "unidentified",
+            "unknown",
+            "valid_type_unmapped",
+            "private arbitrary value",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="reason and provider disagree"):
+        WebAppPlanSafetyEvaluation(
+            False,
+            "unexpected_resource",
+            "unidentified",
+            "unknown",
+            "resource_identity_unavailable",
+            "web",
+        )
+
+
+def test_web_app_plan_rejection_reason_is_runtime_allowlisted() -> None:
+    with pytest.raises(ValueError, match="bounded reason"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+        )
+    with pytest.raises(ValueError, match="reason is invalid"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="private arbitrary value",  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="reason is invalid"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="different_failure",
+            mode="live",
+            web_app_plan_rejection_reason="topology_mismatch",
+        )
+    with pytest.raises(ValueError, match="requires one bounded category"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+        )
+    with pytest.raises(ValueError, match="category is invalid"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+            web_app_plan_unexpected_resource_category=(
+                "private arbitrary value"  # type: ignore[arg-type]
+            ),
+        )
+    with pytest.raises(ValueError, match="requires one bounded category"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="topology_mismatch",
+            web_app_plan_unexpected_resource_category="unidentified",
+        )
+    with pytest.raises(ValueError, match="requires one bounded family"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+            web_app_plan_unexpected_resource_category="unidentified",
+        )
+    with pytest.raises(ValueError, match="family is invalid"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+            web_app_plan_unexpected_resource_category="unidentified",
+            web_app_plan_unexpected_resource_family=(
+                "private arbitrary value"  # type: ignore[arg-type]
+            ),
+        )
+    with pytest.raises(ValueError, match="requires one bounded family"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+            web_app_plan_unexpected_resource_category=(
+                "foundry_account_reference"
+            ),
+            web_app_plan_unexpected_resource_family="key_vault",
+        )
+    with pytest.raises(ValueError, match="requires one bounded reason"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+            web_app_plan_unexpected_resource_category="unidentified",
+            web_app_plan_unexpected_resource_family="unknown",
+        )
+    with pytest.raises(ValueError, match="reason is invalid"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+            web_app_plan_unexpected_resource_category="unidentified",
+            web_app_plan_unexpected_resource_family="unknown",
+            web_app_plan_unexpected_resource_unknown_reason=(
+                "private arbitrary value"  # type: ignore[arg-type]
+            ),
+        )
+    with pytest.raises(ValueError, match="provider family is invalid"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+            web_app_plan_unexpected_resource_category="unidentified",
+            web_app_plan_unexpected_resource_family="unknown",
+            web_app_plan_unexpected_resource_unknown_reason=(
+                "valid_type_unmapped"
+            ),
+            web_app_plan_unexpected_resource_provider_family=(
+                "private arbitrary value"  # type: ignore[arg-type]
+            ),
+        )
+    with pytest.raises(ValueError, match="provider family disagree"):
+        DailyAzureEnvironmentRebuildResult(
+            ok=False,
+            category="unsafe_web_app_plan",
+            mode="live",
+            web_app_plan_rejection_reason="unexpected_resource",
+            web_app_plan_unexpected_resource_category="unidentified",
+            web_app_plan_unexpected_resource_family="unknown",
+            web_app_plan_unexpected_resource_unknown_reason=(
+                "resource_identity_unavailable"
+            ),
+            web_app_plan_unexpected_resource_provider_family="web",
+        )
 
 
 
@@ -6720,6 +7344,45 @@ def test_fresh_web_app_generation_verifies_runtime_assignment_before_application
     assert runner.calls.index("verify_key_vault_runtime_rbac") < runner.calls.index(
         "build_package"
     )
+
+
+def test_enabled_fresh_module_ignore_plan_reaches_deployment_and_independent_rbac_proof(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.web_app_absent = True
+    runner.plan_overrides["plan_web_app"] = PlanResult(
+        create_count=9,
+        ignore_count=1,
+        exact_topology_match=True,
+        change_evidence=(
+            *(
+                _exact_change("Create", f"expected-{index}", "web_app")
+                for index in range(9)
+            ),
+            ChangeEvidence(
+                "Ignore",
+                "template_module_ignore",
+                "web_app",
+                True,
+                expected_multiplicity_match=True,
+                resource_type="unidentified",
+            ),
+        ),
+    )
+
+    result = _live_with_key_vault_runtime(tmp_path, runner)
+
+    assert result.ok is True
+    assert result.daily_environment_ready is True
+    assert runner.calls.count("plan_web_app") == 2
+    assert runner.calls.count("deploy_web_app") == 1
+    assert runner.calls.index("deploy_web_app") < runner.calls.index(
+        "verify_key_vault_runtime_rbac"
+    )
+    assert result.key_vault_verified is True
+    assert result.web_app_identity_verified is True
+    assert result.key_vault_secrets_user_assignment_verified is True
 
 
 def test_missing_runtime_assignment_requires_approval_bicep_and_postverification(

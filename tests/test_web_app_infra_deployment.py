@@ -7,6 +7,7 @@ import pytest
 from src.app.services import web_app_infra_deployment as deployment
 from src.app.services.daily_azure_environment_rebuild import (
     _plan_from_object,
+    evaluate_web_app_plan_safety,
     safe_guided_plan,
     safe_web_app_plan,
     safe_web_app_reconciliation_plan,
@@ -1544,6 +1545,275 @@ def _web_app_topology_changes(
     ]
 
 
+def _key_vault_runtime_enabled_topology_changes(
+    request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> list[dict[str, object]]:
+    suffix = deployment._resource_name_suffix(request)
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers"
+    )
+    vault = f"{root}/Microsoft.KeyVault/vaults/kv{suffix}"
+    return [
+        *_web_app_topology_changes(request),
+        {"changeType": "Create", "resourceId": vault},
+        {"changeType": "Ignore"},
+    ]
+
+
+def test_key_vault_enabled_fresh_topology_is_safe_without_fabricating_rbac_proof(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    request = replace(
+        deployment_request,
+        mode="what-if",
+        enable_key_vault_runtime_authorization=True,
+    )
+    changes = _key_vault_runtime_enabled_topology_changes(request)
+
+    result = deployment.deploy_web_app_infrastructure(
+        request,
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.exact_topology_match is True
+    assert result.create_count == 9
+    assert result.ignore_count == 1
+    assert result.unsupported_count == 0
+    module_ignore = result.change_evidence[-1]
+    assert module_ignore.action == "Ignore"
+    assert module_ignore.resource_type == "unidentified"
+    assert module_ignore.logical_category == "template_module_ignore"
+    assert module_ignore.approved_boundary is True
+    assert module_ignore.expected_identity_match is False
+    assert module_ignore.expected_parent_match is False
+    assert module_ignore.expected_scope_match is False
+    assert module_ignore.expected_multiplicity_match is True
+    assert safe_web_app_plan(_plan_from_object(result)) is True
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "disabled",
+        "duplicate-module-ignore",
+        "identified-unexpected-ignore",
+        "module-ignore-with-null-resource-id",
+        "module-ignore-with-children",
+        "module-ignore-with-unknown-field",
+        "missing-key-vault",
+    ),
+)
+def test_key_vault_runtime_topology_remains_configuration_and_scope_bound(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    case: str,
+) -> None:
+    request = replace(
+        deployment_request,
+        mode="what-if",
+        enable_key_vault_runtime_authorization=case != "disabled",
+    )
+    changes = _key_vault_runtime_enabled_topology_changes(request)
+    vault_index = next(
+        index
+        for index, change in enumerate(changes)
+        if "/Microsoft.KeyVault/vaults/" in str(change.get("resourceId", ""))
+    )
+    if case == "duplicate-module-ignore":
+        changes.append({"changeType": "Ignore"})
+    elif case == "identified-unexpected-ignore":
+        changes[-1]["resourceId"] = (
+            f"/subscriptions/private-sub/resourceGroups/"
+            f"{request.resource_group}/providers/Microsoft.KeyVault/vaults/"
+            "not-repository-owned"
+        )
+    elif case == "module-ignore-with-null-resource-id":
+        changes[-1]["resourceId"] = None
+    elif case == "module-ignore-with-children":
+        changes[-1]["children"] = []
+    elif case == "module-ignore-with-unknown-field":
+        changes[-1]["unexpected"] = "private-value"
+    elif case == "missing-key-vault":
+        changes.pop(vault_index)
+
+    result = deployment.deploy_web_app_infrastructure(
+        request,
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.exact_topology_match is False
+    assert safe_web_app_plan(_plan_from_object(result)) is False
+
+
+@pytest.mark.parametrize(
+    ("resource_path", "expected_family"),
+    (
+        (
+            "Microsoft.Authorization/roleAssignments/"
+            "00000000-0000-0000-0000-000000000001",
+            "authorization_role_assignment",
+        ),
+        (
+            "Microsoft.Resources/deployments/private-deployment",
+            "resource_manager_deployment",
+        ),
+    ),
+)
+def test_unexpected_unidentified_web_app_resource_retains_bounded_family(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    resource_path: str,
+    expected_family: str,
+) -> None:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/"
+        f"{deployment_request.resource_group}/providers"
+    )
+    changes = [
+        *_web_app_topology_changes(deployment_request),
+        {
+            "changeType": "Create",
+            "resourceId": f"{root}/{resource_path}",
+        },
+    ]
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+    plan = _plan_from_object(result)
+    evaluation = evaluate_web_app_plan_safety(plan)
+
+    assert safe_web_app_plan(plan) is False
+    assert evaluation.rejection_reason == "unexpected_resource"
+    assert evaluation.unexpected_resource_category == "unidentified"
+    assert evaluation.unexpected_resource_family == expected_family
+
+
+@pytest.mark.parametrize(
+    ("unexpected_change", "expected_reason", "expected_provider"),
+    (
+        (
+            {
+                "changeType": "Create",
+                "resource_path": "Microsoft.Authorization/locks/private-lock",
+            },
+            "valid_type_unmapped",
+            "authorization",
+        ),
+        (
+            {
+                "changeType": "Create",
+                "resource_path": (
+                    "Microsoft.Web/sites/private-site/config/web"
+                ),
+            },
+            "valid_type_unmapped",
+            "web",
+        ),
+        (
+            {
+                "changeType": "Create",
+                "resource_path": (
+                    "Microsoft.Network/virtualNetworks/private-network"
+                ),
+            },
+            "valid_type_unmapped",
+            "unknown_provider",
+        ),
+        (
+            {"changeType": "Create"},
+            "resource_identity_unavailable",
+            None,
+        ),
+    ),
+)
+def test_unknown_web_app_resource_family_retains_bounded_cause_and_provider(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    unexpected_change: dict[str, str],
+    expected_reason: str,
+    expected_provider: str | None,
+) -> None:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/"
+        f"{deployment_request.resource_group}/providers"
+    )
+    change = dict(unexpected_change)
+    resource_path = change.pop("resource_path", None)
+    if resource_path is not None:
+        change["resourceId"] = f"{root}/{resource_path}"
+    changes = [*_web_app_topology_changes(deployment_request), change]
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+    plan = _plan_from_object(result)
+    evaluation = evaluate_web_app_plan_safety(plan)
+
+    assert safe_web_app_plan(plan) is False
+    assert evaluation.rejection_reason == "unexpected_resource"
+    assert evaluation.unexpected_resource_category == "unidentified"
+    assert evaluation.unexpected_resource_family == "unknown"
+    assert evaluation.unexpected_resource_unknown_reason == expected_reason
+    assert evaluation.unexpected_resource_provider_family == expected_provider
+    serialized = json.dumps(result.to_json_dict())
+    if resource_path is not None:
+        assert resource_path not in serialized
+    for forbidden in (
+        "Microsoft.Authorization",
+        "Microsoft.Network",
+        "private-lock",
+        "private-site",
+        "private-network",
+        "unexpected_resource_unknown_reason",
+        "unexpected_resource_provider_family",
+    ):
+        assert forbidden not in serialized
+
+
+def test_conflicting_web_app_resource_type_remains_malformed_evidence(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/"
+        f"{deployment_request.resource_group}/providers"
+    )
+    changes = [
+        *_web_app_topology_changes(deployment_request),
+        {
+            "changeType": "Create",
+            "resourceId": (
+                f"{root}/Microsoft.Network/virtualNetworks/private-network"
+            ),
+            "resourceType": "Microsoft.Web/sites",
+        },
+    ]
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+    plan = _plan_from_object(result)
+    evaluation = evaluate_web_app_plan_safety(plan)
+
+    assert plan.malformed is True
+    assert evaluation.safe is False
+    assert evaluation.rejection_reason == "malformed_evidence"
+    assert evaluation.unexpected_resource_category is None
+    assert evaluation.unexpected_resource_family is None
+    assert evaluation.unexpected_resource_unknown_reason is None
+    assert evaluation.unexpected_resource_provider_family is None
+
+
 def _web_app_foundry_reference_ignores(
     request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> list[dict[str, object]]:
@@ -2058,7 +2328,15 @@ def test_web_app_adapter_rejects_inexact_foundry_reference_ignores(
         expected_boundary="web_app",
         require_create=True,
     ) is False
-    assert safe_web_app_plan(_plan_from_object(result)) is False
+    plan = _plan_from_object(result)
+    assert safe_web_app_plan(plan) is False
+    if case in {"different-account", "unrelated-project"}:
+        evaluation = evaluate_web_app_plan_safety(plan)
+        assert evaluation.rejection_reason == "unexpected_resource"
+        assert evaluation.unexpected_resource_category == {
+            "different-account": "foundry_account_reference",
+            "unrelated-project": "foundry_project_reference",
+        }[case]
     serialized = json.dumps(result.to_json_dict()["change_evidence"])
     for forbidden in (
         "private-sub",

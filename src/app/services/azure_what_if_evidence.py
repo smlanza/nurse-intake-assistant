@@ -85,6 +85,103 @@ NormalizedAction = Literal[
     "Replacement",
     "unknown",
 ]
+AzureResourceFamily = Literal[
+    "authorization_role_assignment",
+    "resource_manager_deployment",
+    "key_vault",
+    "web_site",
+    "app_service_plan",
+    "cosmos_account",
+    "cosmos_database",
+    "cosmos_container",
+    "storage_account",
+    "application_insights",
+    "log_analytics",
+    "foundry_account",
+    "foundry_project",
+    "model_deployment",
+    "unknown",
+]
+AzureResourceUnknownReason = Literal[
+    "valid_type_unmapped",
+    "resource_identity_unavailable",
+]
+AzureProviderFamily = Literal[
+    "authorization",
+    "resources",
+    "key_vault",
+    "web",
+    "document_db",
+    "storage",
+    "monitor",
+    "operational_insights",
+    "cognitive_services",
+    "unknown_provider",
+]
+AZURE_RESOURCE_FAMILIES: tuple[AzureResourceFamily, ...] = (
+    "authorization_role_assignment",
+    "resource_manager_deployment",
+    "key_vault",
+    "web_site",
+    "app_service_plan",
+    "cosmos_account",
+    "cosmos_database",
+    "cosmos_container",
+    "storage_account",
+    "application_insights",
+    "log_analytics",
+    "foundry_account",
+    "foundry_project",
+    "model_deployment",
+    "unknown",
+)
+AZURE_RESOURCE_UNKNOWN_REASONS: tuple[AzureResourceUnknownReason, ...] = (
+    "valid_type_unmapped",
+    "resource_identity_unavailable",
+)
+AZURE_PROVIDER_FAMILIES: tuple[AzureProviderFamily, ...] = (
+    "authorization",
+    "resources",
+    "key_vault",
+    "web",
+    "document_db",
+    "storage",
+    "monitor",
+    "operational_insights",
+    "cognitive_services",
+    "unknown_provider",
+)
+_AZURE_RESOURCE_FAMILY_BY_TYPE: Mapping[str, AzureResourceFamily] = {
+    "microsoft.authorization/roleassignments": (
+        "authorization_role_assignment"
+    ),
+    "microsoft.resources/deployments": "resource_manager_deployment",
+    "microsoft.keyvault/vaults": "key_vault",
+    "microsoft.web/sites": "web_site",
+    "microsoft.web/serverfarms": "app_service_plan",
+    "microsoft.documentdb/databaseaccounts": "cosmos_account",
+    "microsoft.documentdb/databaseaccounts/sqldatabases": "cosmos_database",
+    "microsoft.documentdb/databaseaccounts/sqldatabases/containers": (
+        "cosmos_container"
+    ),
+    "microsoft.storage/storageaccounts": "storage_account",
+    "microsoft.insights/components": "application_insights",
+    "microsoft.operationalinsights/workspaces": "log_analytics",
+    "microsoft.cognitiveservices/accounts": "foundry_account",
+    "microsoft.cognitiveservices/accounts/projects": "foundry_project",
+    "microsoft.cognitiveservices/accounts/deployments": "model_deployment",
+}
+_AZURE_PROVIDER_FAMILY_BY_NAMESPACE: Mapping[str, AzureProviderFamily] = {
+    "microsoft.authorization": "authorization",
+    "microsoft.resources": "resources",
+    "microsoft.keyvault": "key_vault",
+    "microsoft.web": "web",
+    "microsoft.documentdb": "document_db",
+    "microsoft.storage": "storage",
+    "microsoft.insights": "monitor",
+    "microsoft.operationalinsights": "operational_insights",
+    "microsoft.cognitiveservices": "cognitive_services",
+}
 _NormalizedRecordT = TypeVar("_NormalizedRecordT")
 
 
@@ -221,6 +318,13 @@ class WhatIfResourceIdentity:
         default=(),
         repr=False,
     )
+    unexpected_resource_unknown_reason: (
+        AzureResourceUnknownReason | None
+    ) = field(default=None, repr=False)
+    unexpected_resource_provider_family: AzureProviderFamily | None = field(
+        default=None,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -235,6 +339,49 @@ class SanitizedWhatIfChange:
     expected_scope_match: bool = False
     expected_multiplicity_match: bool = False
     diagnostic: SanitizedIgnoreDiagnostic | None = None
+    unexpected_resource_family: AzureResourceFamily | None = field(
+        default=None,
+        repr=False,
+    )
+    unexpected_resource_unknown_reason: (
+        AzureResourceUnknownReason | None
+    ) = field(default=None, repr=False)
+    unexpected_resource_provider_family: AzureProviderFamily | None = field(
+        default=None,
+        repr=False,
+    )
+
+    def __post_init__(self) -> None:
+        if self.unexpected_resource_family is not None and (
+            self.unexpected_resource_family not in AZURE_RESOURCE_FAMILIES
+            or self.logical_category != "unexpected_resource"
+            or self.resource_type != "unidentified"
+        ):
+            raise ValueError("Sanitized unexpected-resource family is invalid.")
+        if (
+            self.unexpected_resource_unknown_reason is not None
+            and self.unexpected_resource_unknown_reason
+            not in AZURE_RESOURCE_UNKNOWN_REASONS
+        ):
+            raise ValueError("Sanitized unknown-resource reason is invalid.")
+        if (
+            self.unexpected_resource_provider_family is not None
+            and self.unexpected_resource_provider_family
+            not in AZURE_PROVIDER_FAMILIES
+        ):
+            raise ValueError("Sanitized provider family is invalid.")
+        if (
+            self.unexpected_resource_family == "unknown"
+        ) is not (self.unexpected_resource_unknown_reason is not None):
+            raise ValueError(
+                "Sanitized unknown-resource family and reason disagree."
+            )
+        if (
+            self.unexpected_resource_unknown_reason == "valid_type_unmapped"
+        ) is not (self.unexpected_resource_provider_family is not None):
+            raise ValueError(
+                "Sanitized unknown-resource reason and provider disagree."
+            )
 
     def to_json_dict(self) -> dict[str, object]:
         result: dict[str, object] = {
@@ -468,8 +615,8 @@ def normalize_sanitized_what_if_payload(
             continue
         if resource_type_present and not resource_type_consistent:
             records_parseable = False
-        normalized_identity = identity or WhatIfResourceIdentity(
-            "unidentified", "", "", ()
+        normalized_identity = _identity_with_unknown_family_diagnostic(
+            identity
         )
         actions.append(action)
         identities.append(normalized_identity)
@@ -580,6 +727,21 @@ def _summarize_normalized_what_if(
                     if diagnostic is None or approved
                     else _decide_ignore_diagnostic(diagnostic, count_matches=False)
                 ),
+                unexpected_resource_family=(
+                    _azure_resource_family(identity.resource_type)
+                    if logical_category is None
+                    else None
+                ),
+                unexpected_resource_unknown_reason=(
+                    identity.unexpected_resource_unknown_reason
+                    if logical_category is None
+                    else None
+                ),
+                unexpected_resource_provider_family=(
+                    identity.unexpected_resource_provider_family
+                    if logical_category is None
+                    else None
+                ),
             )
         )
     return SanitizedWhatIfSummary(tuple(evidence), exact_topology_match=True)
@@ -628,6 +790,18 @@ def _exact_summary(
     )
     unidentified_ignores_match = (
         unidentified_ignore_count in allowed_unidentified_ignore_counts
+        and all(
+            diagnostic is not None
+            and diagnostic.top_level_fields_present == ("changeType",)
+            and diagnostic.unknown_top_level_field_count == 0
+            for action, identity, diagnostic in zip(
+                actions,
+                identities,
+                ignore_diagnostics,
+                strict=True,
+            )
+            if action == "Ignore" and identity.resource_type == "unidentified"
+        )
     )
     ordinary_identities = tuple(
         identity
@@ -734,9 +908,9 @@ def _exact_summary(
                     action=action,
                     resource_type="unidentified",
                     logical_category=(
-                        "unexpected_resource"
-                        if expected_ignored_resources
-                        else "template_module_ignore"
+                        "template_module_ignore"
+                        if approved
+                        else "unexpected_resource"
                     ),
                     boundary=boundary,
                     approved_boundary=approved,
@@ -757,6 +931,21 @@ def _exact_summary(
                             diagnostic,
                             count_matches=unidentified_ignores_match,
                         )
+                    ),
+                    unexpected_resource_family=(
+                        None
+                        if approved
+                        else _azure_resource_family(identity.resource_type)
+                    ),
+                    unexpected_resource_unknown_reason=(
+                        None
+                        if approved
+                        else identity.unexpected_resource_unknown_reason
+                    ),
+                    unexpected_resource_provider_family=(
+                        None
+                        if approved
+                        else identity.unexpected_resource_provider_family
                     ),
                 )
             )
@@ -908,9 +1097,63 @@ def _exact_summary(
                         )
                     )
                 ),
+                unexpected_resource_family=(
+                    _azure_resource_family(identity.resource_type)
+                    if not type_expectations
+                    else None
+                ),
+                unexpected_resource_unknown_reason=(
+                    identity.unexpected_resource_unknown_reason
+                    if not type_expectations
+                    else None
+                ),
+                unexpected_resource_provider_family=(
+                    identity.unexpected_resource_provider_family
+                    if not type_expectations
+                    else None
+                ),
             )
         )
     return SanitizedWhatIfSummary(tuple(evidence), exact_topology_match)
+
+
+def _azure_resource_family(resource_type: str) -> AzureResourceFamily:
+    return _AZURE_RESOURCE_FAMILY_BY_TYPE.get(
+        resource_type.casefold(),
+        "unknown",
+    )
+
+
+def _identity_with_unknown_family_diagnostic(
+    identity: WhatIfResourceIdentity | None,
+) -> WhatIfResourceIdentity:
+    if identity is None:
+        return WhatIfResourceIdentity(
+            "unidentified",
+            "",
+            "",
+            (),
+            unexpected_resource_unknown_reason=(
+                "resource_identity_unavailable"
+            ),
+        )
+    if _azure_resource_family(identity.resource_type) != "unknown":
+        return identity
+    return replace(
+        identity,
+        unexpected_resource_unknown_reason="valid_type_unmapped",
+        unexpected_resource_provider_family=_azure_provider_family(
+            identity.resource_type
+        ),
+    )
+
+
+def _azure_provider_family(resource_type: str) -> AzureProviderFamily:
+    namespace = resource_type.split("/", 1)[0].casefold()
+    return _AZURE_PROVIDER_FAMILY_BY_NAMESPACE.get(
+        namespace,
+        "unknown_provider",
+    )
 
 
 def _direct_resource_group_reference_path(
