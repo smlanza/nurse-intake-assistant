@@ -62,6 +62,42 @@ HOSTED_SETTING_OPTIONS: Final[Mapping[str, str]] = MappingProxyType(
     )
 )
 HOSTED_VERIFIER_SETTING_NAMES: Final = tuple(HOSTED_VERIFIER_BICEP_PROPERTIES)
+APP_SERVICE_AUTHENTICATION_ANONYMOUS_PATHS: Final = (
+    "/health",
+    "/version",
+    "/demo/status",
+)
+APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES: Final[Mapping[str, str]] = (
+    MappingProxyType(
+        {
+            "clientId": "client_id",
+            "tenantId": "tenant_id",
+        }
+    )
+)
+_CANONICAL_GUID = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+)
+
+
+def app_service_authentication_configuration_valid(
+    values: Mapping[str, object],
+) -> bool:
+    """Validate the exact non-secret tagged Authentication v2 input."""
+
+    if not isinstance(values, Mapping):
+        return False
+    if values.get("mode") == "disabled":
+        return set(values) == {"mode"}
+    return bool(
+        values.get("mode") == "enabled"
+        and set(values) == {"mode", *APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES}
+        and all(
+            isinstance(values.get(name), str)
+            and _CANONICAL_GUID.fullmatch(values[name]) is not None
+            for name in APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES
+        )
+    )
 
 
 def hosted_verifier_settings_valid(values: Mapping[str, object]) -> bool:

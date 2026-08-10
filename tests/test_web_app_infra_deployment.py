@@ -95,6 +95,17 @@ def _request_with_module(
     validation_name = "hosted-foundry-verifier-config-validation.bicep"
     validation_source = deployment_request.template_file.parent / "modules" / validation_name
     (module.parent / validation_name).write_text(validation_source.read_text())
+    authentication_validation_name = (
+        "app-service-authentication-config-validation.bicep"
+    )
+    authentication_validation_source = (
+        deployment_request.template_file.parent
+        / "modules"
+        / authentication_validation_name
+    )
+    (module.parent / authentication_validation_name).write_text(
+        authentication_validation_source.read_text()
+    )
     return replace(deployment_request, template_file=template)
 
 
@@ -226,6 +237,12 @@ def test_direct_module_contract_rejects_every_extra_deployment_boundary(
     (modules / validation_name).write_text(
         (ROOT / "infra/modules" / validation_name).read_text()
     )
+    authentication_validation_name = (
+        "app-service-authentication-config-validation.bicep"
+    )
+    (modules / authentication_validation_name).write_text(
+        (ROOT / "infra/modules" / authentication_validation_name).read_text()
+    )
     request = replace(reconciliation_request, template_file=template)
 
     result = deployment.deploy_web_app_infrastructure(request)
@@ -250,6 +267,77 @@ def test_ordinary_web_app_deployment_defaults_hosted_verifier_to_disabled(
 
     assert result.ok is True
     assert result.hosted_verifier_configuration_supplied is False
+    assert result.app_service_authentication_configuration_supplied is False
+
+
+def test_app_service_authentication_opt_in_is_strict_and_propagated(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    request = replace(
+        deployment_request,
+        mode="live",
+        enable_app_service_authentication=True,
+        app_service_authentication_client_id=(
+            "11111111-2222-4333-8444-555555555555"
+        ),
+        app_service_authentication_tenant_id=(
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        ),
+    )
+    runner = FakeRunner()
+
+    result = deployment.deploy_web_app_infrastructure(request, runner=runner)
+
+    assert result.ok is True
+    assert result.app_service_authentication_configuration_supplied is True
+    parameters = runner.calls[0][runner.calls[0].index("--parameters") + 1 :]
+    authentication_parameter = next(
+        value
+        for value in parameters
+        if value.startswith("appServiceAuthenticationConfiguration=")
+    )
+    assert json.loads(authentication_parameter.split("=", 1)[1]) == {
+        "mode": "enabled",
+        "clientId": request.app_service_authentication_client_id,
+        "tenantId": request.app_service_authentication_tenant_id,
+    }
+
+
+@pytest.mark.parametrize(
+    ("enabled", "client_id", "tenant_id"),
+    (
+        (False, "11111111-2222-4333-8444-555555555555", None),
+        (False, None, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+        (True, None, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+        (True, "11111111-2222-4333-8444-555555555555", None),
+        (True, "not-a-guid", "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"),
+        (
+            True,
+            "11111111-2222-4333-8444-555555555555",
+            "AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE",
+        ),
+    ),
+)
+def test_app_service_authentication_inputs_fail_closed_before_runner(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    enabled: bool,
+    client_id: str | None,
+    tenant_id: str | None,
+) -> None:
+    runner = FakeRunner()
+    request = replace(
+        deployment_request,
+        mode="live",
+        enable_app_service_authentication=enabled,
+        app_service_authentication_client_id=client_id,
+        app_service_authentication_tenant_id=tenant_id,
+    )
+
+    result = deployment.deploy_web_app_infrastructure(request, runner=runner)
+
+    assert result.category == "invalid_arguments"
+    assert result.azure_operation_attempted is False
+    assert runner.calls == []
 
 
 @pytest.mark.parametrize(
@@ -404,6 +492,17 @@ def test_check_rejects_non_mock_hosted_posture(
     validation_name = "hosted-foundry-verifier-config-validation.bicep"
     validation_source = deployment_request.template_file.parent / "modules" / validation_name
     (module.parent / validation_name).write_text(validation_source.read_text())
+    authentication_validation_name = (
+        "app-service-authentication-config-validation.bicep"
+    )
+    authentication_validation_source = (
+        deployment_request.template_file.parent
+        / "modules"
+        / authentication_validation_name
+    )
+    (module.parent / authentication_validation_name).write_text(
+        authentication_validation_source.read_text()
+    )
 
     result = deployment.deploy_web_app_infrastructure(
         replace(deployment_request, template_file=template)
@@ -1243,6 +1342,14 @@ def test_azure_modes_issue_one_allowlisted_infrastructure_command(
         "modelDeploymentName": deployment_request.hosted_verifier_model_deployment_name,
     }
     assert not any(parameter.startswith("hostedVerifier") for parameter in parameters)
+    authentication_parameter = next(
+        parameter
+        for parameter in parameters
+        if parameter.startswith("appServiceAuthenticationConfiguration=")
+    )
+    assert json.loads(authentication_parameter.split("=", 1)[1]) == {
+        "mode": "disabled"
+    }
     assert result.what_if_attempted is (mode == "what-if")
     assert result.deployment_attempted is (mode == "live")
 
@@ -1324,6 +1431,7 @@ def test_reconciliation_command_uses_only_dedicated_web_app_parameters(
             separators=(",", ":"),
             sort_keys=True,
         ),
+        'appServiceAuthenticationConfiguration={"mode":"disabled"}',
     ]
     for forbidden in (
         "deployApp",
@@ -1563,6 +1671,56 @@ def _key_vault_runtime_enabled_topology_changes(
         *_web_app_topology_changes(request),
         {"changeType": "Create", "resourceId": vault},
     ]
+
+
+def test_authentication_enabled_fresh_topology_adds_only_exact_authsettings_v2(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    request = replace(
+        deployment_request,
+        mode="what-if",
+        enable_app_service_authentication=True,
+        app_service_authentication_client_id=(
+            "11111111-2222-4333-8444-555555555555"
+        ),
+        app_service_authentication_tenant_id=(
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        ),
+    )
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers"
+    )
+    changes = [
+        *_web_app_topology_changes(request),
+        {
+            "changeType": "Create",
+            "resourceId": (
+                f"{root}/Microsoft.Web/sites/{request.web_app_name}/"
+                "config/authsettingsV2"
+            ),
+        },
+    ]
+
+    result = deployment.deploy_web_app_infrastructure(
+        request,
+        runner=FakeRunner(
+            deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+        ),
+    )
+
+    assert result.ok is True
+    assert result.exact_topology_match is True
+    assert result.create_count == 9
+    auth_change = next(
+        change
+        for change in result.change_evidence
+        if change.logical_category == "web_app_authentication"
+    )
+    assert auth_change.resource_type == "Microsoft.Web/sites/config"
+    assert auth_change.expected_identity_match is True
+    assert auth_change.expected_parent_match is True
+    assert auth_change.expected_scope_match is True
+    assert auth_change.expected_multiplicity_match is True
 
 
 def test_key_vault_enabled_fresh_topology_is_safe_without_fabricating_rbac_proof(
@@ -3072,6 +3230,7 @@ def test_json_result_is_exactly_the_approved_sanitized_projection(
         "deploy_app",
         "deploy_foundry",
         "hosted_verifier_configuration_supplied",
+        "app_service_authentication_configuration_supplied",
         "create_count",
         "modify_count",
         "delete_count",

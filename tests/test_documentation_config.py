@@ -1665,3 +1665,29 @@ def test_stale_webjob_recovery_docs_define_separate_manual_boundary() -> None:
         },
     )
     assert "recover-stale-hosted-foundry-agent-webjob-state.md" in daily
+
+
+def test_app_service_authentication_docs_match_offline_security_boundary() -> None:
+    architecture = _normalized(_read("docs/architecture.md"))
+    progress = _normalized(_read("docs/progress.md"))
+    mapping = _normalized(_read("docs/ai-103-mapping.md"))
+    infrastructure = _normalized(_read("infra/README.md"))
+    combined = " ".join((architecture, progress, mapping, infrastructure))
+
+    _assert_contains_all(
+        combined,
+        {
+            "disabled by default",
+            "App Service Authentication v2",
+            "Microsoft Entra",
+            "`/health`, `/version`, and `/demo/status`",
+            "existing Entra application",
+            "No Entra app registration",
+            "live deployment",
+            "authorization",
+        },
+    )
+    assert (
+        "App Service Authentication / Entra ID protection is deferred"
+        not in combined
+    )

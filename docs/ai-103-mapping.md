@@ -42,6 +42,7 @@ or SMS.
 | Managed-identity and RBAC readiness | Optional IaC defines a Linux Web App system identity and separate project-scoped Consumer assignment. The verifier resolves and validates Azure's returned project ID without manual construction. The outer deployment name is deterministic while the nested module derives the distinct `${deployment().name}-assignment` name; project scope, fixed role, deterministic assignment GUID, and identity lookup remain unchanged | `infra/foundry-agent-consumer-rbac.bicep`, `infra/modules/foundry-agent-consumer-rbac.bicep`, `src/app/services/foundry_agent_consumer_rbac_verification.py`, `tests/test_foundry_agent_consumer_rbac_bicep.py` | After the collision correction and a fresh matching preview, Azure accepted the project-scoped Consumer assignment deployment. A separate read-only verifier proved exactly one direct assignment for the Web App system identity at the exact project scope. Token use, hosted metadata access, agent operation, and invocation remain unproven |
 | Key Vault infrastructure and authorization readiness | `main.bicep` optionally creates the repository-owned zero-secret RBAC-mode vault beside the Web App but never composes runtime RBAC. After exact current vault and Web App identity verification, the daily coordinator reuses one correct direct assignment or offers the existing evidence-bound, default-no standalone Key Vault Secrets User deployment, independently rereads it, and conditionally gates READY; the human Reader boundary remains separate | `infra/main.bicep`, `infra/modules/key-vault.bicep`, `infra/key-vault-reader-rbac.bicep`, `infra/modules/key-vault-reader-rbac.bicep`, `infra/key-vault-secrets-user-rbac.bicep`, `infra/modules/key-vault-secrets-user-rbac.bicep`, `src/app/services/key_vault_live_proof.py`, `src/app/services/daily_azure_environment_rebuild.py`, `tests/test_daily_azure_environment_rebuild.py` | Offline daily-generation Key Vault runtime RBAC orchestration is implemented, including principal-churn invalidation, exact independent verification, safe reuse, evidence-bound Bicep repair, and conditional READY proof. Live daily-generation runtime RBAC is not yet proven. Existing live vault infrastructure proof remains valid; operator Reader authorization and zero-secret metadata proof remain unproven. Live secret retrieval, credential migration, App Service references, and production secret operations remain deferred |
 | Repeatable application deployment readiness | An explicit CLI deploys Web App infrastructure through the existing `main.bicep` with Foundry disabled; its local reader enforces the exact shared hosted settings contract, and what-if exposes sanitized change counts only. Separate boundaries verify Bicep-owned configuration, package and deploy code, and check `/health`, `/version`, and `/demo/status` | `src/app/services/web_app_hosting_contract.py`, `src/app/services/web_app_infra_deployment.py`, `scripts/deploy_web_app_infra.py`, `src/app/services/web_app_configuration_verification.py`, `scripts/verify_web_app_configuration.py`, `src/app/services/web_app_package.py`, `scripts/deploy_web_app_code.py`, `src/app/services/web_app_readiness_verification.py`, `scripts/verify_web_app_readiness.py` | Current verification proved configuration, system identity, mock-safe hosted posture, application deployment, artifact equality, and hosted readiness. Check modes make no Azure or HTTP call. Direct project-scoped Consumer RBAC is separately live-proven; managed-identity Foundry access and invocation remain unproven |
+| App Service Authentication perimeter | The existing Web App module has a disabled-by-default Authentication v2 child. Explicit opt-in requires canonical non-secret IDs for an existing Entra application and tenant, requires authentication and HTTPS by default, returns 401 for protected unauthenticated requests, and excludes exactly `/health`, `/version`, and `/demo/status`. A dedicated verifier proves the disabled or enabled local contract without Azure | `infra/modules/web-app.bicep`, `infra/modules/app-service-authentication-config-validation.bicep`, `src/app/services/web_app_authentication_verification.py`, `scripts/verify_web_app_authentication.py`, `tests/test_web_app_authentication_contract.py` | Implemented and compiled offline. No Entra application, secret, certificate, role, FastAPI auth middleware, Azure call, or live sign-in proof exists. Live deployment and acceptance remain a separate supervised slice; authorization remains deferred |
 
 ## 3. Generative AI And Foundry Relevance
 
@@ -256,7 +257,7 @@ Scope boundaries:
   gating are implemented offline, but live daily acceptance is unproven.
   Zero-secret metadata proof, retrieval, current-credential migration, App
   Service Key Vault references, and production rotation remain deferred
-- App Service Authentication / Entra ID protection is deferred
+- App Service Authentication v2 / Entra ID is implemented offline and remains pending live deployment and sign-in proof
 - Confirmed ACS SMS handset delivery is not implemented and remains pending
   external toll-free verification and future delivery tracking
 
@@ -269,7 +270,7 @@ The following are future work, not current implementation:
 - Live acceptance of daily-generation Key Vault runtime RBAC, completion of
   zero-secret metadata proof, live retrieval, current-credential migration,
   App Service references, and production secret rotation/operations
-- App Service Authentication / Entra ID protection
+- Live App Service Authentication / Entra ID deployment and sign-in proof
 - App Service-hosted telemetry configuration and verification
 - Audio upload, microphone capture, ACS recording ingestion, streaming
   transcription, audio retention/cleanup, and production clinical audio workflows
@@ -287,7 +288,7 @@ Highest AI-103 ROI:
 Medium AI-103 ROI:
 
 - Live acceptance of the offline daily-generation Key Vault RBAC contract
-- App Service Authentication / Entra ID route protection
+- Live proof of the offline App Service Authentication / Entra ID route-protection contract
 
 Lower direct exam ROI but strong portfolio value:
 
@@ -299,7 +300,7 @@ Lower direct exam ROI but strong portfolio value:
 
 1. Select the next slice later from medium-value security and operations work; do not continue SSH acceptance or automatically select a replacement hosted execution mechanism
 2. Key Vault: run the separate live acceptance of daily-generation least-privilege authorization
-3. App Service Authentication and protected routes
+3. Live acceptance of App Service Authentication and protected routes
 4. App Service-hosted telemetry configuration and verification
 5. ACS phone intake and route-level audio ingestion
 6. Retry/durable processing

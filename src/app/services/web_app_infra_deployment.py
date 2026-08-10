@@ -13,9 +13,12 @@ from src.app.services.application_insights_resource_identity import (
 
 from src.app.services.web_app_hosting_contract import (
     ALWAYS_ON_REQUIRED,
+    APP_SERVICE_AUTHENTICATION_ANONYMOUS_PATHS,
+    APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES,
     BASELINE_APP_SETTINGS,
     HOSTED_VERIFIER_BICEP_PARAMETERS,
     SAFE_HOSTED_SETTINGS,
+    app_service_authentication_configuration_valid,
     hosted_verifier_foundry_identity,
     hosted_verifier_settings_valid,
 )
@@ -88,6 +91,9 @@ class WebAppInfrastructureDeploymentRequest:
     hosted_verifier_agent_version: str | None = None
     hosted_verifier_model_deployment_name: str | None = None
     enable_key_vault_runtime_authorization: bool = False
+    enable_app_service_authentication: bool = False
+    app_service_authentication_client_id: str | None = None
+    app_service_authentication_tenant_id: str | None = None
     purpose: str = "initial_create"
 
 
@@ -108,6 +114,7 @@ class WebAppInfrastructureDeploymentResult:
     deploy_app: bool
     deploy_foundry: bool
     hosted_verifier_configuration_supplied: bool
+    app_service_authentication_configuration_supplied: bool
     create_count: int | None
     modify_count: int | None
     delete_count: int | None
@@ -139,6 +146,9 @@ class WebAppInfrastructureDeploymentResult:
             "deploy_foundry": self.deploy_foundry,
             "hosted_verifier_configuration_supplied": (
                 self.hosted_verifier_configuration_supplied
+            ),
+            "app_service_authentication_configuration_supplied": (
+                self.app_service_authentication_configuration_supplied
             ),
             "create_count": self.create_count,
             "modify_count": self.modify_count,
@@ -239,6 +249,10 @@ def _result(
         hosted_verifier_configuration_supplied=(
             local_validation_passed and request.enable_hosted_foundry_verifier
         ),
+        app_service_authentication_configuration_supplied=(
+            local_validation_passed
+            and request.enable_app_service_authentication
+        ),
         create_count=(what_if_summary.create_count if what_if_summary else None),
         modify_count=(what_if_summary.modify_count if what_if_summary else None),
         delete_count=(what_if_summary.delete_count if what_if_summary else None),
@@ -306,6 +320,7 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
         and re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9])?", request.cosmos_container_name)
         is not None
         and _hosted_verifier_arguments_valid(request)
+        and _app_service_authentication_arguments_valid(request)
         and isinstance(
             request.enable_key_vault_runtime_authorization,
             bool,
@@ -333,6 +348,36 @@ def _hosted_verifier_settings(
             request.hosted_verifier_model_deployment_name
         ),
     }
+
+
+def _app_service_authentication_configuration(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> dict[str, object]:
+    if not request.enable_app_service_authentication:
+        return {"mode": "disabled"}
+    return {
+        "mode": "enabled",
+        "clientId": request.app_service_authentication_client_id,
+        "tenantId": request.app_service_authentication_tenant_id,
+    }
+
+
+def _app_service_authentication_arguments_valid(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> bool:
+    return bool(
+        isinstance(request.enable_app_service_authentication, bool)
+        and app_service_authentication_configuration_valid(
+            _app_service_authentication_configuration(request)
+        )
+        and (
+            request.enable_app_service_authentication
+            or (
+                request.app_service_authentication_client_id is None
+                and request.app_service_authentication_tenant_id is None
+            )
+        )
+    )
 
 
 def _hosted_verifier_arguments_valid(
@@ -653,7 +698,13 @@ def _complete_active_web_app_resource_contract_valid(module: str) -> bool:
         if resource_type.split("@", 1)[0].casefold().startswith(
             "microsoft.web/sites"
         )
-    ] != [("webApp", "Microsoft.Web/sites@2024-04-01")]:
+    ] != [
+        ("webApp", "Microsoft.Web/sites@2024-04-01"),
+        (
+            "webAppAuthentication",
+            "Microsoft.Web/sites/config@2024-04-01",
+        ),
+    ]:
         return False
     if any(
         symbol != "webApp"
@@ -997,6 +1048,218 @@ def _module_local_hosted_verifier_validation_valid(
     return True
 
 
+def _app_service_authentication_contract_valid(
+    module: str,
+    validation_module: str,
+) -> bool:
+    active = _strip_bicep_comments(module)
+    validation = _strip_bicep_comments(validation_module)
+    declarations = _active_resource_declarations(active)
+    if declarations is None:
+        return False
+    auth_resources = tuple(
+        (symbol, resource_type, body)
+        for symbol, resource_type, body in declarations
+        if resource_type.split("@", 1)[0].casefold()
+        == "Microsoft.Web/sites/config".casefold()
+    )
+    if len(auth_resources) != 1:
+        return False
+    symbol, resource_type, body = auth_resources[0]
+    if (
+        symbol != "webAppAuthentication"
+        or resource_type != "Microsoft.Web/sites/config@2024-04-01"
+        or re.search(
+            r"resource\s+webAppAuthentication\s+"
+            r"'Microsoft\.Web/sites/config@2024-04-01'\s*=\s*"
+            r"if\s*\(validatedAppServiceAuthenticationConfiguration\.mode\s*"
+            r"==\s*'enabled'\)\s*\{",
+            active,
+        )
+        is None
+        or not _exact_top_level_properties(
+            body,
+            ("name", "properties", "dependsOn"),
+        )
+        or not _exact_top_level_scalar(
+            body,
+            "name",
+            "'${webApp.name}/authsettingsV2'",
+        )
+    ):
+        return False
+    properties = _body_after_pattern(
+        body,
+        r"(?m)^\s*properties\s*:\s*\{",
+        "{",
+        "}",
+    )
+    depends_on = _body_after_pattern(
+        body,
+        r"(?m)^\s*dependsOn\s*:\s*\[",
+        "[",
+        "]",
+    )
+    if (
+        properties is None
+        or depends_on is None
+        or not _exact_top_level_properties(
+            properties,
+            (
+                "platform",
+                "globalValidation",
+                "httpSettings",
+                "identityProviders",
+            ),
+        )
+        or "".join(depends_on.split())
+        != "appServiceAuthenticationConfigValidation"
+    ):
+        return False
+    platform = _body_after_pattern(
+        properties, r"(?m)^\s*platform\s*:\s*\{", "{", "}"
+    )
+    global_validation = _body_after_pattern(
+        properties, r"(?m)^\s*globalValidation\s*:\s*\{", "{", "}"
+    )
+    http_settings = _body_after_pattern(
+        properties, r"(?m)^\s*httpSettings\s*:\s*\{", "{", "}"
+    )
+    identity_providers = _body_after_pattern(
+        properties, r"(?m)^\s*identityProviders\s*:\s*\{", "{", "}"
+    )
+    if any(
+        item is None
+        for item in (platform, global_validation, http_settings, identity_providers)
+    ):
+        return False
+    assert platform is not None
+    assert global_validation is not None
+    assert http_settings is not None
+    assert identity_providers is not None
+    azure_active_directory = _body_after_pattern(
+        identity_providers,
+        r"(?m)^\s*azureActiveDirectory\s*:\s*\{",
+        "{",
+        "}",
+    )
+    if azure_active_directory is None:
+        return False
+    registration = _body_after_pattern(
+        azure_active_directory,
+        r"(?m)^\s*registration\s*:\s*\{",
+        "{",
+        "}",
+    )
+    if registration is None:
+        return False
+    expected_paths = "[" + "".join(
+        repr(path) for path in APP_SERVICE_AUTHENTICATION_ANONYMOUS_PATHS
+    ) + "]"
+    structure_valid = bool(
+        _exact_top_level_properties(platform, ("enabled",))
+        and _exact_top_level_scalar(platform, "enabled", "true")
+        and _exact_top_level_properties(
+            global_validation,
+            (
+                "requireAuthentication",
+                "unauthenticatedClientAction",
+                "excludedPaths",
+            ),
+        )
+        and _exact_top_level_scalar(
+            global_validation,
+            "requireAuthentication",
+            "true",
+        )
+        and _exact_top_level_scalar(
+            global_validation,
+            "unauthenticatedClientAction",
+            "'Return401'",
+        )
+        and "".join(
+            (_top_level_property_expression(global_validation, "excludedPaths") or "").split()
+        )
+        == expected_paths
+        and _exact_top_level_properties(http_settings, ("requireHttps",))
+        and _exact_top_level_scalar(http_settings, "requireHttps", "true")
+        and _exact_top_level_properties(
+            identity_providers,
+            ("azureActiveDirectory",),
+        )
+        and _exact_top_level_properties(
+            azure_active_directory,
+            ("enabled", "registration"),
+        )
+        and _exact_top_level_scalar(
+            azure_active_directory,
+            "enabled",
+            "true",
+        )
+        and _exact_top_level_properties(
+            registration,
+            ("clientId", "openIdIssuer"),
+        )
+        and _exact_top_level_scalar(
+            registration,
+            "clientId",
+            "validatedAppServiceAuthenticationConfiguration.clientId",
+        )
+        and _exact_top_level_scalar(
+            registration,
+            "openIdIssuer",
+            "'${environment().authentication.loginEndpoint}${validatedAppServiceAuthenticationConfiguration.tenantId}/v2.0'",
+        )
+    )
+    if not structure_valid:
+        return False
+    required_module_contract = (
+        r"@discriminator\('mode'\)",
+        r"param\s+appServiceAuthenticationConfiguration\s+"
+        r"appServiceAuthenticationConfigurationType\s*=\s*"
+        r"\{\s*mode\s*:\s*'disabled'\s*\}",
+        r"module\s+appServiceAuthenticationConfigValidation\s+"
+        r"'app-service-authentication-config-validation\.bicep'\s*=\s*"
+        r"if\s*\(appServiceAuthenticationConfiguration\.mode\s*==\s*'enabled'\)",
+        r"appServiceAuthenticationConfiguration\s*:\s*"
+        r"validatedAppServiceAuthenticationConfiguration",
+    )
+    if any(
+        re.search(pattern, active, re.DOTALL) is None
+        for pattern in required_module_contract
+    ):
+        return False
+    if re.search(r"\bresource\s+[A-Za-z][A-Za-z0-9_]*\s+", validation):
+        return False
+    required_validation_contract = (
+        r"@discriminator\('mode'\)",
+        r"param\s+appServiceAuthenticationConfiguration\s+"
+        r"appServiceAuthenticationConfigurationType",
+        r"@minLength\(36\)\s+@maxLength\(36\)\s+clientId\s*:\s*string",
+        r"@minLength\(36\)\s+@maxLength\(36\)\s+tenantId\s*:\s*string",
+    )
+    if any(
+        re.search(pattern, validation, re.DOTALL) is None
+        for pattern in required_validation_contract
+    ):
+        return False
+    for property_name in APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES:
+        value = rf"appServiceAuthenticationConfiguration\.{property_name}"
+        if re.search(
+            rf"{value}\s*==\s*trim\(\s*{value}\s*\)\s*\?\s*{value}\s*:\s*''",
+            active,
+        ) is None:
+            return False
+    forbidden = (
+        "clientsecret",
+        "client_secret",
+        "certificate",
+        "microsoft.graph",
+        "microsoft.authorization/roleassignments",
+    )
+    return not any(value in active.casefold() for value in forbidden)
+
+
 def _app_service_plan_selection_contract_valid(
     module: str,
     *,
@@ -1013,6 +1276,10 @@ def _app_service_plan_selection_contract_valid(
         ] != [
             ("appServicePlan", "Microsoft.Web/serverfarms@2024-04-01"),
             ("webApp", "Microsoft.Web/sites@2024-04-01"),
+            (
+                "webAppAuthentication",
+                "Microsoft.Web/sites/config@2024-04-01",
+            ),
         ]:
             return False
         outside_strings = _positions_outside_strings(active)
@@ -1028,6 +1295,10 @@ def _app_service_plan_selection_contract_valid(
             (
                 "hostedFoundryVerifierConfigValidation",
                 "hosted-foundry-verifier-config-validation.bicep",
+            ),
+            (
+                "appServiceAuthenticationConfigValidation",
+                "app-service-authentication-config-validation.bicep",
             ),
         ):
             return False
@@ -1058,12 +1329,20 @@ def _local_contract_valid(
                 template_file.parent
                 / "modules/hosted-foundry-verifier-config-validation.bicep"
             )
+            authentication_validation_module_path = (
+                template_file.parent
+                / "modules/app-service-authentication-config-validation.bicep"
+            )
         elif purpose == "existing_web_app_reconciliation":
             template = ""
             web_app_module = template_file
             validation_module_path = (
                 template_file.parent
                 / "hosted-foundry-verifier-config-validation.bicep"
+            )
+            authentication_validation_module_path = (
+                template_file.parent
+                / "app-service-authentication-config-validation.bicep"
             )
         else:
             return False
@@ -1073,6 +1352,11 @@ def _local_contract_valid(
         if not validation_module_path.is_file():
             return False
         validation_module = validation_module_path.read_text()
+        if not authentication_validation_module_path.is_file():
+            return False
+        authentication_validation_module = (
+            authentication_validation_module_path.read_text()
+        )
     except OSError:
         return False
 
@@ -1108,6 +1392,11 @@ def _local_contract_valid(
             r"hostedFoundryVerifierConfigurationType\s*=\s*\{\s*mode\s*:\s*'disabled'\s*\}",
             r"hostedFoundryVerifierConfiguration\s*:\s*"
             r"validatedHostedFoundryVerifierConfiguration",
+            r"param\s+appServiceAuthenticationConfiguration\s+"
+            r"appServiceAuthenticationConfigurationType\s*=\s*"
+            r"\{\s*mode\s*:\s*'disabled'\s*\}",
+            r"appServiceAuthenticationConfiguration\s*:\s*"
+            r"validatedAppServiceAuthenticationConfiguration",
         )
         if any(
             re.search(pattern, template, re.DOTALL) is None
@@ -1116,6 +1405,13 @@ def _local_contract_valid(
             return False
         for property_name in HOSTED_VERIFIER_BICEP_PARAMETERS.values():
             value = rf"hostedFoundryVerifierConfiguration\.{property_name}"
+            if re.search(
+                rf"{value}\s*==\s*trim\(\s*{value}\s*\)\s*\?\s*{value}\s*:\s*''",
+                template,
+            ) is None:
+                return False
+        for property_name in APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES:
+            value = rf"appServiceAuthenticationConfiguration\.{property_name}"
             if re.search(
                 rf"{value}\s*==\s*trim\(\s*{value}\s*\)\s*\?\s*{value}\s*:\s*''",
                 template,
@@ -1138,7 +1434,31 @@ def _local_contract_valid(
             module,
             validation_module,
         )
+        and _app_service_authentication_contract_valid(
+            module,
+            authentication_validation_module,
+        )
     )
+
+
+def web_app_authentication_local_contract_valid(template_file: Path) -> bool:
+    """Validate only the authoritative App Service Authentication source contract."""
+
+    try:
+        if not template_file.is_file():
+            return False
+        validation_file = (
+            template_file.parent
+            / "app-service-authentication-config-validation.bicep"
+        )
+        if not validation_file.is_file():
+            return False
+        return _app_service_authentication_contract_valid(
+            template_file.read_text(),
+            validation_file.read_text(),
+        )
+    except OSError:
+        return False
 
 
 def web_app_infrastructure_local_contract_valid(
@@ -1191,6 +1511,14 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
             sort_keys=True,
         )
     )
+    authentication_configuration = (
+        "appServiceAuthenticationConfiguration="
+        + json.dumps(
+            _app_service_authentication_configuration(request),
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
     if request.purpose == "existing_web_app_reconciliation":
         parameters = [
             f"location={request.location}",
@@ -1199,6 +1527,7 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
             "deployAppServicePlan=false",
             "pythonLinuxFxVersion=PYTHON|3.12",
             hosted_configuration,
+            authentication_configuration,
         ]
     else:
         parameters = [
@@ -1217,6 +1546,7 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
             ),
             f"webAppName={request.web_app_name}",
             hosted_configuration,
+            authentication_configuration,
         ]
     command.extend(["--parameters", *parameters])
     return command
@@ -1436,6 +1766,14 @@ def _expected_web_app_resources(
                 "Microsoft.KeyVault/vaults",
                 "key_vault",
                 (f"kv{suffix}",),
+            ),
+        )
+    if request.enable_app_service_authentication:
+        expected += (
+            (
+                "Microsoft.Web/sites/config",
+                "web_app_authentication",
+                (request.web_app_name, "authsettingsV2"),
             ),
         )
     return tuple(

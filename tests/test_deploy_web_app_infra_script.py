@@ -139,6 +139,66 @@ def test_check_allows_ordinary_web_app_without_hosted_verifier_values(
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert payload["hosted_verifier_configuration_supplied"] is False
+    assert payload["app_service_authentication_configuration_supplied"] is False
+
+
+def test_check_accepts_strict_non_secret_authentication_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    ordinary = VALID_ARGUMENTS[: VALID_ARGUMENTS.index("--enable-hosted-foundry-verifier")]
+    monkeypatch.setattr(
+        script,
+        "_create_azure_cli_runner",
+        lambda: pytest.fail("check must not construct a runner"),
+    )
+
+    exit_code = script.main(
+        [
+            "--check",
+            "--json",
+            *ordinary,
+            "--enable-app-service-authentication",
+            "--app-service-authentication-client-id",
+            "11111111-2222-4333-8444-555555555555",
+            "--app-service-authentication-tenant-id",
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        ]
+    )
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert exit_code == 0
+    assert payload["app_service_authentication_configuration_supplied"] is True
+    assert "11111111-2222-4333-8444-555555555555" not in output
+    assert "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" not in output
+
+
+def test_authentication_identifiers_require_opt_in_and_cannot_be_duplicated() -> None:
+    script = _script()
+    ordinary = VALID_ARGUMENTS[: VALID_ARGUMENTS.index("--enable-hosted-foundry-verifier")]
+    for argv in (
+        [
+            "--check",
+            *ordinary,
+            "--app-service-authentication-client-id",
+            "11111111-2222-4333-8444-555555555555",
+        ],
+        [
+            "--check",
+            *ordinary,
+            "--enable-app-service-authentication",
+            "--app-service-authentication-client-id",
+            "11111111-2222-4333-8444-555555555555",
+            "--app-service-authentication-client-id",
+            "11111111-2222-4333-8444-555555555555",
+            "--app-service-authentication-tenant-id",
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+        ],
+    ):
+        with pytest.raises(SystemExit):
+            script.main(argv)
 
 
 def test_reconciliation_is_explicit_and_not_the_cli_default(

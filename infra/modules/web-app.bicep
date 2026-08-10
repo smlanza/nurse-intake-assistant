@@ -23,6 +23,25 @@ type hostedFoundryVerifierConfigurationType =
   | hostedFoundryVerifierDisabledConfiguration
   | hostedFoundryVerifierEnabledConfiguration
 
+type appServiceAuthenticationDisabledConfiguration = {
+  mode: 'disabled'
+}
+
+type appServiceAuthenticationEnabledConfiguration = {
+  mode: 'enabled'
+  @minLength(36)
+  @maxLength(36)
+  clientId: string
+  @minLength(36)
+  @maxLength(36)
+  tenantId: string
+}
+
+@discriminator('mode')
+type appServiceAuthenticationConfigurationType =
+  | appServiceAuthenticationDisabledConfiguration
+  | appServiceAuthenticationEnabledConfiguration
+
 param location string
 param appServicePlanName string
 param webAppName string
@@ -31,6 +50,10 @@ param deployAppServicePlan bool = true
 param appServicePlanSkuName string = 'B1'
 param pythonLinuxFxVersion string = 'PYTHON|3.12'
 param hostedFoundryVerifierConfiguration hostedFoundryVerifierConfigurationType = {
+  mode: 'disabled'
+}
+@description('Optional App Service Authentication v2 configuration. Disabled by default and requires an existing Entra application when enabled.')
+param appServiceAuthenticationConfiguration appServiceAuthenticationConfigurationType = {
   mode: 'disabled'
 }
 param tags object = {}
@@ -68,11 +91,25 @@ var hostedFoundryVerifierAppSettings = validatedHostedFoundryVerifierConfigurati
     value: validatedHostedFoundryVerifierConfiguration.modelDeploymentName
   }
 ] : []
+var validatedAppServiceAuthenticationConfiguration = appServiceAuthenticationConfiguration.mode == 'enabled' ? {
+  mode: 'enabled'
+  clientId: appServiceAuthenticationConfiguration.clientId == trim(appServiceAuthenticationConfiguration.clientId) ? appServiceAuthenticationConfiguration.clientId : ''
+  tenantId: appServiceAuthenticationConfiguration.tenantId == trim(appServiceAuthenticationConfiguration.tenantId) ? appServiceAuthenticationConfiguration.tenantId : ''
+} : {
+  mode: 'disabled'
+}
 
 module hostedFoundryVerifierConfigValidation 'hosted-foundry-verifier-config-validation.bicep' = if (hostedFoundryVerifierConfiguration.mode == 'enabled') {
   name: 'hosted-foundry-verifier-validation'
   params: {
     hostedFoundryVerifierConfiguration: validatedHostedFoundryVerifierConfiguration
+  }
+}
+
+module appServiceAuthenticationConfigValidation 'app-service-authentication-config-validation.bicep' = if (appServiceAuthenticationConfiguration.mode == 'enabled') {
+  name: 'app-service-authentication-validation'
+  params: {
+    appServiceAuthenticationConfiguration: validatedAppServiceAuthenticationConfiguration
   }
 }
 
@@ -154,6 +191,39 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
   tags: tags
   dependsOn: [
     hostedFoundryVerifierConfigValidation
+  ]
+}
+
+resource webAppAuthentication 'Microsoft.Web/sites/config@2024-04-01' = if (validatedAppServiceAuthenticationConfiguration.mode == 'enabled') {
+  name: '${webApp.name}/authsettingsV2'
+  properties: {
+    platform: {
+      enabled: true
+    }
+    globalValidation: {
+      requireAuthentication: true
+      unauthenticatedClientAction: 'Return401'
+      excludedPaths: [
+        '/health'
+        '/version'
+        '/demo/status'
+      ]
+    }
+    httpSettings: {
+      requireHttps: true
+    }
+    identityProviders: {
+      azureActiveDirectory: {
+        enabled: true
+        registration: {
+          clientId: validatedAppServiceAuthenticationConfiguration.clientId
+          openIdIssuer: '${environment().authentication.loginEndpoint}${validatedAppServiceAuthenticationConfiguration.tenantId}/v2.0'
+        }
+      }
+    }
+  }
+  dependsOn: [
+    appServiceAuthenticationConfigValidation
   ]
 }
 

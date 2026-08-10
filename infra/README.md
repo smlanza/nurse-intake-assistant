@@ -58,6 +58,33 @@ assignment. The daily coordinator obtains the current identity through the
 standalone verification and authorization boundary after infrastructure
 creation.
 
+### Optional App Service Authentication v2
+
+The same module owns a disabled-by-default App Service Authentication v2 child
+resource. Ordinary deployments pass the tagged disabled configuration and
+require no Entra values. Explicit opt-in through
+`scripts/deploy_web_app_infra.py --enable-app-service-authentication` requires
+exactly one canonical existing client/application ID and tenant ID. These are
+non-secret identifiers; the repository creates no Entra application, client
+secret, certificate, role, group, or FastAPI authentication middleware.
+
+When opted in, the platform uses Microsoft Entra ID, requires authentication
+and HTTPS by default, returns 401 for unauthenticated protected requests, and
+keeps exactly these hosted-readiness paths anonymous:
+
+```text
+/health
+/version
+/demo/status
+```
+
+No wildcard or broader `/demo`, intake, cases, review, Swagger, or OpenAPI path
+is excluded. `scripts/verify_web_app_authentication.py --check` proves the
+disabled local contract without Azure. Add `--expect-enabled` plus the exact
+two non-secret IDs to prove the enabled local contract; sanitized output never
+contains either identifier. Live deployment, read-only live configuration
+verification, browser sign-in, and authorization roles remain separate work.
+
 ## Optional Key Vault And Explicit Secrets-User Authorization
 
 `modules/key-vault.bicep` defines a reusable resource-group-owned Key Vault with

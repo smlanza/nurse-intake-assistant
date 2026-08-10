@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,488 passed full suite
-- 707 focused cleanup, Key Vault, Web App what-if, coordinator, and documentation tests
+- 3,527 passed full suite
+- 731 focused Authentication v2, Key Vault, Web App, coordinator, Foundry, and documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -45,10 +45,7 @@ The daily-generation Key Vault runtime RBAC architecture is implemented offline.
 
 The standalone Azure Speech proof boundary is live-proven for one repository-owned fixed-fictional WAV through the production Speech factory, service, and Azure SDK adapter. Exactly one recognition attempt returned a valid normalized transcript matching the application-owned expected text. The proof invoked no intake route, persisted no case, attempted no notification, and mutated no Azure resource. Mock remains the safe default.
 
-**Active implementation direction:** move the local mock capstone toward an
-Azure-first Microsoft Foundry Agent implementation through disposable Foundry,
-immutable agents, evaluation, managed-identity-ready hosting, deterministic
-deployment, and hosted application readiness.
+**Active implementation direction:** the offline App Service Authentication v2 perimeter contract is implemented after a genuine RED proved it absent. It remains disabled by default; explicit opt-in requires canonical non-secret existing Entra application and tenant IDs, requires Entra authentication and HTTPS by default, returns 401 for protected unauthenticated requests, and anonymously excludes exactly `/health`, `/version`, and `/demo/status`. The separate offline verifier constructs no Azure runner and exposes no identifiers. No Entra app registration or secret was created, no Azure service call occurred, and live deployment, sign-in, and acceptance remain a separate supervised slice.
 
 Mock mode and no-op intake telemetry remain the safe defaults, hosted
 notifications remain suppressed, and all AI output continues to require human
@@ -96,7 +93,7 @@ Safe to demo today:
 Authoritative Foundry infrastructure for future TDD slices:
 - `infra/main.bicep`: authoritative full initial application entry point; Foundry remains optional through `deployFoundry=false` by default.
 - `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
-- `infra/modules/web-app.bicep`: reusable initial-create module and direct existing-Web-App reconciliation boundary with offline-tested Linux hosting, system-assigned identity, and remote build; reconciliation passes the existing plan name and disables plan deployment.
+- `infra/modules/web-app.bicep`: reusable initial-create module and direct existing-Web-App reconciliation boundary with offline-tested Linux hosting, system-assigned identity, remote build, and disabled-by-default App Service Authentication v2; authentication opt-in protects all routes except the exact three readiness paths and requires an existing Entra application.
 - `src/app/services/web_app_infra_deployment.py`: sanitized, purpose-bound initial-create and reconciliation deployment contract; `scripts/deploy_web_app_infra.py`: offline check and explicit what-if/live operator CLI with nondefault `--reconcile-existing-web-app` selection.
 - `src/app/services/web_app_hosting_contract.py`: exact seven-setting contract
   plus a separate exact five-setting hosted-verifier contract shared by
@@ -122,6 +119,7 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `src/app/services/web_app_package.py`: deterministic source deployment package boundary; `scripts/package_web_app.py`: offline check/package CLI; `scripts/deploy_web_app_code.py`: explicit existing-Web-App deployment CLI.
 - `src/app/services/web_app_readiness_verification.py`: sanitized hosted readiness contract; `scripts/verify_web_app_readiness.py`: offline check and explicit read-only live CLI.
 - `src/app/services/web_app_configuration_verification.py`: Bicep-owned hosting contract verifier; `scripts/verify_web_app_configuration.py`: offline check and explicit read-only Azure CLI boundary.
+- `src/app/services/web_app_authentication_verification.py` and `scripts/verify_web_app_authentication.py`: sanitized offline-only disabled/enabled Authentication v2 contract proof; live acceptance is pending.
 
 ## Daily Disposable Azure Environment Gate
 

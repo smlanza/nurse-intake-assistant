@@ -75,6 +75,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     ):
         parser.add_argument(f"--{option}", action="append")
     parser.add_argument(
+        "--enable-app-service-authentication",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--app-service-authentication-client-id",
+        action="append",
+    )
+    parser.add_argument(
+        "--app-service-authentication-tenant-id",
+        action="append",
+    )
+    parser.add_argument(
         "--template-file",
         type=Path,
         default=None,
@@ -99,6 +111,24 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         elif values:
             parser.error(
                 "hosted verifier values require --enable-hosted-foundry-verifier"
+            )
+    authentication_attributes = (
+        "app_service_authentication_client_id",
+        "app_service_authentication_tenant_id",
+    )
+    for attribute in authentication_attributes:
+        values = getattr(args, attribute)
+        if args.enable_app_service_authentication:
+            if not isinstance(values, list) or len(values) != 1:
+                parser.error(
+                    f"--{attribute.replace('_', '-')} is required exactly once "
+                    "with --enable-app-service-authentication"
+                )
+            setattr(args, attribute, values[0])
+        elif values:
+            parser.error(
+                "App Service Authentication identifiers require "
+                "--enable-app-service-authentication"
             )
     return args
 
@@ -125,6 +155,15 @@ def _request(args: argparse.Namespace) -> WebAppInfrastructureDeploymentRequest:
         cosmos_database_name=args.cosmos_database_name,
         cosmos_container_name=args.cosmos_container_name,
         enable_hosted_foundry_verifier=args.enable_hosted_foundry_verifier,
+        enable_app_service_authentication=(
+            args.enable_app_service_authentication
+        ),
+        app_service_authentication_client_id=(
+            args.app_service_authentication_client_id
+        ),
+        app_service_authentication_tenant_id=(
+            args.app_service_authentication_tenant_id
+        ),
         hosted_verifier_project_endpoint=args.hosted_verifier_project_endpoint,
         hosted_verifier_stable_agent_endpoint=(
             args.hosted_verifier_stable_agent_endpoint

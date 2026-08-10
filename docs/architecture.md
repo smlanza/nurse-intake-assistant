@@ -552,6 +552,19 @@ remote build automation to install dependencies from the packaged
 `requirements.txt`. The module principal ID is available only to its parent;
 `main.bicep` neither uses nor publishes that identifier.
 
+The same Web App module owns an App Service Authentication v2 perimeter that
+is absent by default. Explicit opt-in requires canonical non-secret existing
+Entra application and tenant IDs; the repository does not create an Entra
+application, credential, certificate, role, or group. When enabled, the
+platform requires HTTPS and Microsoft Entra authentication by default, returns
+401 for unauthenticated protected requests, and excludes exactly `/health`,
+`/version`, and `/demo/status` so the existing hosted-readiness boundary stays
+anonymous. Every other application route, including `/demo`, intake, cases,
+review, Swagger, and OpenAPI, remains behind platform authentication. FastAPI
+does not implement a parallel authentication layer. Authentication establishes
+identity at the perimeter; application authorization and roles remain future
+separate decisions.
+
 `src/app/services/web_app_infra_deployment.py` and
 `scripts/deploy_web_app_infra.py` add an explicit operator boundary around both
 purposes. Initial creation requires `infra/main.bicep`; the nondefault
@@ -567,6 +580,11 @@ settings. The local Bicep reader is restricted to the Web App resource's active
 baseline `WEBSITE_SKIP_RUNNING_KUDUAGENT=false`; missing, extra, duplicate,
 conflicting, commented-only, and overriding settings fail. A setting placed
 only in the optional verifier collection also fails.
+The same local boundary validates the conditional `authsettingsV2` child and
+strictly rejects malformed, incomplete, or conflicting opt-in identifiers
+before Azure CLI construction. A separate offline-only authentication verifier
+returns sanitized contract booleans without constructing an Azure runner;
+live deployment, configuration reads, and sign-in acceptance remain unproven.
 
 Explicit `--what-if` or `--live` mode issues exactly one argument-list
 `az deployment group` command against an existing resource group; the CLI never
@@ -1003,7 +1021,7 @@ Deferred infrastructure:
 
 - Agent-specific RBAC scope
 - Live daily-generation Key Vault runtime-assignment acceptance
-- App Service Authentication
+- Live App Service Authentication deployment and sign-in acceptance
 - Private networking
 - Production monitoring
 - Durable background worker infrastructure
@@ -1015,8 +1033,7 @@ The following are intentionally not implemented in the current MVP:
 
 - Hosted managed-identity verification and invocation
 - Agent-specific RBAC scope
-- Authentication / RBAC beyond the proven direct Consumer assignment
-- Application authentication and private networking
+- Application authorization roles and private networking
 - Live Key Vault deployment, exact assignment verification, live retrieval,
   credential migration, App Service references, and production secret operations
 - Route-integrated audio ingestion, audio upload, microphone capture, ACS

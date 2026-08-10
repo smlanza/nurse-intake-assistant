@@ -23,6 +23,25 @@ type hostedFoundryVerifierConfigurationType =
   | hostedFoundryVerifierDisabledConfiguration
   | hostedFoundryVerifierEnabledConfiguration
 
+type appServiceAuthenticationDisabledConfiguration = {
+  mode: 'disabled'
+}
+
+type appServiceAuthenticationEnabledConfiguration = {
+  mode: 'enabled'
+  @minLength(36)
+  @maxLength(36)
+  clientId: string
+  @minLength(36)
+  @maxLength(36)
+  tenantId: string
+}
+
+@discriminator('mode')
+type appServiceAuthenticationConfigurationType =
+  | appServiceAuthenticationDisabledConfiguration
+  | appServiceAuthenticationEnabledConfiguration
+
 @description('Short environment name, such as dev, test, or demo.')
 @minLength(3)
 @maxLength(10)
@@ -84,6 +103,19 @@ var validatedHostedFoundryVerifierConfiguration = hostedFoundryVerifierConfigura
   agentName: hostedFoundryVerifierConfiguration.agentName == trim(hostedFoundryVerifierConfiguration.agentName) ? hostedFoundryVerifierConfiguration.agentName : ''
   agentVersion: hostedFoundryVerifierConfiguration.agentVersion == trim(hostedFoundryVerifierConfiguration.agentVersion) ? hostedFoundryVerifierConfiguration.agentVersion : ''
   modelDeploymentName: hostedFoundryVerifierConfiguration.modelDeploymentName == trim(hostedFoundryVerifierConfiguration.modelDeploymentName) ? hostedFoundryVerifierConfiguration.modelDeploymentName : ''
+} : {
+  mode: 'disabled'
+}
+
+@description('Optional App Service Authentication v2 configuration. Disabled by default and requires an existing Entra application when enabled.')
+param appServiceAuthenticationConfiguration appServiceAuthenticationConfigurationType = {
+  mode: 'disabled'
+}
+
+var validatedAppServiceAuthenticationConfiguration = appServiceAuthenticationConfiguration.mode == 'enabled' ? {
+  mode: 'enabled'
+  clientId: appServiceAuthenticationConfiguration.clientId == trim(appServiceAuthenticationConfiguration.clientId) ? appServiceAuthenticationConfiguration.clientId : ''
+  tenantId: appServiceAuthenticationConfiguration.tenantId == trim(appServiceAuthenticationConfiguration.tenantId) ? appServiceAuthenticationConfiguration.tenantId : ''
 } : {
   mode: 'disabled'
 }
@@ -217,6 +249,7 @@ module webApp 'modules/web-app.bicep' = if (deployApp) {
     appServicePlanSkuName: appServicePlanSkuName
     pythonLinuxFxVersion: pythonLinuxFxVersion
     hostedFoundryVerifierConfiguration: validatedHostedFoundryVerifierConfiguration
+    appServiceAuthenticationConfiguration: validatedAppServiceAuthenticationConfiguration
   }
 }
 
