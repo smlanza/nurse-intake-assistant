@@ -989,6 +989,7 @@ def test_existing_environment_reuses_without_optional_hosted_workflows(
         resource_group_owned=True,
         foundry_tombstones_absent=True,
         speech_tombstones_absent=True,
+        key_vault_tombstones_absent=True,
         daily_environment_clean=False,
     )
     runner.foundry_absent = False
@@ -1239,6 +1240,7 @@ def test_approved_startup_cleanup_continues_only_after_verified_clean_state(
         foundry_purge_attempted=True,
         foundry_tombstones_absent=True,
         speech_tombstones_absent=True,
+        key_vault_tombstones_absent=True,
         daily_environment_clean=True,
         azure_mutation_made=True,
     )
@@ -1274,6 +1276,36 @@ def test_startup_cleanup_without_speech_absence_proof_blocks_group_creation(
         resource_group_absent=True,
         foundry_tombstones_absent=True,
         speech_tombstones_absent=False,
+        key_vault_tombstones_absent=True,
+        daily_environment_clean=True,
+    )
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "already_clean"
+    assert result.startup_environment_clean is False
+    assert "inspect_resource_group" not in runner.calls
+
+
+def test_startup_cleanup_without_key_vault_absence_proof_blocks_group_creation(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+    runner.startup_cleanup_result = CleanupResult(
+        ok=True,
+        category="already_clean",
+        purpose=CleanupPurpose.STARTUP_PREFLIGHT.value,
+        account_verified=True,
+        inspection_completed=True,
+        resource_group_absent=True,
+        foundry_tombstones_absent=True,
+        speech_tombstones_absent=True,
+        key_vault_tombstones_absent=False,
         daily_environment_clean=True,
     )
 
@@ -7279,19 +7311,18 @@ def _live_with_key_vault_runtime(
     ).live(runner, approver=approver)
 
 
-def test_main_composes_current_web_app_identity_into_exact_runtime_rbac() -> None:
+def test_initial_infra_excludes_runtime_rbac_and_retains_exact_standalone_boundary() -> None:
     root = Path(__file__).resolve().parents[1]
     main = (root / "infra/main.bicep").read_text()
     runtime = (root / "infra/modules/key-vault-secrets-user-rbac.bicep").read_text()
 
-    assert "param enableKeyVaultRuntimeAuthorization bool = false" in main
-    assert (
-        "module keyVaultRuntimeRbac 'modules/key-vault-secrets-user-rbac.bicep'"
-        in main
-    )
-    assert "webAppPrincipalId: webApp!.outputs.systemAssignedIdentityPrincipalId" in main
-    assert "keyVaultName: keyVault!.outputs.keyVaultName" in main
-    assert "enableKeyVaultRuntimeAuthorization && deployApp && deployKeyVault" in main
+    entry_point = (root / "infra/key-vault-secrets-user-rbac.bicep").read_text()
+
+    assert "enableKeyVaultRuntimeAuthorization" not in main
+    assert "keyVaultRuntimeRbac" not in main
+    assert "modules/key-vault-secrets-user-rbac.bicep" not in main
+    assert "webAppPrincipalId: webApp.identity.principalId" in entry_point
+    assert "keyVaultName: keyVault.name" in entry_point
     assert "4633458b-17de-408a-b874-0445c86b69e6" in runtime
     assert "scope: keyVault" in runtime
     assert "principalId: webAppPrincipalId" in runtime
@@ -7346,28 +7377,17 @@ def test_fresh_web_app_generation_verifies_runtime_assignment_before_application
     )
 
 
-def test_enabled_fresh_module_ignore_plan_reaches_deployment_and_independent_rbac_proof(
+def test_enabled_fresh_infra_plan_precedes_independent_runtime_rbac_proof(
     tmp_path: Path,
 ) -> None:
     runner = FakeRunner()
     runner.web_app_absent = True
     runner.plan_overrides["plan_web_app"] = PlanResult(
         create_count=9,
-        ignore_count=1,
         exact_topology_match=True,
-        change_evidence=(
-            *(
-                _exact_change("Create", f"expected-{index}", "web_app")
-                for index in range(9)
-            ),
-            ChangeEvidence(
-                "Ignore",
-                "template_module_ignore",
-                "web_app",
-                True,
-                expected_multiplicity_match=True,
-                resource_type="unidentified",
-            ),
+        change_evidence=tuple(
+            _exact_change("Create", f"expected-{index}", "web_app")
+            for index in range(9)
         ),
     )
 

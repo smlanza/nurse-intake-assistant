@@ -13,19 +13,15 @@ def _text(path: str) -> str:
     return (INFRA / path).read_text()
 
 
-def test_authorization_is_composed_daily_and_retains_explicit_repair_boundary() -> None:
+def test_authorization_is_excluded_from_initial_infra_and_retains_standalone_boundary() -> None:
     main = _text("main.bicep")
     entry_point = _text(ENTRY_POINT)
 
     assert "Microsoft.Authorization/roleAssignments" not in main
     assert ROLE_GUID not in main
-    assert re.search(
-        r"module\s+keyVaultRuntimeRbac\s+"
-        r"'modules/key-vault-secrets-user-rbac\.bicep'\s*=\s*"
-        r"if\s*\(enableKeyVaultRuntimeAuthorization\s*&&\s*"
-        r"deployApp\s*&&\s*deployKeyVault\)",
-        main,
-    )
+    assert "enableKeyVaultRuntimeAuthorization" not in main
+    assert "keyVaultRuntimeRbac" not in main
+    assert "modules/key-vault-secrets-user-rbac.bicep" not in main
     assert "targetScope = 'resourceGroup'" in entry_point
     assert re.search(
         r"module\s+keyVaultSecretsUserRbac\s+"

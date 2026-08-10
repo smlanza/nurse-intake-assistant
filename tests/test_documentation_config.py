@@ -1201,6 +1201,8 @@ def test_daily_azure_shell_wrapper_is_documented_as_a_convenience_boundary() -> 
             "startup cleanup preflight",
             "resource_group_absent=true",
             "foundry_tombstones_absent=true",
+            "speech_tombstones_absent=true",
+            "key_vault_tombstones_absent=true",
             "scripts/rebuild_daily_azure_environment.py",
             "scripts/cleanup_daily_azure_environment.py",
             "`inspect` is optional and read-only",

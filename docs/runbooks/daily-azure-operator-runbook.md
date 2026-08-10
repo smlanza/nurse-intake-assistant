@@ -107,9 +107,10 @@ scripts/daily_azure.sh start
 performs the authoritative startup cleanup preflight. It either safely reuses
 the exact healthy repository-owned environment or guides a fresh disposable
 build. The preflight independently inspects bounded repository-owned Foundry
-`AIServices` and Speech `SpeechServices` tombstones; when either remains, it
-requires the existing explicit approval and final absence proof before any
-resource-group creation. Do not run destructive cleanup before `start`.
+`AIServices`, Speech `SpeechServices`, and the exact deterministic Key Vault
+tombstone; when any remains, it requires the existing explicit approval and
+final absence proof before any resource-group creation. Do not run destructive
+cleanup before `start`.
 
 Review every sanitized summary. The default, EOF, malformed input, or `n`
 declines that stage. Approval is current-run and evidence-bound; never infer
@@ -307,9 +308,10 @@ scripts/daily_azure.sh stop
 Review the sanitized plan and approve only the exact configured disposable
 environment. Cleanup reinspects after approval, synchronously deletes the
 owned resource group when present, purges only independently and conclusively
-owned bounded Foundry `AIServices` and Speech `SpeechServices` tombstones, and
-performs final read-only reconciliation. Conclusively unrelated records are
-ignored; ambiguous or near-matching records fail closed for manual review.
+owned bounded Foundry `AIServices`, Speech `SpeechServices`, and exact
+deterministic Key Vault tombstones, and performs final read-only reconciliation.
+Conclusively unrelated records are ignored; ambiguous or near-matching records
+fail closed for manual review.
 
 Success is either `category=cleanup_completed` or `category=already_clean` and
 must include the implementation's final-absence proof:
@@ -321,6 +323,7 @@ inspection_completed=true
 resource_group_absent=true
 foundry_tombstones_absent=true
 speech_tombstones_absent=true
+key_vault_tombstones_absent=true
 daily_environment_clean=true
 ```
 
@@ -347,7 +350,7 @@ before the next workday.
 | Retired `--live-trigger`, `--live-reconcile-blocked-trigger`, and `--live-status` modes | Former trigger and correlation reads; unsupported for current operations | No supported current proof; preserved only as retired implementation evidence | Any reliable capstone claim for correlated execution, managed-identity metadata access, invocation, or inference |
 | Retired `--live-metadata-verification` compatibility mode | None; deterministic rejection before configuration or transport activity | SSH hosted managed-identity execution is unsupported | Token acquisition, metadata access, invocation, or any authorization outcome |
 | `.venv/bin/python scripts/run_hosted_foundry_agent_ssh_transport.py --live-tunnel ...` | One owned tunnel and three fixed non-invoking commands after separate approvals | Listener readiness, both prerequisite probes, packaged-module availability, packaged non-invoking check, and deterministic cleanup | Credential construction, metadata access, Agent invocation, or Azure mutation |
-| `scripts/daily_azure.sh stop` | May delete the exact owned group and purge bounded owned Foundry and Speech tombstones after default-no approval | Final resource-group, Foundry-tombstone, and Speech-tombstone absence | A future session's readiness or any retained live proof |
+| `scripts/daily_azure.sh stop` | May delete the exact owned group and purge bounded owned Foundry, Speech, and exact deterministic Key Vault tombstones after default-no approval | Final resource-group, Foundry-tombstone, Speech-tombstone, and Key Vault-tombstone absence | A future session's readiness or any retained live proof |
 
 ## Exceptional immutable WebJob evidence recovery
 
@@ -462,5 +465,5 @@ scripts/daily_azure.sh stop
 ```
 
 Require `resource_group_absent=true`,
-`foundry_tombstones_absent=true`, `speech_tombstones_absent=true`, and
-`daily_environment_clean=true`.
+`foundry_tombstones_absent=true`, `speech_tombstones_absent=true`,
+`key_vault_tombstones_absent=true`, and `daily_environment_clean=true`.

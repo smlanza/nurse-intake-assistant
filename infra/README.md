@@ -19,8 +19,6 @@ lightweight entry point for disposable daily agent validation.
 - Application Insights resource connected to the workspace
 - Optional Linux App Service plan and Linux Web App when `deployApp=true`
 - Optional Azure RBAC-mode Key Vault when `deployKeyVault=true`
-- Optional current Web App Key Vault Secrets User assignment when
-  `enableKeyVaultRuntimeAuthorization=true` with both optional resources enabled
 
 The full template creates no Foundry resources unless `deployFoundry=true` and
 no App Service resources unless `deployApp=true`. Key Vault is likewise absent
@@ -55,9 +53,10 @@ This module provisions only hosting and a system-assigned identity. It does not
 deploy application code, grant an RBAC role, configure live Foundry access, or
 store endpoints, identity IDs, connection strings, credentials, or secrets.
 The module exposes its principal ID only to its parent template;
-`main.bicep` does not publish that identifier. When daily Key Vault runtime
-authorization is enabled, the parent passes that current principal privately
-to the existing runtime RBAC module.
+`main.bicep` does not publish that identifier or compose a runtime RBAC
+assignment. The daily coordinator obtains the current identity through the
+standalone verification and authorization boundary after infrastructure
+creation.
 
 ## Optional Key Vault And Explicit Secrets-User Authorization
 
@@ -68,15 +67,13 @@ deploys it only when `deployKeyVault=true`; the default is `false`. The module
 creates zero secrets, uses no legacy access policies, and outputs only the vault
 name needed by a downstream operator boundary.
 
-Runtime authorization is part of the same daily-generation composition only
-when `enableKeyVaultRuntimeAuthorization=true`, `deployApp=true`, and
-`deployKeyVault=true`. `main.bicep` privately connects the current Web App
-module principal and current Key Vault module name to
-`modules/key-vault-secrets-user-rbac.bicep`. The standalone
-`key-vault-secrets-user-rbac.bicep` remains the evidence-bound repair entry
-point for a conclusively missing assignment and resolves the existing current
-Web App identity itself. The shared module creates one assignment at exactly
-the vault scope for the built-in **Key Vault Secrets User** role
+Initial Web App and Key Vault infrastructure never includes runtime-dependent
+RBAC. After independently verifying the exact current vault and Web App system
+identity, the daily coordinator reads the exact direct assignment. The
+standalone `key-vault-secrets-user-rbac.bicep` is the evidence-bound, default-no
+repair entry point for a conclusively missing assignment and resolves the
+existing current Web App identity itself. The shared module creates one
+assignment at exactly the vault scope for the built-in **Key Vault Secrets User** role
 (`4633458b-17de-408a-b874-0445c86b69e6`). Its assignment name is the stable GUID
 of the exact vault ID, principal ID, and fixed role-definition ID. It grants no
 management, key, certificate, secret-write, subscription, or resource-group

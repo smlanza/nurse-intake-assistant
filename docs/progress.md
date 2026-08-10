@@ -5,8 +5,8 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 ## Current Status
 
 Latest verified test baseline:
-- 3,441 passed full suite
-- 84 focused live Key Vault tests, 126 relevant regressions, and 48 documentation tests
+- 3,488 passed full suite
+- 707 focused cleanup, Key Vault, Web App what-if, coordinator, and documentation tests
 - 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
 
 The daily coordinator's Azure App Service convergence policy is complete
@@ -34,14 +34,14 @@ duplicated here.
 operator-facing Azure procedure. `start` delegates to the authoritative rebuild
 coordinator and includes startup cleanup preflight. `stop` delegates to the
 default-no `scripts/cleanup_daily_azure_environment.py` service. Cleanup
-success requires `resource_group_absent=true`, `foundry_tombstones_absent=true`, `speech_tombstones_absent=true`, and
+success requires `resource_group_absent=true`, `foundry_tombstones_absent=true`, `speech_tombstones_absent=true`, `key_vault_tombstones_absent=true`, and
 `daily_environment_clean=true`. A supervised approved Speech purge executed and
 Azure removed the owned tombstone, but the service incorrectly classified the
 successful empty-output completion as `speech_purge_failed`; an immediate
 read-only inspection conclusively proved the environment clean. The offline
 correction accepts command-style process success while retaining final absence proof. SSH hosted managed-identity acceptance is retired; any future hosted execution mechanism requires a separate architecture decision.
 
-The daily-generation Key Vault runtime RBAC architecture is now implemented offline. When enabled, READY requires independent proof of the current vault, the current Web App system identity, and exactly one direct Key Vault Secrets User assignment at exact vault scope. The principal remains private and generation-bound, so identity churn cannot reuse yesterday's proof. Live daily rebuild acceptance under this changed contract is not yet proven. Consumer RBAC remains among the standalone optional workflows outside READY. WebJob evidence recovery remains exceptional, and the trigger-and-correlation path is retired and must not be reused without a new explicit architecture decision.
+The daily-generation Key Vault runtime RBAC architecture is implemented offline. Initial application infrastructure creates the Web App and zero-secret RBAC-mode vault without the runtime role assignment. The coordinator then proves the exact current vault and Web App identity, reuses one correct direct Secrets User assignment or offers the existing evidence-bound default-no standalone Bicep deployment when conclusively absent, and independently rereads it before READY. The principal remains private and generation-bound, so identity churn cannot reuse yesterday's proof. Live daily rebuild acceptance under this changed contract is not yet proven. Consumer RBAC remains among the standalone optional workflows outside READY. WebJob evidence recovery remains exceptional, and the trigger-and-correlation path is retired and must not be reused without a new explicit architecture decision.
 
 The standalone Azure Speech proof boundary is live-proven for one repository-owned fixed-fictional WAV through the production Speech factory, service, and Azure SDK adapter. Exactly one recognition attempt returned a valid normalized transcript matching the application-owned expected text. The proof invoked no intake route, persisted no case, attempted no notification, and mutated no Azure resource. Mock remains the safe default.
 
@@ -407,7 +407,7 @@ Direct App Service SSH transport is live-proven, SSH hosted managed-identity exe
 
 ## Current Slice Status
 
-- The newly completed offline infrastructure slice adds optional `deployKeyVault=false` integration through `infra/main.bicep`, a reusable Azure RBAC-mode vault that creates zero secrets, and a separate deterministic exact-vault-scope Key Vault Secrets User assignment for the existing Web App system identity. A fresh supervised enabled daily attempt stopped safely at `unsafe_web_app_plan` with no Azure mutation after the bounded module-`Ignore` correction. The final offline identity-boundary investigation found no repository-justified production correction: the bounded live result did not retain the projected record or another authoritative identity field, `ResourceIdOnly` output reaches the normalizer without a repository projection, and raw `resourceType` alone cannot prove exact identity. The parser and Web App safety policy therefore remain fail closed; live daily Key Vault acceptance remains pending a supervised next-session start. Local secret-provider mode remains the no-Azure default, no route reads Key Vault, and no credential was created or migrated. Live deployment, assignment verification, and retrieval remain unproven.
+- A fresh supervised daily run accepted an exact nine-create Web App/zero-secret-vault preview, then the named resource-group deployment reached terminal `Failed`: eight expected resources succeeded, while the exact vault create returned Azure `ConflictError` because one matching soft-deleted vault tombstone retained the deterministic name. The coordinator correctly reported mutation as unknown from the nonzero synchronous CLI result because command exit alone cannot distinguish pre-submission failure from partial creation; the bounded deployment record now proves mutation occurred. A genuine RED showed canonical cleanup ignored the blocker. The existing default-no cleanup workflow now binds only the exact subscription, original resource-group ARM ID, location, type, deterministic name, and unambiguous vault multiplicity; it carries active identity across group deletion, purges only the approved tombstone, and independently proves absence before startup can continue. Verification passed 707 focused regressions and the 3,488-test full suite. Diagnosis used read-only Azure calls and made no mutation; no secret was created, read, or migrated. The current partial generation requires canonical supervised `scripts/daily_azure.sh stop`, followed only after verified clean output by a fresh `scripts/daily_azure.sh start`; live acceptance remains unproven.
 - The standalone Application Insights smoke is offline-tested to use production
   composition, in-memory persistence, suppressed notifications, one emission,
   and bounded read-only verification. Two separately authorized supervised runs each used fresh private schema-v5 READY, production-composed one fixed-fictional in-memory intake, suppressed both notification paths, completed one adapter emission call, and made no Azure mutation; both bounded queries rejected an in-window expected-name row as `telemetry_record_invalid`, including the second run after strict string encoding/decoding correction. A sanitized offline diagnostic classifier now identifies only an allowlisted field, fixed mismatch reason, and fixed wire type without relaxing verification or exposing values. No exact failed-attempt window was persisted, so a live diagnostic query is unavailable without guessing or broadening. Live and App Service-hosted telemetry remain unproven; this is neither clinical validation nor production monitoring.

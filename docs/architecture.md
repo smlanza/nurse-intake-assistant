@@ -359,9 +359,13 @@ creation or Foundry deployment. That boundary reuses a conclusively healthy
 owned environment, stops on ambiguous or unowned state, and requires a
 separate current-run, one-use approval before deleting proven stale owned state
 or purging independently classified, bounded repository-owned Foundry
-`AIServices` or Speech `SpeechServices` tombstones. Cleanup must conclusively
-prove required tombstone absence before the coordinator continues; a fresh
-resource-group creation additionally requires resource-group absence.
+`AIServices`, Speech `SpeechServices`, or exact deterministic Key Vault
+tombstones. Key Vault purge eligibility requires the exact subscription,
+original resource-group ARM ID, location, type, name, and unambiguous
+multiplicity; active vault identity is bound across an approved group deletion.
+Cleanup must conclusively prove required tombstone absence before the
+coordinator continues; a fresh resource-group creation additionally requires
+resource-group absence.
 Resource-group creation, Foundry
 infrastructure deployment, Web App infrastructure deployment, and current
 package deployment retain their own current-evidence approvals; changed
@@ -381,16 +385,17 @@ receipt, rereads that receipt, and exposes only identity-verified and
 identity-bound booleans publicly. Receipt schema v5 is required; legacy
 receipts fail closed without discovery or migration. When
 `ENABLE_KEY_VAULT_RUNTIME_AUTHORIZATION=true`, the same current-generation
-configuration fingerprint also enables the repository-owned vault and runtime
-assignment composition. READY then additionally requires independent
-control-plane proof of the current vault identity, current Web App
-system-assigned identity, and exactly one direct Key Vault Secrets User
-assignment at that exact vault scope. A conclusively missing assignment may
-enter the evidence-bound, default-no repository Bicep deployment path, but
-deployment acceptance is never proof; the exact assignment must be reread
-successfully before READY. The private current principal and deterministic
-assignment identity are neither operator inputs nor public readiness output,
-and a changed generation or principal invalidates prior proof. Consumer RBAC
+configuration fingerprint also enables the repository-owned zero-secret vault
+during initial application infrastructure creation. That deployment never
+composes the runtime role assignment. After Web App configuration verification,
+the coordinator independently proves the exact current vault and current Web App
+system-assigned identity, then reads the direct Key Vault Secrets User
+assignment. A conclusively missing assignment may enter the evidence-bound,
+default-no standalone repository Bicep deployment path, but deployment
+acceptance is never proof; the exact assignment must be reread successfully
+before READY. The private current principal and deterministic assignment
+identity are neither operator inputs nor public readiness output, and a changed
+generation or principal invalidates prior proof. Consumer RBAC
 remains one of the separate, explicitly invoked optional workflows outside readiness.
 The human operator Key Vault Reader workflow also remains separate and is not a
 READY dependency. WebJob discovery and
@@ -970,14 +975,19 @@ Key Vault infrastructure and authorization remain separate from retrieval.
 behind `deployKeyVault=false`; its deterministic name uses the existing stable
 repository suffix, Azure RBAC authorization is mandatory, legacy access
 policies are absent, and the module creates zero secrets. When runtime
-authorization is enabled, the same authoritative composition privately passes
-the Web App module's current system-assigned principal and the Key Vault
-module's current name to the existing Secrets User RBAC module. That module
-assigns only the fixed built-in Key Vault Secrets User role at exactly the
-vault resource, with a deterministic name derived from the exact vault ID,
-current principal ID, and role-definition ID. The standalone entry point is
-retained as the evidence-bound repair boundary for a conclusively missing
-assignment. It does not accept the principal as operator configuration.
+authorization is enabled, initial infrastructure creates the Web App and vault
+without a runtime role assignment. The coordinator then verifies their exact
+current identities and invokes the standalone Secrets User RBAC entry point only
+as the evidence-bound repair boundary for a conclusively missing assignment.
+The shared module assigns only the fixed built-in Key Vault Secrets User role at
+exactly the vault resource, with a deterministic name derived from the exact
+vault ID, current principal ID, and role-definition ID. The standalone entry
+point resolves the existing Web App identity and does not accept the principal
+as operator configuration.
+Because Azure soft-deletes vaults, the canonical cleanup boundary binds the
+exact active or deleted repository vault identity into its default-no cleanup
+approval, purges only that conclusively owned tombstone, and independently
+proves absence before a disposable name may be reused.
 Human Key Vault Reader authorization remains a separate metadata-verification
 concern, and Foundry Consumer RBAC remains outside daily READY. This daily
 composition and READY gate are implemented and tested offline; live acceptance

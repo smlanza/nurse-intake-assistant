@@ -112,6 +112,16 @@ def prompt_for_cleanup_approval(
             file=destination,
         )
         print(
+            "Matching soft-deleted Key Vaults: "
+            f"{summary.soft_deleted_key_vault_count}",
+            file=destination,
+        )
+        print(
+            "Key Vault purge required: "
+            + ("yes" if summary.key_vault_purge_required else "no"),
+            file=destination,
+        )
+        print(
             "Healthy reusable environment: "
             + ("yes" if summary.healthy_reusable_environment else "no"),
             file=destination,

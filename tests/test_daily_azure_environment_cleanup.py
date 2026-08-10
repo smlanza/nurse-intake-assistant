@@ -16,6 +16,7 @@ from src.app.services.daily_azure_environment_rebuild import (
     RESOURCE_GROUP_PURPOSE,
     load_daily_azure_config,
 )
+from src.app.services.key_vault_live_proof import repository_key_vault_name
 
 
 SUBSCRIPTION_ID = "00000000-0000-0000-0000-000000000001"
@@ -53,12 +54,29 @@ def _config(tmp_path: Path):
 
 
 class ScriptedRunner:
-    def __init__(self, outcomes: list[CleanupCommandResult]) -> None:
+    def __init__(
+        self,
+        outcomes: list[CleanupCommandResult],
+        *,
+        key_vault_outcomes: list[CleanupCommandResult] | None = None,
+    ) -> None:
         self.outcomes = list(outcomes)
+        self.key_vault_outcomes = (
+            None if key_vault_outcomes is None else list(key_vault_outcomes)
+        )
         self.calls: list[list[str]] = []
 
     def run(self, args: list[str]) -> CleanupCommandResult:
         self.calls.append(args)
+        if args[:3] in (
+            ["az", "keyvault", "list"],
+            ["az", "keyvault", "list-deleted"],
+        ):
+            if self.key_vault_outcomes is None:
+                return _ok([])
+            if not self.key_vault_outcomes:
+                raise AssertionError(f"Unexpected Key Vault command: {args}")
+            return self.key_vault_outcomes.pop(0)
         if not self.outcomes:
             raise AssertionError(f"Unexpected command: {args}")
         return self.outcomes.pop(0)
@@ -202,6 +220,56 @@ def _deleted_speech(
     }
 
 
+def _deleted_key_vault(
+    *,
+    name: str | None = None,
+    resource_group: str = "fictional-daily-rg",
+    location: str = "eastus2",
+    subscription_id: str = SUBSCRIPTION_ID,
+) -> dict[str, object]:
+    resolved_name = name or repository_key_vault_name(
+        CONFIG["AZURE_RESOURCE_GROUP"],
+        CONFIG["AZURE_PROJECT_NAME"],
+        CONFIG["AZURE_ENVIRONMENT_NAME"],
+    )
+    return {
+        "id": (
+            f"/subscriptions/{subscription_id}/providers/Microsoft.KeyVault/"
+            f"locations/{location}/deletedVaults/{resolved_name}"
+        ),
+        "name": resolved_name,
+        "type": "Microsoft.KeyVault/deletedVaults",
+        "vaultId": (
+            f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}/"
+            f"providers/Microsoft.KeyVault/vaults/{resolved_name}"
+        ),
+        "location": location,
+    }
+
+
+def _active_key_vault(
+    *,
+    name: str | None = None,
+    resource_group: str = "fictional-daily-rg",
+    location: str = "eastus2",
+    subscription_id: str = SUBSCRIPTION_ID,
+) -> dict[str, object]:
+    resolved_name = name or repository_key_vault_name(
+        CONFIG["AZURE_RESOURCE_GROUP"],
+        CONFIG["AZURE_PROJECT_NAME"],
+        CONFIG["AZURE_ENVIRONMENT_NAME"],
+    )
+    return {
+        "id": (
+            f"/subscriptions/{subscription_id}/resourceGroups/{resource_group}/"
+            f"providers/Microsoft.KeyVault/vaults/{resolved_name}"
+        ),
+        "name": resolved_name,
+        "type": "Microsoft.KeyVault/vaults",
+        "location": location,
+    }
+
+
 def _without(
     record: dict[str, object],
     field: str,
@@ -274,6 +342,271 @@ def test_absent_group_and_no_tombstones_is_already_clean(tmp_path: Path) -> None
     assert result.speech_tombstones_absent is True
     assert result.soft_deleted_speech_account_count == 0
     assert all("delete" not in call and "purge" not in call for call in runner.calls)
+
+
+def test_exact_repository_key_vault_tombstone_requires_cleanup(
+    tmp_path: Path,
+) -> None:
+    runner = ScriptedRunner(
+        _inspection(),
+        key_vault_outcomes=[_ok([]), _ok([_deleted_key_vault()])],
+    )
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.STARTUP_PREFLIGHT)
+
+    assert result.ok is True
+    assert result.category == "cleanup_required"
+    assert result.cleanup_required is True
+    assert result.soft_deleted_key_vault_count == 1
+    assert result.key_vault_purge_required is True
+    assert result.key_vault_tombstones_absent is False
+    assert any(call[:3] == ["az", "keyvault", "list-deleted"] for call in runner.calls)
+
+
+def test_exact_repository_key_vault_tombstone_uses_approved_purge_and_final_absence(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_key_vault()
+    runner = ScriptedRunner(
+        _inspection()
+        + _inspection(include_account=False)
+        + [
+            _ok([]),
+            _ok([]),
+            CleanupCommandResult(0, "", ""),
+        ]
+        + _inspection(include_account=False),
+        key_vault_outcomes=[
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([]),
+        ],
+    )
+    summaries = []
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.STARTUP_PREFLIGHT,
+        runner=runner,
+        approver=lambda summary: summaries.append(summary) or True,
+    )
+
+    assert result.ok is True
+    assert result.category == "cleanup_completed"
+    assert result.key_vault_purge_attempted is True
+    assert result.key_vault_tombstones_absent is True
+    assert result.daily_environment_clean is True
+    assert len(summaries) == 1
+    assert summaries[0].soft_deleted_key_vault_count == 1
+    assert summaries[0].key_vault_purge_required is True
+    purge = next(call for call in runner.calls if call[:3] == ["az", "keyvault", "purge"])
+    assert purge == [
+        "az",
+        "keyvault",
+        "purge",
+        "--name",
+        tombstone["name"],
+        "--location",
+        CONFIG["AZURE_LOCATION"],
+        "--only-show-errors",
+    ]
+
+
+def test_key_vault_tombstone_cleanup_defaults_to_no_without_purge(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_key_vault()
+    runner = ScriptedRunner(
+        _inspection(),
+        key_vault_outcomes=[_ok([]), _ok([tombstone])],
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.STARTUP_PREFLIGHT,
+        runner=runner,
+        approver=lambda _summary: False,
+    )
+
+    assert result.ok is False
+    assert result.category == "cleanup_approval_declined"
+    assert result.cleanup_approved is False
+    assert result.azure_mutation_made is False
+    assert not any(call[:3] == ["az", "keyvault", "purge"] for call in runner.calls)
+
+
+def test_key_vault_purge_failure_is_sanitized_and_not_retried(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_key_vault()
+    runner = ScriptedRunner(
+        _inspection()
+        + _inspection(include_account=False)
+        + [
+            _ok([]),
+            _ok([]),
+            CleanupCommandResult(1, "private output", "private error"),
+        ],
+        key_vault_outcomes=[
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([tombstone]),
+        ],
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.STARTUP_PREFLIGHT,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is False
+    assert result.category == "key_vault_purge_failed"
+    assert result.key_vault_purge_attempted is True
+    assert result.azure_mutation_made is False
+    assert sum(call[:3] == ["az", "keyvault", "purge"] for call in runner.calls) == 1
+    assert "private" not in json.dumps(result.to_json_dict())
+
+
+def test_key_vault_tombstone_must_be_absent_after_accepted_purge(
+    tmp_path: Path,
+) -> None:
+    tombstone = _deleted_key_vault()
+    runner = ScriptedRunner(
+        _inspection()
+        + _inspection(include_account=False)
+        + [
+            _ok([]),
+            _ok([]),
+            CleanupCommandResult(0, "", ""),
+        ]
+        + _inspection(include_account=False),
+        key_vault_outcomes=[
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([tombstone]),
+        ],
+    )
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.STARTUP_PREFLIGHT,
+        runner=runner,
+        approver=lambda _summary: True,
+    )
+
+    assert result.ok is False
+    assert result.category == "key_vault_tombstone_still_present"
+    assert result.key_vault_purge_attempted is True
+    assert result.key_vault_tombstones_absent is False
+    assert result.azure_mutation_made is True
+
+
+def test_owned_group_delete_binds_resulting_key_vault_tombstone_before_purge(
+    tmp_path: Path,
+) -> None:
+    active_vault = _active_key_vault()
+    tombstone = _deleted_key_vault()
+    runner = ScriptedRunner(
+        _inspection(group=_group(state="Failed"))
+        + _inspection(group=_group(state="Failed"), include_account=False)
+        + [
+            CleanupCommandResult(0, "", ""),
+            CleanupCommandResult(0, "false\n", ""),
+            _ok([]),
+            _ok([]),
+            CleanupCommandResult(0, "", ""),
+        ]
+        + _inspection(include_account=False),
+        key_vault_outcomes=[
+            _ok([active_vault]),
+            _ok([]),
+            _ok([active_vault]),
+            _ok([]),
+            _ok([]),
+            _ok([tombstone]),
+            _ok([]),
+            _ok([]),
+        ],
+    )
+    summaries = []
+
+    result = _service(tmp_path, runner).cleanup(
+        CleanupPurpose.END_OF_DAY,
+        runner=runner,
+        approver=lambda summary: summaries.append(summary) or True,
+    )
+
+    assert result.ok is True
+    assert result.resource_group_delete_attempted is True
+    assert result.key_vault_purge_required is True
+    assert result.key_vault_purge_attempted is True
+    assert result.key_vault_tombstones_absent is True
+    assert summaries[0].soft_deleted_key_vault_count == 0
+    assert summaries[0].key_vault_purge_required is True
+
+
+def test_active_repository_key_vault_with_absent_group_fails_closed(
+    tmp_path: Path,
+) -> None:
+    runner = ScriptedRunner(
+        _inspection(),
+        key_vault_outcomes=[_ok([_active_key_vault()]), _ok([])],
+    )
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.STARTUP_PREFLIGHT)
+
+    assert result.ok is False
+    assert result.category == "cleanup_inspection_failed"
+    assert result.manual_review_required is True
+    assert result.azure_mutation_made is False
+
+
+@pytest.mark.parametrize(
+    "mutated_field",
+    ("vaultId", "location", "type", "id", "duplicate"),
+)
+def test_exact_named_key_vault_tombstone_requires_complete_unambiguous_ownership(
+    tmp_path: Path,
+    mutated_field: str,
+) -> None:
+    tombstone = _deleted_key_vault()
+    records = [tombstone]
+    if mutated_field == "duplicate":
+        records.append(dict(tombstone))
+    elif mutated_field == "vaultId":
+        tombstone[mutated_field] = str(tombstone[mutated_field]).replace(
+            CONFIG["AZURE_RESOURCE_GROUP"], "unowned-rg"
+        )
+    elif mutated_field == "location":
+        tombstone[mutated_field] = "westus"
+    elif mutated_field == "type":
+        tombstone[mutated_field] = "Microsoft.KeyVault/vaults"
+    else:
+        tombstone[mutated_field] = str(tombstone[mutated_field]).replace(
+            "/deletedVaults/", "/vaults/"
+        )
+    runner = ScriptedRunner(
+        _inspection(),
+        key_vault_outcomes=[_ok([]), _ok(records)],
+    )
+
+    result = _service(tmp_path, runner).inspect(CleanupPurpose.STARTUP_PREFLIGHT)
+
+    assert result.ok is False
+    assert result.category == "deleted_key_vault_ambiguous"
+    assert result.manual_review_required is True
+    assert result.azure_mutation_made is False
 
 
 def test_mixed_foundry_and_speech_tombstones_are_classified_independently(

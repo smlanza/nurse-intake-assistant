@@ -30,13 +30,9 @@ def test_main_makes_key_vault_optional_and_disabled_by_default() -> None:
     assert re.search(r"param\s+deployApp\s+bool\s*=\s*false", main)
     assert re.search(r"param\s+deployFoundry\s+bool\s*=\s*false", main)
     assert "Microsoft.Authorization/roleAssignments" not in main
-    assert re.search(
-        r"module\s+keyVaultRuntimeRbac\s+"
-        r"'modules/key-vault-secrets-user-rbac\.bicep'\s*=\s*"
-        r"if\s*\(enableKeyVaultRuntimeAuthorization\s*&&\s*"
-        r"deployApp\s*&&\s*deployKeyVault\)",
-        main,
-    )
+    assert "enableKeyVaultRuntimeAuthorization" not in main
+    assert "keyVaultRuntimeRbac" not in main
+    assert "modules/key-vault-secrets-user-rbac.bicep" not in main
 
 
 def test_main_derives_a_disposable_repository_owned_vault_name() -> None:

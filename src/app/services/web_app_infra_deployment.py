@@ -1081,16 +1081,23 @@ def _local_contract_valid(
             r"param\s+deployApp\s+bool\s*=\s*false",
             r"param\s+deployFoundry\s+bool\s*=\s*false",
             r"param\s+deployKeyVault\s+bool\s*=\s*false",
-            r"param\s+enableKeyVaultRuntimeAuthorization\s+bool\s*=\s*false",
             r"@minLength\(13\)\s*@maxLength\(13\)\s*param\s+resourceNameSuffix\s+string\?",
             r"var\s+suffix\s*=\s*resourceNameSuffix\s*\?\?\s*uniqueString\([^\r\n]+\)",
             r"module\s+webApp\s+'modules/web-app\.bicep'\s*=\s*if\s*\(deployApp\)",
-            r"module\s+keyVaultRuntimeRbac\s+'modules/key-vault-secrets-user-rbac\.bicep'\s*=\s*if\s*\(enableKeyVaultRuntimeAuthorization\s*&&\s*deployApp\s*&&\s*deployKeyVault\)",
             r"output\s+applicationInsightsName\s+string\s*=\s*applicationInsights\.name",
         )
         if any(
             re.search(pattern, template) is None
             for pattern in template_contract
+        ):
+            return False
+        if any(
+            forbidden in template
+            for forbidden in (
+                "enableKeyVaultRuntimeAuthorization",
+                "keyVaultRuntimeRbac",
+                "modules/key-vault-secrets-user-rbac.bicep",
+            )
         ):
             return False
         tagged_configuration_contract = (
@@ -1208,11 +1215,6 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
                 if request.enable_key_vault_runtime_authorization
                 else "false"
             ),
-            "enableKeyVaultRuntimeAuthorization=" + (
-                "true"
-                if request.enable_key_vault_runtime_authorization
-                else "false"
-            ),
             f"webAppName={request.web_app_name}",
             hosted_configuration,
         ]
@@ -1261,11 +1263,7 @@ def _parse_what_if_summary(
         expected_ignored_resources=expected_ignored or (),
         allow_expected_ignored_resources_absent=True,
         allow_expected_ignored_resource_subsets=True,
-        allowed_unidentified_ignore_counts=(
-            frozenset({0, 1})
-            if request.enable_key_vault_runtime_authorization
-            else frozenset({0})
-        ),
+        allowed_unidentified_ignore_counts=frozenset({0}),
         automatically_approved_actions=frozenset({"Create", "Modify", "NoChange"}),
     )
     if parsed is None:

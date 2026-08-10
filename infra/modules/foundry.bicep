@@ -115,6 +115,9 @@ resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@2025-
       version: modelVersion
     }
   }
+  dependsOn: [
+    foundryProject
+  ]
 }
 
 output foundryResourceName string = foundryAccount.name

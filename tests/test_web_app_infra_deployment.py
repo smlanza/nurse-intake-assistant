@@ -1215,7 +1215,10 @@ def test_azure_modes_issue_one_allowlisted_infrastructure_command(
     assert "deployApp=true" in parameters
     assert "deployFoundry=false" in parameters
     assert "deployKeyVault=false" in parameters
-    assert "enableKeyVaultRuntimeAuthorization=false" in parameters
+    assert not any(
+        parameter.startswith("enableKeyVaultRuntimeAuthorization=")
+        for parameter in parameters
+    )
     assert f"environmentName={deployment_request.environment_name}" in parameters
     assert f"location={deployment_request.location}" in parameters
     assert f"projectName={deployment_request.project_name}" in parameters
@@ -1244,7 +1247,7 @@ def test_azure_modes_issue_one_allowlisted_infrastructure_command(
     assert result.deployment_attempted is (mode == "live")
 
 
-def test_runtime_authorization_enables_vault_and_current_generation_composition(
+def test_runtime_authorization_enables_vault_without_composing_role_assignment(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> None:
     runner = FakeRunner()
@@ -1261,7 +1264,10 @@ def test_runtime_authorization_enables_vault_and_current_generation_composition(
     assert result.ok is True
     parameters = runner.calls[0][runner.calls[0].index("--parameters") + 1 :]
     assert "deployKeyVault=true" in parameters
-    assert "enableKeyVaultRuntimeAuthorization=true" in parameters
+    assert not any(
+        parameter.startswith("enableKeyVaultRuntimeAuthorization=")
+        for parameter in parameters
+    )
 
 
 @pytest.mark.parametrize(
@@ -1556,7 +1562,6 @@ def _key_vault_runtime_enabled_topology_changes(
     return [
         *_web_app_topology_changes(request),
         {"changeType": "Create", "resourceId": vault},
-        {"changeType": "Ignore"},
     ]
 
 
@@ -1579,17 +1584,8 @@ def test_key_vault_enabled_fresh_topology_is_safe_without_fabricating_rbac_proof
 
     assert result.exact_topology_match is True
     assert result.create_count == 9
-    assert result.ignore_count == 1
+    assert result.ignore_count == 0
     assert result.unsupported_count == 0
-    module_ignore = result.change_evidence[-1]
-    assert module_ignore.action == "Ignore"
-    assert module_ignore.resource_type == "unidentified"
-    assert module_ignore.logical_category == "template_module_ignore"
-    assert module_ignore.approved_boundary is True
-    assert module_ignore.expected_identity_match is False
-    assert module_ignore.expected_parent_match is False
-    assert module_ignore.expected_scope_match is False
-    assert module_ignore.expected_multiplicity_match is True
     assert safe_web_app_plan(_plan_from_object(result)) is True
 
 
@@ -1597,11 +1593,11 @@ def test_key_vault_enabled_fresh_topology_is_safe_without_fabricating_rbac_proof
     "case",
     (
         "disabled",
-        "duplicate-module-ignore",
+        "duplicate-unidentified-ignore",
         "identified-unexpected-ignore",
-        "module-ignore-with-null-resource-id",
-        "module-ignore-with-children",
-        "module-ignore-with-unknown-field",
+        "unidentified-ignore-with-null-resource-id",
+        "unidentified-ignore-with-children",
+        "unidentified-ignore-with-unknown-field",
         "missing-key-vault",
     ),
 )
@@ -1620,20 +1616,25 @@ def test_key_vault_runtime_topology_remains_configuration_and_scope_bound(
         for index, change in enumerate(changes)
         if "/Microsoft.KeyVault/vaults/" in str(change.get("resourceId", ""))
     )
-    if case == "duplicate-module-ignore":
-        changes.append({"changeType": "Ignore"})
+    if case == "duplicate-unidentified-ignore":
+        changes.extend(({"changeType": "Ignore"}, {"changeType": "Ignore"}))
     elif case == "identified-unexpected-ignore":
-        changes[-1]["resourceId"] = (
-            f"/subscriptions/private-sub/resourceGroups/"
-            f"{request.resource_group}/providers/Microsoft.KeyVault/vaults/"
-            "not-repository-owned"
+        changes.append(
+            {
+                "changeType": "Ignore",
+                "resourceId": (
+                    f"/subscriptions/private-sub/resourceGroups/"
+                    f"{request.resource_group}/providers/Microsoft.KeyVault/vaults/"
+                    "not-repository-owned"
+                ),
+            }
         )
-    elif case == "module-ignore-with-null-resource-id":
-        changes[-1]["resourceId"] = None
-    elif case == "module-ignore-with-children":
-        changes[-1]["children"] = []
-    elif case == "module-ignore-with-unknown-field":
-        changes[-1]["unexpected"] = "private-value"
+    elif case == "unidentified-ignore-with-null-resource-id":
+        changes.append({"changeType": "Ignore", "resourceId": None})
+    elif case == "unidentified-ignore-with-children":
+        changes.append({"changeType": "Ignore", "children": []})
+    elif case == "unidentified-ignore-with-unknown-field":
+        changes.append({"changeType": "Ignore", "unexpected": "private-value"})
     elif case == "missing-key-vault":
         changes.pop(vault_index)
 

@@ -20,7 +20,8 @@ authoritative implementation boundaries:
 cleanup inspection through the startup cleanup preflight; `inspect` is optional
 and read-only; `stop` is the explicit end-of-day cleanup. Final absence is
 proved by `resource_group_absent=true` and
-`foundry_tombstones_absent=true`.
+`foundry_tombstones_absent=true`, `speech_tombstones_absent=true`, and
+`key_vault_tombstones_absent=true`.
 
 ## Normal Daily Guided Path
 

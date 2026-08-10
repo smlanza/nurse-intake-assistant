@@ -130,6 +130,10 @@ def test_inspect_mode_never_receives_an_approver(monkeypatch, capsys) -> None:
     assert payload["soft_deleted_speech_accounts_found"] is False
     assert payload["speech_purge_required"] is False
     assert payload["speech_purge_attempted"] is False
+    assert payload["key_vault_tombstones_absent"] is True
+    assert payload["soft_deleted_key_vault_count"] == 0
+    assert payload["key_vault_purge_required"] is False
+    assert payload["key_vault_purge_attempted"] is False
     assert output.endswith("\n")
     assert len(output.splitlines()) == 1
 
@@ -185,6 +189,8 @@ def test_cleanup_cli_uses_one_prompt_and_sanitized_json(
                 healthy_reusable_environment=False,
                 soft_deleted_speech_account_count=1,
                 speech_purge_required=True,
+                soft_deleted_key_vault_count=1,
+                key_vault_purge_required=True,
             )
             assert approver(summary) is True
             return CleanupResult.cleanup_completed(purpose)
@@ -213,6 +219,9 @@ def test_cleanup_cli_uses_one_prompt_and_sanitized_json(
     assert payload["soft_deleted_speech_accounts_found"] is False
     assert payload["speech_purge_required"] is True
     assert payload["speech_purge_attempted"] is True
+    assert payload["key_vault_tombstones_absent"] is True
+    assert payload["key_vault_purge_required"] is True
+    assert payload["key_vault_purge_attempted"] is True
     assert type(payload["azure_mutation_made"]) is bool
     assert type(payload["speech_purge_attempted"]) is bool
     assert type(payload["speech_tombstones_absent"]) is bool
@@ -223,6 +232,8 @@ def test_cleanup_cli_uses_one_prompt_and_sanitized_json(
     assert output.err.count("Proceed? [y/N]") == 1
     assert "Matching soft-deleted Speech accounts: 1" in output.err
     assert "Speech purge required: no" not in output.err
+    assert "Matching soft-deleted Key Vaults: 1" in output.err
+    assert "Key Vault purge required: no" not in output.err
     assert "fictional-daily-rg" not in output.out
 
 

@@ -51,9 +51,6 @@ param deployApp bool = false
 @description('Deploy an Azure Key Vault with Azure RBAC authorization and no secrets.')
 param deployKeyVault bool = false
 
-@description('Authorize the current Web App system identity as Key Vault Secrets User at exact vault scope.')
-param enableKeyVaultRuntimeAuthorization bool = false
-
 @description('Optional explicit globally unique Microsoft Foundry account name. A deterministic name is used when empty.')
 @maxLength(64)
 param foundryAccountName string = ''
@@ -228,14 +225,6 @@ module keyVault 'modules/key-vault.bicep' = if (deployKeyVault) {
   params: {
     location: location
     keyVaultName: keyVaultName
-  }
-}
-
-module keyVaultRuntimeRbac 'modules/key-vault-secrets-user-rbac.bicep' = if (enableKeyVaultRuntimeAuthorization && deployApp && deployKeyVault) {
-  name: 'key-vault-runtime-rbac'
-  params: {
-    keyVaultName: keyVault!.outputs.keyVaultName
-    webAppPrincipalId: webApp!.outputs.systemAssignedIdentityPrincipalId
   }
 }
 

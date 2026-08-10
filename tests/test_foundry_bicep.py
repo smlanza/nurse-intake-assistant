@@ -55,6 +55,16 @@ def test_shared_module_has_foundry_project_and_model_resources() -> None:
     assert "name: modelDeploymentName" in text
 
 
+def test_shared_module_serializes_foundry_account_child_writes() -> None:
+    text = _text("modules/foundry.bicep")
+    model_deployment = text.split(
+        "resource modelDeployment 'Microsoft.CognitiveServices/accounts/deployments@",
+        1,
+    )[1].split("\n}\n", 1)[0]
+
+    assert "dependsOn: [\n    foundryProject\n  ]" in model_deployment
+
+
 def test_foundry_entry_points_forward_optional_explicit_account_name() -> None:
     module = _text("modules/foundry.bicep")
     foundry_only = _text("foundry-only.bicep")

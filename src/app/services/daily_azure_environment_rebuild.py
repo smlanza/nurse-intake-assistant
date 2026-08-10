@@ -3258,6 +3258,7 @@ class DailyAzureEnvironmentRebuild:
             and getattr(cleanup, "resource_group_absent", False) is True
             and getattr(cleanup, "foundry_tombstones_absent", False) is True
             and getattr(cleanup, "speech_tombstones_absent", False) is True
+            and getattr(cleanup, "key_vault_tombstones_absent", False) is True
         )
         reusable_owned = bool(
             getattr(cleanup, "resource_group_owned", False) is True
@@ -3266,6 +3267,7 @@ class DailyAzureEnvironmentRebuild:
             is False
             and getattr(cleanup, "foundry_tombstones_absent", False) is True
             and getattr(cleanup, "speech_tombstones_absent", False) is True
+            and getattr(cleanup, "key_vault_tombstones_absent", False) is True
             and getattr(cleanup, "category", None)
             in {"healthy_environment_reusable", "cleanup_completed"}
         )

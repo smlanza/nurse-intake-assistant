@@ -17,6 +17,7 @@ from src.app.services.daily_azure_environment_rebuild import (
     _foundry_account_candidate_matches_base,
     validate_local_orchestration_contract,
 )
+from src.app.services.key_vault_live_proof import repository_key_vault_name
 
 
 CLEANUP_OPERATION = "cleanup_daily_azure_environment"
@@ -29,6 +30,8 @@ _COGNITIVE_ACCOUNT_TYPE = "Microsoft.CognitiveServices/accounts"
 _COGNITIVE_DELETED_ACCOUNT_TYPE = (
     "Microsoft.CognitiveServices/deletedAccounts"
 )
+_KEY_VAULT_TYPE = "Microsoft.KeyVault/vaults"
+_KEY_VAULT_DELETED_TYPE = "Microsoft.KeyVault/deletedVaults"
 _REUSABLE_RESOURCE_GROUP_STATE = "Succeeded"
 _STALE_RESOURCE_GROUP_STATES = frozenset({"Canceled", "Deleting", "Failed"})
 
@@ -83,6 +86,8 @@ class CleanupApprovalSummary:
     healthy_reusable_environment: bool
     soft_deleted_speech_account_count: int = 0
     speech_purge_required: bool = False
+    soft_deleted_key_vault_count: int = 0
+    key_vault_purge_required: bool = False
 
     @property
     def manual_review_required(self) -> bool:
@@ -94,6 +99,7 @@ class CleanupApprovalSummary:
             self.resource_group_deletion_required
             or self.foundry_purge_required
             or self.speech_purge_required
+            or self.key_vault_purge_required
         )
 
 
@@ -122,6 +128,11 @@ class CleanupResult:
     soft_deleted_speech_accounts_found: bool = False
     speech_purge_required: bool = False
     speech_purge_attempted: bool = False
+    key_vault_tombstones_absent: bool = False
+    soft_deleted_key_vault_count: int = 0
+    soft_deleted_key_vaults_found: bool = False
+    key_vault_purge_required: bool = False
+    key_vault_purge_attempted: bool = False
     active_name_conflict_found: bool = False
     manual_review_required: bool = False
     daily_environment_clean: bool = False
@@ -151,6 +162,10 @@ class CleanupResult:
             "soft_deleted_speech_accounts_found",
             "speech_purge_required",
             "speech_purge_attempted",
+            "key_vault_tombstones_absent",
+            "soft_deleted_key_vaults_found",
+            "key_vault_purge_required",
+            "key_vault_purge_attempted",
             "active_name_conflict_found",
             "manual_review_required",
             "daily_environment_clean",
@@ -184,6 +199,7 @@ class CleanupResult:
             resource_group_absent=True,
             foundry_tombstones_absent=True,
             speech_tombstones_absent=True,
+            key_vault_tombstones_absent=True,
             daily_environment_clean=True,
             next_step="No cleanup action is required.",
         )
@@ -209,6 +225,9 @@ class CleanupResult:
             speech_tombstones_absent=True,
             speech_purge_required=True,
             speech_purge_attempted=True,
+            key_vault_tombstones_absent=True,
+            key_vault_purge_required=True,
+            key_vault_purge_attempted=True,
             daily_environment_clean=True,
             azure_mutation_made=True,
             next_step="The approved cleanup completed and final state was verified.",
@@ -252,6 +271,13 @@ class CleanupResult:
             ),
             "speech_purge_required": self.speech_purge_required,
             "speech_purge_attempted": self.speech_purge_attempted,
+            "key_vault_tombstones_absent": self.key_vault_tombstones_absent,
+            "soft_deleted_key_vault_count": self.soft_deleted_key_vault_count,
+            "soft_deleted_key_vaults_found": (
+                self.soft_deleted_key_vaults_found
+            ),
+            "key_vault_purge_required": self.key_vault_purge_required,
+            "key_vault_purge_attempted": self.key_vault_purge_attempted,
             "active_name_conflict_found": self.active_name_conflict_found,
             "manual_review_required": self.manual_review_required,
             "daily_environment_clean": self.daily_environment_clean,
@@ -294,6 +320,15 @@ class _SpeechAccountEvidence:
 
 
 @dataclass(frozen=True, repr=False)
+class _KeyVaultEvidence:
+    vault_resource_id: str
+    name: str
+    resource_group: str
+    location: str
+    subscription_id: str
+
+
+@dataclass(frozen=True, repr=False)
 class _CleanupPlan:
     purpose: CleanupPurpose
     account: VerifiedAzureAccount
@@ -302,6 +337,8 @@ class _CleanupPlan:
     active_owned_accounts: tuple[_FoundryAccountEvidence, ...]
     deleted_accounts: tuple[_FoundryAccountEvidence, ...]
     deleted_speech_accounts: tuple[_SpeechAccountEvidence, ...]
+    active_key_vaults: tuple[_KeyVaultEvidence, ...]
+    deleted_key_vaults: tuple[_KeyVaultEvidence, ...]
 
     @property
     def resource_group_deletion_required(self) -> bool:
@@ -314,6 +351,13 @@ class _CleanupPlan:
     @property
     def speech_purge_required(self) -> bool:
         return bool(self.deleted_speech_accounts)
+
+    @property
+    def key_vault_purge_required(self) -> bool:
+        return bool(
+            self.deleted_key_vaults
+            or (self.delete_resource_group and self.active_key_vaults)
+        )
 
     @property
     def approved_account_names(self) -> frozenset[str]:
@@ -329,6 +373,16 @@ class _CleanupPlan:
     def approved_speech_account_names(self) -> frozenset[str]:
         return frozenset(
             evidence.name for evidence in self.deleted_speech_accounts
+        )
+
+    @property
+    def approved_key_vault_identities(self) -> frozenset[tuple[str, str]]:
+        return frozenset(
+            (evidence.vault_resource_id.casefold(), evidence.name)
+            for evidence in (
+                *self.active_key_vaults,
+                *self.deleted_key_vaults,
+            )
         )
 
 
@@ -561,6 +615,20 @@ class DailyAzureEnvironmentCleanup:
                 )
             )
         active_owned, deleted, deleted_speech = accounts
+        key_vaults = self._inspect_key_vaults(runner, account)
+        if isinstance(key_vaults, str):
+            return _Inspection(
+                self._failure(
+                    purpose,
+                    key_vaults,
+                    account_verified=True,
+                    inspection_completed=True,
+                    resource_group_present=group is not None,
+                    resource_group_owned=group is not None,
+                    manual_review_required=True,
+                )
+            )
+        active_key_vaults, deleted_key_vaults = key_vaults
         plan = _CleanupPlan(
             purpose=purpose,
             account=account,
@@ -576,8 +644,10 @@ class DailyAzureEnvironmentCleanup:
             active_owned_accounts=active_owned,
             deleted_accounts=deleted,
             deleted_speech_accounts=deleted_speech,
+            active_key_vaults=active_key_vaults,
+            deleted_key_vaults=deleted_key_vaults,
         )
-        if group is None and active_owned:
+        if group is None and (active_owned or active_key_vaults):
             return _Inspection(
                 self._failure(
                     purpose,
@@ -592,6 +662,7 @@ class DailyAzureEnvironmentCleanup:
             and group.provisioning_state == _REUSABLE_RESOURCE_GROUP_STATE
             and not deleted
             and not deleted_speech
+            and not deleted_key_vaults
         )
         if (
             group is not None
@@ -615,6 +686,7 @@ class DailyAzureEnvironmentCleanup:
         cleanup_required = bool(
             deleted
             or deleted_speech
+            or deleted_key_vaults
             or (
                 group is not None
                 and (
@@ -638,6 +710,7 @@ class DailyAzureEnvironmentCleanup:
                         resource_group_absent=False,
                         foundry_tombstones_absent=True,
                         speech_tombstones_absent=True,
+                        key_vault_tombstones_absent=True,
                         daily_environment_clean=False,
                         next_step=(
                             "Continue through the verified environment reuse path."
@@ -670,6 +743,10 @@ class DailyAzureEnvironmentCleanup:
             soft_deleted_speech_account_count=len(deleted_speech),
             soft_deleted_speech_accounts_found=bool(deleted_speech),
             speech_purge_required=plan.speech_purge_required,
+            key_vault_tombstones_absent=not deleted_key_vaults,
+            soft_deleted_key_vault_count=len(deleted_key_vaults),
+            soft_deleted_key_vaults_found=bool(deleted_key_vaults),
+            key_vault_purge_required=plan.key_vault_purge_required,
             next_step=(
                 "Review the current sanitized cleanup summary; approval defaults to no."
             ),
@@ -701,6 +778,8 @@ class DailyAzureEnvironmentCleanup:
                 len(plan.deleted_speech_accounts)
             ),
             speech_purge_required=plan.speech_purge_required,
+            soft_deleted_key_vault_count=len(plan.deleted_key_vaults),
+            key_vault_purge_required=plan.key_vault_purge_required,
         )
         approvals = _ApprovalSession(
             environment_binding=self._environment_binding(),
@@ -800,6 +879,18 @@ class DailyAzureEnvironmentCleanup:
                 azure_mutation_made=mutation_made,
             )
         active_after, deleted_after, deleted_speech_after = post_accounts
+        post_key_vaults = self._inspect_key_vaults(runner, account)
+        if isinstance(post_key_vaults, str):
+            return replace(
+                inspection.result,
+                ok=False,
+                category=post_key_vaults,
+                cleanup_approved=True,
+                cleanup_attempted=delete_attempted,
+                resource_group_delete_attempted=delete_attempted,
+                azure_mutation_made=mutation_made,
+            )
+        active_key_vaults_after, deleted_key_vaults_after = post_key_vaults
         if (
             plan.resource_group_deletion_required
             and active_after
@@ -825,6 +916,31 @@ class DailyAzureEnvironmentCleanup:
                 cleanup_attempted=False,
                 azure_mutation_made=mutation_made,
             )
+        if (
+            plan.resource_group_deletion_required
+            and active_key_vaults_after
+        ):
+            return replace(
+                inspection.result,
+                ok=False,
+                category="resource_group_still_present",
+                cleanup_approved=True,
+                cleanup_attempted=delete_attempted,
+                resource_group_delete_attempted=delete_attempted,
+                azure_mutation_made=mutation_made,
+            )
+        if (
+            not plan.resource_group_deletion_required
+            and active_key_vaults_after != plan.active_key_vaults
+        ):
+            return replace(
+                inspection.result,
+                ok=False,
+                category="cleanup_evidence_changed",
+                cleanup_approved=True,
+                cleanup_attempted=False,
+                azure_mutation_made=mutation_made,
+            )
         if any(
             evidence.name not in plan.approved_account_names
             for evidence in deleted_after
@@ -841,6 +957,20 @@ class DailyAzureEnvironmentCleanup:
         if any(
             evidence.name not in plan.approved_speech_account_names
             for evidence in deleted_speech_after
+        ):
+            return replace(
+                inspection.result,
+                ok=False,
+                category="cleanup_evidence_changed",
+                cleanup_approved=True,
+                cleanup_attempted=delete_attempted,
+                resource_group_delete_attempted=delete_attempted,
+                azure_mutation_made=mutation_made,
+            )
+        if any(
+            (evidence.vault_resource_id.casefold(), evidence.name)
+            not in plan.approved_key_vault_identities
+            for evidence in deleted_key_vaults_after
         ):
             return replace(
                 inspection.result,
@@ -935,6 +1065,59 @@ class DailyAzureEnvironmentCleanup:
                     azure_mutation_made=mutation_made,
                 )
             mutation_made = True
+        key_vault_purge_attempted = False
+        for evidence in sorted(
+            deleted_key_vaults_after,
+            key=lambda item: item.name,
+        ):
+            key_vault_purge_attempted = True
+            try:
+                purged = runner.run(
+                    [
+                        "az",
+                        "keyvault",
+                        "purge",
+                        "--name",
+                        evidence.name,
+                        "--location",
+                        evidence.location,
+                        "--only-show-errors",
+                    ]
+                )
+            except Exception:
+                return replace(
+                    inspection.result,
+                    ok=False,
+                    category="key_vault_purge_failed",
+                    cleanup_approved=True,
+                    cleanup_attempted=True,
+                    resource_group_delete_attempted=delete_attempted,
+                    foundry_purge_attempted=foundry_purge_attempted,
+                    speech_purge_attempted=speech_purge_attempted,
+                    key_vault_purge_attempted=True,
+                    azure_mutation_made=mutation_made,
+                )
+            if (
+                type(getattr(purged, "return_code", None)) is not int
+                or getattr(purged, "return_code", None) != 0
+                or not isinstance(getattr(purged, "stdout", None), str)
+                or not isinstance(getattr(purged, "stderr", None), str)
+                or type(getattr(purged, "timed_out", None)) is not bool
+                or getattr(purged, "timed_out", None) is True
+            ):
+                return replace(
+                    inspection.result,
+                    ok=False,
+                    category="key_vault_purge_failed",
+                    cleanup_approved=True,
+                    cleanup_attempted=True,
+                    resource_group_delete_attempted=delete_attempted,
+                    foundry_purge_attempted=foundry_purge_attempted,
+                    speech_purge_attempted=speech_purge_attempted,
+                    key_vault_purge_attempted=True,
+                    azure_mutation_made=mutation_made,
+                )
+            mutation_made = True
         final = self._inspect(runner, purpose, account)
         if not final.result.ok:
             return replace(
@@ -946,6 +1129,7 @@ class DailyAzureEnvironmentCleanup:
                 resource_group_delete_attempted=delete_attempted,
                 foundry_purge_attempted=foundry_purge_attempted,
                 speech_purge_attempted=speech_purge_attempted,
+                key_vault_purge_attempted=key_vault_purge_attempted,
                 azure_mutation_made=mutation_made,
             )
         if (
@@ -987,6 +1171,19 @@ class DailyAzureEnvironmentCleanup:
                 speech_purge_attempted=speech_purge_attempted,
                 azure_mutation_made=mutation_made,
             )
+        if not final.result.key_vault_tombstones_absent:
+            return replace(
+                inspection.result,
+                ok=False,
+                category="key_vault_tombstone_still_present",
+                cleanup_approved=True,
+                cleanup_attempted=True,
+                resource_group_delete_attempted=delete_attempted,
+                foundry_purge_attempted=foundry_purge_attempted,
+                speech_purge_attempted=speech_purge_attempted,
+                key_vault_purge_attempted=key_vault_purge_attempted,
+                azure_mutation_made=mutation_made,
+            )
         expected_final_category = (
             "healthy_environment_reusable"
             if plan.resource_group is not None
@@ -1002,6 +1199,7 @@ class DailyAzureEnvironmentCleanup:
                 cleanup_attempted=True,
                 foundry_purge_attempted=foundry_purge_attempted,
                 speech_purge_attempted=speech_purge_attempted,
+                key_vault_purge_attempted=key_vault_purge_attempted,
                 azure_mutation_made=mutation_made,
             )
         return CleanupResult(
@@ -1038,6 +1236,15 @@ class DailyAzureEnvironmentCleanup:
             ),
             speech_purge_required=inspection.result.speech_purge_required,
             speech_purge_attempted=speech_purge_attempted,
+            key_vault_tombstones_absent=True,
+            soft_deleted_key_vault_count=(
+                inspection.result.soft_deleted_key_vault_count
+            ),
+            soft_deleted_key_vaults_found=(
+                inspection.result.soft_deleted_key_vaults_found
+            ),
+            key_vault_purge_required=inspection.result.key_vault_purge_required,
+            key_vault_purge_attempted=key_vault_purge_attempted,
             daily_environment_clean=final.result.daily_environment_clean,
             azure_mutation_made=mutation_made,
             next_step="The approved cleanup completed and final state was verified.",
@@ -1193,6 +1400,80 @@ class DailyAzureEnvironmentCleanup:
         deleted_foundry, deleted_speech = deleted
         return active, deleted_foundry, deleted_speech
 
+    def _inspect_key_vaults(
+        self,
+        runner: CleanupCommandRunner,
+        account: VerifiedAzureAccount,
+    ) -> tuple[
+        tuple[_KeyVaultEvidence, ...],
+        tuple[_KeyVaultEvidence, ...],
+    ] | str:
+        active_outcome = runner.run(
+            [
+                "az",
+                "keyvault",
+                "list",
+                "--resource-group",
+                self.config.resource_group,
+                "--query",
+                "[].{id:id,name:name,location:location,type:type}",
+                "--output",
+                "json",
+                "--only-show-errors",
+            ]
+        )
+        deleted_outcome = runner.run(
+            [
+                "az",
+                "keyvault",
+                "list-deleted",
+                "--query",
+                (
+                    "[].{id:id,name:name,type:type,vaultId:properties.vaultId,"
+                    "location:properties.location}"
+                ),
+                "--output",
+                "json",
+                "--only-show-errors",
+            ]
+        )
+        active_payload = (
+            _json_list(active_outcome)
+            if active_outcome.return_code == 0
+            else None
+        )
+        deleted_payload = (
+            _json_list(deleted_outcome)
+            if deleted_outcome.return_code == 0
+            else None
+        )
+        if active_payload is None or deleted_payload is None:
+            return "key_vault_cleanup_inspection_failed"
+        expected_name = repository_key_vault_name(
+            self.config.resource_group,
+            self.config.project_name,
+            self.config.environment_name,
+        )
+        active = _select_key_vault_evidence(
+            active_payload,
+            account,
+            expected_name=expected_name,
+            expected_resource_group=self.config.resource_group,
+            expected_location=self.config.location,
+            deleted=False,
+        )
+        deleted = _select_key_vault_evidence(
+            deleted_payload,
+            account,
+            expected_name=expected_name,
+            expected_resource_group=self.config.resource_group,
+            expected_location=self.config.location,
+            deleted=True,
+        )
+        if active is None or deleted is None or (active and deleted):
+            return "deleted_key_vault_ambiguous"
+        return active, deleted
+
     def _select_active_accounts(
         self,
         records: list[object],
@@ -1339,6 +1620,11 @@ class DailyAzureEnvironmentCleanup:
                 "speech_name_pattern": _SPEECH_NAME_PATTERN.pattern,
                 "speech_purpose": _SPEECH_PURPOSE,
                 "speech_environment": _SPEECH_ENVIRONMENT,
+                "key_vault_name": repository_key_vault_name(
+                    self.config.resource_group,
+                    self.config.project_name,
+                    self.config.environment_name,
+                ),
             },
             separators=(",", ":"),
             sort_keys=True,
@@ -1423,6 +1709,111 @@ def _resource_group_evidence(
         location,
         state,
         tag,
+    )
+
+
+def _select_key_vault_evidence(
+    records: list[object],
+    account: VerifiedAzureAccount,
+    *,
+    expected_name: str,
+    expected_resource_group: str,
+    expected_location: str,
+    deleted: bool,
+) -> tuple[_KeyVaultEvidence, ...] | None:
+    selected: list[_KeyVaultEvidence] = []
+    for record in records:
+        if not isinstance(record, dict):
+            return None
+        name = record.get("name")
+        if not isinstance(name, str) or not name or name != name.strip():
+            return None
+        if name != expected_name:
+            continue
+        evidence = _key_vault_evidence(
+            record,
+            account,
+            expected_resource_group=expected_resource_group,
+            expected_location=expected_location,
+            deleted=deleted,
+        )
+        if evidence is None:
+            return None
+        selected.append(evidence)
+    identities = {
+        (item.vault_resource_id.casefold(), item.name)
+        for item in selected
+    }
+    if len(identities) != len(selected) or len(selected) > 1:
+        return None
+    return tuple(selected)
+
+
+def _key_vault_evidence(
+    payload: dict[str, object],
+    account: VerifiedAzureAccount,
+    *,
+    expected_resource_group: str,
+    expected_location: str,
+    deleted: bool,
+) -> _KeyVaultEvidence | None:
+    expected_fields = (
+        {"id", "name", "type", "vaultId", "location"}
+        if deleted
+        else {"id", "name", "type", "location"}
+    )
+    if set(payload) != expected_fields:
+        return None
+    if not all(
+        isinstance(payload.get(field), str)
+        and bool(payload[field])
+        and payload[field] == str(payload[field]).strip()
+        for field in expected_fields
+    ):
+        return None
+    name = str(payload["name"])
+    location = str(payload["location"])
+    resource_type = str(payload["type"])
+    vault_resource_id = str(payload["vaultId"] if deleted else payload["id"])
+    vault_parts = vault_resource_id.split("/")
+    if (
+        len(vault_parts) != 9
+        or vault_parts[0] != ""
+        or vault_parts[1].casefold() != "subscriptions"
+        or vault_parts[2].casefold() != account.subscription_id.casefold()
+        or vault_parts[3].casefold() != "resourcegroups"
+        or vault_parts[4] != expected_resource_group
+        or vault_parts[5].casefold() != "providers"
+        or vault_parts[6].casefold() != "microsoft.keyvault"
+        or vault_parts[7].casefold() != "vaults"
+        or vault_parts[8] != name
+        or location != expected_location
+    ):
+        return None
+    if deleted:
+        deleted_parts = str(payload["id"]).split("/")
+        if (
+            resource_type.casefold() != _KEY_VAULT_DELETED_TYPE.casefold()
+            or len(deleted_parts) != 9
+            or deleted_parts[0] != ""
+            or deleted_parts[1].casefold() != "subscriptions"
+            or deleted_parts[2].casefold() != account.subscription_id.casefold()
+            or deleted_parts[3].casefold() != "providers"
+            or deleted_parts[4].casefold() != "microsoft.keyvault"
+            or deleted_parts[5].casefold() != "locations"
+            or deleted_parts[6] != location
+            or deleted_parts[7].casefold() != "deletedvaults"
+            or deleted_parts[8] != name
+        ):
+            return None
+    elif resource_type.casefold() != _KEY_VAULT_TYPE.casefold():
+        return None
+    return _KeyVaultEvidence(
+        vault_resource_id=vault_resource_id,
+        name=name,
+        resource_group=expected_resource_group,
+        location=location,
+        subscription_id=account.subscription_id,
     )
 
 
@@ -1741,6 +2132,14 @@ def _private_plan_binding(plan: _CleanupPlan) -> bytes:
             _private_speech_account_binding(account)
             for account in plan.deleted_speech_accounts
         ],
+        "active_key_vaults": [
+            _private_key_vault_binding(vault)
+            for vault in plan.active_key_vaults
+        ],
+        "deleted_key_vaults": [
+            _private_key_vault_binding(vault)
+            for vault in plan.deleted_key_vaults
+        ],
     }
     return hashlib.sha256(
         json.dumps(
@@ -1762,6 +2161,18 @@ def _private_account_binding(
         "subscription_id": account.subscription_id,
         "kind": account.kind,
         "resource_type": account.resource_type,
+    }
+
+
+def _private_key_vault_binding(
+    vault: _KeyVaultEvidence,
+) -> dict[str, str]:
+    return {
+        "vault_resource_id": vault.vault_resource_id,
+        "name": vault.name,
+        "resource_group": vault.resource_group,
+        "location": vault.location,
+        "subscription_id": vault.subscription_id,
     }
 
 
