@@ -194,33 +194,12 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
   ]
 }
 
-resource webAppAuthentication 'Microsoft.Web/sites/config@2024-04-01' = if (validatedAppServiceAuthenticationConfiguration.mode == 'enabled') {
-  name: '${webApp.name}/authsettingsV2'
-  properties: {
-    platform: {
-      enabled: true
-    }
-    globalValidation: {
-      requireAuthentication: true
-      unauthenticatedClientAction: 'Return401'
-      excludedPaths: [
-        '/health'
-        '/version'
-        '/demo/status'
-      ]
-    }
-    httpSettings: {
-      requireHttps: true
-    }
-    identityProviders: {
-      azureActiveDirectory: {
-        enabled: true
-        registration: {
-          clientId: validatedAppServiceAuthenticationConfiguration.clientId
-          openIdIssuer: '${environment().authentication.loginEndpoint}${validatedAppServiceAuthenticationConfiguration.tenantId}/v2.0'
-        }
-      }
-    }
+module webAppAuthentication 'web-app-authentication.bicep' = if (validatedAppServiceAuthenticationConfiguration.mode == 'enabled') {
+  name: 'web-app-authentication'
+  params: {
+    webAppName: webApp.name
+    entraClientId: validatedAppServiceAuthenticationConfiguration.clientId
+    entraTenantId: validatedAppServiceAuthenticationConfiguration.tenantId
   }
   dependsOn: [
     appServiceAuthenticationConfigValidation

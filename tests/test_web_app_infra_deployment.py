@@ -184,6 +184,9 @@ def test_reconciliation_wrapper_is_removed() -> None:
     (
         ("initial_create", "web-app.bicep"),
         ("existing_web_app_reconciliation", "main.bicep"),
+        ("web_app_authentication", "main.bicep"),
+        ("web_app_authentication", "modules/web-app.bicep"),
+        ("web_app_authentication", "arbitrary.bicep"),
         ("unbounded-purpose", "main.bicep"),
     ),
 )
@@ -204,6 +207,52 @@ def test_purpose_template_mismatch_fails_before_runner(
 
     assert result.category == "invalid_arguments"
     assert result.azure_operation_attempted is False
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize(
+    ("mode", "authoritative_template"),
+    (
+        ("what-if", False),
+        ("check", True),
+        ("what-if", True),
+        ("live", True),
+    ),
+)
+def test_generic_or_mismatched_authentication_purpose_never_reaches_runner(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+    mode: str,
+    authoritative_template: bool,
+) -> None:
+    runner = FakeRunner()
+    generated = tmp_path / "web-app-authentication.bicep"
+    generated.write_text(
+        (ROOT / "infra/modules/web-app-authentication.bicep").read_text()
+    )
+    request = replace(
+        deployment_request,
+        mode=mode,
+        purpose="web_app_authentication",
+        template_file=(
+            ROOT / "infra/modules/web-app-authentication.bicep"
+            if authoritative_template
+            else generated
+        ),
+        enable_app_service_authentication=True,
+        app_service_authentication_client_id=(
+            "11111111-2222-4333-8444-555555555555"
+        ),
+        app_service_authentication_tenant_id=(
+            "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+        ),
+    )
+
+    result = deployment.deploy_web_app_infrastructure(request, runner=runner)
+
+    assert result.category == "invalid_arguments"
+    assert result.azure_operation_attempted is False
+    assert result.deployment_attempted is False
     assert runner.calls == []
 
 
@@ -1397,6 +1446,7 @@ def test_reconciliation_command_uses_only_dedicated_web_app_parameters(
     assert len(runner.calls) == 1
     command = runner.calls[0]
     assert command[:4] == ["az", "deployment", "group", operation]
+    assert command[command.index("--mode") + 1] == "Incremental"
     assert command[command.index("--template-file") + 1] == str(
         reconciliation_request.template_file
     )
@@ -2011,15 +2061,19 @@ def _web_app_hosting_modify_changes(
     return changes
 
 
-def test_reconciliation_accepts_only_exact_direct_web_app_modify(
+def test_reconciliation_accepts_only_exact_direct_effective_change(
     reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> None:
+    request = reconciliation_request
     changes: list[dict[str, object]] = [
-        _reconciliation_web_app_change(reconciliation_request)
+        _reconciliation_web_app_change(
+            request,
+            action="Modify",
+        )
     ]
 
     result = deployment.deploy_web_app_infrastructure(
-        replace(reconciliation_request, mode="what-if"),
+        replace(request, mode="what-if"),
         runner=FakeRunner(
             deployment.CommandResult(0, json.dumps({"changes": changes}), "")
         ),
@@ -2028,6 +2082,7 @@ def test_reconciliation_accepts_only_exact_direct_web_app_modify(
     assert result.exact_topology_match is True
     assert result.modify_count == 1
     assert result.create_count == 0
+    assert result.no_change_count == 0
     assert result.deploy_count == 0
     assert result.delete_count == 0
     assert result.unsupported_count == 0

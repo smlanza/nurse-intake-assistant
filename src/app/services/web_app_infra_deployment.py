@@ -33,6 +33,7 @@ DeploymentMode = Literal["check", "what-if", "live"]
 DeploymentPurpose = Literal[
     "initial_create",
     "existing_web_app_reconciliation",
+    "web_app_authentication",
 ]
 DeploymentCategory = Literal[
     "success",
@@ -60,6 +61,10 @@ SUCCESS_MESSAGES = {
 }
 
 FAILURE_NEXT_STEP = "Review the sanitized category and local inputs before retrying."
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+WEB_APP_AUTHENTICATION_TEMPLATE = (
+    REPOSITORY_ROOT / "infra/modules/web-app-authentication.bicep"
+)
 
 
 @dataclass(frozen=True)
@@ -196,11 +201,10 @@ def _deployment_name(request: WebAppInfrastructureDeploymentRequest) -> str | No
         return None
     if not _safe_bicep_name(request.environment_name, minimum=3, maximum=10):
         return None
-    suffix = (
-        "web-app-reconciliation"
-        if request.purpose == "existing_web_app_reconciliation"
-        else "web-app-infra"
-    )
+    suffix = {
+        "existing_web_app_reconciliation": "web-app-reconciliation",
+        "web_app_authentication": "web-app-authentication",
+    }.get(request.purpose, "web-app-infra")
     return f"{request.project_name}-{request.environment_name}-{suffix}"
 
 
@@ -229,7 +233,11 @@ def _result(
         purpose=(
             request.purpose
             if request.purpose
-            in {"initial_create", "existing_web_app_reconciliation"}
+            in {
+                "initial_create",
+                "existing_web_app_reconciliation",
+                "web_app_authentication",
+            }
             else "invalid"
         ),
         message=message,
@@ -244,7 +252,7 @@ def _result(
         azure_operation_attempted=azure_operation_attempted,
         what_if_attempted=what_if_attempted,
         deployment_attempted=deployment_attempted,
-        deploy_app=True,
+        deploy_app=request.purpose != "web_app_authentication",
         deploy_foundry=False,
         hosted_verifier_configuration_supplied=(
             local_validation_passed and request.enable_hosted_foundry_verifier
@@ -299,11 +307,19 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
     expected_template_name = {
         "initial_create": "main.bicep",
         "existing_web_app_reconciliation": "web-app.bicep",
+        "web_app_authentication": "web-app-authentication.bicep",
     }.get(request.purpose)
     return (
         request.mode in {"check", "what-if", "live"}
         and expected_template_name is not None
         and request.template_file.name == expected_template_name
+        and (
+            request.purpose != "web_app_authentication"
+            or (
+                request.template_file == WEB_APP_AUTHENTICATION_TEMPLATE
+                and not request.template_file.is_symlink()
+            )
+        )
         and _safe_argument(request.resource_group, maximum=90)
         and re.fullmatch(r"[A-Za-z0-9_.()\-]+", request.resource_group) is not None
         and not request.resource_group.endswith(".")
@@ -328,6 +344,17 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
         and (
             request.purpose == "initial_create"
             or not request.enable_key_vault_runtime_authorization
+        )
+        and (
+            request.purpose != "web_app_authentication"
+            or (
+                request.enable_app_service_authentication
+                and not request.enable_hosted_foundry_verifier
+            )
+        )
+        and not (
+            request.purpose == "existing_web_app_reconciliation"
+            and request.enable_app_service_authentication
         )
     )
 
@@ -700,10 +727,6 @@ def _complete_active_web_app_resource_contract_valid(module: str) -> bool:
         )
     ] != [
         ("webApp", "Microsoft.Web/sites@2024-04-01"),
-        (
-            "webAppAuthentication",
-            "Microsoft.Web/sites/config@2024-04-01",
-        ),
     ]:
         return False
     if any(
@@ -1050,12 +1073,27 @@ def _module_local_hosted_verifier_validation_valid(
 
 def _app_service_authentication_contract_valid(
     module: str,
-    validation_module: str,
 ) -> bool:
     active = _strip_bicep_comments(module)
-    validation = _strip_bicep_comments(validation_module)
     declarations = _active_resource_declarations(active)
     if declarations is None:
+        return False
+    if [
+        (symbol, resource_type)
+        for symbol, resource_type, _body in declarations
+    ] != [
+        ("webApp", "Microsoft.Web/sites@2024-04-01"),
+        (
+            "webAppAuthentication",
+            "Microsoft.Web/sites/config@2024-04-01",
+        ),
+    ]:
+        return False
+    web_app_body = declarations[0][2]
+    if (
+        not _exact_top_level_properties(web_app_body, ("name",))
+        or not _exact_top_level_scalar(web_app_body, "name", "webAppName")
+    ):
         return False
     auth_resources = tuple(
         (symbol, resource_type, body)
@@ -1071,20 +1109,19 @@ def _app_service_authentication_contract_valid(
         or resource_type != "Microsoft.Web/sites/config@2024-04-01"
         or re.search(
             r"resource\s+webAppAuthentication\s+"
-            r"'Microsoft\.Web/sites/config@2024-04-01'\s*=\s*"
-            r"if\s*\(validatedAppServiceAuthenticationConfiguration\.mode\s*"
-            r"==\s*'enabled'\)\s*\{",
+            r"'Microsoft\.Web/sites/config@2024-04-01'\s*=\s*\{",
             active,
         )
         is None
         or not _exact_top_level_properties(
             body,
-            ("name", "properties", "dependsOn"),
+            ("parent", "name", "properties"),
         )
+        or not _exact_top_level_scalar(body, "parent", "webApp")
         or not _exact_top_level_scalar(
             body,
             "name",
-            "'${webApp.name}/authsettingsV2'",
+            "'authsettingsV2'",
         )
     ):
         return False
@@ -1094,15 +1131,8 @@ def _app_service_authentication_contract_valid(
         "{",
         "}",
     )
-    depends_on = _body_after_pattern(
-        body,
-        r"(?m)^\s*dependsOn\s*:\s*\[",
-        "[",
-        "]",
-    )
     if (
         properties is None
-        or depends_on is None
         or not _exact_top_level_properties(
             properties,
             (
@@ -1112,8 +1142,6 @@ def _app_service_authentication_contract_valid(
                 "identityProviders",
             ),
         )
-        or "".join(depends_on.split())
-        != "appServiceAuthenticationConfigValidation"
     ):
         return False
     platform = _body_after_pattern(
@@ -1203,32 +1231,44 @@ def _app_service_authentication_contract_valid(
         and _exact_top_level_scalar(
             registration,
             "clientId",
-            "validatedAppServiceAuthenticationConfiguration.clientId",
+            "entraClientId",
         )
         and _exact_top_level_scalar(
             registration,
             "openIdIssuer",
-            "'${environment().authentication.loginEndpoint}${validatedAppServiceAuthenticationConfiguration.tenantId}/v2.0'",
+            "'${environment().authentication.loginEndpoint}${entraTenantId}/v2.0'",
         )
     )
     if not structure_valid:
         return False
     required_module_contract = (
-        r"@discriminator\('mode'\)",
-        r"param\s+appServiceAuthenticationConfiguration\s+"
-        r"appServiceAuthenticationConfigurationType\s*=\s*"
-        r"\{\s*mode\s*:\s*'disabled'\s*\}",
-        r"module\s+appServiceAuthenticationConfigValidation\s+"
-        r"'app-service-authentication-config-validation\.bicep'\s*=\s*"
-        r"if\s*\(appServiceAuthenticationConfiguration\.mode\s*==\s*'enabled'\)",
-        r"appServiceAuthenticationConfiguration\s*:\s*"
-        r"validatedAppServiceAuthenticationConfiguration",
+        r"targetScope\s*=\s*'resourceGroup'",
+        r"@minLength\(2\)\s+@maxLength\(60\)\s+param\s+webAppName\s+string",
+        r"@minLength\(36\)\s+@maxLength\(36\)\s+param\s+entraClientId\s+string",
+        r"@minLength\(36\)\s+@maxLength\(36\)\s+param\s+entraTenantId\s+string",
+        r"resource\s+webApp\s+'Microsoft\.Web/sites@2024-04-01'\s+existing\s*=\s*\{",
     )
     if any(
         re.search(pattern, active, re.DOTALL) is None
         for pattern in required_module_contract
     ):
         return False
+    forbidden = (
+        "clientsecret",
+        "client_secret",
+        "certificate",
+        "microsoft.graph",
+        "microsoft.authorization/roleassignments",
+    )
+    return not any(value in active.casefold() for value in forbidden)
+
+
+def _web_app_authentication_module_reference_valid(
+    web_app_module: str,
+    validation_module: str,
+) -> bool:
+    active = _strip_bicep_comments(web_app_module)
+    validation = _strip_bicep_comments(validation_module)
     if re.search(r"\bresource\s+[A-Za-z][A-Za-z0-9_]*\s+", validation):
         return False
     required_validation_contract = (
@@ -1238,9 +1278,32 @@ def _app_service_authentication_contract_valid(
         r"@minLength\(36\)\s+@maxLength\(36\)\s+clientId\s*:\s*string",
         r"@minLength\(36\)\s+@maxLength\(36\)\s+tenantId\s*:\s*string",
     )
+    required_web_app_contract = (
+        r"@discriminator\('mode'\)",
+        r"param\s+appServiceAuthenticationConfiguration\s+"
+        r"appServiceAuthenticationConfigurationType\s*=\s*"
+        r"\{\s*mode\s*:\s*'disabled'\s*\}",
+        r"module\s+appServiceAuthenticationConfigValidation\s+"
+        r"'app-service-authentication-config-validation\.bicep'\s*=\s*"
+        r"if\s*\(appServiceAuthenticationConfiguration\.mode\s*==\s*'enabled'\)",
+        r"module\s+webAppAuthentication\s+"
+        r"'web-app-authentication\.bicep'\s*=\s*"
+        r"if\s*\(validatedAppServiceAuthenticationConfiguration\.mode\s*"
+        r"==\s*'enabled'\)",
+        r"webAppName\s*:\s*webApp\.name",
+        r"entraClientId\s*:\s*"
+        r"validatedAppServiceAuthenticationConfiguration\.clientId",
+        r"entraTenantId\s*:\s*"
+        r"validatedAppServiceAuthenticationConfiguration\.tenantId",
+        r"dependsOn\s*:\s*\[\s*"
+        r"appServiceAuthenticationConfigValidation\s*\]",
+    )
     if any(
         re.search(pattern, validation, re.DOTALL) is None
         for pattern in required_validation_contract
+    ) or any(
+        re.search(pattern, active, re.DOTALL) is None
+        for pattern in required_web_app_contract
     ):
         return False
     for property_name in APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES:
@@ -1250,14 +1313,7 @@ def _app_service_authentication_contract_valid(
             active,
         ) is None:
             return False
-    forbidden = (
-        "clientsecret",
-        "client_secret",
-        "certificate",
-        "microsoft.graph",
-        "microsoft.authorization/roleassignments",
-    )
-    return not any(value in active.casefold() for value in forbidden)
+    return "resource webAppAuthentication " not in active
 
 
 def _app_service_plan_selection_contract_valid(
@@ -1276,10 +1332,6 @@ def _app_service_plan_selection_contract_valid(
         ] != [
             ("appServicePlan", "Microsoft.Web/serverfarms@2024-04-01"),
             ("webApp", "Microsoft.Web/sites@2024-04-01"),
-            (
-                "webAppAuthentication",
-                "Microsoft.Web/sites/config@2024-04-01",
-            ),
         ]:
             return False
         outside_strings = _positions_outside_strings(active)
@@ -1300,6 +1352,10 @@ def _app_service_plan_selection_contract_valid(
                 "appServiceAuthenticationConfigValidation",
                 "app-service-authentication-config-validation.bicep",
             ),
+            (
+                "webAppAuthentication",
+                "web-app-authentication.bicep",
+            ),
         ):
             return False
     required = (
@@ -1319,6 +1375,18 @@ def _local_contract_valid(
     template_file: Path,
     purpose: str = "initial_create",
 ) -> bool:
+    if purpose == "web_app_authentication":
+        try:
+            return bool(
+                template_file == WEB_APP_AUTHENTICATION_TEMPLATE
+                and template_file.is_file()
+                and not template_file.is_symlink()
+                and _app_service_authentication_contract_valid(
+                    template_file.read_text()
+                )
+            )
+        except OSError:
+            return False
     try:
         if not template_file.is_file():
             return False
@@ -1333,6 +1401,7 @@ def _local_contract_valid(
                 template_file.parent
                 / "modules/app-service-authentication-config-validation.bicep"
             )
+            authentication_module_path = WEB_APP_AUTHENTICATION_TEMPLATE
         elif purpose == "existing_web_app_reconciliation":
             template = ""
             web_app_module = template_file
@@ -1344,6 +1413,7 @@ def _local_contract_valid(
                 template_file.parent
                 / "app-service-authentication-config-validation.bicep"
             )
+            authentication_module_path = WEB_APP_AUTHENTICATION_TEMPLATE
         else:
             return False
         if not web_app_module.is_file():
@@ -1357,6 +1427,9 @@ def _local_contract_valid(
         authentication_validation_module = (
             authentication_validation_module_path.read_text()
         )
+        if not authentication_module_path.is_file():
+            return False
+        authentication_module = authentication_module_path.read_text()
     except OSError:
         return False
 
@@ -1434,10 +1507,11 @@ def _local_contract_valid(
             module,
             validation_module,
         )
-        and _app_service_authentication_contract_valid(
+        and _web_app_authentication_module_reference_valid(
             module,
             authentication_validation_module,
         )
+        and _app_service_authentication_contract_valid(authentication_module)
     )
 
 
@@ -1447,15 +1521,8 @@ def web_app_authentication_local_contract_valid(template_file: Path) -> bool:
     try:
         if not template_file.is_file():
             return False
-        validation_file = (
-            template_file.parent
-            / "app-service-authentication-config-validation.bicep"
-        )
-        if not validation_file.is_file():
-            return False
         return _app_service_authentication_contract_valid(
-            template_file.read_text(),
-            validation_file.read_text(),
+            template_file.read_text()
         )
     except OSError:
         return False
@@ -1480,7 +1547,25 @@ def validate_web_app_infrastructure_request(
     return None
 
 
-def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
+def web_app_infrastructure_deployment_command(
+    request: WebAppInfrastructureDeploymentRequest,
+    *,
+    what_if_result_format: str = "ResourceIdOnly",
+    excluded_what_if_change_types: tuple[str, ...] = (),
+) -> list[str]:
+    if (
+        what_if_result_format
+        not in {"FullResourcePayloads", "ResourceIdOnly"}
+        or excluded_what_if_change_types not in {(), ("Ignore",)}
+        or (
+            request.mode != "what-if"
+            and (
+                what_if_result_format != "ResourceIdOnly"
+                or excluded_what_if_change_types
+            )
+        )
+    ):
+        return []
     operation = "what-if" if request.mode == "what-if" else "create"
     command = [
         "az",
@@ -1492,17 +1577,31 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
     ]
     if request.mode == "live":
         command.extend(["--name", _deployment_name(request) or ""])
-    command.extend(["--template-file", str(request.template_file)])
+    command.extend(
+        [
+            "--template-file",
+            str(request.template_file),
+            "--mode",
+            "Incremental",
+        ]
+    )
     if request.mode == "what-if":
         command.extend(
             [
                 "--no-pretty-print",
                 "--result-format",
-                "ResourceIdOnly",
+                what_if_result_format,
                 "--output",
                 "json",
             ]
         )
+        if excluded_what_if_change_types:
+            command.extend(
+                [
+                    "--exclude-change-types",
+                    *excluded_what_if_change_types,
+                ]
+            )
     hosted_configuration = (
         "hostedFoundryVerifierConfiguration="
         + json.dumps(
@@ -1519,7 +1618,15 @@ def _azure_command(request: WebAppInfrastructureDeploymentRequest) -> list[str]:
             sort_keys=True,
         )
     )
-    if request.purpose == "existing_web_app_reconciliation":
+    if request.purpose == "web_app_authentication":
+        parameters = [
+            f"webAppName={request.web_app_name}",
+            "entraClientId="
+            + str(request.app_service_authentication_client_id),
+            "entraTenantId="
+            + str(request.app_service_authentication_tenant_id),
+        ]
+    elif request.purpose == "existing_web_app_reconciliation":
         parameters = [
             f"location={request.location}",
             f"appServicePlanName={_app_service_plan_name(request)}",
@@ -1567,10 +1674,12 @@ def _hosted_verifier_bicep_configuration(
     }
 
 
-def _parse_what_if_summary(
+def parse_web_app_infrastructure_what_if(
     stdout: str,
     request: WebAppInfrastructureDeploymentRequest,
 ) -> WhatIfSummary | None:
+    if request.purpose == "web_app_authentication":
+        return _parse_authentication_what_if_summary(stdout, request)
     if request.purpose == "existing_web_app_reconciliation":
         return _parse_reconciliation_what_if_summary(stdout, request)
     expected = _expected_web_app_resources(stdout, request)
@@ -1634,6 +1743,55 @@ def _parse_what_if_summary(
         exact_topology_match=bool(
             parsed.exact_topology_match and modify_topology_approved
         ),
+    )
+
+
+def _parse_authentication_what_if_summary(
+    stdout: str,
+    request: WebAppInfrastructureDeploymentRequest,
+) -> WhatIfSummary | None:
+    authentication = ExpectedWhatIfResource(
+        "Microsoft.Web/sites/config",
+        "web_app_authentication",
+        request.resource_group,
+        (request.web_app_name, "authsettingsV2"),
+    )
+    parsed = parse_sanitized_what_if(
+        stdout,
+        boundary="web_app_authentication",
+        expected_resources=(authentication,),
+        automatically_approved_actions=frozenset({"Create", "Modify"}),
+    )
+    if parsed is None:
+        return None
+    exact_authentication = bool(
+        parsed.exact_topology_match
+        and len(parsed.changes) == 1
+        and parsed.changes[0].logical_category == "web_app_authentication"
+        and parsed.changes[0].action in {"Create", "Modify"}
+        and parsed.count("Create") + parsed.count("Modify") == 1
+        and parsed.count("NoChange") == 0
+        and parsed.count("Ignore") == 0
+        and parsed.count("Delete") == 0
+        and parsed.count("Deploy") == 0
+        and parsed.count("Unsupported") == 0
+    )
+    change_evidence = tuple(
+        replace(change, approved_boundary=False)
+        if not exact_authentication
+        else change
+        for change in parsed.changes
+    )
+    return WhatIfSummary(
+        create_count=parsed.count("Create"),
+        modify_count=parsed.count("Modify"),
+        delete_count=parsed.count("Delete"),
+        no_change_count=parsed.count("NoChange"),
+        ignore_count=parsed.count("Ignore"),
+        deploy_count=parsed.count("Deploy"),
+        unsupported_count=parsed.count("Unsupported"),
+        change_evidence=change_evidence,
+        exact_topology_match=exact_authentication,
     )
 
 
@@ -1915,6 +2073,12 @@ def deploy_web_app_infrastructure(
     invalid = validate_web_app_infrastructure_request(request)
     if invalid is not None:
         return invalid
+    if request.purpose == "web_app_authentication":
+        return _result(
+            request,
+            "invalid_arguments",
+            local_validation_passed=True,
+        )
     if request.mode == "check":
         return _result(
             request,
@@ -1935,7 +2099,7 @@ def deploy_web_app_infrastructure(
     what_if_attempted = request.mode == "what-if"
     deployment_attempted = request.mode == "live"
     try:
-        outcome = runner.run(_azure_command(request))
+        outcome = runner.run(web_app_infrastructure_deployment_command(request))
     except Exception:
         return _result(
             request,
@@ -1957,7 +2121,7 @@ def deploy_web_app_infrastructure(
     if outcome.return_code != 0:
         return _result(request, "azure_operation_failed", **common)
     if request.mode == "what-if":
-        summary = _parse_what_if_summary(outcome.stdout, request)
+        summary = parse_web_app_infrastructure_what_if(outcome.stdout, request)
         if summary is None:
             return _result(request, "what_if_parse_failed", **common)
         if summary.delete_count:

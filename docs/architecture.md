@@ -552,22 +552,30 @@ remote build automation to install dependencies from the packaged
 `requirements.txt`. The module principal ID is available only to its parent;
 `main.bicep` neither uses nor publishes that identifier.
 
-The same Web App module owns an App Service Authentication v2 perimeter that
-is absent by default. Explicit opt-in requires canonical non-secret existing
-Entra application and tenant IDs; the repository does not create an Entra
-application, credential, certificate, role, or group. When enabled, the
-platform requires HTTPS and Microsoft Entra authentication by default, returns
-401 for unauthenticated protected requests, and excludes exactly `/health`,
-`/version`, and `/demo/status` so the existing hosted-readiness boundary stays
-anonymous. Every other application route, including `/demo`, intake, cases,
-review, Swagger, and OpenAPI, remains behind platform authentication. FastAPI
-does not implement a parallel authentication layer. Authentication establishes
-identity at the perimeter; application authorization and roles remain future
-separate decisions.
+Ordinary Web App hosting owns the parent site. App Service Authentication v2
+has one distinct authoritative resource-group-scoped definition in
+`infra/modules/web-app-authentication.bicep`. Initial Web App creation invokes
+that module only for explicit Authentication opt-in. The Authentication-specific
+operation invokes the same file directly, declares the exact verified Web App
+as `existing`, and can deploy only its `Microsoft.Web/sites/config`
+`authsettingsV2` child; it cannot reconcile the parent Web App hosting state or
+deploy an App Service plan.
+
+Authentication remains absent by default. Explicit opt-in requires canonical
+non-secret existing Entra application and tenant IDs; the repository does not
+create an Entra application, credential, certificate, role, or group. When
+enabled, the platform requires HTTPS and Microsoft Entra authentication by
+default, returns 401 for unauthenticated protected requests, and excludes
+exactly `/health`, `/version`, and `/demo/status` so the existing
+hosted-readiness boundary stays anonymous. Every other application route,
+including `/demo`, intake, cases, review, Swagger, and OpenAPI, remains behind
+platform authentication. FastAPI does not implement a parallel authentication
+layer. Authentication establishes identity at the perimeter; application
+authorization and roles remain future separate decisions.
 
 `src/app/services/web_app_infra_deployment.py` and
 `scripts/deploy_web_app_infra.py` add an explicit operator boundary around both
-purposes. Initial creation requires `infra/main.bicep`; the nondefault
+Web App hosting purposes. Initial creation requires `infra/main.bicep`; the nondefault
 `--reconcile-existing-web-app` purpose requires
 `infra/modules/web-app.bicep`. Purpose/template mismatches fail before
 Azure CLI execution. Check mode validates required safe arguments, the selected
@@ -580,11 +588,22 @@ settings. The local Bicep reader is restricted to the Web App resource's active
 baseline `WEBSITE_SKIP_RUNNING_KUDUAGENT=false`; missing, extra, duplicate,
 conflicting, commented-only, and overriding settings fail. A setting placed
 only in the optional verifier collection also fails.
-The same local boundary validates the conditional `authsettingsV2` child and
-strictly rejects malformed, incomplete, or conflicting opt-in identifiers
-before Azure CLI construction. A separate offline-only authentication verifier
-returns sanitized contract booleans without constructing an Azure runner;
-live deployment, configuration reads, and sign-in acceptance remain unproven.
+The same local boundary validates initial creation's conditional reference to
+the authoritative Authentication module and strictly rejects malformed,
+incomplete, or conflicting opt-in identifiers before Azure CLI construction.
+The dedicated `web_app_authentication` purpose accepts only the authoritative
+Authentication file, and the generic Web App infrastructure orchestrator
+refuses that purpose so only the safeguarded Authentication acceptance workflow
+can reach its runner. Its `FullResourcePayloads` Incremental preview is safe
+only for exactly one correctly parented and scoped Authentication `Create` or
+`Modify`; a parent Web App, plan, unrelated resource, `NoChange` without
+independently verified reuse, `Delete`, `Deploy`, `Unsupported`, malformed, or
+multiply matched record fails closed. Current READY, exact Web App identity,
+artifact, hosted readiness, hosting-state, current Authentication state,
+default-no approval, and post-approval freshness checks remain prerequisites.
+A separate offline-only verifier returns sanitized contract booleans without
+constructing an Azure runner. Live Authentication deployment and sign-in
+acceptance remain separately supervised and unproven.
 
 Explicit `--what-if` or `--live` mode issues exactly one argument-list
 `az deployment group` command against an existing resource group; the CLI never

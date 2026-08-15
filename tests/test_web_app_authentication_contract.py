@@ -13,6 +13,7 @@ INFRA = ROOT / "infra"
 CLIENT_ID = "11111111-2222-4333-8444-555555555555"
 TENANT_ID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 ANONYMOUS_PATHS = ("/health", "/version", "/demo/status")
+AUTHENTICATION_MODULE = "modules/web-app-authentication.bicep"
 
 
 def _compile(path: str) -> dict[str, object]:
@@ -39,11 +40,13 @@ def _service():
     )
 
 
-def test_authentication_v2_is_disabled_by_default_and_propagated_once() -> None:
+def test_authentication_v2_is_disabled_by_default_and_owned_once() -> None:
     main = (INFRA / "main.bicep").read_text()
     module = (INFRA / "modules/web-app.bicep").read_text()
+    authentication = (INFRA / AUTHENTICATION_MODULE).read_text()
     compiled_main = _compile("main.bicep")
     compiled_module = _compile("modules/web-app.bicep")
+    compiled_authentication = _compile(AUTHENTICATION_MODULE)
 
     for compiled in (compiled_main, compiled_module):
         assert compiled["parameters"]["appServiceAuthenticationConfiguration"][
@@ -53,19 +56,29 @@ def test_authentication_v2_is_disabled_by_default_and_propagated_once() -> None:
         "appServiceAuthenticationConfiguration: "
         "validatedAppServiceAuthenticationConfiguration"
     ) == 1
-    assert module.count("resource webAppAuthentication ") == 1
+    assert module.count(
+        "module webAppAuthentication 'web-app-authentication.bicep'"
+    ) == 1
+    assert "resource webAppAuthentication " not in module
+    assert sum(
+        path.read_text().count("resource webAppAuthentication ")
+        for path in INFRA.rglob("*.bicep")
+    ) == 1
     assert re.search(
-        r"resource\s+webAppAuthentication\s+"
-        r"'Microsoft\.Web/sites/config@2024-04-01'\s*=\s*"
-        r"if\s*\(validatedAppServiceAuthenticationConfiguration\.mode\s*"
-        r"==\s*'enabled'\)",
-        module,
+        r"resource\s+webApp\s+'Microsoft\.Web/sites@2024-04-01'\s+"
+        r"existing\s*=",
+        authentication,
     )
+    resources = compiled_authentication["resources"]
+    resources = list(resources.values()) if isinstance(resources, dict) else resources
+    assert [resource["type"] for resource in resources] == [
+        "Microsoft.Web/sites/config"
+    ]
 
 
 def test_enabled_authentication_v2_contract_is_exact_and_non_secret() -> None:
-    module = (INFRA / "modules/web-app.bicep").read_text()
-    compiled = _compile("modules/web-app.bicep")
+    module = (INFRA / AUTHENTICATION_MODULE).read_text()
+    compiled = _compile(AUTHENTICATION_MODULE)
     resources = compiled["resources"]
     resources = list(resources.values()) if isinstance(resources, dict) else resources
     auth = next(
@@ -75,12 +88,9 @@ def test_enabled_authentication_v2_contract_is_exact_and_non_secret() -> None:
     )
 
     assert auth["name"] == (
-        "[format('{0}/authsettingsV2', parameters('webAppName'))]"
+        "[format('{0}/{1}', parameters('webAppName'), 'authsettingsV2')]"
     )
-    assert auth["condition"] == (
-        "[equals(variables('validatedAppServiceAuthenticationConfiguration').mode, "
-        "'enabled')]"
-    )
+    assert "condition" not in auth
     properties = auth["properties"]
     assert properties["platform"] == {"enabled": True}
     assert properties["globalValidation"] == {
@@ -92,8 +102,8 @@ def test_enabled_authentication_v2_contract_is_exact_and_non_secret() -> None:
     provider = properties["identityProviders"]["azureActiveDirectory"]
     assert provider["enabled"] is True
     assert set(provider["registration"]) == {"clientId", "openIdIssuer"}
-    assert "clientId" in provider["registration"]["clientId"]
-    assert "tenantId" in provider["registration"]["openIdIssuer"]
+    assert "entraClientId" in provider["registration"]["clientId"]
+    assert "entraTenantId" in provider["registration"]["openIdIssuer"]
 
     anonymous_literals = re.findall(
         r"^\s*'(/[^']*)'\s*$",
@@ -192,9 +202,8 @@ def test_offline_verifier_rejects_any_anonymous_allowlist_drift(
     tmp_path: Path,
     replacement: str,
 ) -> None:
-    source = INFRA / "modules/web-app.bicep"
-    mutated = tmp_path / "web-app.bicep"
-    validation = tmp_path / "app-service-authentication-config-validation.bicep"
+    source = INFRA / AUTHENTICATION_MODULE
+    mutated = tmp_path / "web-app-authentication.bicep"
     text = source.read_text()
     expected = """[
         '/health'
@@ -203,13 +212,6 @@ def test_offline_verifier_rejects_any_anonymous_allowlist_drift(
       ]"""
     assert text.count(expected) == 1
     mutated.write_text(text.replace(expected, replacement, 1))
-    validation.write_text(
-        (
-            INFRA
-            / "modules/app-service-authentication-config-validation.bicep"
-        ).read_text()
-    )
-
     result = _service().check_web_app_authentication_contract(
         {"mode": "disabled"},
         template_file=mutated,

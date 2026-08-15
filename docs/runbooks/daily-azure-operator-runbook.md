@@ -182,6 +182,51 @@ If any required success field is missing or false, the environment is NOT
 READY. Historical output, screenshots, a prior readiness receipt, resource
 existence, and deployment-request acceptance cannot replace current proof.
 
+### Focused App Service Authentication v2 acceptance
+
+Run this only when approved work specifically requires the one-time live
+Authentication v2 acceptance against the exact current READY generation. Keep
+the existing Entra tenant and application/client identifiers operator-local;
+do not add them to repository configuration or evidence files.
+
+First run the offline/current-generation check, substituting the two existing
+non-secret identifiers only in the operator's local shell:
+
+```bash
+.venv/bin/python scripts/accept_web_app_authentication.py \
+  --check \
+  --config .env.daily-azure.local \
+  --client-application-id "$OPERATOR_ENTRA_APPLICATION_ID" \
+  --tenant-id "$OPERATOR_ENTRA_TENANT_ID" \
+  --json
+```
+
+Require `ok=true`, `current_generation_verified=true`, and
+`local_contract_validated=true`. Then run the supervised live boundary:
+
+```bash
+.venv/bin/python scripts/accept_web_app_authentication.py \
+  --live \
+  --config .env.daily-azure.local \
+  --client-application-id "$OPERATOR_ENTRA_APPLICATION_ID" \
+  --tenant-id "$OPERATOR_ENTRA_TENANT_ID" \
+  --json
+```
+
+The live command independently proves current account and Web App identity,
+current hosted readiness and artifact equality, and the disabled current auth
+state. It accepts only the validation deployment wrapper plus the exact
+`authsettingsV2` change, presents a sanitized default-no approval, rereads all
+approval-bound evidence, makes at most one auth-only deployment request using
+a local projection from the authoritative Web App Bicep, and separately proves
+the resulting configuration, anonymous `200` readiness
+routes, protected-route `401` responses, and unchanged hosted readiness.
+
+Stop on any sanitized failure category. Do not use `az webapp auth` mutation
+commands, broaden the Bicep scope, retry automatically, or treat deployment
+acceptance as verification. Authenticated interactive sign-in and application
+authorization remain separate work.
+
 ## Step 5 — Optionally verify Consumer RBAC
 
 Skip this step unless the approved development or demo slice specifically

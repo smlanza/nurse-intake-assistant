@@ -4,10 +4,7 @@ Active resume document; June 2026 history is in `docs/archive/progress-2026-06.m
 
 ## Current Status
 
-Latest verified test baseline:
-- 3,527 passed full suite
-- 731 focused Authentication v2, Key Vault, Web App, coordinator, Foundry, and documentation tests
-- 1 existing FastAPI/TestClient `StarletteDeprecationWarning`
+Latest verified test baseline: 11 passed smallest Authentication response-shape tests; 42 passed Authentication acceptance tests; 296 passed broader Web App/Authentication regressions; 49 passed documentation guardrails; 3,576 passed full suite; 1 existing FastAPI/TestClient `StarletteDeprecationWarning`.
 
 The daily coordinator's Azure App Service convergence policy is complete
 offline. A supervised run showed a matching OneDeploy operation taking about
@@ -45,7 +42,7 @@ The daily-generation Key Vault runtime RBAC architecture is implemented offline.
 
 The standalone Azure Speech proof boundary is live-proven for one repository-owned fixed-fictional WAV through the production Speech factory, service, and Azure SDK adapter. Exactly one recognition attempt returned a valid normalized transcript matching the application-owned expected text. The proof invoked no intake route, persisted no case, attempted no notification, and mutated no Azure resource. Mock remains the safe default.
 
-**Active implementation direction:** the offline App Service Authentication v2 perimeter contract is implemented after a genuine RED proved it absent. It remains disabled by default; explicit opt-in requires canonical non-secret existing Entra application and tenant IDs, requires Entra authentication and HTTPS by default, returns 401 for protected unauthenticated requests, and anonymously excludes exactly `/health`, `/version`, and `/demo/status`. The separate offline verifier constructs no Azure runner and exposes no identifiers. No Entra app registration or secret was created, no Azure service call occurred, and live deployment, sign-in, and acceptance remain a separate supervised slice.
+**Active implementation direction:** App Service Authentication v2 now uses the dedicated `web_app_authentication` deployment boundary in `infra/modules/web-app-authentication.bicep`: it references the verified parent Web App as existing and can deploy only its `authsettingsV2` child. The generic Web App infrastructure orchestrator refuses that purpose, so the parent Web App, App Service plan, and unrelated application infrastructure cannot be deployed through the Authentication workflow. Initial selection remains disabled by default. No Entra app registration occurred. A supervised Incremental, `FullResourcePayloads` what-if with `Ignore` excluded safely proved one effective Authentication `Modify`; zero effective parent-Web-App, plan, or unexpected resources; zero `Deploy`, `Delete`, or `Unsupported`; and the exact parent relationship, identity/scope, and multiplicity. One explicitly approved Authentication-only deployment reached terminal success and made the intended Azure mutation without parent, plan, or unrelated deployment, retry, or repair. Live acceptance remains incomplete: one separately authorized post-deployment read succeeded but returned `response_shape_mismatch`, so Authentication enablement, Entra provider, client ID, tenant/issuer, HTTPS, unauthenticated 401 behavior, exact anonymous exclusions, and absence of extras remain unproven rather than failed; the deployed configuration is neither proven correct nor incorrect. Intended semantics remain Microsoft Entra with the existing application and tenant IDs, required HTTPS/authentication, 401 for protected unauthenticated routes, exactly `/health`, `/version`, and `/demo/status` anonymous, all other routes protected, no parallel FastAPI authentication, and authorization deferred. The strict verifier now has a bounded offline field/reason/type classifier that exposes no returned values; one existing parameterized test gained eight structural cases, no test functions changed, and the anti-test-creep guidance remains authoritative.
 
 Mock mode and no-op intake telemetry remain the safe defaults, hosted
 notifications remain suppressed, and all AI output continues to require human
@@ -62,6 +59,8 @@ Important constraints:
 - Do not commit secrets, connection strings, real contact data, credentials, or patient data
 
 ## Current Resume Point
+
+For Authentication, run exactly one separately authorized read-only configuration retrieval against the currently deployed or freshly recreated Authentication configuration using the bounded response-shape classifier. Capture only the application-owned missing-field/type diagnostic; do not redeploy, repair, relax the verifier, or perform interactive sign-in until it identifies the exact structural mismatch. If the disposable environment has been deleted, today's READY and deployment evidence is no longer current: first (1) rebuild to fresh READY, (2) rerun the dedicated Authentication-only safe what-if, (3) redeploy through the dedicated boundary if required, and (4) perform the bounded read-only retrieval. Interactive Entra sign-in acceptance remains unproven and is not part of that retrieval.
 
 The application-owned Key Vault boundary includes one approved live deployment of the exact repository-owned vault. Independent control-plane verification proved the Azure-returned identity, successful provisioning, Azure RBAC mode, and no legacy access policies, but the bounded metadata-only zero-secret check failed closed as `secret_metadata_read_failed`. A dedicated fixed-role operator Key Vault Reader Bicep/verification workflow is complete offline; live preflight privately proved the current signed-in user and exact vault, then stopped without mutation at `authorization_scope_mismatch` because only wrong-scope/inherited authorization was returned. Operator Key Vault Reader remains unproven and zero-secret proof remains unknown. Exact current-generation Web App runtime RBAC orchestration and READY gating are implemented offline, but their live daily acceptance remains unproven. The application provider still defaults to local; no secret was created, retrieved, deleted, or migrated, live retrieval remains unproven, and credential migration remains deferred. Azure Speech closure is complete. Bounded OneDeploy and hosted-readiness convergence are complete offline. One required absolute deadline governs each convergence stage; submission acceptance remains separate from terminal deployment proof, and exact current-command attribution, safe hosted posture, and current-artifact equality remain mandatory. A READY receipt remains valid only while environment and configuration match; deletion or rebuild invalidates it.
 `.env.speech.local` remains ignored and secret-bearing; mock remains the safe default. Consumer RBAC remains optional; WebJob discovery and immutable evidence recovery remain separate technical boundaries.
@@ -93,8 +92,8 @@ Safe to demo today:
 Authoritative Foundry infrastructure for future TDD slices:
 - `infra/main.bicep`: authoritative full initial application entry point; Foundry remains optional through `deployFoundry=false` by default.
 - `infra/modules/foundry.bicep`: single reusable AIServices account/project/model module; do not duplicate these definitions.
-- `infra/modules/web-app.bicep`: reusable initial-create module and direct existing-Web-App reconciliation boundary with offline-tested Linux hosting, system-assigned identity, remote build, and disabled-by-default App Service Authentication v2; authentication opt-in protects all routes except the exact three readiness paths and requires an existing Entra application.
-- `src/app/services/web_app_infra_deployment.py`: sanitized, purpose-bound initial-create and reconciliation deployment contract; `scripts/deploy_web_app_infra.py`: offline check and explicit what-if/live operator CLI with nondefault `--reconcile-existing-web-app` selection.
+- `infra/modules/web-app.bicep`: reusable initial-create module and direct existing-Web-App reconciliation boundary with offline-tested Linux hosting, system-assigned identity, and remote build; initial Authentication opt-in invokes the single authoritative `infra/modules/web-app-authentication.bicep`, whose existing-parent boundary can deploy only `authsettingsV2`.
+- `src/app/services/web_app_infra_deployment.py`: sanitized, purpose-bound initial-create and reconciliation contracts; its generic orchestrator rejects the `web_app_authentication` purpose. `scripts/deploy_web_app_infra.py` provides offline check and explicit what-if/live operation with nondefault `--reconcile-existing-web-app` selection. `scripts/accept_web_app_authentication.py` is the dedicated guarded existing-parent Authentication workflow; its narrow live what-if and terminal deployment success are proven, while post-deployment configuration verification and interactive sign-in remain unproven.
 - `src/app/services/web_app_hosting_contract.py`: exact seven-setting contract
   plus a separate exact five-setting hosted-verifier contract shared by
   infrastructure deployment and configuration verification.
@@ -119,7 +118,7 @@ Authoritative Foundry infrastructure for future TDD slices:
 - `src/app/services/web_app_package.py`: deterministic source deployment package boundary; `scripts/package_web_app.py`: offline check/package CLI; `scripts/deploy_web_app_code.py`: explicit existing-Web-App deployment CLI.
 - `src/app/services/web_app_readiness_verification.py`: sanitized hosted readiness contract; `scripts/verify_web_app_readiness.py`: offline check and explicit read-only live CLI.
 - `src/app/services/web_app_configuration_verification.py`: Bicep-owned hosting contract verifier; `scripts/verify_web_app_configuration.py`: offline check and explicit read-only Azure CLI boundary.
-- `src/app/services/web_app_authentication_verification.py` and `scripts/verify_web_app_authentication.py`: sanitized offline-only disabled/enabled Authentication v2 contract proof; live acceptance is pending.
+- `src/app/services/web_app_authentication_verification.py` and `scripts/verify_web_app_authentication.py`: sanitized offline-only disabled/enabled Authentication v2 contract proof. The guarded live deployment succeeded, but configuration verification failed closed on the projected response shape before semantics and live acceptance remains incomplete.
 
 ## Daily Disposable Azure Environment Gate
 
@@ -389,7 +388,7 @@ Completed work by feature area:
 
 ## Not Yet Implemented / Deferred Scope
 
-- Authentication
+- Post-deployment Authentication configuration verification and interactive Entra sign-in acceptance
 - Agent-specific RBAC scope
 - Live hosted managed-identity verification and agent invocation
 - Live Key Vault deployment, exact RBAC verification, live retrieval, current-credential migration, App Service references, and production secret rotation/operations
@@ -488,7 +487,7 @@ Perform architecture cleanup through periodic focused documentation reviews, not
 
 ## TDD Slice Scope And Review Gate
 
-Before implementation, freeze objective, acceptance criteria, allowed files, prohibited work, and required verification.
+Before implementation, freeze objective, acceptance criteria, allowed files, prohibited work, and required verification. Before adding tests, prove that the required behavior is not already adequately covered.
 Builder and reviewer use frozen criteria; review must not add features, optional hardening, speculative failure modes, unrelated refactoring, or broader architecture requirements.
 
 ```text
@@ -521,3 +520,5 @@ Passing this gate ends the slice; further improvements belong in a later slice.
 ## Testing Guidance
 
 - For docs-only work, prefer a few semantic guardrails over brittle exact-prose tests; human-reviewed JSON CLI examples use `set -o pipefail` and `python -m json.tool`.
+- Before adding a test, inspect focused tests for the same behavior, contract, failure mode, or boundary; do not add one when existing coverage already adequately protects the acceptance criterion. Prefer extending, parameterizing, consolidating, or replacing an existing test when that provides the required coverage without materially reducing clarity. Every new test must protect a distinct required behavior, regression risk, security or safety invariant, contract boundary, or previously uncovered failure path.
+- Avoid tests that prove the same behavior through trivial input variations unless those variations represent materially different contracts or risks. Test count is not a success metric; fewer well-targeted tests are preferable to redundant coverage. During slice completion and review, check new tests against existing coverage and remove or consolidate unnecessary overlap before commit. Consolidate only nearby overlap exposed by the current work; broader test-suite cleanup requires a separately frozen maintenance slice.

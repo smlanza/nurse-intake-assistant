@@ -118,7 +118,8 @@ def check_web_app_authentication_contract(
     if not app_service_authentication_configuration_valid(configuration):
         return _result("configuration_invalid")
     module = template_file or (
-        Path(__file__).resolve().parents[3] / "infra/modules/web-app.bicep"
+        Path(__file__).resolve().parents[3]
+        / "infra/modules/web-app-authentication.bicep"
     )
     if not web_app_authentication_local_contract_valid(module):
         return _result("local_contract_invalid")
