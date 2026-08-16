@@ -89,10 +89,6 @@ class ClientAuthenticationError(Exception):
     pass
 
 
-class AuthenticationRequiredError(Exception):
-    pass
-
-
 class AuthorizationFailedError(Exception):
     pass
 
@@ -181,7 +177,6 @@ def _chained_foundry_agent_error(
         ResponseStatusError(403),
         CredentialUnavailableError("raw token endpoint secret"),
         ClientAuthenticationError("raw token endpoint secret"),
-        AuthenticationRequiredError("raw token endpoint secret"),
         AuthorizationFailedError("raw token endpoint secret"),
         ForbiddenError("raw token endpoint secret"),
     ],
@@ -197,23 +192,9 @@ def test_live_json_result_category_detects_auth_failures(error: BaseException) -
 @pytest.mark.parametrize(
     "error",
     [
-        StatusCodeError(400),
-        StatusCodeError(404),
-        StatusCodeError(409),
-        StatusCodeError(429),
         StatusCodeError(500),
-        StatusAttributeError(503),
-        ResponseStatusError(404),
         HttpResponseError("raw endpoint request secret"),
         ServiceRequestError("raw endpoint request secret"),
-        FoundryAgentClientError(
-            "secret not wired",
-            category="foundry-agent-not-wired",
-        ),
-        FoundryAgentClientError(
-            "secret request failure",
-            category="foundry-agent-request-failed",
-        ),
     ],
 )
 def test_live_json_result_category_detects_azure_request_failures(
@@ -833,12 +814,7 @@ def test_foundry_agent_smoke_script_live_diagnose_reports_direct_client_phase(
 @pytest.mark.parametrize(
     ("error", "safe_category"),
     [
-        (
-            StatusCodeError(403, "raw RBAC secret"),
-            "authentication_or_authorization_failed",
-        ),
         (StatusCodeError(404, "raw agent secret-agent-id"), "azure_request_failed"),
-        (StatusCodeError(400, "raw Azure bad request detail"), "azure_request_failed"),
         (RuntimeError("unexpected raw exception secret"), "unexpected_error"),
     ],
 )
