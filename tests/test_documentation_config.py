@@ -8,21 +8,6 @@ def _read(relative_path: str) -> str:
     return (PROJECT_ROOT / relative_path).read_text()
 
 
-def test_progress_has_one_current_hosted_verifier_state_and_baseline() -> None:
-    progress = _read("docs/progress.md")
-    active = progress.split("## Current Slice Status", 1)[1].split(
-        "### Historical Slice Results", 1
-    )[0]
-    normalized_active = _normalized(active).casefold()
-
-    assert "missing hosted execution and configuration boundaries" not in normalized_active
-    assert progress.count("Latest verified test baseline:") == 1
-    assert "standalone optional workflows" in _normalized(progress)
-    assert "preferred daily path" in progress.casefold()
-    assert "fixed fictional invocation" in progress.casefold()
-    assert len(progress.splitlines()) <= 525
-
-
 def test_current_coordinator_documentation_has_new_readiness_boundary() -> None:
     architecture = _normalized(_read("docs/architecture.md")).casefold()
     progress = _normalized(_read("docs/progress.md")).casefold()
@@ -498,6 +483,7 @@ def test_speech_live_acceptance_is_documented_as_a_bounded_standalone_proof() ->
         progress,
         {
             "standalone azure speech proof boundary is live-proven",
+            "azure speech closure is complete",
             "exactly one recognition attempt",
             "no intake route",
             "persisted no case",
@@ -535,80 +521,6 @@ def test_speech_live_acceptance_is_documented_as_a_bounded_standalone_proof() ->
         "supervised execution of the fixed-fictional live azure speech proof",
     }:
         assert stale_claim not in progress + architecture + mapping
-
-
-def test_hosted_foundry_ssh_proof_documents_current_transport_boundary() -> None:
-    progress = _normalized(_read("docs/progress.md")).casefold()
-    architecture = _normalized(_read("docs/architecture.md")).casefold()
-    mapping = _normalized(_read("docs/ai-103-mapping.md")).casefold()
-    handoff = _normalized(_read("docs/developer-handoff.md")).casefold()
-    runbook = _normalized(
-        _read("docs/runbooks/live-hosted-foundry-agent-ssh-prerequisites.md")
-    ).casefold()
-
-    _assert_contains_all(
-        progress,
-        {
-            "azure speech closure is complete",
-            "direct app service ssh transport is live-proven",
-            "missing_configuration",
-            "not_running_in_hosted_environment",
-            "ssh managed-identity execution is retired",
-            "no replacement mechanism was selected",
-        },
-    )
-    _assert_contains_all(
-        architecture,
-        {
-            "packaged synchronous combined proof operation",
-            "existing metadata verification and fixed-fictional invocation boundaries",
-            "ordinary application package",
-            "not exposed through an application route",
-            "no additional compute resource",
-            "application-worker identity environment",
-            "metadata verification and agent invocation through ssh are unsupported",
-            "no replacement hosted execution topology is selected",
-        },
-    )
-    _assert_contains_all(
-        mapping,
-        {
-            "offline packaged hosted foundry proof composition is implemented",
-            "direct app service ssh transport and prerequisite probes are live-proven",
-            "hosted managed-identity metadata access remains unproven",
-            "ssh hosted managed-identity execution is unsupported",
-            "application-integrated foundry execution remains separately live-proven",
-            "webjob trigger mechanism remains retired",
-        },
-    )
-    _assert_contains_all(
-        handoff,
-        {
-            "packaged synchronous combined proof operation",
-            "direct app service ssh",
-            "ssh hosted managed-identity execution is unsupported",
-            "no replacement hosted topology is selected",
-            "no live hosted managed-identity proof has run",
-        },
-    )
-    _assert_contains_all(
-        runbook,
-        {
-            "current application artifact proven equal",
-            "direct project-scoped foundry agent consumer assignment",
-            "repository wrapper owns the one tunnel process",
-            "three separate approval gates",
-            "interpreter/runtime-root probe",
-            "packaged-module probe",
-            "packaged non-invoking check",
-            "python -m src.app.operations.prove_hosted_foundry_agent --check --json",
-            "`--live-metadata-verification` is retired",
-            "must not forward",
-            "stop immediately",
-            "kudu command",
-            "clinical content",
-        },
-    )
 
 
 def test_architecture_documents_local_safety_and_agent_validation() -> None:
@@ -1030,14 +942,25 @@ def test_progress_is_active_resume_with_honest_safety_and_history_boundaries() -
     progress = _read("docs/progress.md")
     archive = _read("docs/archive/progress-2026-06.md")
     normalized = _normalized(progress)
+    active = progress.split("## Current Slice Status", 1)[1].split(
+        "### Historical Slice Results", 1
+    )[0]
 
     assert len(progress.splitlines()) <= 525
     assert len(progress.splitlines()) < len(archive.splitlines())
+    assert progress.count("Latest verified test baseline:") == 1
+    assert (
+        "missing hosted execution and configuration boundaries"
+        not in _normalized(active).casefold()
+    )
     _assert_contains_all(
         normalized,
         {
             "docs/archive/progress-2026-06.md",
             "Latest verified test baseline",
+            "standalone optional workflows",
+            "preferred daily path",
+            "fixed fictional invocation",
             "Local mock/demo only",
             "No production clinical use",
             "Mock mode sends no real email or SMS",
@@ -1344,24 +1267,32 @@ def test_hosted_foundry_ssh_transport_retirement_status_is_current() -> None:
     ssh_runbook = _normalized(
         _read("docs/runbooks/live-hosted-foundry-agent-ssh-prerequisites.md")
     )
+    verification_runbook = _normalized(
+        _read("docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md")
+    )
     daily_runbook = _normalized(
         _read("docs/runbooks/daily-azure-operator-runbook.md")
     )
     architecture = _normalized(_read("docs/architecture.md"))
     progress = _normalized(_read("docs/progress.md"))
     mapping = _normalized(_read("docs/ai-103-mapping.md"))
+    handoff = _normalized(_read("docs/developer-handoff.md"))
 
     _assert_contains_all(
         ssh_runbook.casefold(),
         {
             "az webapp create-remote-connection",
             "repository wrapper owns the one tunnel process",
+            "current application artifact proven equal",
+            "direct project-scoped foundry agent consumer assignment",
+            "three separate approval gates",
             "bounded readiness observations",
             "owned child's readiness evidence",
             "app_path",
             "interpreter/runtime-root probe",
             "packaged-module probe",
             "python -m src.app.operations.prove_hosted_foundry_agent --check --json",
+            "packaged non-invoking check",
             "--live-metadata-verification",
             "terminated and reaped",
             "resolved module and entry-point origins",
@@ -1371,6 +1302,9 @@ def test_hosted_foundry_ssh_transport_retirement_status_is_current() -> None:
             "direct app service ssh transport is live-proven",
             "`--live-metadata-verification` is retired",
             "must not forward",
+            "stop immediately",
+            "kudu command",
+            "clinical content",
             "no replacement",
             "webjob trigger-and-correlation mechanism remains retired",
         },
@@ -1388,6 +1322,11 @@ def test_hosted_foundry_ssh_transport_retirement_status_is_current() -> None:
     _assert_contains_all(
         architecture.casefold(),
         {
+            "packaged synchronous combined proof operation",
+            "existing metadata verification and fixed-fictional invocation boundaries",
+            "ordinary application package",
+            "not exposed through an application route",
+            "no additional compute resource",
             "hostedfoundryagentsshtransport",
             "create-remote-connection",
             "one tunnel process",
@@ -1410,17 +1349,52 @@ def test_hosted_foundry_ssh_transport_retirement_status_is_current() -> None:
             "not_running_in_hosted_environment",
             "managed identity was never attempted",
             "ssh managed-identity execution is retired",
+            "no replacement mechanism was selected",
             "clean architectural decision point",
         },
     )
     _assert_contains_all(
         mapping.casefold(),
         {
+            "offline packaged hosted foundry proof composition is implemented",
             "direct app service ssh transport and prerequisite probes are live-proven",
             "packaged non-invoking check is live-proven",
+            "hosted managed-identity metadata access remains unproven",
             "ssh hosted managed-identity execution is unsupported",
             "no replacement hosted execution mechanism is selected",
             "application-integrated foundry execution remains separately live-proven",
+            "webjob trigger mechanism remains retired",
+        },
+    )
+    _assert_contains_all(
+        handoff.casefold(),
+        {
+            "packaged synchronous combined proof operation",
+            "direct app service ssh",
+            "ssh hosted managed-identity execution is unsupported",
+            "no replacement hosted topology is selected",
+            "no live hosted managed-identity proof has run",
+        },
+    )
+    combined = (architecture + "\n" + verification_runbook).casefold()
+    for superseded in (
+        "metadata verification only",
+        "calls only the metadata verifier",
+        "calls only the existing metadata",
+        "no invocation path",
+        "separate from every agent invocation",
+        "coordinator never deploys rbac",
+        "stale evidence may be deleted",
+        "stale evidence may be ignored",
+    ):
+        assert superseded not in combined
+    _assert_contains_all(
+        combined,
+        {
+            "metadata verification followed by one fixed-fictional invocation",
+            "one combined sanitized json result",
+            "evidence-preserving recovery",
+            "separate, explicitly invoked optional workflows",
         },
     )
     assert "metadata-only ssh acceptance" not in mapping.casefold()
@@ -1612,33 +1586,6 @@ def test_hosted_webjob_deployment_is_generation_bound_and_stops_after_discovery(
             "complete unchanged legacy directory",
         },
     )
-
-
-def test_current_hosted_docs_reject_superseded_metadata_only_meanings() -> None:
-    combined = _normalized(
-        _read("docs/architecture.md")
-        + "\n"
-        + _read("docs/runbooks/live-hosted-foundry-agent-verification-prerequisites.md")
-    ).casefold()
-    superseded = (
-        "metadata verification only",
-        "calls only the metadata verifier",
-        "calls only the existing metadata",
-        "no invocation path",
-        "separate from every agent invocation",
-        "coordinator never deploys rbac",
-        "stale evidence may be deleted",
-        "stale evidence may be ignored",
-    )
-    for meaning in superseded:
-        assert meaning not in combined
-    for current in (
-        "metadata verification followed by one fixed-fictional invocation",
-        "one combined sanitized json result",
-        "evidence-preserving recovery",
-    ):
-        assert current in combined
-    assert "separate, explicitly invoked optional workflows" in combined
 
 
 def test_stale_webjob_recovery_docs_define_separate_manual_boundary() -> None:

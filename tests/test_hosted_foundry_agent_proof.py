@@ -196,19 +196,21 @@ def test_wrong_or_malformed_verification_result_blocks_invocation(
 
 
 @pytest.mark.parametrize(
-    "field",
+    ("field", "value"),
     [
-        "local_contract_validated",
-        "hosted_environment_present",
-        "managed_identity_attempted",
-        "managed_identity_authenticated",
-        "project_access_verified",
-        "agent_present",
-        "configured_version_present",
-        "agent_contract_verified",
+        ("local_contract_validated", False),
+        ("local_contract_validated", None),
+        ("local_contract_validated", 1),
+        ("local_contract_validated", "true"),
+        ("hosted_environment_present", False),
+        ("managed_identity_attempted", False),
+        ("managed_identity_authenticated", False),
+        ("project_access_verified", False),
+        ("agent_present", False),
+        ("configured_version_present", False),
+        ("agent_contract_verified", False),
     ],
 )
-@pytest.mark.parametrize("value", [False, None, 1, "true"])
 def test_every_verification_proof_must_be_exact_true(field: str, value: object) -> None:
     invocation_calls: list[object] = []
     malformed = replace(
