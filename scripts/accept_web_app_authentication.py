@@ -1595,6 +1595,175 @@ def _hosted_readiness_current(
     )
 
 
+def _repair_result(category: str, **evidence: object) -> dict[str, object]:
+    result: dict[str, object] = {
+        "ok": category == "authentication_configuration_verified",
+        "category": category,
+        "mode": "repair-live",
+        "operation": "repair_web_app_authentication",
+        "preview_attempted": False,
+        "authentication_create_count": 0,
+        "authentication_modify_count": 0,
+        "parent_web_app_effective_changes": 0,
+        "plan_effective_changes": 0,
+        "unexpected_resource_count": 0,
+        "delete_count": 0,
+        "unsupported_count": 0,
+        "safe_preview": False,
+        "approval_presented": False,
+        "approval_granted": False,
+        "deployment_attempted": False,
+        "deployment_request_accepted": False,
+        "terminal_deployment_verified": False,
+        "authentication_reads": 0,
+        "azure_mutation_made": False,
+    }
+    result.update(evidence)
+    return result
+
+
+def repair_web_app_authentication(
+    request: AuthenticationAcceptanceRequest,
+    *,
+    runner: AzureCliRunner,
+    fresh_request_reader: Callable[[], AuthenticationAcceptanceRequest | None],
+    approval_callback: Callable[[AuthenticationApprovalSummary], bool],
+    deployment_template: PreparedAuthenticationTemplate,
+) -> dict[str, object]:
+    if (
+        not check_authentication_acceptance_request(request).ok
+        or not _prepared_template_valid(deployment_template)
+    ):
+        return _repair_result("safe_live_verification_blocked")
+    contract_snapshot = _contract_snapshot(request)
+    if contract_snapshot is None:
+        return _repair_result("safe_live_verification_blocked")
+    preview = _authentication_preview(request, runner, deployment_template)
+    if preview.diagnostic is not None or preview.accepted_summary is None:
+        return _repair_result(
+            "unsafe_preview_blocked",
+            preview_attempted=True,
+        )
+    summary = preview.accepted_summary
+    preview_evidence = {
+        "preview_attempted": True,
+        "authentication_create_count": summary.count("Create"),
+        "authentication_modify_count": summary.count("Modify"),
+        "delete_count": summary.count("Delete"),
+        "unsupported_count": summary.count("Unsupported"),
+        "safe_preview": True,
+    }
+    approval = AuthenticationApprovalSummary(
+        current_web_app_verified=True,
+        application_identifier_validated=True,
+        tenant_identifier_validated=True,
+        authentication_enablement_required=True,
+        anonymous_readiness_exclusions=len(
+            APP_SERVICE_AUTHENTICATION_ANONYMOUS_PATHS
+        ),
+        unrelated_resource_changes=0,
+    )
+    if not approval_callback(approval):
+        return _repair_result(
+            "safe_live_verification_blocked",
+            **preview_evidence,
+            approval_presented=True,
+        )
+    freshness = fresh_request_reader()
+    if (
+        freshness != request
+        or _contract_snapshot(request) != contract_snapshot
+        or not _prepared_template_valid(deployment_template)
+    ):
+        return _repair_result(
+            "safe_live_verification_blocked",
+            **preview_evidence,
+            approval_presented=True,
+            approval_granted=True,
+        )
+    deployment_command = _authentication_deployment_command(
+        request,
+        "live",
+        deployment_template,
+    )
+    if "--name" not in deployment_command:
+        return _repair_result("safe_live_verification_blocked", **preview_evidence)
+    expected_deployment_name = deployment_command[
+        deployment_command.index("--name") + 1
+    ]
+    deployment_command.extend(
+        [
+            "--query",
+            "{name:name,provisioningState:properties.provisioningState}",
+            "--output",
+            "json",
+            "--only-show-errors",
+        ]
+    )
+    deployment = runner.run(deployment_command)
+    accepted = deployment.return_code == 0
+    terminal = False
+    if accepted:
+        try:
+            terminal_payload = json.loads(deployment.stdout)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            terminal_payload = None
+        terminal = bool(
+            isinstance(terminal_payload, dict)
+            and set(terminal_payload) == {"name", "provisioningState"}
+            and terminal_payload.get("name") == expected_deployment_name
+            and terminal_payload.get("provisioningState") == "Succeeded"
+        )
+    deployment_evidence = {
+        **preview_evidence,
+        "approval_presented": True,
+        "approval_granted": True,
+        "deployment_attempted": True,
+        "deployment_request_accepted": accepted,
+        "terminal_deployment_verified": terminal,
+        "azure_mutation_made": True if terminal else None,
+    }
+    if not terminal:
+        return _repair_result(
+            "deployment_failed_or_ambiguous",
+            **deployment_evidence,
+        )
+    configured_stdout = read_authentication_configuration_stdout(runner, request)
+    if configured_stdout is None:
+        return _repair_result(
+            "safe_live_verification_blocked",
+            **deployment_evidence,
+            authentication_reads=1,
+        )
+    shape = diagnose_authentication_configuration_shape(configured_stdout)
+    if shape is not None:
+        return _repair_result(
+            "response_shape_mismatch",
+            **deployment_evidence,
+            authentication_reads=1,
+            **shape.to_json_dict(),
+        )
+    configured = parse_authentication_configuration_evidence(
+        configured_stdout,
+        expected_client_id=request.client_application_id,
+        expected_tenant_id=request.tenant_id,
+        expected_login_endpoint=None,
+    )
+    if configured is None:
+        return _repair_result(
+            "authentication_semantic_mismatch",
+            **deployment_evidence,
+            authentication_reads=1,
+            field="authentication_configuration",
+            reason="contract_mismatch",
+        )
+    return _repair_result(
+        "authentication_configuration_verified",
+        **deployment_evidence,
+        authentication_reads=1,
+    )
+
+
 def accept_web_app_authentication(
     request: AuthenticationAcceptanceRequest,
     *,
@@ -1989,6 +2158,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--check", action="store_true")
     modes.add_argument("--live", action="store_true")
+    modes.add_argument("--repair-live", action="store_true")
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument(
         "--readiness-receipt",
@@ -2014,8 +2184,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             )
         else:
             setattr(args, attribute, values[0])
-    if args.live and not args.json:
-        parser.error("--live requires --json")
+    if (args.live or args.repair_live) and not args.json:
+        parser.error("live modes require --json")
     return args
 
 
@@ -2077,6 +2247,20 @@ def main(argv: list[str] | None = None) -> int:
                 )
             elif args.check:
                 result = preflight
+            elif args.repair_live:
+                def fresh_request_reader() -> AuthenticationAcceptanceRequest | None:
+                    fresh = _load_private_request(args)
+                    return fresh[1] if fresh is not None else None
+
+                repaired = repair_web_app_authentication(
+                    request,
+                    runner=_create_azure_cli_runner(),
+                    fresh_request_reader=fresh_request_reader,
+                    approval_callback=prompt_for_authentication_approval,
+                    deployment_template=prepared_template,
+                )
+                print(json.dumps(repaired, separators=(",", ":"), sort_keys=True))
+                return 0 if repaired["ok"] else 2
             else:
                 def current_generation_reader() -> CurrentGenerationBinding | None:
                     receipt = load_matching_daily_azure_readiness_receipt(

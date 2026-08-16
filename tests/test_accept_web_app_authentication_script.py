@@ -1186,6 +1186,128 @@ def test_live_cli_rechecks_inputs_before_runner_construction(
     assert payload["azure_operation_attempted"] is False
 
 
+def test_repair_live_uses_one_preview_one_terminal_deployment_and_one_auth_read(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    request = _request(script)
+    commands: list[list[str]] = []
+
+    class RepairRunner:
+        def run(self, args: list[str]):
+            commands.append(args)
+            result = script.CommandResult
+            if args[:4] == ["az", "deployment", "group", "what-if"]:
+                return result(
+                    0,
+                    _preview_payload(authentication_action="Modify"),
+                    "",
+                )
+            if args[:4] == ["az", "deployment", "group", "create"]:
+                return result(
+                    0,
+                    json.dumps(
+                        {
+                            "name": "nurse-dev-web-app-authentication",
+                            "provisioningState": "Succeeded",
+                        }
+                    ),
+                    "",
+                )
+            if args[:3] == ["az", "resource", "show"]:
+                return result(0, _enabled_auth_payload(), "")
+            raise AssertionError(args[:4])
+
+    monkeypatch.setenv("OPERATOR_ENTRA_APPLICATION_ID", CLIENT_ID)
+    monkeypatch.setenv("OPERATOR_ENTRA_TENANT_ID", TENANT_ID)
+    monkeypatch.setattr(
+        script,
+        "_load_private_request",
+        lambda _args: (SimpleNamespace(), request),
+    )
+    monkeypatch.setattr(
+        script,
+        "prepare_authentication_deployment_template",
+        lambda _path: _prepared_template(script, ROOT),
+    )
+    monkeypatch.setattr(script, "_create_azure_cli_runner", RepairRunner)
+    monkeypatch.setattr(
+        script,
+        "prompt_for_authentication_approval",
+        lambda _summary: True,
+    )
+
+    exit_code = script.main(
+        ["--repair-live", "--json", "--config", ".env.daily-azure.local"]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["category"] == "authentication_configuration_verified"
+    assert payload["safe_preview"] is True
+    assert payload["approval_presented"] is True
+    assert payload["approval_granted"] is True
+    assert payload["deployment_request_accepted"] is True
+    assert payload["terminal_deployment_verified"] is True
+    assert payload["authentication_reads"] == 1
+    assert [command[:4] for command in commands] == [
+        ["az", "deployment", "group", "what-if"],
+        ["az", "deployment", "group", "create"],
+        ["az", "resource", "show", "--resource-group"],
+    ]
+
+
+def test_repair_live_ambiguous_terminal_state_stops_before_auth_read(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    request = _request(script)
+    commands: list[list[str]] = []
+
+    class AmbiguousRunner:
+        def run(self, args: list[str]):
+            commands.append(args)
+            result = script.CommandResult
+            if args[:4] == ["az", "deployment", "group", "what-if"]:
+                return result(0, _preview_payload(), "")
+            if args[:4] == ["az", "deployment", "group", "create"]:
+                return result(0, json.dumps({"private": "state"}), "")
+            raise AssertionError("terminal ambiguity must stop before auth read")
+
+    monkeypatch.setenv("OPERATOR_ENTRA_APPLICATION_ID", CLIENT_ID)
+    monkeypatch.setenv("OPERATOR_ENTRA_TENANT_ID", TENANT_ID)
+    monkeypatch.setattr(
+        script,
+        "_load_private_request",
+        lambda _args: (SimpleNamespace(), request),
+    )
+    monkeypatch.setattr(
+        script,
+        "prepare_authentication_deployment_template",
+        lambda _path: _prepared_template(script, ROOT),
+    )
+    monkeypatch.setattr(script, "_create_azure_cli_runner", AmbiguousRunner)
+    monkeypatch.setattr(
+        script,
+        "prompt_for_authentication_approval",
+        lambda _summary: True,
+    )
+
+    exit_code = script.main(
+        ["--repair-live", "--json", "--config", ".env.daily-azure.local"]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 2
+    assert payload["category"] == "deployment_failed_or_ambiguous"
+    assert payload["deployment_request_accepted"] is True
+    assert payload["terminal_deployment_verified"] is False
+    assert payload["authentication_reads"] == 0
+    assert len(commands) == 2
+
+
 def test_approval_prompt_is_default_no_and_contains_no_identifiers() -> None:
     script = _script()
     from io import StringIO
