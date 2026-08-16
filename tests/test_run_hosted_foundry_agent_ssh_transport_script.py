@@ -202,8 +202,6 @@ def test_retired_metadata_mode_run_live_rejects_before_every_live_boundary(
     for name in (
         "load_daily_azure_config",
         "load_matching_daily_azure_readiness_receipt",
-        "_verify_hosted_verifier_configuration",
-        "_create_configuration_runner",
         "_create_service",
         "_prompt",
     ):
@@ -214,15 +212,13 @@ def test_retired_metadata_mode_run_live_rejects_before_every_live_boundary(
                 f"retired mode reached {_name}"
             ),
         )
-    monkeypatch.setattr(
-        script,
+    for removed_name in (
         "HostedVerifierRuntimeConfiguration",
-        SimpleNamespace(
-            from_mapping=lambda *_a, **_k: pytest.fail(
-                "retired mode constructed runtime configuration"
-            )
-        ),
-    )
+        "_create_configuration_runner",
+        "_expected_hosted_verifier_settings",
+        "_verify_hosted_verifier_configuration",
+    ):
+        assert not hasattr(script, removed_name)
     args = SimpleNamespace(
         live_tunnel=False,
         live_metadata_verification=True,
@@ -289,104 +285,24 @@ def test_retired_metadata_cli_requires_no_configuration_projection() -> None:
     )
 
 
-def test_metadata_preflight_reuses_exact_configuration_verifier_contract(
-    monkeypatch,
-) -> None:
-    script = _script()
-    runner = object()
-    captured: list[tuple[object, ...]] = []
-    expected = script.WebAppConfigurationVerificationResult.live_success(
-        hosted_verifier_configuration_verified=True
-    )
-    monkeypatch.setattr(script, "_create_configuration_runner", lambda: runner)
-
-    def verify(*args, **kwargs):
-        captured.append((*args, kwargs))
-        return expected
-
-    monkeypatch.setattr(script, "verify_web_app_configuration", verify)
-    args = SimpleNamespace(**_hosted_verifier_values())
-
-    result = script._verify_hosted_verifier_configuration(
-        SimpleNamespace(enable_hosted_foundry_verifier=True),
-        SimpleNamespace(resource_group="contract-rg", web_app_name="contract-app"),
-        args,
-    )
-
-    assert result == expected
-    assert len(captured) == 1
-    resource_group, web_app_name, settings, kwargs = captured[0]
-    assert resource_group == "contract-rg"
-    assert web_app_name == "contract-app"
-    assert settings == {
-        setting_name: getattr(args, attribute)
-        for setting_name, attribute in script.HOSTED_SETTING_OPTIONS.items()
-    }
-    assert set(settings) == set(script.HOSTED_SETTING_OPTIONS)
-    assert kwargs == {
-        "verify_hosted_foundry_verifier": True,
-        "runner": runner,
-    }
-
-
-def test_disabled_metadata_preflight_stops_before_runner_or_verifier(
-    monkeypatch,
-) -> None:
-    script = _script()
-    monkeypatch.setattr(
-        script,
-        "_create_configuration_runner",
-        lambda: pytest.fail("disabled preflight must not construct runner"),
-    )
-    monkeypatch.setattr(
-        script,
-        "verify_web_app_configuration",
-        lambda *_a, **_k: pytest.fail("disabled preflight must not read Azure"),
-    )
-
-    result = script._verify_hosted_verifier_configuration(
-        SimpleNamespace(enable_hosted_foundry_verifier=False),
-        SimpleNamespace(resource_group="contract-rg", web_app_name="contract-app"),
-        SimpleNamespace(**_hosted_verifier_values()),
-    )
-
-    assert result.category == "hosted_verifier_configuration_invalid"
-    assert result.azure_request_attempted is False
-
-
 def test_retired_mode_ignores_runtime_values_before_ssh_service(
     monkeypatch,
 ) -> None:
     script = _script()
     private_hostile_value = "private-runtime; $(touch /tmp/must-not-run)"
-    config = SimpleNamespace(
-        subscription_name="contract-subscription",
-        enable_hosted_foundry_verifier=True,
-    )
-    receipt = SimpleNamespace(
-        resource_group="contract-rg",
-        web_app_name="contract-web-app",
-    )
-    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
-    monkeypatch.setattr(
-        script,
+    for name in (
+        "load_daily_azure_config",
         "load_matching_daily_azure_readiness_receipt",
-        lambda *_a, **_k: receipt,
-    )
-    monkeypatch.setattr(
-        script,
-        "_verify_hosted_verifier_configuration",
-        lambda *_a, **_k: (
-            script.WebAppConfigurationVerificationResult.live_success(
-                hosted_verifier_configuration_verified=True
-            )
-        ),
-    )
-    monkeypatch.setattr(
-        script,
         "_create_service",
-        lambda *_a: pytest.fail("invalid value must stop before SSH service"),
-    )
+        "_prompt",
+    ):
+        monkeypatch.setattr(
+            script,
+            name,
+            lambda *_a, _name=name, **_k: pytest.fail(
+                f"private value reached {_name}"
+            ),
+        )
     values = _hosted_verifier_values()
     values["hosted_verifier_agent_version"] = private_hostile_value
     args = SimpleNamespace(
@@ -428,55 +344,19 @@ def test_retired_metadata_mode_never_reaches_approval_or_service(
     monkeypatch,
 ) -> None:
     script = _script()
-    config = SimpleNamespace(
-        subscription_name="contract-subscription",
-        enable_hosted_foundry_verifier=True,
-    )
-    receipt = SimpleNamespace(
-        resource_group="contract-rg",
-        web_app_name="contract-web-app",
-    )
-    monkeypatch.setattr(script, "load_daily_azure_config", lambda *_a, **_k: config)
-    monkeypatch.setattr(
-        script,
+    for name in (
+        "load_daily_azure_config",
         "load_matching_daily_azure_readiness_receipt",
-        lambda *_a, **_k: receipt,
-    )
-    proof = script.WebAppConfigurationVerificationResult.live_success(
-        hosted_verifier_configuration_verified=True
-    )
-    monkeypatch.setattr(
-        script,
-        "_verify_hosted_verifier_configuration",
-        lambda *_a, **_k: proof,
-    )
-    captured: list[object] = []
-
-    class Service:
-        def run_live_tunnel(self, request, *, approvals):
-            captured.append(request)
-            assert approvals.approve_tunnel() is True
-            assert approvals.approve_probes() is True
-            assert approvals.approve_metadata_verification() is True
-            return script.HostedFoundryAgentSshTransportResult.build(
-                ok=True,
-                category="success",
-                mode="live-metadata-verification",
-                metadata_verification_attempted=True,
-                managed_identity_attempted=True,
-                metadata_verification_valid=True,
-                tunnel_process_reaped=True,
-                private_known_hosts_removed=True,
-            )
-
-    monkeypatch.setattr(
-        script,
         "_create_service",
-        lambda received, runtime: Service()
-        if received == proof
-        and type(runtime) is script.HostedVerifierRuntimeConfiguration
-        else pytest.fail("metadata service requires the exact proof"),
-    )
+        "_prompt",
+    ):
+        monkeypatch.setattr(
+            script,
+            name,
+            lambda *_a, _name=name, **_k: pytest.fail(
+                f"retired mode reached {_name}"
+            ),
+        )
     args = SimpleNamespace(
         live_tunnel=False,
         live_metadata_verification=True,
@@ -494,7 +374,6 @@ def test_retired_metadata_mode_never_reaches_approval_or_service(
 
     assert result.ok is False
     assert result.category == "ssh_hosted_identity_execution_unsupported"
-    assert captured == []
     summary = prompts.getvalue()
     assert summary == ""
     serialized_result = json.dumps(result.to_json_dict())

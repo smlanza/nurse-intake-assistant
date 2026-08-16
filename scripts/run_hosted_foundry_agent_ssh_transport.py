@@ -14,7 +14,6 @@ from src.app.services.hosted_foundry_agent_ssh_transport import (
     HostedFoundryAgentSshTransportApprovals,
     HostedFoundryAgentSshTransportRequest,
     HostedFoundryAgentSshTransportResult,
-    HostedVerifierRuntimeConfiguration,
     build_hosted_foundry_agent_ssh_transport_check_request,
 )
 from src.app.services.daily_azure_environment_rebuild import (
@@ -22,10 +21,6 @@ from src.app.services.daily_azure_environment_rebuild import (
     ConfigValidationError,
     load_daily_azure_config,
     load_matching_daily_azure_readiness_receipt,
-)
-from src.app.services.web_app_configuration_verification import (
-    WebAppConfigurationVerificationResult,
-    verify_web_app_configuration,
 )
 from src.app.services.web_app_hosting_contract import HOSTED_SETTING_OPTIONS
 
@@ -99,56 +94,8 @@ def _prompt(
         return False
 
 
-def _create_service(
-    hosted_verifier_configuration_proof: (
-        WebAppConfigurationVerificationResult | None
-    ) = None,
-    hosted_verifier_runtime_configuration: (
-        HostedVerifierRuntimeConfiguration | None
-    ) = None,
-) -> HostedFoundryAgentSshTransport:
-    return HostedFoundryAgentSshTransport(
-        hosted_verifier_configuration_proof=(
-            hosted_verifier_configuration_proof
-        ),
-        hosted_verifier_runtime_configuration=(
-            hosted_verifier_runtime_configuration
-        ),
-    )
-
-
-def _expected_hosted_verifier_settings(
-    args: argparse.Namespace,
-) -> dict[str, str]:
-    return {
-        setting_name: getattr(args, attribute)
-        for setting_name, attribute in HOSTED_SETTING_OPTIONS.items()
-    }
-
-
-def _create_configuration_runner():
-    from scripts.verify_web_app_configuration import SubprocessAzureCliRunner
-
-    return SubprocessAzureCliRunner()
-
-
-def _verify_hosted_verifier_configuration(
-    config: object,
-    receipt: object,
-    args: argparse.Namespace,
-) -> WebAppConfigurationVerificationResult:
-    """Retain the historical exact-proof contract outside supported SSH use."""
-    if getattr(config, "enable_hosted_foundry_verifier", None) is not True:
-        return WebAppConfigurationVerificationResult.failure(
-            "hosted_verifier_configuration_invalid"
-        )
-    return verify_web_app_configuration(
-        getattr(receipt, "resource_group", None),
-        getattr(receipt, "web_app_name", None),
-        _expected_hosted_verifier_settings(args),
-        verify_hosted_foundry_verifier=True,
-        runner=_create_configuration_runner(),
-    )
+def _create_service() -> HostedFoundryAgentSshTransport:
+    return HostedFoundryAgentSshTransport()
 
 
 def run_live(
@@ -159,11 +106,7 @@ def run_live(
 ) -> HostedFoundryAgentSshTransportResult:
     if getattr(args, "live_metadata_verification", False):
         return _retired_metadata_mode_result()
-    mode = (
-        "live-metadata-verification"
-        if getattr(args, "live_metadata_verification", False)
-        else "live-tunnel"
-    )
+    mode = "live-tunnel"
     try:
         config = load_daily_azure_config(args.config, repository_root=PROJECT_ROOT)
     except ConfigValidationError:
@@ -182,46 +125,6 @@ def run_live(
             category="configuration_invalid",
             mode=mode,
         )
-    configuration_proof: WebAppConfigurationVerificationResult | None = None
-    runtime_configuration: HostedVerifierRuntimeConfiguration | None = None
-    if mode == "live-metadata-verification":
-        try:
-            candidate = _verify_hosted_verifier_configuration(
-                config,
-                receipt,
-                args,
-            )
-        except Exception:
-            candidate = None
-        expected_proof = WebAppConfigurationVerificationResult.live_success(
-            hosted_verifier_configuration_verified=True
-        )
-        if (
-            type(candidate) is not WebAppConfigurationVerificationResult
-            or candidate != expected_proof
-        ):
-            return HostedFoundryAgentSshTransportResult.build(
-                ok=False,
-                category="hosted_verifier_configuration_invalid",
-                mode=mode,
-                azure_call_made=bool(
-                    type(candidate) is WebAppConfigurationVerificationResult
-                    and candidate.azure_request_attempted is True
-                ),
-            )
-        configuration_proof = candidate
-        try:
-            runtime_configuration = HostedVerifierRuntimeConfiguration.from_mapping(
-                _expected_hosted_verifier_settings(args)
-            )
-        except ValueError:
-            return HostedFoundryAgentSshTransportResult.build(
-                ok=False,
-                category="hosted_verifier_configuration_invalid",
-                mode=mode,
-                azure_call_made=True,
-            )
-
     def evidence_unchanged() -> bool:
         try:
             current_config = load_daily_azure_config(
@@ -264,25 +167,8 @@ def run_live(
             "Managed identity, metadata, and Agent activity: prohibited\n"
             "Retry permitted: no"
         ),
-        approve_metadata_verification=lambda: (
-            approve(
-                "Remote execution count: one\n"
-                "Mode: hosted metadata verification\n"
-                "System-assigned managed identity: required\n"
-                "Foundry metadata reads: permitted\n"
-                "Agent invocation: prohibited\n"
-                "Azure mutation: prohibited\n"
-                "Retry permitted: no"
-            )
-            if mode == "live-metadata-verification"
-            else False
-        ),
     )
-    service = (
-        _create_service(configuration_proof, runtime_configuration)
-        if mode == "live-metadata-verification"
-        else _create_service()
-    )
+    service = _create_service()
     return service.run_live_tunnel(
         HostedFoundryAgentSshTransportRequest(
             mode=mode,

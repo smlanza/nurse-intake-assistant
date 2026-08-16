@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 import json
@@ -19,26 +18,13 @@ import threading
 import time
 from typing import Callable, Literal, Protocol
 
-from src.app.services.hosted_foundry_agent_verification import (
-    HostedFoundryAgentVerificationResult,
-)
-from src.app.services.web_app_configuration_verification import (
-    WebAppConfigurationVerificationResult,
-)
-from src.app.services.web_app_hosting_contract import (
-    HOSTED_VERIFIER_SETTING_NAMES,
-    hosted_verifier_settings_valid,
-)
-
-
-TransportMode = Literal["check", "live-tunnel", "live-metadata-verification"]
+TransportMode = Literal["check", "live-tunnel"]
 TunnelReadinessOutcome = Literal["ready", "unavailable", "ambiguous"]
 TunnelProcessState = Literal["alive", "unavailable", "ambiguous"]
 TransportCategory = Literal[
     "check_passed",
     "success",
     "configuration_invalid",
-    "hosted_verifier_configuration_invalid",
     "ssh_hosted_identity_execution_unsupported",
     "cli_unsupported",
     "approval_denied",
@@ -49,7 +35,6 @@ TransportCategory = Literal[
     "interpreter_probe_failed",
     "module_probe_failed",
     "remote_check_failed",
-    "metadata_verification_failed",
     "remote_output_invalid",
     "interrupted",
     "cleanup_failed",
@@ -65,7 +50,6 @@ READINESS_INTERVAL_SECONDS = 0.25
 CLEANUP_WAIT_SECONDS = 2.0
 REMOTE_TARGET = "root@127.0.0.1"
 PACKAGED_MODULE = "src.app.operations.prove_hosted_foundry_agent"
-METADATA_VERIFICATION_MODULE = "src.app.operations.verify_hosted_foundry_agent"
 
 _INTERPRETER_PROGRAM = (
     "import json,os;"
@@ -99,15 +83,10 @@ REMOTE_CHECK_COMMAND = (
     'cd "$APP_PATH" && python -m '
     f"{PACKAGED_MODULE} --check --json"
 )
-REMOTE_METADATA_VERIFICATION_COMMAND = (
-    'cd "$APP_PATH" && python -m '
-    f"{METADATA_VERIFICATION_MODULE} --live --json"
-)
 PERMITTED_REMOTE_COMMANDS = (
     INTERPRETER_PROBE_COMMAND,
     MODULE_PROBE_COMMAND,
     REMOTE_CHECK_COMMAND,
-    REMOTE_METADATA_VERIFICATION_COMMAND,
 )
 
 _REQUIRED_CREATE_REMOTE_CONNECTION_OPTIONS = (
@@ -144,49 +123,11 @@ class HostedFoundryAgentSshTransportRequest:
     web_app_name: str
 
 
-@dataclass(frozen=True, repr=False, init=False)
-class HostedVerifierRuntimeConfiguration:
-    """Historical private settings contract for the retired SSH metadata path."""
-
-    _ordered_values: tuple[str, ...]
-
-    def __init__(self, values: Mapping[str, object]) -> None:
-        try:
-            if (
-                not isinstance(values, Mapping)
-                or not hosted_verifier_settings_valid(values)
-            ):
-                raise ValueError
-            ordered_values = tuple(
-                values[name] for name in HOSTED_VERIFIER_SETTING_NAMES
-            )
-        except (KeyError, TypeError, ValueError):
-            raise ValueError(
-                "Hosted verifier runtime configuration is invalid."
-            ) from None
-        object.__setattr__(self, "_ordered_values", ordered_values)
-
-    @classmethod
-    def from_mapping(
-        cls,
-        values: Mapping[str, object],
-    ) -> "HostedVerifierRuntimeConfiguration":
-        return cls(values)
-
-    def _assignment_pairs(self) -> tuple[tuple[str, str], ...]:
-        return tuple(zip(HOSTED_VERIFIER_SETTING_NAMES, self._ordered_values))
-
-
-def _deny_approval() -> bool:
-    return False
-
-
 @dataclass(frozen=True)
 class HostedFoundryAgentSshTransportApprovals:
     approve_tunnel: Callable[[], bool]
     approve_probes: Callable[[], bool]
     approve_remote_check: Callable[[], bool]
-    approve_metadata_verification: Callable[[], bool] = _deny_approval
 
 
 @dataclass(frozen=True)
@@ -272,8 +213,6 @@ class HostedFoundryAgentSshTransportResult:
     agent_invocation_attempted: bool
     azure_call_made: bool
     azure_mutation_made: bool
-    metadata_verifier_category: str | None = None
-
     @classmethod
     def build(
         cls,
@@ -425,37 +364,12 @@ def build_tunnel_command(
     )
 
 
-def _build_metadata_verification_command(
-    configuration: HostedVerifierRuntimeConfiguration,
-) -> str:
-    if type(configuration) is not HostedVerifierRuntimeConfiguration:
-        raise ValueError("Hosted verifier runtime configuration is invalid.")
-    assignments = " ".join(
-        shlex.quote(f"{name}={value}")
-        for name, value in configuration._assignment_pairs()
-    )
-    return (
-        'cd "$APP_PATH" && env '
-        f"{assignments} python -m {METADATA_VERIFICATION_MODULE} --live --json"
-    )
-
-
 def build_ssh_command(
     command: str,
     known_hosts_path: str,
-    *,
-    hosted_verifier_runtime_configuration: (
-        HostedVerifierRuntimeConfiguration | None
-    ) = None,
 ) -> tuple[str, ...]:
     if command not in PERMITTED_REMOTE_COMMANDS:
         raise ValueError("unsupported remote command")
-    if command == REMOTE_METADATA_VERIFICATION_COMMAND:
-        command = _build_metadata_verification_command(
-            hosted_verifier_runtime_configuration
-        )
-    elif hosted_verifier_runtime_configuration is not None:
-        raise ValueError("unsupported remote configuration")
     if not isinstance(known_hosts_path, str) or not known_hosts_path:
         raise ValueError("invalid known-hosts path")
     return (
@@ -477,26 +391,14 @@ def build_ssh_command(
 
 
 class HostedFoundryAgentSshTransport:
-    """Own supported non-invoking SSH; retain retired metadata test evidence."""
+    """Own the supported non-invoking App Service SSH transport."""
 
     def __init__(
         self,
         *,
         help_reader: Callable[[], AzureCliHelpSurface | None] | None = None,
-        hosted_verifier_configuration_proof: (
-            WebAppConfigurationVerificationResult | None
-        ) = None,
-        hosted_verifier_runtime_configuration: (
-            HostedVerifierRuntimeConfiguration | None
-        ) = None,
     ) -> None:
         self._help_reader = help_reader or InstalledAzureCliHelpReader().read
-        self._hosted_verifier_configuration_proof = (
-            hosted_verifier_configuration_proof
-        )
-        self._hosted_verifier_runtime_configuration = (
-            hosted_verifier_runtime_configuration
-        )
 
     def permitted_remote_commands(self) -> tuple[str, ...]:
         return PERMITTED_REMOTE_COMMANDS
@@ -541,10 +443,7 @@ class HostedFoundryAgentSshTransport:
         approvals: HostedFoundryAgentSshTransportApprovals,
         dependencies: HostedFoundryAgentSshTransportDependencies | None = None,
     ) -> HostedFoundryAgentSshTransportResult:
-        if not any(
-            _request_valid(request, expected_mode=mode)
-            for mode in ("live-tunnel", "live-metadata-verification")
-        ):
+        if not _request_valid(request, expected_mode="live-tunnel"):
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="configuration_invalid",
@@ -564,26 +463,6 @@ class HostedFoundryAgentSshTransport:
             "sanitization_policy_valid": True,
             "cleanup_policy_valid": True,
         }
-        if mode == "live-metadata-verification":
-            proof = self._hosted_verifier_configuration_proof
-            runtime_configuration = self._hosted_verifier_runtime_configuration
-            proof_attempted = bool(
-                type(proof) is WebAppConfigurationVerificationResult
-                and proof.azure_request_attempted is True
-            )
-            if (
-                not _hosted_verifier_configuration_proof_valid(proof)
-                or type(runtime_configuration)
-                is not HostedVerifierRuntimeConfiguration
-            ):
-                return HostedFoundryAgentSshTransportResult.build(
-                    ok=False,
-                    category="hosted_verifier_configuration_invalid",
-                    mode=mode,
-                    azure_call_made=proof_attempted,
-                    **progress,
-                )
-            progress["azure_call_made"] = True
         try:
             if approvals.approve_tunnel() is not True:
                 return HostedFoundryAgentSshTransportResult.build(
@@ -662,7 +541,6 @@ class HostedFoundryAgentSshTransport:
                         known_hosts_path,
                         deadline,
                         progress,
-                        mode,
                     )
             except (KeyboardInterrupt, _TransportInterrupted):
                 result = HostedFoundryAgentSshTransportResult.build(
@@ -712,13 +590,12 @@ class HostedFoundryAgentSshTransport:
         known_hosts_path: str,
         deadline: float,
         progress: dict[str, bool],
-        mode: str,
     ) -> HostedFoundryAgentSshTransportResult:
         if approvals.approve_probes() is not True:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="approval_denied",
-                mode=mode,
+                mode="live-tunnel",
                 **progress,
             )
         progress.update(
@@ -738,7 +615,7 @@ class HostedFoundryAgentSshTransport:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="interpreter_probe_failed",
-                mode=mode,
+                mode="live-tunnel",
                 **progress,
             )
         progress.update(interpreter_valid=True, module_probe_attempted=True)
@@ -752,18 +629,10 @@ class HostedFoundryAgentSshTransport:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
                 category="module_probe_failed",
-                mode=mode,
+                mode="live-tunnel",
                 **progress,
             )
         progress["packaged_module_valid"] = True
-        if mode == "live-metadata-verification":
-            return self._run_metadata_verification(
-                approvals,
-                deps,
-                known_hosts_path,
-                deadline,
-                progress,
-            )
         if approvals.approve_remote_check() is not True:
             return HostedFoundryAgentSshTransportResult.build(
                 ok=False,
@@ -800,82 +669,6 @@ class HostedFoundryAgentSshTransport:
             **progress,
         )
 
-    def _run_metadata_verification(
-        self,
-        approvals: HostedFoundryAgentSshTransportApprovals,
-        deps: HostedFoundryAgentSshTransportDependencies,
-        known_hosts_path: str,
-        deadline: float,
-        progress: dict[str, bool],
-    ) -> HostedFoundryAgentSshTransportResult:
-        try:
-            approved = approvals.approve_metadata_verification() is True
-        except (KeyboardInterrupt, _TransportInterrupted):
-            raise
-        except BaseException:
-            approved = False
-        if not approved:
-            return HostedFoundryAgentSshTransportResult.build(
-                ok=False,
-                category="approval_denied",
-                mode="live-metadata-verification",
-                **progress,
-            )
-        progress["metadata_verification_attempted"] = True
-        remote = _run_ssh(
-            deps,
-            REMOTE_METADATA_VERIFICATION_COMMAND,
-            known_hosts_path,
-            deadline,
-            hosted_verifier_runtime_configuration=(
-                self._hosted_verifier_runtime_configuration
-            ),
-        )
-        if type(remote) is not RemoteCommandResult:
-            return HostedFoundryAgentSshTransportResult.build(
-                ok=False,
-                category="metadata_verification_failed",
-                mode="live-metadata-verification",
-                **progress,
-            )
-        if remote.return_code != 0:
-            failure = _recognized_metadata_verification_failure(remote)
-            if failure is not None:
-                verifier_category, managed_identity_attempted = failure
-                progress["managed_identity_attempted"] = (
-                    managed_identity_attempted
-                )
-                return HostedFoundryAgentSshTransportResult.build(
-                    ok=False,
-                    category="metadata_verification_failed",
-                    mode="live-metadata-verification",
-                    metadata_verifier_category=verifier_category,
-                    **progress,
-                )
-            return HostedFoundryAgentSshTransportResult.build(
-                ok=False,
-                category="metadata_verification_failed",
-                mode="live-metadata-verification",
-                **progress,
-            )
-        if not _metadata_verification_result_valid(remote):
-            return HostedFoundryAgentSshTransportResult.build(
-                ok=False,
-                category="remote_output_invalid",
-                mode="live-metadata-verification",
-                **progress,
-            )
-        progress.update(
-            managed_identity_attempted=True,
-            metadata_verification_valid=True,
-        )
-        return HostedFoundryAgentSshTransportResult.build(
-            ok=True,
-            category="success",
-            mode="live-metadata-verification",
-            **progress,
-        )
-
     def _cli_contract_valid(self) -> bool:
         try:
             surface = self._help_reader()
@@ -892,16 +685,6 @@ class HostedFoundryAgentSshTransport:
             and _TUNNEL_READY_MARKER in surface.create_remote_connection
             and "webapp ssh" in surface.preview_ssh
         )
-
-
-def _hosted_verifier_configuration_proof_valid(value: object) -> bool:
-    return bool(
-        type(value) is WebAppConfigurationVerificationResult
-        and value
-        == WebAppConfigurationVerificationResult.live_success(
-            hosted_verifier_configuration_verified=True
-        )
-    )
 
 
 def _request_valid(
@@ -935,17 +718,9 @@ def _fixed_contract_valid(request: HostedFoundryAgentSshTransportRequest) -> boo
             INTERPRETER_PROBE_COMMAND,
             MODULE_PROBE_COMMAND,
             REMOTE_CHECK_COMMAND,
-            REMOTE_METADATA_VERIFICATION_COMMAND,
         )
         and REMOTE_CHECK_COMMAND.endswith("--check --json")
-        and REMOTE_METADATA_VERIFICATION_COMMAND.endswith("--live --json")
-        and all(
-            "--live" not in remote
-            for remote in PERMITTED_REMOTE_COMMANDS[:-1]
-        )
-        and PACKAGED_MODULE not in REMOTE_METADATA_VERIFICATION_COMMAND
-        and "invoke_hosted_foundry_agent"
-        not in REMOTE_METADATA_VERIFICATION_COMMAND
+        and all("--live" not in remote for remote in PERMITTED_REMOTE_COMMANDS)
         and "APP_PATH" in INTERPRETER_PROBE_COMMAND
         and "APP_PATH" in MODULE_PROBE_COMMAND
         and "APP_PATH" in REMOTE_CHECK_COMMAND
@@ -1026,22 +801,12 @@ def _run_ssh(
     command: str,
     known_hosts_path: str,
     deadline: float,
-    *,
-    hosted_verifier_runtime_configuration: (
-        HostedVerifierRuntimeConfiguration | None
-    ) = None,
 ) -> RemoteCommandResult:
     remaining = deadline - deps.monotonic()
     if remaining <= 0:
         return RemoteCommandResult(124, "", "")
     return deps.ssh_runner.run(
-        build_ssh_command(
-            command,
-            known_hosts_path,
-            hosted_verifier_runtime_configuration=(
-                hosted_verifier_runtime_configuration
-            ),
-        ),
+        build_ssh_command(command, known_hosts_path),
         remaining,
     )
 
@@ -1108,154 +873,6 @@ def _remote_check_result_valid(value: object) -> bool:
         and payload.keys() == expected.keys()
         and all(_exact_value(payload[key], value) for key, value in expected.items())
     )
-
-
-def _metadata_verification_result_valid(result: RemoteCommandResult) -> bool:
-    if (
-        type(result) is not RemoteCommandResult
-        or result.return_code != 0
-        or result.stderr != ""
-        or not _one_json_document(result.stdout)
-    ):
-        return False
-    try:
-        payload = json.loads(result.stdout)
-    except (TypeError, ValueError):
-        return False
-    expected = {
-        "ok": True,
-        "category": "success",
-        "operation": "verify_hosted_foundry_agent",
-        "mode": "live",
-        "local_contract_validated": True,
-        "hosted_environment_present": True,
-        "managed_identity_attempted": True,
-        "managed_identity_authenticated": True,
-        "project_access_verified": True,
-        "agent_present": True,
-        "configured_version_present": True,
-        "agent_contract_verified": True,
-        "agent_invocation_attempted": False,
-        "azure_mutation_made": False,
-        "recommended_next_step": (
-            "Run the separate fictional-data hosted agent invocation."
-        ),
-    }
-    return bool(
-        type(payload) is dict
-        and payload.keys() == expected.keys()
-        and all(_exact_value(payload[key], value) for key, value in expected.items())
-    )
-
-
-_FAILURE_STATE = tuple[bool, bool, bool, bool, bool, bool, bool]
-_RECOGNIZED_METADATA_FAILURE_STATES: dict[str, tuple[_FAILURE_STATE, ...]] = {
-    "missing_configuration": ((False, False, False, False, False, False, False),),
-    "sdk_unavailable": (
-        (True, False, False, False, False, False, False),
-        (True, True, True, False, False, False, False),
-    ),
-    "not_running_in_hosted_environment": (
-        (True, False, False, False, False, False, False),
-    ),
-    "managed_identity_unavailable": (
-        (True, True, True, False, False, False, False),
-    ),
-    "authentication_or_authorization_failed": (
-        (True, True, True, False, False, False, False),
-        (True, True, True, True, True, True, False),
-    ),
-    "project_access_failed": (
-        (True, True, True, False, False, False, False),
-    ),
-    "agent_not_found": (
-        (True, True, True, True, True, False, False),
-    ),
-    "configured_version_not_found": (
-        (True, True, True, True, True, True, False),
-    ),
-    "agent_contract_invalid": (
-        (True, True, True, True, True, True, True),
-    ),
-    "azure_request_failed": (
-        (True, True, True, False, False, False, False),
-        (True, True, True, True, True, True, False),
-        (True, True, True, True, True, True, True),
-    ),
-    "response_parse_failed": (
-        (True, True, True, False, False, False, False),
-        (True, True, True, True, True, False, False),
-        (True, True, True, True, True, True, False),
-    ),
-    "unexpected_error": (
-        (True, True, True, False, False, False, False),
-    ),
-}
-
-
-def _recognized_metadata_verification_failure(
-    result: RemoteCommandResult,
-) -> tuple[str, bool] | None:
-    if (
-        type(result.return_code) is not int
-        or result.return_code not in {1, 2}
-        or result.stderr != ""
-        or not _one_json_document(result.stdout)
-    ):
-        return None
-    try:
-        payload = json.loads(result.stdout)
-    except (TypeError, ValueError):
-        return None
-    if type(payload) is not dict:
-        return None
-    category = payload.get("category")
-    if type(category) is not str:
-        return None
-    states = _RECOGNIZED_METADATA_FAILURE_STATES.get(category)
-    if states is None:
-        return None
-    for state in states:
-        (
-            local_contract_validated,
-            hosted_environment_present,
-            managed_identity_attempted,
-            managed_identity_authenticated,
-            project_access_verified,
-            agent_present,
-            configured_version_present,
-        ) = state
-        expected = HostedFoundryAgentVerificationResult.failure(
-            "live",
-            category,
-            local_contract_validated=local_contract_validated,
-            hosted_environment_present=hosted_environment_present,
-            managed_identity_attempted=managed_identity_attempted,
-            managed_identity_authenticated=managed_identity_authenticated,
-            project_access_verified=project_access_verified,
-            agent_present=agent_present,
-            configured_version_present=configured_version_present,
-        ).to_json_dict()
-        expected_return_code = (
-            2
-            if category
-            in {
-                "missing_configuration",
-                "sdk_unavailable",
-                "not_running_in_hosted_environment",
-            }
-            else 1
-        )
-        if (
-            result.return_code == expected_return_code
-            and payload.keys() == expected.keys()
-            and all(
-                _exact_value(payload[key], value)
-                for key, value in expected.items()
-            )
-        ):
-            return category, managed_identity_attempted
-    return None
 
 
 def _exact_value(observed: object, expected: object) -> bool:
