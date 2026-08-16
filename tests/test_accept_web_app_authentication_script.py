@@ -472,6 +472,56 @@ def test_check_is_offline_and_sanitized() -> None:
         assert forbidden not in rendered
 
 
+def test_cli_uses_operator_local_authentication_identifiers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    script = _script()
+    monkeypatch.setenv("OPERATOR_ENTRA_APPLICATION_ID", CLIENT_ID)
+    monkeypatch.setenv("OPERATOR_ENTRA_TENANT_ID", TENANT_ID)
+
+    args = script._parse_args(
+        ["--check", "--config", ".env.daily-azure.local"]
+    )
+
+    assert args.client_application_id == CLIENT_ID
+    assert args.tenant_id == TENANT_ID
+
+
+def test_missing_operator_local_identifiers_fail_before_runner_construction(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    monkeypatch.delenv("OPERATOR_ENTRA_APPLICATION_ID", raising=False)
+    monkeypatch.delenv("OPERATOR_ENTRA_TENANT_ID", raising=False)
+
+    def load_private_request(args):
+        assert args.client_application_id is None
+        assert args.tenant_id is None
+        return None
+
+    monkeypatch.setattr(script, "_load_private_request", load_private_request)
+    monkeypatch.setattr(
+        script,
+        "_create_azure_cli_runner",
+        lambda: pytest.fail("missing identifiers must stop before runner construction"),
+    )
+
+    exit_code = script.main(
+        [
+            "--live",
+            "--json",
+            "--config",
+            ".env.daily-azure.local",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 2
+    assert payload["category"] == "invalid_configuration"
+    assert payload["azure_operation_attempted"] is False
+
+
 def test_disabled_authentication_accepts_only_exact_absent_child_shape() -> None:
     script = _script()
     absent = {field: None for field in script.AUTH_FIELDS}

@@ -80,6 +80,10 @@ from src.app.services.web_app_readiness_verification import (
 
 OPERATION = "accept_web_app_authentication"
 DEFAULT_SESSION_FILE = ROOT / ".artifacts/daily-azure-rebuild/current-session.env"
+OPERATOR_IDENTIFIER_ENVIRONMENT = {
+    "client_application_id": "OPERATOR_ENTRA_APPLICATION_ID",
+    "tenant_id": "OPERATOR_ENTRA_TENANT_ID",
+}
 GUID = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 )
@@ -1983,17 +1987,20 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         default=DEFAULT_SESSION_FILE,
     )
-    parser.add_argument("--client-application-id", action="append", required=True)
-    parser.add_argument("--tenant-id", action="append", required=True)
+    parser.add_argument("--client-application-id", action="append")
+    parser.add_argument("--tenant-id", action="append")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    for attribute in ("client_application_id", "tenant_id"):
+    for attribute, environment_name in OPERATOR_IDENTIFIER_ENVIRONMENT.items():
         values = getattr(args, attribute)
-        if not isinstance(values, list) or len(values) != 1:
+        if values is None:
+            setattr(args, attribute, os.environ.get(environment_name))
+        elif not isinstance(values, list) or len(values) != 1:
             parser.error(
                 f"--{attribute.replace('_', '-')} must be supplied exactly once"
             )
-        setattr(args, attribute, values[0])
+        else:
+            setattr(args, attribute, values[0])
     if args.live and not args.json:
         parser.error("--live requires --json")
     return args
