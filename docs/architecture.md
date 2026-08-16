@@ -607,7 +607,13 @@ operator-local Entra identifiers, then performs exactly one bounded read of the
 exact `authsettingsV2` child and returns only sanitized structural and semantic
 verification evidence. It performs no preview, deployment, mutation, route
 probe, or sign-in. Live Authentication deployment remains separately
-supervised, and interactive sign-in acceptance remains separate and unproven.
+supervised. Configuration verification and runtime perimeter verification are
+separate boundaries. The runtime verifier uses bounded sequential anonymous
+GET requests without credentials, cookies, redirect following, or sign-in:
+exactly `/health`, `/version`, and `/demo/status` must retain their established
+anonymous readiness contracts, while representative protected routes must
+return the configured unauthenticated 401. Interactive authenticated acceptance
+remains separate and unproven.
 
 Explicit `--what-if` or `--live` mode issues exactly one argument-list
 `az deployment group` command against an existing resource group; the CLI never

@@ -1638,3 +1638,15 @@ def test_app_service_authentication_docs_match_offline_security_boundary() -> No
         "App Service Authentication / Entra ID protection is deferred"
         not in combined
     )
+    _assert_contains_all(
+        architecture,
+        {
+            "Configuration verification and runtime perimeter verification are separate",
+            "bounded sequential anonymous GET requests",
+            "exactly `/health`, `/version`, and `/demo/status`",
+            "representative protected routes",
+            "unauthenticated 401",
+            "without credentials, cookies, redirect following, or sign-in",
+            "Interactive authenticated acceptance remains separate and unproven",
+        },
+    )
