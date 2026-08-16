@@ -91,14 +91,14 @@ SAFE_HOST = re.compile(
     r"(?:\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)+"
 )
 AUTH_QUERY = (
-    "{platformEnabled:platform.enabled,"
-    "requireAuthentication:globalValidation.requireAuthentication,"
-    "unauthenticatedClientAction:globalValidation.unauthenticatedClientAction,"
-    "excludedPaths:globalValidation.excludedPaths,"
-    "requireHttps:httpSettings.requireHttps,"
-    "entraEnabled:identityProviders.azureActiveDirectory.enabled,"
-    "clientId:identityProviders.azureActiveDirectory.registration.clientId,"
-    "openIdIssuer:identityProviders.azureActiveDirectory.registration.openIdIssuer}"
+    "{platformEnabled:properties.platform.enabled,"
+    "requireAuthentication:properties.globalValidation.requireAuthentication,"
+    "unauthenticatedClientAction:properties.globalValidation.unauthenticatedClientAction,"
+    "excludedPaths:properties.globalValidation.excludedPaths,"
+    "requireHttps:properties.httpSettings.requireHttps,"
+    "entraEnabled:properties.identityProviders.azureActiveDirectory.enabled,"
+    "clientId:properties.identityProviders.azureActiveDirectory.registration.clientId,"
+    "openIdIssuer:properties.identityProviders.azureActiveDirectory.registration.openIdIssuer}"
 )
 AUTH_FIELDS = {
     "platformEnabled",
@@ -995,13 +995,20 @@ def _read_authentication_stdout(
     outcome = runner.run(
         [
             "az",
-            "webapp",
-            "auth",
+            "resource",
             "show",
             "--resource-group",
             request.resource_group,
+            "--namespace",
+            "Microsoft.Web",
+            "--parent",
+            f"sites/{request.web_app_name}",
+            "--resource-type",
+            "config",
             "--name",
-            request.web_app_name,
+            "authsettingsV2",
+            "--api-version",
+            "2024-04-01",
             "--query",
             AUTH_QUERY,
             "--output",

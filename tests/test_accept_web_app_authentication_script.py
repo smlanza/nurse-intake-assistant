@@ -323,7 +323,7 @@ class FakeRunner:
             )
         if args[:5] == ["az", "webapp", "config", "appsettings", "list"]:
             return result(0, _app_settings_payload(self.script), "")
-        if args[:4] == ["az", "webapp", "auth", "show"]:
+        if args[:3] == ["az", "resource", "show"]:
             self.auth_reads += 1
             payload = (
                 _enabled_auth_payload()
@@ -423,12 +423,38 @@ def test_import_performs_no_azure_or_network_operation(
     _script()
 
 
-def test_auth_read_projection_uses_only_supported_explicit_fields() -> None:
+def test_auth_read_targets_exact_v2_resource_and_projects_explicit_properties() -> None:
     script = _script()
+    commands: list[list[str]] = []
 
+    class RecordingRunner:
+        def run(self, args: list[str]):
+            commands.append(args)
+            return script.CommandResult(0, _enabled_auth_payload(), "")
+
+    stdout = script._read_authentication_stdout(
+        RecordingRunner(),
+        _request(script),
+    )
+
+    assert stdout == _enabled_auth_payload()
+    assert len(commands) == 1
+    command = commands[0]
+    assert command[:3] == ["az", "resource", "show"]
+    assert command[command.index("--namespace") + 1] == "Microsoft.Web"
+    assert command[command.index("--parent") + 1] == f"sites/{WEB_APP_NAME}"
+    assert command[command.index("--resource-type") + 1] == "config"
+    assert command[command.index("--name") + 1] == "authsettingsV2"
+    assert command[command.index("--api-version") + 1] == "2024-04-01"
     assert "keys(" not in script.AUTH_QUERY
-    assert "azureActiveDirectory.enabled" in script.AUTH_QUERY
-    assert "azureActiveDirectory.registration.clientId" in script.AUTH_QUERY
+    assert "properties.platform.enabled" in script.AUTH_QUERY
+    assert "properties.identityProviders.azureActiveDirectory.enabled" in (
+        script.AUTH_QUERY
+    )
+    assert (
+        "properties.identityProviders.azureActiveDirectory.registration.clientId"
+        in script.AUTH_QUERY
+    )
 
 
 def test_check_is_offline_and_sanitized() -> None:
