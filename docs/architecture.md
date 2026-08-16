@@ -601,9 +601,13 @@ independently verified reuse, `Delete`, `Deploy`, `Unsupported`, malformed, or
 multiply matched record fails closed. Current READY, exact Web App identity,
 artifact, hosted readiness, hosting-state, current Authentication state,
 default-no approval, and post-approval freshness checks remain prerequisites.
-A separate offline-only verifier returns sanitized contract booleans without
-constructing an Azure runner. Live Authentication deployment and sign-in
-acceptance remain separately supervised and unproven.
+A separate verifier keeps `--check` offline without constructing an Azure
+runner. Its explicit live mode requires current READY evidence and independent
+operator-local Entra identifiers, then performs exactly one bounded read of the
+exact `authsettingsV2` child and returns only sanitized structural and semantic
+verification evidence. It performs no preview, deployment, mutation, route
+probe, or sign-in. Live Authentication deployment remains separately
+supervised, and interactive sign-in acceptance remains separate and unproven.
 
 Explicit `--what-if` or `--live` mode issues exactly one argument-list
 `az deployment group` command against an existing resource group; the CLI never

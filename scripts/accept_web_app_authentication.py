@@ -936,13 +936,23 @@ def parse_authentication_configuration_evidence(
     *,
     expected_client_id: str,
     expected_tenant_id: str,
-    expected_login_endpoint: str,
+    expected_login_endpoint: str | None,
 ) -> AuthenticationConfigurationEvidence | None:
     if diagnose_authentication_configuration_shape(stdout) is not None:
         return None
     payload = _parse_json_object(stdout, AUTH_FIELDS)
     if payload is None:
         return None
+    if expected_login_endpoint is None:
+        expected_suffix = f"/{expected_tenant_id}/v2.0"
+        issuer = payload["openIdIssuer"]
+        expected_login_endpoint = (
+            _safe_login_endpoint(issuer[: -len(expected_suffix)])
+            if isinstance(issuer, str) and issuer.endswith(expected_suffix)
+            else None
+        )
+        if expected_login_endpoint is None:
+            return None
     expected_issuer = (
         f"{expected_login_endpoint.rstrip('/')}/{expected_tenant_id}/v2.0"
     )
@@ -992,7 +1002,7 @@ def _safe_login_endpoint(value: str) -> str | None:
     return f"https://{parsed.hostname.casefold()}/"
 
 
-def _read_authentication_stdout(
+def read_authentication_configuration_stdout(
     runner: AzureCliRunner,
     request: AuthenticationAcceptanceRequest,
 ) -> str | None:
@@ -1021,6 +1031,9 @@ def _read_authentication_stdout(
         ]
     )
     return outcome.stdout if outcome.return_code == 0 else None
+
+
+_read_authentication_stdout = read_authentication_configuration_stdout
 
 
 def _read_current_azure_evidence(
