@@ -533,6 +533,14 @@ def test_disabled_authentication_accepts_only_exact_absent_child_shape() -> None
     absent["requireHttps"] = True
     assert script._parse_disabled_authentication_evidence(json.dumps(absent)) is None
 
+    disabled = json.loads(_disabled_auth_payload())
+    disabled["excludedPaths"] = None
+
+    proof = script._parse_disabled_authentication_evidence(json.dumps(disabled))
+
+    assert proof is not None
+    assert proof.enabled is False
+
 
 @pytest.mark.parametrize(
     "field,value",

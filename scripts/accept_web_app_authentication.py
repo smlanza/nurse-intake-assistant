@@ -835,9 +835,13 @@ def _parse_disabled_authentication_evidence(
             enabled=False,
             fingerprint=_fingerprint(payload),
         )
+    excluded_paths = payload["excludedPaths"]
     lists_valid = bool(
-        isinstance(payload["excludedPaths"], list)
-        and all(isinstance(item, str) for item in payload["excludedPaths"])
+        excluded_paths is None
+        or (
+            isinstance(excluded_paths, list)
+            and all(isinstance(item, str) for item in excluded_paths)
+        )
     )
     scalar_types_valid = bool(
         all(
