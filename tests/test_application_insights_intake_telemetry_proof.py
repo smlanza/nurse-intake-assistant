@@ -345,6 +345,7 @@ def test_success_uses_production_composition_and_one_emission(
     assert result.telemetry_provider_verified is True
     assert result.telemetry_emission_attempted is True
     assert result.telemetry_emission_count == 1
+    assert result.diagnostic_performed is False
 
 
 def test_resource_validation_consumes_receipt_identity_without_listing(
@@ -617,21 +618,35 @@ def test_multiple_eligible_results_fail_closed(
 
     assert result.category == "telemetry_record_ambiguous"
     assert result.eligible_record_count == 2
+    assert result.diagnostic_performed is False
     assert len(FakeTelemetryClient.events) == 1
 
 
 @pytest.mark.parametrize(
-    ("mutate", "category"),
+    ("mutate", "category", "diagnostic"),
     [
-        (lambda properties: {k: v for k, v in properties.items() if k != "sms_status"}, "telemetry_contract_mismatch"),
-        (lambda properties: {**properties, "extra": "unsafe"}, "telemetry_contract_mismatch"),
-        (lambda properties: {**properties, "final_urgency": "SECRET_VALUE"}, "telemetry_record_invalid"),
+        (
+            lambda properties: {k: v for k, v in properties.items() if k != "sms_status"},
+            "telemetry_contract_mismatch",
+            None,
+        ),
+        (
+            lambda properties: {**properties, "extra": "unsafe"},
+            "telemetry_contract_mismatch",
+            None,
+        ),
+        (
+            lambda properties: {**properties, "final_urgency": "SECRET_VALUE"},
+            "telemetry_record_invalid",
+            ("final_urgency", "categorical_token_invalid", "string"),
+        ),
     ],
 )
 def test_invalid_dimensions_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
     mutate,
     category: str,
+    diagnostic: tuple[str, str, str] | None,
 ) -> None:
     runner = FakeRunner()
     proof = _proof(monkeypatch, runner)
@@ -650,6 +665,12 @@ def test_invalid_dimensions_fail_closed(
 
     assert result.category == category
     assert result.ok is False
+    assert result.diagnostic_performed is (diagnostic is not None)
+    assert (
+        result.diagnostic_field,
+        result.diagnostic_mismatch_reason,
+        result.diagnostic_wire_type,
+    ) == (diagnostic or (None, None, None))
 
 
 def test_out_of_window_result_is_discarded_and_polling_continues(
@@ -743,6 +764,7 @@ def test_malformed_query_output_fails_without_retry(
 
     assert result.category == "response_parse_failed"
     assert runner.query_count == 1
+    assert result.diagnostic_performed is False
     assert len(FakeTelemetryClient.events) == 1
 
 

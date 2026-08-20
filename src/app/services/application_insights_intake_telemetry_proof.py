@@ -26,6 +26,9 @@ from src.app.services.application_insights_resource_identity import (
     build_application_insights_resource_identity,
     validate_application_insights_resource_identity,
 )
+from src.app.services.application_insights_telemetry_wire_diagnostic import (
+    diagnose_telemetry_wire_row,
+)
 from src.app.services.case_processing_service import CaseProcessingService
 from src.app.services.case_repository import InMemoryCaseRepository
 from src.app.services.daily_azure_environment_rebuild import (
@@ -124,6 +127,10 @@ class ApplicationInsightsIntakeTelemetryProofResult:
     allowlisted_dimensions_verified: bool = False
     unexpected_dimensions_absent: bool = False
     sensitive_content_absent: bool = False
+    diagnostic_performed: bool = False
+    diagnostic_field: str | None = None
+    diagnostic_mismatch_reason: str | None = None
+    diagnostic_wire_type: str | None = None
     azure_mutation_made: bool = False
     recommended_next_step: str = "Review the sanitized failure and stop."
 
@@ -162,6 +169,10 @@ class _QueryInspection:
     allowlisted_dimensions_verified: bool = False
     unexpected_dimensions_absent: bool = False
     sensitive_content_absent: bool = False
+    diagnostic_performed: bool = False
+    diagnostic_field: str | None = None
+    diagnostic_mismatch_reason: str | None = None
+    diagnostic_wire_type: str | None = None
 
 
 class _ProofTelemetrySink:
@@ -585,6 +596,12 @@ class ApplicationInsightsIntakeTelemetryProof:
                         inspection.unexpected_dimensions_absent
                     ),
                     sensitive_content_absent=inspection.sensitive_content_absent,
+                    diagnostic_performed=inspection.diagnostic_performed,
+                    diagnostic_field=inspection.diagnostic_field,
+                    diagnostic_mismatch_reason=(
+                        inspection.diagnostic_mismatch_reason
+                    ),
+                    diagnostic_wire_type=inspection.diagnostic_wire_type,
                     recommended_next_step=(
                         "Review the sanitized proof; hosted telemetry remains unproven."
                         if inspection.verified
@@ -911,7 +928,7 @@ def _inspect_query_response(
     ):
         return _QueryInspection("response_parse_failed")
 
-    eligible = 0
+    relevant_rows: list[list[object]] = []
     for row in table["rows"]:
         if not isinstance(row, list) or len(row) != 3:
             return _QueryInspection("telemetry_record_invalid")
@@ -922,17 +939,40 @@ def _inspect_query_response(
             return _QueryInspection("telemetry_record_invalid")
         if timestamp < lower or timestamp > upper or name != INTAKE_TELEMETRY_OPERATION:
             continue
+        relevant_rows.append(row)
+
+    if not relevant_rows:
+        return _QueryInspection("no_eligible_record")
+
+    eligible = 0
+    for row in relevant_rows:
+        dimensions = row[2]
         if not isinstance(dimensions, dict):
-            return _QueryInspection("telemetry_record_invalid")
+            return _diagnose_invalid_row(
+                row,
+                diagnostic_scope_exact=len(relevant_rows) == 1,
+                lower=lower,
+                upper=upper,
+            )
         if set(dimensions) != ALLOWLISTED_DIMENSIONS:
             return _QueryInspection("telemetry_contract_mismatch")
         typed_dimensions = _decode_wire_dimensions(dimensions)
         if typed_dimensions is None:
-            return _QueryInspection("telemetry_record_invalid")
+            return _diagnose_invalid_row(
+                row,
+                diagnostic_scope_exact=len(relevant_rows) == 1,
+                lower=lower,
+                upper=upper,
+            )
         try:
             IntakeTelemetryEvent(**typed_dimensions)
         except (TypeError, ValueError):
-            return _QueryInspection("telemetry_record_invalid")
+            return _diagnose_invalid_row(
+                row,
+                diagnostic_scope_exact=len(relevant_rows) == 1,
+                lower=lower,
+                upper=upper,
+            )
         if dimensions == expected:
             eligible += 1
     if eligible > 1:
@@ -953,6 +993,27 @@ def _inspect_query_response(
             sensitive_content_absent=True,
         )
     return _QueryInspection("no_eligible_record")
+
+
+def _diagnose_invalid_row(
+    row: list[object],
+    *,
+    diagnostic_scope_exact: bool,
+    lower: datetime,
+    upper: datetime,
+) -> _QueryInspection:
+    if not diagnostic_scope_exact:
+        return _QueryInspection("telemetry_record_invalid")
+    diagnostic = diagnose_telemetry_wire_row(row, lower=lower, upper=upper)
+    if not diagnostic.mismatch_detected:
+        return _QueryInspection("telemetry_record_invalid")
+    return _QueryInspection(
+        "telemetry_record_invalid",
+        diagnostic_performed=True,
+        diagnostic_field=diagnostic.affected_field,
+        diagnostic_mismatch_reason=diagnostic.mismatch_reason,
+        diagnostic_wire_type=diagnostic.observed_wire_type,
+    )
 
 
 def _decode_wire_dimensions(
