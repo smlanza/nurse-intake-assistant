@@ -361,7 +361,7 @@ def test_resource_validation_consumes_receipt_identity_without_listing(
     assert runner.query_count == 1
 
 
-def test_application_insights_string_wire_dimensions_are_strictly_verified(
+def test_application_insights_json_object_envelope_is_strictly_verified(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runner = FakeRunner()
@@ -375,7 +375,7 @@ def test_application_insights_string_wire_dimensions_are_strictly_verified(
                 for name, value in FakeTelemetryClient.events[0][1].items()
             }
             assert all(isinstance(value, str) for value in wire_properties.values())
-            runner.query_payloads.append(_query_response(wire_properties))
+            runner.query_payloads.append(_query_response(json.dumps(wire_properties)))
         return original_run(args, timeout_seconds=timeout_seconds)
 
     runner.run = run  # type: ignore[method-assign]
@@ -623,7 +623,7 @@ def test_multiple_eligible_results_fail_closed(
 
 
 @pytest.mark.parametrize(
-    ("mutate", "category", "diagnostic"),
+    ("build_envelope", "category", "diagnostic"),
     [
         (
             lambda properties: {k: v for k, v in properties.items() if k != "sms_status"},
@@ -640,11 +640,43 @@ def test_multiple_eligible_results_fail_closed(
             "telemetry_record_invalid",
             ("final_urgency", "categorical_token_invalid", "string"),
         ),
+        (
+            lambda properties: "{",
+            "telemetry_record_invalid",
+            (None, "record_shape_invalid", "string"),
+        ),
+        (
+            lambda properties: json.dumps([properties]),
+            "telemetry_record_invalid",
+            (None, "record_shape_invalid", "string"),
+        ),
+        (
+            lambda properties: "7",
+            "telemetry_record_invalid",
+            (None, "record_shape_invalid", "string"),
+        ),
+        (
+            lambda properties: "null",
+            "telemetry_record_invalid",
+            (None, "record_shape_invalid", "string"),
+        ),
+        (
+            lambda properties: json.dumps(json.dumps(properties)),
+            "telemetry_record_invalid",
+            (None, "record_shape_invalid", "string"),
+        ),
+        (
+            lambda properties: json.dumps(
+                {**properties, "final_urgency": "SECRET_VALUE"}
+            ),
+            "telemetry_record_invalid",
+            ("final_urgency", "categorical_token_invalid", "string"),
+        ),
     ],
 )
 def test_invalid_dimensions_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
-    mutate,
+    build_envelope,
     category: str,
     diagnostic: tuple[str, str, str] | None,
 ) -> None:
@@ -655,7 +687,7 @@ def test_invalid_dimensions_fail_closed(
     def run(args: list[str], *, timeout_seconds: float | None = None):
         if args[:2] == ["az", "rest"]:
             runner.query_payloads.append(
-                _query_response(mutate(FakeTelemetryClient.events[0][1]))
+                _query_response(build_envelope(FakeTelemetryClient.events[0][1]))
             )
         return original_run(args, timeout_seconds=timeout_seconds)
 

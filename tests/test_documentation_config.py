@@ -835,7 +835,8 @@ def test_completed_foundry_and_speech_paths_are_not_deferred_or_recommended() ->
             "schema-v5 receipt",
             "legacy receipts fail closed",
             "consumes rather than derives or discovers identity",
-            "Live and hosted Web App telemetry remain unproven",
+            "proving standalone Application Insights ingestion",
+            "Hosted Web App telemetry remains unproven",
         },
     )
     assert (

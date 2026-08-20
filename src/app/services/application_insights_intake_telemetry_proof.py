@@ -947,6 +947,19 @@ def _inspect_query_response(
     eligible = 0
     for row in relevant_rows:
         dimensions = row[2]
+        normalized_row = row
+        if isinstance(dimensions, str):
+            try:
+                dimensions = json.loads(dimensions)
+            except json.JSONDecodeError:
+                return _diagnose_invalid_row(
+                    row,
+                    diagnostic_scope_exact=len(relevant_rows) == 1,
+                    lower=lower,
+                    upper=upper,
+                )
+            if isinstance(dimensions, dict):
+                normalized_row = [row[0], row[1], dimensions]
         if not isinstance(dimensions, dict):
             return _diagnose_invalid_row(
                 row,
@@ -959,7 +972,7 @@ def _inspect_query_response(
         typed_dimensions = _decode_wire_dimensions(dimensions)
         if typed_dimensions is None:
             return _diagnose_invalid_row(
-                row,
+                normalized_row,
                 diagnostic_scope_exact=len(relevant_rows) == 1,
                 lower=lower,
                 upper=upper,
@@ -968,7 +981,7 @@ def _inspect_query_response(
             IntakeTelemetryEvent(**typed_dimensions)
         except (TypeError, ValueError):
             return _diagnose_invalid_row(
-                row,
+                normalized_row,
                 diagnostic_scope_exact=len(relevant_rows) == 1,
                 lower=lower,
                 upper=upper,
