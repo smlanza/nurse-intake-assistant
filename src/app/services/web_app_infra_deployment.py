@@ -15,10 +15,13 @@ from src.app.services.web_app_hosting_contract import (
     ALWAYS_ON_REQUIRED,
     APP_SERVICE_AUTHENTICATION_ANONYMOUS_PATHS,
     APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES,
+    APPLICATION_INSIGHTS_CONNECTION_SETTING,
     BASELINE_APP_SETTINGS,
     HOSTED_VERIFIER_BICEP_PARAMETERS,
+    HOSTED_TELEMETRY_PROVIDER_SETTING,
     SAFE_HOSTED_SETTINGS,
     app_service_authentication_configuration_valid,
+    hosted_telemetry_configuration_valid,
     hosted_verifier_foundry_identity,
     hosted_verifier_settings_valid,
 )
@@ -41,6 +44,7 @@ DeploymentCategory = Literal[
     "local_contract_invalid",
     "azure_cli_unavailable",
     "azure_operation_failed",
+    "app_service_capacity_unavailable",
     "what_if_parse_failed",
     "unexpected_error",
 ]
@@ -51,6 +55,9 @@ FAILURE_MESSAGES: dict[DeploymentCategory, str] = {
     "local_contract_invalid": "The local Web App infrastructure contract is invalid.",
     "azure_cli_unavailable": "Azure CLI is unavailable.",
     "azure_operation_failed": "The Azure infrastructure operation failed.",
+    "app_service_capacity_unavailable": (
+        "Azure App Service capacity is temporarily unavailable for the requested plan."
+    ),
     "what_if_parse_failed": "The Azure infrastructure preview could not be summarized safely.",
     "unexpected_error": "The Web App infrastructure operation did not complete.",
 }
@@ -61,6 +68,22 @@ SUCCESS_MESSAGES = {
 }
 
 FAILURE_NEXT_STEP = "Review the sanitized category and local inputs before retrying."
+APP_SERVICE_CAPACITY_NEXT_STEP = (
+    "Azure App Service capacity is temporarily unavailable for the requested plan. "
+    "Use the canonical cleanup workflow before another fresh attempt."
+)
+WEB_APP_NESTED_DEPLOYMENT_NAME = "web-app"
+_FAILED_DEPLOYMENT_OPERATIONS_QUERY = (
+    "[?properties.provisioningState=='Failed'].{"
+    "provisioningState:properties.provisioningState,"
+    "resourceType:properties.targetResource.resourceType,"
+    "resourceName:properties.targetResource.resourceName,"
+    "statusCode:properties.statusCode,"
+    "errorCode:properties.statusMessage.error.code,"
+    "errorMessage:properties.statusMessage.error.message}"
+)
+_MAX_DIAGNOSTIC_OPERATION_COUNT = 20
+_MAX_DIAGNOSTIC_PAYLOAD_LENGTH = 100_000
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 WEB_APP_AUTHENTICATION_TEMPLATE = (
     REPOSITORY_ROOT / "infra/modules/web-app-authentication.bicep"
@@ -99,6 +122,7 @@ class WebAppInfrastructureDeploymentRequest:
     enable_app_service_authentication: bool = False
     app_service_authentication_client_id: str | None = None
     app_service_authentication_tenant_id: str | None = None
+    enable_hosted_azure_monitor_telemetry: bool = False
     purpose: str = "initial_create"
 
 
@@ -120,6 +144,7 @@ class WebAppInfrastructureDeploymentResult:
     deploy_foundry: bool
     hosted_verifier_configuration_supplied: bool
     app_service_authentication_configuration_supplied: bool
+    hosted_telemetry_configuration_supplied: bool
     create_count: int | None
     modify_count: int | None
     delete_count: int | None
@@ -154,6 +179,9 @@ class WebAppInfrastructureDeploymentResult:
             ),
             "app_service_authentication_configuration_supplied": (
                 self.app_service_authentication_configuration_supplied
+            ),
+            "hosted_telemetry_configuration_supplied": (
+                self.hosted_telemetry_configuration_supplied
             ),
             "create_count": self.create_count,
             "modify_count": self.modify_count,
@@ -261,6 +289,10 @@ def _result(
             local_validation_passed
             and request.enable_app_service_authentication
         ),
+        hosted_telemetry_configuration_supplied=(
+            local_validation_passed
+            and request.enable_hosted_azure_monitor_telemetry
+        ),
         create_count=(what_if_summary.create_count if what_if_summary else None),
         modify_count=(what_if_summary.modify_count if what_if_summary else None),
         delete_count=(what_if_summary.delete_count if what_if_summary else None),
@@ -337,6 +369,7 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
         is not None
         and _hosted_verifier_arguments_valid(request)
         and _app_service_authentication_arguments_valid(request)
+        and isinstance(request.enable_hosted_azure_monitor_telemetry, bool)
         and isinstance(
             request.enable_key_vault_runtime_authorization,
             bool,
@@ -350,6 +383,7 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
             or (
                 request.enable_app_service_authentication
                 and not request.enable_hosted_foundry_verifier
+                and not request.enable_hosted_azure_monitor_telemetry
             )
         )
         and not (
@@ -890,8 +924,9 @@ def _authoritative_app_settings_array(module: str) -> str | None:
     arguments = _split_top_level_arguments(argument_body)
     if (
         arguments is None
-        or len(arguments) != 2
-        or arguments[1] != "hostedFoundryVerifierAppSettings"
+        or len(arguments) != 3
+        or arguments[1] != "hostedTelemetryAppSettings"
+        or arguments[2] != "hostedFoundryVerifierAppSettings"
     ):
         return None
     baseline = arguments[0]
@@ -954,9 +989,29 @@ def _exact_hosted_settings_valid(module: str) -> bool:
     if len(names) != len(set(names)):
         return False
     actual_settings = dict(entries)
-    return actual_settings == {
+    expected_settings = {
         name: repr(value) for name, value in BASELINE_APP_SETTINGS.items()
     }
+    expected_settings[HOSTED_TELEMETRY_PROVIDER_SETTING] = "hostedTelemetryProvider"
+    return actual_settings == expected_settings
+
+
+def _optional_hosted_telemetry_contract_valid(module: str) -> bool:
+    active = _strip_bicep_comments(module)
+    required = (
+        r"param\s+hostedTelemetryConfiguration\s+"
+        r"hostedTelemetryConfigurationType\s*=\s*"
+        r"\{\s*mode\s*:\s*'disabled'\s*\}",
+        r"resource\s+hostedTelemetryApplicationInsights\s+"
+        r"'Microsoft\.Insights/components@2020-02-02'\s+existing\s*=\s*"
+        r"if\s*\(validatedHostedTelemetryConfiguration\.mode\s*==\s*'enabled'\)",
+        rf"name\s*:\s*'{APPLICATION_INSIGHTS_CONNECTION_SETTING}'",
+        r"value\s*:\s*hostedTelemetryApplicationInsights!\.properties\.ConnectionString",
+        r"var\s+hostedTelemetryProvider\s*=\s*"
+        r"validatedHostedTelemetryConfiguration\.mode\s*==\s*'enabled'\s*"
+        r"\?\s*'azure-monitor'\s*:\s*'none'",
+    )
+    return all(re.search(pattern, active, re.DOTALL) is not None for pattern in required)
 
 
 def _optional_hosted_verifier_contract_valid(module: str) -> bool:
@@ -1330,6 +1385,10 @@ def _app_service_plan_selection_contract_valid(
             (symbol, resource_type)
             for symbol, resource_type, _body in declarations
         ] != [
+            (
+                "hostedTelemetryApplicationInsights",
+                "Microsoft.Insights/components@2020-02-02",
+            ),
             ("appServicePlan", "Microsoft.Web/serverfarms@2024-04-01"),
             ("webApp", "Microsoft.Web/sites@2024-04-01"),
         ]:
@@ -1465,6 +1524,13 @@ def _local_contract_valid(
             r"hostedFoundryVerifierConfigurationType\s*=\s*\{\s*mode\s*:\s*'disabled'\s*\}",
             r"hostedFoundryVerifierConfiguration\s*:\s*"
             r"validatedHostedFoundryVerifierConfiguration",
+            r"param\s+hostedTelemetryConfiguration\s+"
+            r"hostedTelemetryConfigurationType\s*=\s*"
+            r"\{\s*mode\s*:\s*'disabled'\s*\}",
+            r"hostedTelemetryConfiguration\s*:\s*"
+            r"hostedTelemetryConfiguration\.mode\s*==\s*'enabled'\s*\?\s*"
+            r"\{\s*mode\s*:\s*'enabled'\s*"
+            r"applicationInsightsName\s*:\s*applicationInsights\.name",
             r"param\s+appServiceAuthenticationConfiguration\s+"
             r"appServiceAuthenticationConfigurationType\s*=\s*"
             r"\{\s*mode\s*:\s*'disabled'\s*\}",
@@ -1502,6 +1568,7 @@ def _local_contract_valid(
         )
         and _site_config_always_on_valid(module)
         and _exact_hosted_settings_valid(module)
+        and _optional_hosted_telemetry_contract_valid(module)
         and _optional_hosted_verifier_contract_valid(module)
         and _module_local_hosted_verifier_validation_valid(
             module,
@@ -1610,6 +1677,14 @@ def web_app_infrastructure_deployment_command(
             sort_keys=True,
         )
     )
+    telemetry_configuration = (
+        "hostedTelemetryConfiguration="
+        + json.dumps(
+            _hosted_telemetry_bicep_configuration(request),
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
     authentication_configuration = (
         "appServiceAuthenticationConfiguration="
         + json.dumps(
@@ -1634,6 +1709,7 @@ def web_app_infrastructure_deployment_command(
             "deployAppServicePlan=false",
             "pythonLinuxFxVersion=PYTHON|3.12",
             hosted_configuration,
+            telemetry_configuration,
             authentication_configuration,
         ]
     else:
@@ -1653,6 +1729,7 @@ def web_app_infrastructure_deployment_command(
             ),
             f"webAppName={request.web_app_name}",
             hosted_configuration,
+            telemetry_configuration,
             authentication_configuration,
         ]
     command.extend(["--parameters", *parameters])
@@ -1672,6 +1749,20 @@ def _hosted_verifier_bicep_configuration(
             for setting_name, property_name in HOSTED_VERIFIER_BICEP_PARAMETERS.items()
         },
     }
+
+
+def _hosted_telemetry_bicep_configuration(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> dict[str, str]:
+    if not request.enable_hosted_azure_monitor_telemetry:
+        return {"mode": "disabled"}
+    if request.purpose == "initial_create":
+        return {"mode": "enabled"}
+    configuration = {
+        "mode": "enabled",
+        "applicationInsightsName": _application_insights_name(request),
+    }
+    return configuration if hosted_telemetry_configuration_valid(configuration) else {}
 
 
 def parse_web_app_infrastructure_what_if(
@@ -1958,6 +2049,15 @@ def _resource_name_suffix(
     return hashlib.sha256(identity).hexdigest()[:13]
 
 
+def _application_insights_name(
+    request: WebAppInfrastructureDeploymentRequest,
+) -> str:
+    return (
+        f"{request.project_name}-{request.environment_name}-appi-"
+        f"{_resource_name_suffix(request)}"
+    ).casefold()
+
+
 def read_application_insights_deployment_identity(
     request: WebAppInfrastructureDeploymentRequest,
     *,
@@ -2065,6 +2165,137 @@ def _app_service_plan_name(
     )
 
 
+def _failed_deployment_operations_command(
+    request: WebAppInfrastructureDeploymentRequest,
+    deployment_name: str,
+) -> list[str]:
+    return [
+        "az",
+        "deployment",
+        "operation",
+        "group",
+        "list",
+        "--resource-group",
+        request.resource_group,
+        "--name",
+        deployment_name,
+        "--query",
+        _FAILED_DEPLOYMENT_OPERATIONS_QUERY,
+        "--output",
+        "json",
+        "--only-show-errors",
+    ]
+
+
+def _parse_failed_deployment_operations(
+    stdout: str,
+) -> tuple[dict[str, str], ...] | None:
+    if not isinstance(stdout, str) or len(stdout) > _MAX_DIAGNOSTIC_PAYLOAD_LENGTH:
+        return None
+    try:
+        payload = json.loads(stdout)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    expected_fields = {
+        "provisioningState",
+        "resourceType",
+        "resourceName",
+        "statusCode",
+        "errorCode",
+        "errorMessage",
+    }
+    if (
+        not isinstance(payload, list)
+        or not payload
+        or len(payload) > _MAX_DIAGNOSTIC_OPERATION_COUNT
+        or any(
+            not isinstance(operation, dict)
+            or set(operation) != expected_fields
+            or any(not isinstance(value, str) for value in operation.values())
+            for operation in payload
+        )
+    ):
+        return None
+    return tuple(payload)
+
+
+def _read_failed_deployment_operations(
+    request: WebAppInfrastructureDeploymentRequest,
+    deployment_name: str,
+    runner: AzureCliRunner,
+) -> tuple[dict[str, str], ...] | None:
+    try:
+        outcome = runner.run(
+            _failed_deployment_operations_command(request, deployment_name)
+        )
+    except Exception:
+        return None
+    if outcome.return_code != 0:
+        return None
+    return _parse_failed_deployment_operations(outcome.stdout)
+
+
+def _is_failed_nested_web_app_deployment(operation: dict[str, str]) -> bool:
+    return bool(
+        operation["provisioningState"].casefold() == "failed"
+        and operation["resourceType"].casefold()
+        == "microsoft.resources/deployments"
+        and operation["resourceName"] == WEB_APP_NESTED_DEPLOYMENT_NAME
+        and operation["statusCode"].casefold() == "conflict"
+        and operation["errorCode"].casefold() == "deploymentfailed"
+    )
+
+
+def _is_app_service_capacity_operation(
+    operation: dict[str, str],
+    request: WebAppInfrastructureDeploymentRequest,
+) -> bool:
+    message = operation["errorMessage"].casefold()
+    return bool(
+        operation["provisioningState"].casefold() == "failed"
+        and operation["resourceType"].casefold() == "microsoft.web/serverfarms"
+        and operation["resourceName"].casefold()
+        == _app_service_plan_name(request).casefold()
+        and operation["statusCode"].casefold() == "conflict"
+        and operation["errorCode"].casefold() == "conflict"
+        and "no available instances to satisfy this request" in message
+        and "app service is attempting to increase capacity" in message
+    )
+
+
+def _app_service_capacity_unavailable(
+    request: WebAppInfrastructureDeploymentRequest,
+    runner: AzureCliRunner,
+) -> bool:
+    if request.mode != "live" or request.purpose != "initial_create":
+        return False
+    deployment_name = _deployment_name(request)
+    if deployment_name is None:
+        return False
+    outer_operations = _read_failed_deployment_operations(
+        request,
+        deployment_name,
+        runner,
+    )
+    if outer_operations is None or not any(
+        _is_failed_nested_web_app_deployment(operation)
+        for operation in outer_operations
+    ):
+        return False
+    nested_operations = _read_failed_deployment_operations(
+        request,
+        WEB_APP_NESTED_DEPLOYMENT_NAME,
+        runner,
+    )
+    return bool(
+        nested_operations is not None
+        and any(
+            _is_app_service_capacity_operation(operation, request)
+            for operation in nested_operations
+        )
+    )
+
+
 def deploy_web_app_infrastructure(
     request: WebAppInfrastructureDeploymentRequest,
     *,
@@ -2119,6 +2350,13 @@ def deploy_web_app_infrastructure(
     if outcome.return_code == 127:
         return _result(request, "azure_cli_unavailable", **common)
     if outcome.return_code != 0:
+        if _app_service_capacity_unavailable(request, runner):
+            return _result(
+                request,
+                "app_service_capacity_unavailable",
+                recommended_next_step=APP_SERVICE_CAPACITY_NEXT_STEP,
+                **common,
+            )
         return _result(request, "azure_operation_failed", **common)
     if request.mode == "what-if":
         summary = parse_web_app_infrastructure_what_if(outcome.stdout, request)

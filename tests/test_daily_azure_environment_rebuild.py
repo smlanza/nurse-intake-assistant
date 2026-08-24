@@ -1525,6 +1525,35 @@ def test_created_resource_group_state_is_preserved_when_foundry_plan_is_unsafe(
     }
 
 
+def test_app_service_capacity_failure_remains_not_ready_with_truthful_mutation_state(
+    tmp_path: Path,
+) -> None:
+    runner = FakeRunner()
+
+    def capacity_failure(context):
+        runner.calls.append("deploy_web_app")
+        runner.contexts["deploy_web_app"] = context
+        return StageResult.failure(
+            "app_service_capacity_unavailable",
+            mutation_made=None,
+            attempted=True,
+        )
+
+    runner.deploy_web_app = capacity_failure
+
+    result = DailyAzureEnvironmentRebuild(
+        _config(tmp_path),
+        repository_root=tmp_path,
+        local_contract_checker=lambda _root: (),
+    ).live(runner, approver=lambda _summary: True)
+
+    assert result.ok is False
+    assert result.category == "app_service_capacity_unavailable"
+    assert result.daily_environment_ready is False
+    assert result.azure_mutation_made is True
+    assert runner.calls[-1] == "deploy_web_app"
+
+
 def test_unsafe_foundry_plan_diagnostic_contains_only_sanitized_evidence(
     tmp_path: Path,
 ) -> None:

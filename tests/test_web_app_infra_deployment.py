@@ -36,6 +36,18 @@ class FakeRunner:
         return self.result
 
 
+class SequenceRunner:
+    def __init__(self, results: list[deployment.CommandResult]) -> None:
+        self.results = list(results)
+        self.calls: list[list[str]] = []
+
+    def run(self, args: list[str]) -> deployment.CommandResult:
+        assert isinstance(args, list)
+        self.calls.append(args)
+        assert self.results, "unexpected Azure CLI call"
+        return self.results.pop(0)
+
+
 @pytest.fixture
 def deployment_request() -> deployment.WebAppInfrastructureDeploymentRequest:
     return deployment.WebAppInfrastructureDeploymentRequest(
@@ -131,7 +143,10 @@ def _reconciliation_web_app_change(
 
 
 def _append_app_setting(module: str, name: str, value: str) -> str:
-    marker = "      ], hostedFoundryVerifierAppSettings)\n"
+    marker = (
+        "      ], hostedTelemetryAppSettings, "
+        "hostedFoundryVerifierAppSettings)\n"
+    )
     assert marker in module
     return module.replace(marker, _setting_block(name, value) + marker, 1)
 
@@ -317,6 +332,34 @@ def test_ordinary_web_app_deployment_defaults_hosted_verifier_to_disabled(
     assert result.ok is True
     assert result.hosted_verifier_configuration_supplied is False
     assert result.app_service_authentication_configuration_supplied is False
+    assert result.hosted_telemetry_configuration_supplied is False
+
+
+def test_hosted_telemetry_opt_in_reuses_named_application_insights_contract(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    runner = FakeRunner()
+    request = replace(
+        reconciliation_request,
+        mode="live",
+        enable_hosted_azure_monitor_telemetry=True,
+    )
+
+    result = deployment.deploy_web_app_infrastructure(request, runner=runner)
+
+    assert result.ok is True
+    assert result.hosted_telemetry_configuration_supplied is True
+    parameters = runner.calls[0][runner.calls[0].index("--parameters") + 1 :]
+    telemetry_parameter = next(
+        value
+        for value in parameters
+        if value.startswith("hostedTelemetryConfiguration=")
+    )
+    assert json.loads(telemetry_parameter.split("=", 1)[1]) == {
+        "mode": "enabled",
+        "applicationInsightsName": deployment._application_insights_name(request),
+    }
+    assert "ConnectionString" not in " ".join(runner.calls[0])
 
 
 def test_app_service_authentication_opt_in_is_strict_and_propagated(
@@ -404,6 +447,7 @@ def test_app_service_authentication_inputs_fail_closed_before_runner(
         ("hosted_verifier_agent_name", "different-agent"),
         ("hosted_verifier_agent_version", " "),
         ("hosted_verifier_model_deployment_name", "\nunsafe"),
+        ("enable_hosted_azure_monitor_telemetry", "true"),
     ],
 )
 def test_missing_or_unsafe_arguments_fail_before_runner_call(
@@ -580,6 +624,7 @@ def test_exact_safe_hosted_settings_contract_is_shared_with_configuration_verifi
         "EMAIL_PROVIDER": "mock",
         "SMS_PROVIDER": "mock",
         "DEMO_SUPPRESS_NOTIFICATIONS": "true",
+        "TELEMETRY_PROVIDER": "none",
     }
     assert tuple(hosting_contract.HOSTED_VERIFIER_SETTING_NAMES) == (
         "AZURE_AI_FOUNDRY_AGENT_PROJECT_ENDPOINT",
@@ -749,7 +794,7 @@ def _detach_authoritative_optional_settings(module: str) -> str:
         "      appSettings: [\n",
         1,
     ).replace(
-        "      ], hostedFoundryVerifierAppSettings)\n",
+        "      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings)\n",
         "      ]\n",
         1,
     )
@@ -790,16 +835,16 @@ def _empty_optional_settings_declaration_text(module: str) -> str:
         (
             "wrong-optional-variable",
             lambda module: module.replace(
-                "      ], hostedFoundryVerifierAppSettings)\n",
-                "      ], anotherOptionalSettings)\n",
+                "      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings)\n",
+                "      ], hostedTelemetryAppSettings, anotherOptionalSettings)\n",
                 1,
             ),
         ),
         (
-            "three-argument-concat",
+            "extra-concat-argument",
             lambda module: module.replace(
-                "      ], hostedFoundryVerifierAppSettings)\n",
-                "      ], hostedFoundryVerifierAppSettings, extraSettings)\n",
+                "      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings)\n",
+                "      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings, extraSettings)\n",
                 1,
             ),
         ),
@@ -807,10 +852,10 @@ def _empty_optional_settings_declaration_text(module: str) -> str:
             "reversed-concat-arguments",
             lambda module: module.replace(
                 "      appSettings: concat([\n",
-                "      appSettings: concat(hostedFoundryVerifierAppSettings, [\n",
+                "      appSettings: concat(hostedTelemetryAppSettings, [\n",
                 1,
             ).replace(
-                "      ], hostedFoundryVerifierAppSettings)\n",
+                "      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings)\n",
                 "      ])\n",
                 1,
             ),
@@ -818,16 +863,16 @@ def _empty_optional_settings_declaration_text(module: str) -> str:
         (
             "wrapped-optional-settings",
             lambda module: module.replace(
-                "      ], hostedFoundryVerifierAppSettings)\n",
-                "      ], concat(hostedFoundryVerifierAppSettings))\n",
+                "      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings)\n",
+                "      ], hostedTelemetryAppSettings, concat(hostedFoundryVerifierAppSettings))\n",
                 1,
             ),
         ),
         (
             "trailing-expression",
             lambda module: module.replace(
-                "      ], hostedFoundryVerifierAppSettings)\n",
-                "      ], hostedFoundryVerifierAppSettings) + extraSettings\n",
+                "      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings)\n",
+                "      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings) + extraSettings\n",
                 1,
             ),
         ),
@@ -1481,6 +1526,7 @@ def test_reconciliation_command_uses_only_dedicated_web_app_parameters(
             separators=(",", ":"),
             sort_keys=True,
         ),
+        'hostedTelemetryConfiguration={"mode":"disabled"}',
         'appServiceAuthenticationConfiguration={"mode":"disabled"}',
     ]
     for forbidden in (
@@ -1573,6 +1619,147 @@ def test_missing_cli_and_nonzero_results_are_sanitized_and_actionable(
             "access-token",
         ):
             assert forbidden not in rendered
+
+
+def _failed_deployment_operation(
+    *,
+    resource_type: str,
+    resource_name: str,
+    error_code: str,
+    error_message: str,
+) -> str:
+    return json.dumps(
+        [
+            {
+                "provisioningState": "Failed",
+                "resourceType": resource_type,
+                "resourceName": resource_name,
+                "statusCode": "Conflict",
+                "errorCode": error_code,
+                "errorMessage": error_message,
+            }
+        ]
+    )
+
+
+def test_failed_live_deployment_classifies_exact_app_service_capacity_evidence(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    raw_capacity_message = (
+        "No available instances to satisfy this request. App Service is "
+        "attempting to increase capacity in the private-region server farm."
+    )
+    private_plan_name = deployment._app_service_plan_name(deployment_request)
+    runner = SequenceRunner(
+        [
+            deployment.CommandResult(
+                1,
+                "private-subscription-id",
+                "private outer deployment error",
+            ),
+            deployment.CommandResult(
+                0,
+                _failed_deployment_operation(
+                    resource_type="Microsoft.Resources/deployments",
+                    resource_name="web-app",
+                    error_code="DeploymentFailed",
+                    error_message="Private nested deployment detail.",
+                ),
+                "",
+            ),
+            deployment.CommandResult(
+                0,
+                _failed_deployment_operation(
+                    resource_type="Microsoft.Web/serverfarms",
+                    resource_name=private_plan_name,
+                    error_code="Conflict",
+                    error_message=raw_capacity_message,
+                ),
+                "",
+            ),
+        ]
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="live"), runner=runner
+    )
+
+    rendered = json.dumps(result.to_json_dict())
+    assert result.category == "app_service_capacity_unavailable"
+    assert result.ok is False
+    assert result.deployment_attempted is True
+    assert len(runner.calls) == 3
+    assert runner.calls[1][:5] == [
+        "az",
+        "deployment",
+        "operation",
+        "group",
+        "list",
+    ]
+    assert runner.calls[1][runner.calls[1].index("--resource-group") + 1] == (
+        deployment_request.resource_group
+    )
+    assert runner.calls[1][runner.calls[1].index("--name") + 1] == (
+        "nurse-intake-demo-web-app-infra"
+    )
+    assert runner.calls[2][runner.calls[2].index("--name") + 1] == "web-app"
+    assert "--query" in runner.calls[1]
+    assert "--query" in runner.calls[2]
+    for forbidden in (
+        raw_capacity_message,
+        private_plan_name,
+        "private-subscription-id",
+        "private outer deployment error",
+        "Private nested deployment detail.",
+    ):
+        assert forbidden not in rendered
+
+
+@pytest.mark.parametrize(
+    "nested_stdout",
+    [
+        "unrelated-conflict",
+        "not-json",
+    ],
+)
+def test_failed_live_deployment_diagnostic_conflicts_and_malformed_evidence_fail_closed(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    nested_stdout: str,
+) -> None:
+    if nested_stdout == "unrelated-conflict":
+        nested_stdout = _failed_deployment_operation(
+            resource_type="Microsoft.Web/serverfarms",
+            resource_name=deployment._app_service_plan_name(deployment_request),
+            error_code="Conflict",
+            error_message="A different App Service configuration conflict.",
+        )
+    runner = SequenceRunner(
+        [
+            deployment.CommandResult(1, "raw failure", "raw error"),
+            deployment.CommandResult(
+                0,
+                _failed_deployment_operation(
+                    resource_type="Microsoft.Resources/deployments",
+                    resource_name="web-app",
+                    error_code="DeploymentFailed",
+                    error_message="Nested deployment failed.",
+                ),
+                "",
+            ),
+            deployment.CommandResult(0, nested_stdout, "private diagnostic error"),
+        ]
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="live"), runner=runner
+    )
+
+    rendered = json.dumps(result.to_json_dict())
+    assert result.category == "azure_operation_failed"
+    assert result.ok is False
+    assert len(runner.calls) == 3
+    for forbidden in ("raw failure", "raw error", "private diagnostic error"):
+        assert forbidden not in rendered
 
 
 def test_unexpected_runner_error_is_sanitized(
@@ -3285,6 +3472,7 @@ def test_json_result_is_exactly_the_approved_sanitized_projection(
         "deploy_app",
         "deploy_foundry",
         "hosted_verifier_configuration_supplied",
+        "hosted_telemetry_configuration_supplied",
         "app_service_authentication_configuration_supplied",
         "create_count",
         "modify_count",
