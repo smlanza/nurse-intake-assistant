@@ -111,7 +111,6 @@ def test_web_app_module_has_no_secrets_rbac_or_foundry_runtime_coupling() -> Non
     lowered = module.lower()
 
     for forbidden in (
-        "connectionstring",
         "api_key",
         "apikey",
         "client_secret",
@@ -123,6 +122,8 @@ def test_web_app_module_has_no_secrets_rbac_or_foundry_runtime_coupling() -> Non
         "listkeys(",
     ):
         assert forbidden not in lowered
+    assert "hostedtelemetryapplicationinsights!.properties.connectionstring" in lowered
+    assert "output applicationinsightsconnectionstring" not in main.lower()
     assert "microsoft.authorization/roleassignments" not in main.lower()
 
 
@@ -176,6 +177,30 @@ def test_hosted_verifier_settings_are_optional_tagged_enabled_configuration() ->
         "hostedVerifierModelDeploymentName",
     ):
         assert not re.search(rf"param\s+{obsolete}\b", main)
+
+
+def test_hosted_telemetry_is_default_disabled_and_reuses_existing_component() -> None:
+    main = _text("main.bicep")
+    module = _text("modules/web-app.bicep")
+    compiled_main = _compile("main.bicep")
+    compiled_module = _compile("modules/web-app.bicep")
+
+    assert compiled_main["parameters"]["hostedTelemetryConfiguration"][
+        "defaultValue"
+    ] == {"mode": "disabled"}
+    assert compiled_module["parameters"]["hostedTelemetryConfiguration"][
+        "defaultValue"
+    ] == {"mode": "disabled"}
+    assert "applicationInsightsName: applicationInsights.name" in main
+    assert re.search(
+        r"resource\s+hostedTelemetryApplicationInsights\s+"
+        r"'Microsoft\.Insights/components@2020-02-02'\s+existing",
+        module,
+    )
+    assert "value: hostedTelemetryApplicationInsights!.properties.ConnectionString" in module
+    assert "name: 'TELEMETRY_PROVIDER'" in module
+    assert "? 'azure-monitor' : 'none'" in module
+    assert "output applicationInsightsConnectionString" not in main
 
 
 def test_direct_web_app_module_has_independent_nested_whitespace_validation() -> None:

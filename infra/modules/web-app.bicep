@@ -23,6 +23,21 @@ type hostedFoundryVerifierConfigurationType =
   | hostedFoundryVerifierDisabledConfiguration
   | hostedFoundryVerifierEnabledConfiguration
 
+type hostedTelemetryDisabledConfiguration = {
+  mode: 'disabled'
+}
+
+type hostedTelemetryEnabledConfiguration = {
+  mode: 'enabled'
+  @minLength(1)
+  applicationInsightsName: string
+}
+
+@discriminator('mode')
+type hostedTelemetryConfigurationType =
+  | hostedTelemetryDisabledConfiguration
+  | hostedTelemetryEnabledConfiguration
+
 type appServiceAuthenticationDisabledConfiguration = {
   mode: 'disabled'
 }
@@ -50,6 +65,10 @@ param deployAppServicePlan bool = true
 param appServicePlanSkuName string = 'B1'
 param pythonLinuxFxVersion string = 'PYTHON|3.12'
 param hostedFoundryVerifierConfiguration hostedFoundryVerifierConfigurationType = {
+  mode: 'disabled'
+}
+@description('Optional Azure Monitor telemetry configuration using an existing Application Insights component. Disabled by default.')
+param hostedTelemetryConfiguration hostedTelemetryConfigurationType = {
   mode: 'disabled'
 }
 @description('Optional App Service Authentication v2 configuration. Disabled by default and requires an existing Entra application when enabled.')
@@ -89,6 +108,22 @@ var hostedFoundryVerifierAppSettings = validatedHostedFoundryVerifierConfigurati
   {
     name: 'AZURE_AI_FOUNDRY_MODEL_DEPLOYMENT_NAME'
     value: validatedHostedFoundryVerifierConfiguration.modelDeploymentName
+  }
+] : []
+var validatedHostedTelemetryConfiguration = hostedTelemetryConfiguration.mode == 'enabled' ? {
+  mode: 'enabled'
+  applicationInsightsName: hostedTelemetryConfiguration.applicationInsightsName == trim(hostedTelemetryConfiguration.applicationInsightsName) ? hostedTelemetryConfiguration.applicationInsightsName : ''
+} : {
+  mode: 'disabled'
+}
+resource hostedTelemetryApplicationInsights 'Microsoft.Insights/components@2020-02-02' existing = if (validatedHostedTelemetryConfiguration.mode == 'enabled') {
+  name: validatedHostedTelemetryConfiguration.applicationInsightsName
+}
+var hostedTelemetryProvider = validatedHostedTelemetryConfiguration.mode == 'enabled' ? 'azure-monitor' : 'none'
+var hostedTelemetryAppSettings = validatedHostedTelemetryConfiguration.mode == 'enabled' ? [
+  {
+    name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
+    value: hostedTelemetryApplicationInsights!.properties.ConnectionString
   }
 ] : []
 var validatedAppServiceAuthenticationConfiguration = appServiceAuthenticationConfiguration.mode == 'enabled' ? {
@@ -178,6 +213,10 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
           value: 'true'
         }
         {
+          name: 'TELEMETRY_PROVIDER'
+          value: hostedTelemetryProvider
+        }
+        {
           name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
           value: 'true'
         }
@@ -185,7 +224,7 @@ resource webApp 'Microsoft.Web/sites@2024-04-01' = {
           name: 'WEBSITE_SKIP_RUNNING_KUDUAGENT'
           value: 'false'
         }
-      ], hostedFoundryVerifierAppSettings)
+      ], hostedTelemetryAppSettings, hostedFoundryVerifierAppSettings)
     }
   }
   tags: tags

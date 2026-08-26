@@ -28,7 +28,9 @@ from src.app.services.web_app_hosting_contract import (
 from src.app.services.azure_what_if_evidence import (
     ExpectedWhatIfResource,
     SanitizedWhatIfChange,
+    SanitizedWhatIfStructuralDiagnostic,
     parse_sanitized_what_if,
+    parse_sanitized_what_if_outcome,
 )
 
 
@@ -36,6 +38,7 @@ DeploymentMode = Literal["check", "what-if", "live"]
 DeploymentPurpose = Literal[
     "initial_create",
     "existing_web_app_reconciliation",
+    "hosted_telemetry_configuration",
     "web_app_authentication",
 ]
 DeploymentCategory = Literal[
@@ -48,6 +51,26 @@ DeploymentCategory = Literal[
     "what_if_parse_failed",
     "unexpected_error",
 ]
+AzureOperationFailureReason = Literal[
+    "command_timeout",
+    "authentication_or_authorization_failed",
+    "azure_cli_invocation_failed",
+    "resource_not_found",
+    "template_or_parameter_validation_failed",
+    "deployment_conflict",
+    "unknown_azure_operation_failure",
+]
+_AZURE_OPERATION_FAILURE_REASONS = frozenset(
+    {
+        "command_timeout",
+        "authentication_or_authorization_failed",
+        "azure_cli_invocation_failed",
+        "resource_not_found",
+        "template_or_parameter_validation_failed",
+        "deployment_conflict",
+        "unknown_azure_operation_failure",
+    }
+)
 
 FAILURE_MESSAGES: dict[DeploymentCategory, str] = {
     "success": "",
@@ -87,6 +110,9 @@ _MAX_DIAGNOSTIC_PAYLOAD_LENGTH = 100_000
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 WEB_APP_AUTHENTICATION_TEMPLATE = (
     REPOSITORY_ROOT / "infra/modules/web-app-authentication.bicep"
+)
+WEB_APP_HOSTED_TELEMETRY_TEMPLATE = (
+    REPOSITORY_ROOT / "infra/modules/web-app-telemetry.bicep"
 )
 
 
@@ -154,9 +180,29 @@ class WebAppInfrastructureDeploymentResult:
     unsupported_count: int | None
     delete_detected: bool
     what_if_summary_available: bool
+    what_if_structural_diagnostic: SanitizedWhatIfStructuralDiagnostic | None
+    azure_operation_failure_reason: AzureOperationFailureReason | None
     exact_topology_match: bool
     recommended_next_step: str
     change_evidence: tuple[SanitizedWhatIfChange, ...]
+
+    def __post_init__(self) -> None:
+        reason = self.azure_operation_failure_reason
+        if reason is not None and reason not in _AZURE_OPERATION_FAILURE_REASONS:
+            raise ValueError("Azure operation failure reason is invalid.")
+        if reason is not None and not (
+            self.ok is False
+            and self.category
+            in {"azure_cli_unavailable", "azure_operation_failed"}
+            and self.mode == "what-if"
+            and self.purpose == "initial_create"
+            and self.azure_operation_attempted is True
+            and self.what_if_attempted is True
+            and self.deployment_attempted is False
+        ):
+            raise ValueError(
+                "Azure operation failure reason disagrees with the result state."
+            )
 
     def to_json_dict(self) -> dict[str, object]:
         return {
@@ -192,6 +238,14 @@ class WebAppInfrastructureDeploymentResult:
             "unsupported_count": self.unsupported_count,
             "delete_detected": self.delete_detected,
             "what_if_summary_available": self.what_if_summary_available,
+            "what_if_structural_diagnostic": (
+                self.what_if_structural_diagnostic.to_json_dict()
+                if self.what_if_structural_diagnostic is not None
+                else None
+            ),
+            "azure_operation_failure_reason": (
+                self.azure_operation_failure_reason
+            ),
             "exact_topology_match": self.exact_topology_match,
             "recommended_next_step": self.recommended_next_step,
             "change_evidence": [
@@ -213,6 +267,12 @@ class WhatIfSummary:
     exact_topology_match: bool
 
 
+@dataclass(frozen=True)
+class _WebAppWhatIfParseOutcome:
+    summary: WhatIfSummary | None
+    structural_diagnostic: SanitizedWhatIfStructuralDiagnostic | None
+
+
 def _safe_result_identifier(value: object) -> str | None:
     if (
         not isinstance(value, str)
@@ -231,6 +291,7 @@ def _deployment_name(request: WebAppInfrastructureDeploymentRequest) -> str | No
         return None
     suffix = {
         "existing_web_app_reconciliation": "web-app-reconciliation",
+        "hosted_telemetry_configuration": "hosted-telemetry-configuration",
         "web_app_authentication": "web-app-authentication",
     }.get(request.purpose, "web-app-infra")
     return f"{request.project_name}-{request.environment_name}-{suffix}"
@@ -246,6 +307,10 @@ def _result(
     what_if_attempted: bool = False,
     deployment_attempted: bool = False,
     what_if_summary: WhatIfSummary | None = None,
+    what_if_structural_diagnostic: (
+        SanitizedWhatIfStructuralDiagnostic | None
+    ) = None,
+    azure_operation_failure_reason: AzureOperationFailureReason | None = None,
     recommended_next_step: str = FAILURE_NEXT_STEP,
 ) -> WebAppInfrastructureDeploymentResult:
     mode = request.mode if request.mode in {"check", "what-if", "live"} else "invalid"
@@ -264,6 +329,7 @@ def _result(
             in {
                 "initial_create",
                 "existing_web_app_reconciliation",
+                "hosted_telemetry_configuration",
                 "web_app_authentication",
             }
             else "invalid"
@@ -280,7 +346,13 @@ def _result(
         azure_operation_attempted=azure_operation_attempted,
         what_if_attempted=what_if_attempted,
         deployment_attempted=deployment_attempted,
-        deploy_app=request.purpose != "web_app_authentication",
+        deploy_app=(
+            request.purpose
+            not in {
+                "web_app_authentication",
+                "hosted_telemetry_configuration",
+            }
+        ),
         deploy_foundry=False,
         hosted_verifier_configuration_supplied=(
             local_validation_passed and request.enable_hosted_foundry_verifier
@@ -306,6 +378,8 @@ def _result(
             what_if_summary is not None and what_if_summary.delete_count > 0
         ),
         what_if_summary_available=what_if_summary is not None,
+        what_if_structural_diagnostic=what_if_structural_diagnostic,
+        azure_operation_failure_reason=azure_operation_failure_reason,
         exact_topology_match=bool(
             what_if_summary and what_if_summary.exact_topology_match
         ),
@@ -339,6 +413,7 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
     expected_template_name = {
         "initial_create": "main.bicep",
         "existing_web_app_reconciliation": "web-app.bicep",
+        "hosted_telemetry_configuration": "web-app-telemetry.bicep",
         "web_app_authentication": "web-app-authentication.bicep",
     }.get(request.purpose)
     return (
@@ -346,9 +421,18 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
         and expected_template_name is not None
         and request.template_file.name == expected_template_name
         and (
-            request.purpose != "web_app_authentication"
+            request.purpose
+            not in {
+                "web_app_authentication",
+                "hosted_telemetry_configuration",
+            }
             or (
-                request.template_file == WEB_APP_AUTHENTICATION_TEMPLATE
+                request.template_file
+                == (
+                    WEB_APP_AUTHENTICATION_TEMPLATE
+                    if request.purpose == "web_app_authentication"
+                    else WEB_APP_HOSTED_TELEMETRY_TEMPLATE
+                )
                 and not request.template_file.is_symlink()
             )
         )
@@ -388,7 +472,19 @@ def _arguments_valid(request: WebAppInfrastructureDeploymentRequest) -> bool:
         )
         and not (
             request.purpose == "existing_web_app_reconciliation"
-            and request.enable_app_service_authentication
+            and (
+                request.enable_app_service_authentication
+                or request.enable_hosted_azure_monitor_telemetry
+            )
+        )
+        and (
+            request.purpose != "hosted_telemetry_configuration"
+            or (
+                request.enable_hosted_azure_monitor_telemetry
+                and not request.enable_hosted_foundry_verifier
+                and not request.enable_key_vault_runtime_authorization
+                and not request.enable_app_service_authentication
+            )
         )
     )
 
@@ -1430,10 +1526,102 @@ def _app_service_plan_selection_contract_valid(
     return all(re.search(pattern, active, re.DOTALL) is not None for pattern in required)
 
 
+def _hosted_telemetry_configuration_contract_valid(template: str) -> bool:
+    active = _strip_bicep_comments(template)
+    parameter_names = tuple(
+        re.findall(
+            r"(?m)^\s*param\s+([A-Za-z][A-Za-z0-9_]*)\s+",
+            active,
+        )
+    )
+    declarations = _active_resource_declarations(active)
+    if (
+        len(
+            re.findall(
+                r"(?m)^\s*targetScope\s*=\s*'resourceGroup'\s*$",
+                active,
+            )
+        )
+        != 1
+        or parameter_names != ("webAppName", "applicationInsightsName")
+        or declarations is None
+        or tuple(
+            (symbol, resource_type)
+            for symbol, resource_type, _body in declarations
+        )
+        != (
+            ("webApp", "Microsoft.Web/sites@2024-04-01"),
+            (
+                "applicationInsights",
+                "Microsoft.Insights/components@2020-02-02",
+            ),
+            (
+                "webAppAppSettings",
+                "Microsoft.Web/sites/config@2024-04-01",
+            ),
+        )
+        or re.search(r"(?m)^\s*(?:module|output)\s+", active) is not None
+        or re.search(
+            r"(?m)^\s*resource\s+webApp\s+"
+            r"'Microsoft\.Web/sites@2024-04-01'\s+existing\s*=",
+            active,
+        )
+        is None
+        or re.search(
+            r"(?m)^\s*resource\s+applicationInsights\s+"
+            r"'Microsoft\.Insights/components@2020-02-02'\s+existing\s*=",
+            active,
+        )
+        is None
+    ):
+        return False
+    web_app, application_insights, app_settings = (
+        declaration[2] for declaration in declarations
+    )
+    properties = _top_level_property_expression(app_settings, "properties")
+    return bool(
+        _exact_top_level_properties(web_app, ("name",))
+        and _exact_top_level_scalar(web_app, "name", "webAppName")
+        and _exact_top_level_properties(application_insights, ("name",))
+        and _exact_top_level_scalar(
+            application_insights,
+            "name",
+            "applicationInsightsName",
+        )
+        and _exact_top_level_properties(
+            app_settings,
+            ("parent", "name", "properties"),
+        )
+        and _exact_top_level_scalar(app_settings, "parent", "webApp")
+        and _exact_top_level_scalar(app_settings, "name", "'appsettings'")
+        and properties is not None
+        and "".join(properties.split())
+        == (
+            "union(list('${webApp.id}/config/appsettings',"
+            "'2024-04-01').properties,{"
+            "TELEMETRY_PROVIDER:'azure-monitor'"
+            "APPLICATIONINSIGHTS_CONNECTION_STRING:"
+            "applicationInsights.properties.ConnectionString})"
+        )
+    )
+
+
 def _local_contract_valid(
     template_file: Path,
     purpose: str = "initial_create",
 ) -> bool:
+    if purpose == "hosted_telemetry_configuration":
+        try:
+            return bool(
+                template_file == WEB_APP_HOSTED_TELEMETRY_TEMPLATE
+                and template_file.is_file()
+                and not template_file.is_symlink()
+                and _hosted_telemetry_configuration_contract_valid(
+                    template_file.read_text()
+                )
+            )
+        except OSError:
+            return False
     if purpose == "web_app_authentication":
         try:
             return bool(
@@ -1701,6 +1889,11 @@ def web_app_infrastructure_deployment_command(
             "entraTenantId="
             + str(request.app_service_authentication_tenant_id),
         ]
+    elif request.purpose == "hosted_telemetry_configuration":
+        parameters = [
+            f"webAppName={request.web_app_name}",
+            f"applicationInsightsName={_application_insights_name(request)}",
+        ]
     elif request.purpose == "existing_web_app_reconciliation":
         parameters = [
             f"location={request.location}",
@@ -1769,10 +1962,31 @@ def parse_web_app_infrastructure_what_if(
     stdout: str,
     request: WebAppInfrastructureDeploymentRequest,
 ) -> WhatIfSummary | None:
+    return _parse_web_app_infrastructure_what_if_outcome(
+        stdout,
+        request,
+    ).summary
+
+
+def _parse_web_app_infrastructure_what_if_outcome(
+    stdout: str,
+    request: WebAppInfrastructureDeploymentRequest,
+) -> _WebAppWhatIfParseOutcome:
     if request.purpose == "web_app_authentication":
-        return _parse_authentication_what_if_summary(stdout, request)
+        return _WebAppWhatIfParseOutcome(
+            _parse_authentication_what_if_summary(stdout, request),
+            None,
+        )
+    if request.purpose == "hosted_telemetry_configuration":
+        return _parse_hosted_telemetry_configuration_what_if_outcome(
+            stdout,
+            request,
+        )
     if request.purpose == "existing_web_app_reconciliation":
-        return _parse_reconciliation_what_if_summary(stdout, request)
+        return _WebAppWhatIfParseOutcome(
+            _parse_reconciliation_what_if_summary(stdout, request),
+            None,
+        )
     expected = _expected_web_app_resources(stdout, request)
     expected_ignored = _expected_web_app_foundry_references(request)
     additional_types = (
@@ -1785,7 +1999,7 @@ def parse_web_app_infrastructure_what_if(
         if expected_ignored
         else {}
     )
-    parsed = parse_sanitized_what_if(
+    parsed_outcome = parse_sanitized_what_if_outcome(
         stdout,
         boundary="web_app",
         expected_resources=expected,
@@ -1796,8 +2010,12 @@ def parse_web_app_infrastructure_what_if(
         allowed_unidentified_ignore_counts=frozenset({0}),
         automatically_approved_actions=frozenset({"Create", "Modify", "NoChange"}),
     )
+    parsed = parsed_outcome.summary
     if parsed is None:
-        return None
+        return _WebAppWhatIfParseOutcome(
+            None,
+            parsed_outcome.structural_diagnostic,
+        )
     modifying = tuple(
         change for change in parsed.changes if change.action == "Modify"
     )
@@ -1822,18 +2040,21 @@ def parse_web_app_infrastructure_what_if(
         else change
         for change in parsed.changes
     )
-    return WhatIfSummary(
-        create_count=parsed.count("Create"),
-        modify_count=parsed.count("Modify"),
-        delete_count=parsed.count("Delete"),
-        no_change_count=parsed.count("NoChange"),
-        ignore_count=parsed.count("Ignore"),
-        deploy_count=parsed.count("Deploy"),
-        unsupported_count=parsed.count("Unsupported"),
-        change_evidence=change_evidence,
-        exact_topology_match=bool(
-            parsed.exact_topology_match and modify_topology_approved
+    return _WebAppWhatIfParseOutcome(
+        WhatIfSummary(
+            create_count=parsed.count("Create"),
+            modify_count=parsed.count("Modify"),
+            delete_count=parsed.count("Delete"),
+            no_change_count=parsed.count("NoChange"),
+            ignore_count=parsed.count("Ignore"),
+            deploy_count=parsed.count("Deploy"),
+            unsupported_count=parsed.count("Unsupported"),
+            change_evidence=change_evidence,
+            exact_topology_match=bool(
+                parsed.exact_topology_match and modify_topology_approved
+            ),
         ),
+        None,
     )
 
 
@@ -1883,6 +2104,65 @@ def _parse_authentication_what_if_summary(
         unsupported_count=parsed.count("Unsupported"),
         change_evidence=change_evidence,
         exact_topology_match=exact_authentication,
+    )
+
+
+def _parse_hosted_telemetry_configuration_what_if_outcome(
+    stdout: str,
+    request: WebAppInfrastructureDeploymentRequest,
+) -> _WebAppWhatIfParseOutcome:
+    app_settings = ExpectedWhatIfResource(
+        "Microsoft.Web/sites/config",
+        "web_app_telemetry_configuration",
+        request.resource_group,
+        (request.web_app_name, "appsettings"),
+    )
+    parsed_outcome = parse_sanitized_what_if_outcome(
+        stdout,
+        boundary="hosted_telemetry_configuration",
+        expected_resources=(app_settings,),
+        automatically_approved_actions=frozenset({"Modify"}),
+    )
+    parsed = parsed_outcome.summary
+    if parsed is None:
+        return _WebAppWhatIfParseOutcome(
+            None,
+            parsed_outcome.structural_diagnostic,
+        )
+    exact_configuration = bool(
+        parsed.exact_topology_match
+        and len(parsed.changes) == 1
+        and parsed.changes[0].action == "Modify"
+        and parsed.changes[0].resource_type == "Microsoft.Web/sites/config"
+        and parsed.changes[0].logical_category
+        == "web_app_telemetry_configuration"
+        and parsed.count("Create") == 0
+        and parsed.count("Modify") == 1
+        and parsed.count("NoChange") == 0
+        and parsed.count("Ignore") == 0
+        and parsed.count("Delete") == 0
+        and parsed.count("Deploy") == 0
+        and parsed.count("Unsupported") == 0
+    )
+    change_evidence = tuple(
+        replace(change, approved_boundary=False)
+        if not exact_configuration
+        else change
+        for change in parsed.changes
+    )
+    return _WebAppWhatIfParseOutcome(
+        WhatIfSummary(
+            create_count=parsed.count("Create"),
+            modify_count=parsed.count("Modify"),
+            delete_count=parsed.count("Delete"),
+            no_change_count=parsed.count("NoChange"),
+            ignore_count=parsed.count("Ignore"),
+            deploy_count=parsed.count("Deploy"),
+            unsupported_count=parsed.count("Unsupported"),
+            change_evidence=change_evidence,
+            exact_topology_match=exact_configuration,
+        ),
+        None,
     )
 
 
@@ -2296,6 +2576,53 @@ def _app_service_capacity_unavailable(
     )
 
 
+def _azure_operation_failure_reason(
+    outcome: CommandResult,
+) -> AzureOperationFailureReason:
+    if outcome.return_code == 127:
+        return "azure_cli_invocation_failed"
+    if getattr(outcome, "timed_out", False) is True:
+        return "command_timeout"
+    stderr = outcome.stderr if isinstance(outcome.stderr, str) else ""
+    lowered = stderr.casefold()
+    if any(
+        marker in lowered
+        for marker in (
+            "az login",
+            "authentication",
+            "authorization",
+            "authorizationfailed",
+            "unauthorized",
+            "forbidden",
+            "credential",
+        )
+    ):
+        return "authentication_or_authorization_failed"
+    if any(
+        marker in lowered
+        for marker in ("unrecognized argument", "invalid argument")
+    ):
+        return "azure_cli_invocation_failed"
+    if any(
+        marker in lowered
+        for marker in (
+            "resourcegroupnotfound",
+            "resourcenotfound",
+            "could not be found",
+            "was not found",
+        )
+    ):
+        return "resource_not_found"
+    if "deploymentactive" in lowered:
+        return "deployment_conflict"
+    if any(
+        marker in lowered
+        for marker in ("invalidtemplate", "preflightvalidationcheckfailed")
+    ):
+        return "template_or_parameter_validation_failed"
+    return "unknown_azure_operation_failure"
+
+
 def deploy_web_app_infrastructure(
     request: WebAppInfrastructureDeploymentRequest,
     *,
@@ -2347,8 +2674,20 @@ def deploy_web_app_infrastructure(
         "what_if_attempted": what_if_attempted,
         "deployment_attempted": deployment_attempted,
     }
+    azure_operation_failure_reason = (
+        _azure_operation_failure_reason(outcome)
+        if outcome.return_code != 0
+        and request.mode == "what-if"
+        and request.purpose == "initial_create"
+        else None
+    )
     if outcome.return_code == 127:
-        return _result(request, "azure_cli_unavailable", **common)
+        return _result(
+            request,
+            "azure_cli_unavailable",
+            azure_operation_failure_reason=azure_operation_failure_reason,
+            **common,
+        )
     if outcome.return_code != 0:
         if _app_service_capacity_unavailable(request, runner):
             return _result(
@@ -2357,11 +2696,25 @@ def deploy_web_app_infrastructure(
                 recommended_next_step=APP_SERVICE_CAPACITY_NEXT_STEP,
                 **common,
             )
-        return _result(request, "azure_operation_failed", **common)
+        return _result(
+            request,
+            "azure_operation_failed",
+            azure_operation_failure_reason=azure_operation_failure_reason,
+            **common,
+        )
     if request.mode == "what-if":
-        summary = parse_web_app_infrastructure_what_if(outcome.stdout, request)
+        parsed = _parse_web_app_infrastructure_what_if_outcome(
+            outcome.stdout,
+            request,
+        )
+        summary = parsed.summary
         if summary is None:
-            return _result(request, "what_if_parse_failed", **common)
+            return _result(
+                request,
+                "what_if_parse_failed",
+                what_if_structural_diagnostic=parsed.structural_diagnostic,
+                **common,
+            )
         if summary.delete_count:
             next_step = (
                 "Review proposed deletions manually before any separate explicit --live deployment."

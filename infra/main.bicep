@@ -23,6 +23,19 @@ type hostedFoundryVerifierConfigurationType =
   | hostedFoundryVerifierDisabledConfiguration
   | hostedFoundryVerifierEnabledConfiguration
 
+type hostedTelemetryDisabledConfiguration = {
+  mode: 'disabled'
+}
+
+type hostedTelemetryEnabledConfiguration = {
+  mode: 'enabled'
+}
+
+@discriminator('mode')
+type hostedTelemetryConfigurationType =
+  | hostedTelemetryDisabledConfiguration
+  | hostedTelemetryEnabledConfiguration
+
 type appServiceAuthenticationDisabledConfiguration = {
   mode: 'disabled'
 }
@@ -93,6 +106,11 @@ param pythonLinuxFxVersion string = 'PYTHON|3.12'
 
 @description('Optional complete hosted metadata-verifier configuration; disabled for ordinary Web App deployment.')
 param hostedFoundryVerifierConfiguration hostedFoundryVerifierConfigurationType = {
+  mode: 'disabled'
+}
+
+@description('Explicitly opt the hosted Web App into Azure Monitor telemetry through the existing Application Insights component.')
+param hostedTelemetryConfiguration hostedTelemetryConfigurationType = {
   mode: 'disabled'
 }
 
@@ -249,6 +267,12 @@ module webApp 'modules/web-app.bicep' = if (deployApp) {
     appServicePlanSkuName: appServicePlanSkuName
     pythonLinuxFxVersion: pythonLinuxFxVersion
     hostedFoundryVerifierConfiguration: validatedHostedFoundryVerifierConfiguration
+    hostedTelemetryConfiguration: hostedTelemetryConfiguration.mode == 'enabled' ? {
+      mode: 'enabled'
+      applicationInsightsName: applicationInsights.name
+    } : {
+      mode: 'disabled'
+    }
     appServiceAuthenticationConfiguration: validatedAppServiceAuthenticationConfiguration
   }
 }
@@ -286,7 +310,6 @@ output cosmosEndpoint string = cosmosAccount.properties.documentEndpoint
 output databaseName string = cosmosDatabaseName
 output containerName string = cosmosContainerName
 output applicationInsightsName string = applicationInsights.name
-output applicationInsightsConnectionString string = applicationInsights.properties.ConnectionString
 output appHostingRequested bool = deployApp
 output webAppName string = deployApp ? webApp!.outputs.webAppName : ''
 output webAppDefaultHostname string = deployApp ? webApp!.outputs.defaultHostname : ''

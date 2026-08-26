@@ -50,12 +50,21 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     modes.add_argument("--check", action="store_true")
     modes.add_argument("--what-if", action="store_true")
     modes.add_argument("--live", action="store_true")
-    parser.add_argument(
+    purposes = parser.add_mutually_exclusive_group()
+    purposes.add_argument(
         "--reconcile-existing-web-app",
         action="store_true",
         help=(
             "Use the dedicated existing-Web-App reconciliation topology. "
             "Initial creation remains the default."
+        ),
+    )
+    purposes.add_argument(
+        "--configure-hosted-telemetry",
+        action="store_true",
+        help=(
+            "Use the dedicated existing-Web-App hosted telemetry configuration "
+            "boundary."
         ),
     )
     parser.add_argument("--resource-group", required=True)
@@ -66,6 +75,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--cosmos-database-name", default="nurse-intake")
     parser.add_argument("--cosmos-container-name", default="cases")
     parser.add_argument("--enable-hosted-foundry-verifier", action="store_true")
+    parser.add_argument(
+        "--enable-hosted-azure-monitor-telemetry",
+        action="store_true",
+    )
     for option in (
         "hosted-verifier-project-endpoint",
         "hosted-verifier-stable-agent-endpoint",
@@ -136,14 +149,22 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def _request(args: argparse.Namespace) -> WebAppInfrastructureDeploymentRequest:
     mode = "check" if args.check else "what-if" if args.what_if else "live"
     purpose = (
-        "existing_web_app_reconciliation"
-        if args.reconcile_existing_web_app
-        else "initial_create"
+        "hosted_telemetry_configuration"
+        if args.configure_hosted_telemetry
+        else (
+            "existing_web_app_reconciliation"
+            if args.reconcile_existing_web_app
+            else "initial_create"
+        )
     )
     template_file = args.template_file or (
-        ROOT / "infra/modules/web-app.bicep"
-        if args.reconcile_existing_web_app
-        else ROOT / "infra/main.bicep"
+        ROOT / "infra/modules/web-app-telemetry.bicep"
+        if args.configure_hosted_telemetry
+        else (
+            ROOT / "infra/modules/web-app.bicep"
+            if args.reconcile_existing_web_app
+            else ROOT / "infra/main.bicep"
+        )
     )
     return WebAppInfrastructureDeploymentRequest(
         mode=mode,
@@ -155,6 +176,10 @@ def _request(args: argparse.Namespace) -> WebAppInfrastructureDeploymentRequest:
         cosmos_database_name=args.cosmos_database_name,
         cosmos_container_name=args.cosmos_container_name,
         enable_hosted_foundry_verifier=args.enable_hosted_foundry_verifier,
+        enable_hosted_azure_monitor_telemetry=(
+            args.enable_hosted_azure_monitor_telemetry
+            or args.configure_hosted_telemetry
+        ),
         enable_app_service_authentication=(
             args.enable_app_service_authentication
         ),

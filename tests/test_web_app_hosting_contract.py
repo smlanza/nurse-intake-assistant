@@ -47,6 +47,26 @@ def test_linux_webjob_prerequisites_are_exact_baseline_contract() -> None:
         ]
         == "true"
     )
+    assert hosting_contract.SAFE_HOSTED_SETTINGS["TELEMETRY_PROVIDER"] == "none"
+
+
+def test_hosted_azure_monitor_opt_in_is_exact_and_non_secret() -> None:
+    assert hosting_contract.hosted_telemetry_configuration_valid(
+        {"mode": "disabled"}
+    )
+    assert hosting_contract.hosted_telemetry_configuration_valid(
+        {"mode": "enabled", "applicationInsightsName": "fictional-appi"}
+    )
+    assert not hosting_contract.hosted_telemetry_configuration_valid(
+        {"mode": "enabled"}
+    )
+    assert not hosting_contract.hosted_telemetry_configuration_valid(
+        {
+            "mode": "enabled",
+            "applicationInsightsName": "fictional-appi",
+            "connectionString": "must-not-be-an-input",
+        }
+    )
 
 
 def test_exact_five_settings_map_from_environment_to_existing_verifier_request(

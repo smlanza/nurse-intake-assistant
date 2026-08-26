@@ -3180,11 +3180,12 @@ def test_unexpected_web_app_resource_exposes_bounded_public_category(
         ),
     )
 
+    approvals: list[ApprovalSummary] = []
     result = DailyAzureEnvironmentRebuild(
         _config(tmp_path),
         repository_root=tmp_path,
         local_contract_checker=lambda _root: (),
-    ).live(runner, approver=lambda _summary: True)
+    ).live(runner, approver=lambda summary: approvals.append(summary) or True)
 
     payload = result.to_json_dict()
     assert payload["category"] == "unsafe_web_app_plan"
@@ -3195,9 +3196,17 @@ def test_unexpected_web_app_resource_exposes_bounded_public_category(
     assert payload["web_app_plan_unexpected_resource_family"] is None
     assert payload["web_app_plan_unexpected_resource_unknown_reason"] is None
     assert payload["web_app_plan_unexpected_resource_provider_family"] is None
+    assert payload["web_app_plan_unexpected_resource_action"] == "ignore"
+    assert payload["web_app_plan_unexpected_resource_record_count"] == 1
+    assert (
+        payload["web_app_plan_unexpected_resource_record_count_truncated"]
+        is False
+    )
     serialized = json.dumps(payload)
     assert resource_type not in serialized
     assert "private-resource-name" not in serialized
+    assert "Ignore" not in serialized
+    assert approvals == []
     assert "deploy_web_app" not in runner.calls
 
 
@@ -3902,7 +3911,45 @@ def test_web_app_unidentified_resource_family_selection_has_fixed_precedence(
     assert reverse.unexpected_resource_family == (
         "authorization_role_assignment"
     )
+    for evaluation in (forward, reverse):
+        assert evaluation.unexpected_resource_action == "multiple"
+        assert evaluation.unexpected_resource_record_count == 2
+        assert evaluation.unexpected_resource_record_count_truncated is False
     assert forward.safe is reverse.safe is False
+
+
+def test_web_app_unexpected_resource_count_is_capped_without_raw_evidence() -> None:
+    private_resource_type = "Private.Provider/privateTelemetryResources"
+    changes = tuple(
+        ChangeEvidence(
+            "NoChange",
+            "unexpected_resource",
+            "private-boundary-value",
+            False,
+            resource_type=private_resource_type,
+            unexpected_resource_family="application_insights",
+        )
+        for _index in range(25)
+    )
+
+    evaluation = evaluate_web_app_plan_safety(
+        PlanResult(no_change_count=25, change_evidence=changes)
+    )
+
+    assert evaluation.safe is False
+    assert evaluation.rejection_reason == "unexpected_resource"
+    assert evaluation.unexpected_resource_action == "multiple"
+    assert evaluation.unexpected_resource_record_count == 20
+    assert evaluation.unexpected_resource_record_count_truncated is True
+    serialized = json.dumps(evaluation.to_json_dict())
+    for forbidden in (
+        private_resource_type,
+        "Private.Provider",
+        "privateTelemetryResources",
+        "private-boundary-value",
+        "NoChange",
+    ):
+        assert forbidden not in serialized
 
 
 def test_web_app_unknown_resource_diagnostic_selection_has_fixed_precedence(
@@ -4017,6 +4064,33 @@ def test_web_app_plan_safety_evaluation_rejects_invalid_category_combinations(
             "unknown",
             "resource_identity_unavailable",
             "web",
+        )
+
+
+@pytest.mark.parametrize(
+    ("action", "count", "truncated"),
+    (
+        ("private arbitrary action", 1, False),
+        ("create", 0, False),
+        ("multiple", 1, False),
+        ("create", 2, False),
+        ("create", 1, True),
+    ),
+)
+def test_web_app_unexpected_resource_action_and_count_are_runtime_bounded(
+    action: str,
+    count: int,
+    truncated: bool,
+) -> None:
+    with pytest.raises(ValueError, match="action/count diagnostic"):
+        WebAppPlanSafetyEvaluation(
+            safe=False,
+            rejection_reason="unexpected_resource",
+            unexpected_resource_category="unidentified",
+            unexpected_resource_family="application_insights",
+            unexpected_resource_action=action,  # type: ignore[arg-type]
+            unexpected_resource_record_count=count,
+            unexpected_resource_record_count_truncated=truncated,
         )
 
 
@@ -4195,6 +4269,11 @@ def test_repository_reconciliation_request_is_explicit_and_never_uses_main(
         context,
         purpose="existing_web_app_reconciliation",
     )
+    telemetry = runner._web_app_request(
+        "what-if",
+        context,
+        purpose="hosted_telemetry_configuration",
+    )
 
     assert initial.purpose == "initial_create"
     assert initial.template_file == repository_root / "infra/main.bicep"
@@ -4204,6 +4283,20 @@ def test_repository_reconciliation_request_is_explicit_and_never_uses_main(
         == repository_root / "infra/modules/web-app.bicep"
     )
     assert reconciliation.template_file != initial.template_file
+    assert telemetry.purpose == "hosted_telemetry_configuration"
+    assert (
+        telemetry.template_file
+        == repository_root / "infra/modules/web-app-telemetry.bicep"
+    )
+    assert telemetry.enable_hosted_azure_monitor_telemetry is True
+    assert telemetry.enable_hosted_foundry_verifier is False
+    assert telemetry.hosted_verifier_project_endpoint is None
+    assert telemetry.hosted_verifier_stable_agent_endpoint is None
+    assert telemetry.hosted_verifier_agent_name is None
+    assert telemetry.hosted_verifier_agent_version is None
+    assert telemetry.hosted_verifier_model_deployment_name is None
+    assert initial.enable_hosted_azure_monitor_telemetry is False
+    assert reconciliation.enable_hosted_azure_monitor_telemetry is False
 
 
 def test_guided_plan_accepts_sanitized_nested_deployment_for_operator_review() -> None:

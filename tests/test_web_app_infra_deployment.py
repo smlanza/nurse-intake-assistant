@@ -1,10 +1,12 @@
 import json
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from src.app.services import web_app_infra_deployment as deployment
+from src.app.services import daily_azure_environment_rebuild as daily_rebuild
 from src.app.services.daily_azure_environment_rebuild import (
     _plan_from_object,
     evaluate_web_app_plan_safety,
@@ -85,6 +87,24 @@ def reconciliation_request(
     )
 
 
+@pytest.fixture
+def hosted_telemetry_request(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> deployment.WebAppInfrastructureDeploymentRequest:
+    return replace(
+        reconciliation_request,
+        purpose="hosted_telemetry_configuration",
+        template_file=ROOT / "infra/modules/web-app-telemetry.bicep",
+        enable_hosted_foundry_verifier=False,
+        hosted_verifier_project_endpoint=None,
+        hosted_verifier_stable_agent_endpoint=None,
+        hosted_verifier_agent_name=None,
+        hosted_verifier_agent_version=None,
+        hosted_verifier_model_deployment_name=None,
+        enable_hosted_azure_monitor_telemetry=True,
+    )
+
+
 def _setting_block(name: str, value: str) -> str:
     return (
         "        {\n"
@@ -139,6 +159,21 @@ def _reconciliation_web_app_change(
     return {
         "changeType": action,
         "resourceId": f"{root}/Microsoft.Web/sites/{request.web_app_name}",
+    }
+
+
+def _hosted_telemetry_app_settings_change(
+    request: deployment.WebAppInfrastructureDeploymentRequest,
+    action: str = "Modify",
+) -> dict[str, str]:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/{request.resource_group}/providers"
+    )
+    return {
+        "changeType": action,
+        "resourceId": (
+            f"{root}/Microsoft.Web/sites/{request.web_app_name}/config/appsettings"
+        ),
     }
 
 
@@ -199,6 +234,8 @@ def test_reconciliation_wrapper_is_removed() -> None:
     (
         ("initial_create", "web-app.bicep"),
         ("existing_web_app_reconciliation", "main.bicep"),
+        ("hosted_telemetry_configuration", "main.bicep"),
+        ("hosted_telemetry_configuration", "modules/web-app.bicep"),
         ("web_app_authentication", "main.bicep"),
         ("web_app_authentication", "modules/web-app.bicep"),
         ("web_app_authentication", "arbitrary.bicep"),
@@ -335,31 +372,252 @@ def test_ordinary_web_app_deployment_defaults_hosted_verifier_to_disabled(
     assert result.hosted_telemetry_configuration_supplied is False
 
 
-def test_hosted_telemetry_opt_in_reuses_named_application_insights_contract(
-    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+def test_hosted_telemetry_configuration_uses_only_internal_authoritative_identity(
+    hosted_telemetry_request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> None:
     runner = FakeRunner()
     request = replace(
-        reconciliation_request,
+        hosted_telemetry_request,
         mode="live",
-        enable_hosted_azure_monitor_telemetry=True,
     )
 
     result = deployment.deploy_web_app_infrastructure(request, runner=runner)
 
     assert result.ok is True
+    assert result.purpose == "hosted_telemetry_configuration"
     assert result.hosted_telemetry_configuration_supplied is True
     parameters = runner.calls[0][runner.calls[0].index("--parameters") + 1 :]
-    telemetry_parameter = next(
-        value
-        for value in parameters
-        if value.startswith("hostedTelemetryConfiguration=")
+    assert parameters == [
+        f"webAppName={request.web_app_name}",
+        "applicationInsightsName=" + deployment._application_insights_name(request),
+    ]
+    rendered = " ".join(runner.calls[0])
+    assert "APPLICATIONINSIGHTS_CONNECTION_STRING" not in rendered
+    assert "ConnectionString" not in rendered
+    assert "hostedFoundryVerifierConfiguration" not in rendered
+    assert "appServicePlanName" not in rendered
+
+
+def test_broad_reconciliation_cannot_enable_hosted_telemetry(
+    reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    runner = FakeRunner()
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(
+            reconciliation_request,
+            mode="what-if",
+            enable_hosted_azure_monitor_telemetry=True,
+        ),
+        runner=runner,
     )
-    assert json.loads(telemetry_parameter.split("=", 1)[1]) == {
-        "mode": "enabled",
-        "applicationInsightsName": deployment._application_insights_name(request),
+
+    assert result.category == "invalid_arguments"
+    assert result.azure_operation_attempted is False
+    assert runner.calls == []
+
+
+@pytest.mark.parametrize(
+    "changes",
+    (
+        [
+            {
+                "changeType": "Create",
+                "resourceId": "CONFIG_RESOURCE_ID",
+            }
+        ],
+        [
+            {
+                "changeType": "NoChange",
+                "resourceId": "CONFIG_RESOURCE_ID",
+            }
+        ],
+        [
+            {
+                "changeType": "Ignore",
+                "resourceId": "CONFIG_RESOURCE_ID",
+            }
+        ],
+        [
+            {
+                "changeType": "Delete",
+                "resourceId": "CONFIG_RESOURCE_ID",
+            }
+        ],
+        [
+            {
+                "changeType": "Deploy",
+                "resourceId": "CONFIG_RESOURCE_ID",
+            }
+        ],
+        [
+            {
+                "changeType": "Unsupported",
+                "resourceId": "CONFIG_RESOURCE_ID",
+            }
+        ],
+        [
+            {
+                "changeType": "Modify",
+                "resourceId": "CONFIG_RESOURCE_ID",
+            },
+            {
+                "changeType": "Ignore",
+                "resourceId": "APP_INSIGHTS_RESOURCE_ID",
+            },
+        ],
+    ),
+)
+def test_hosted_telemetry_plan_rejects_non_modify_or_unrelated_records(
+    hosted_telemetry_request: deployment.WebAppInfrastructureDeploymentRequest,
+    changes: list[dict[str, str]],
+) -> None:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/"
+        f"{hosted_telemetry_request.resource_group}/providers"
+    )
+    config_resource_id = (
+        f"{root}/Microsoft.Web/sites/{hosted_telemetry_request.web_app_name}/"
+        "config/appsettings"
+    )
+    application_insights_resource_id = (
+        f"{root}/Microsoft.Insights/components/"
+        f"{deployment._application_insights_name(hosted_telemetry_request)}"
+    )
+    rendered_changes = [
+        {
+            **change,
+            "resourceId": change["resourceId"].replace(
+                "CONFIG_RESOURCE_ID", config_resource_id
+            ).replace("APP_INSIGHTS_RESOURCE_ID", application_insights_resource_id),
+        }
+        for change in changes
+    ]
+    runner = FakeRunner(
+        deployment.CommandResult(
+            0,
+            json.dumps({"changes": rendered_changes}),
+            "",
+        )
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(hosted_telemetry_request, mode="what-if"),
+        runner=runner,
+    )
+
+    assert result.ok is True
+    assert result.exact_topology_match is False
+    assert daily_rebuild.safe_hosted_telemetry_configuration_plan(
+        _plan_from_object(result)
+    ) is False
+
+
+def test_hosted_telemetry_unknown_record_fails_closed_with_structural_diagnostic(
+    hosted_telemetry_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    runner = FakeRunner(
+        deployment.CommandResult(
+            0,
+            json.dumps({"changes": [{"changeType": "Unknown"}]}),
+            "private stderr",
+        )
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(hosted_telemetry_request, mode="what-if"),
+        runner=runner,
+    )
+
+    assert result.category == "what_if_parse_failed"
+    assert result.what_if_structural_diagnostic is not None
+    assert result.what_if_structural_diagnostic.rejection_reason == (
+        "unsupported_or_invalid_change_type"
+    )
+    assert result.deployment_attempted is False
+    assert len(runner.calls) == 1
+    assert daily_rebuild.safe_hosted_telemetry_configuration_plan(
+        _plan_from_object(result)
+    ) is False
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("enable_hosted_azure_monitor_telemetry", False),
+        ("enable_key_vault_runtime_authorization", True),
+        ("enable_app_service_authentication", True),
+        ("enable_hosted_foundry_verifier", True),
+    ),
+)
+def test_hosted_telemetry_purpose_rejects_unrelated_configuration_inputs(
+    hosted_telemetry_request: deployment.WebAppInfrastructureDeploymentRequest,
+    field: str,
+    value: bool,
+) -> None:
+    runner = FakeRunner()
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(hosted_telemetry_request, mode="what-if", **{field: value}),
+        runner=runner,
+    )
+
+    assert result.category == "invalid_arguments"
+    assert result.azure_operation_attempted is False
+    assert runner.calls == []
+
+
+def test_hosted_telemetry_purpose_rejects_a_copied_template(
+    hosted_telemetry_request: deployment.WebAppInfrastructureDeploymentRequest,
+    tmp_path: Path,
+) -> None:
+    copied = tmp_path / "web-app-telemetry.bicep"
+    copied.write_text(hosted_telemetry_request.template_file.read_text())
+    runner = FakeRunner()
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(hosted_telemetry_request, template_file=copied, mode="what-if"),
+        runner=runner,
+    )
+
+    assert result.category == "invalid_arguments"
+    assert result.azure_operation_attempted is False
+    assert runner.calls == []
+
+
+def test_hosted_telemetry_plan_accepts_exactly_one_app_settings_modify(
+    hosted_telemetry_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    root = (
+        f"/subscriptions/private-sub/resourceGroups/"
+        f"{hosted_telemetry_request.resource_group}/providers"
+    )
+    change = {
+        "changeType": "Modify",
+        "resourceId": (
+            f"{root}/Microsoft.Web/sites/{hosted_telemetry_request.web_app_name}/"
+            "config/appsettings"
+        ),
     }
-    assert "ConnectionString" not in " ".join(runner.calls[0])
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": [change]}), "")
+    )
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(hosted_telemetry_request, mode="what-if"),
+        runner=runner,
+    )
+
+    assert result.ok is True
+    assert result.create_count == 0
+    assert result.modify_count == 1
+    assert result.ignore_count == 0
+    assert result.deploy_count == 0
+    assert result.exact_topology_match is True
+    assert daily_rebuild.safe_hosted_telemetry_configuration_plan(
+        _plan_from_object(result)
+    ) is True
+    assert len(runner.calls) == 1
 
 
 def test_app_service_authentication_opt_in_is_strict_and_propagated(
@@ -2277,6 +2535,73 @@ def test_reconciliation_accepts_only_exact_direct_effective_change(
     assert safe_web_app_plan(_plan_from_object(result)) is False
 
 
+@pytest.mark.parametrize(
+    ("change_type", "expected_action"),
+    (("NoChange", "no_change"), ("Ignore", "ignore")),
+)
+def test_hosted_telemetry_unexpected_resource_exposes_only_bounded_action(
+    hosted_telemetry_request: deployment.WebAppInfrastructureDeploymentRequest,
+    change_type: str,
+    expected_action: str,
+) -> None:
+    request = replace(
+        hosted_telemetry_request,
+        mode="what-if",
+    )
+    private_subscription = "private-subscription-telemetry"
+    private_resource_group = "private-resource-group-telemetry"
+    private_web_app = "private-web-app-telemetry"
+    private_application_insights = "private-application-insights-telemetry"
+    root = (
+        f"/subscriptions/{private_subscription}/resourceGroups/"
+        f"{request.resource_group}/providers"
+    )
+    changes = [
+        _hosted_telemetry_app_settings_change(request),
+        {
+            "changeType": change_type,
+            "resourceId": (
+                f"{root}/Microsoft.Insights/components/"
+                f"{private_application_insights}"
+            ),
+            "before": {
+                "resourceGroup": private_resource_group,
+                "webApp": private_web_app,
+            },
+        },
+    ]
+
+    runner = FakeRunner(
+        deployment.CommandResult(0, json.dumps({"changes": changes}), "")
+    )
+    result = deployment.deploy_web_app_infrastructure(request, runner=runner)
+    plan = _plan_from_object(result)
+    evaluation = evaluate_web_app_plan_safety(plan)
+
+    assert result.ok is True
+    assert result.exact_topology_match is False
+    assert daily_rebuild.safe_hosted_telemetry_configuration_plan(plan) is False
+    assert evaluation.safe is False
+    assert evaluation.rejection_reason == "unexpected_resource"
+    assert evaluation.unexpected_resource_category == "unidentified"
+    assert evaluation.unexpected_resource_family == "application_insights"
+    assert evaluation.unexpected_resource_action == expected_action
+    assert evaluation.unexpected_resource_record_count == 1
+    assert evaluation.unexpected_resource_record_count_truncated is False
+    assert result.deployment_attempted is False
+    assert len(runner.calls) == 1
+    serialized = json.dumps(evaluation.to_json_dict())
+    for forbidden in (
+        change_type,
+        private_subscription,
+        private_resource_group,
+        private_web_app,
+        private_application_insights,
+        "Microsoft.Insights/components",
+    ):
+        assert forbidden not in serialized
+
+
 def test_reconciliation_rejects_confirmed_nested_wrapper_preview(
     reconciliation_request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> None:
@@ -2586,6 +2911,8 @@ def test_web_app_adapter_accepts_only_the_exact_expected_topology(
     )
 
     assert result.exact_topology_match is True
+    assert result.what_if_structural_diagnostic is None
+    assert result.azure_operation_failure_reason is None
     assert all(change.approved_boundary for change in result.change_evidence)
     assert all(
         "diagnostic" not in change
@@ -3379,17 +3706,80 @@ def test_web_app_adapter_represents_but_rejects_mixed_create_and_modify(
 
 
 @pytest.mark.parametrize(
-    "stdout",
+    ("stdout", "expected_reason", "expected_count"),
     [
-        "not-json",
-        '{}',
-        '{"changes":{}}',
-        '{"changes":[{"changeType":"Unknown"}]}',
+        ("not-json", "invalid_top_level_shape", None),
+        ("[]", "invalid_top_level_shape", None),
+        ('{}', "invalid_change_collection_shape", None),
+        ('{"changes":{}}', "invalid_change_collection_shape", None),
+        ('{"changes":[null]}', "non_object_change_record", 1),
+        (
+            '{"changes":[{"changeType":"Unknown"}]}',
+            "unsupported_or_invalid_change_type",
+            1,
+        ),
+        (
+            json.dumps(
+                {
+                    "changes": [
+                        {
+                            "changeType": "Create",
+                            "resourceId": "fictional-invalid-resource-id",
+                            "resourceType": "Microsoft.Web/sites",
+                        }
+                    ]
+                }
+            ),
+            "invalid_resource_id_shape",
+            1,
+        ),
+        (
+            json.dumps(
+                {
+                    "changes": [
+                        {
+                            "changeType": "Create",
+                            "resourceId": (
+                                "/subscriptions/00000000-0000-0000-0000-000000000099/"
+                                "resourceGroups/fictional-private-diagnostic-rg/"
+                                "providers/Microsoft.Web/sites/"
+                                "fictional-private-diagnostic-site"
+                            ),
+                            "resourceType": {"detail": "provider free-form text"},
+                        }
+                    ]
+                }
+            ),
+            "invalid_resource_type_shape",
+            1,
+        ),
+        (
+            json.dumps(
+                {
+                    "changes": [
+                        {
+                            "changeType": "Create",
+                            "resourceId": (
+                                "/subscriptions/00000000-0000-0000-0000-000000000099/"
+                                "resourceGroups/fictional-private-diagnostic-rg/"
+                                "providers/Microsoft.Web/sites/"
+                                "fictional-private-diagnostic-site"
+                            ),
+                            "resourceType": "Microsoft.Storage/storageAccounts",
+                        }
+                    ]
+                }
+            ),
+            "resource_type_mismatch",
+            1,
+        ),
     ],
 )
-def test_invalid_what_if_json_structure_fails_safely(
+def test_invalid_what_if_json_structure_has_bounded_branch_diagnostic(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
     stdout: str,
+    expected_reason: str,
+    expected_count: int | None,
 ) -> None:
     runner = FakeRunner(deployment.CommandResult(0, stdout, "secret stderr"))
 
@@ -3405,27 +3795,200 @@ def test_invalid_what_if_json_structure_fails_safely(
     assert result.modify_count is None
     assert result.delete_count is None
     assert result.no_change_count is None
+    assert result.to_json_dict()["what_if_structural_diagnostic"] == {
+        "rejection_reason": expected_reason,
+        "bounded_record_count": expected_count,
+        "record_count_truncated": False,
+    }
+    assert result.azure_operation_failure_reason is None
+    plan = _plan_from_object(result)
+    assert plan.malformed is True
+    assert evaluate_web_app_plan_safety(plan).rejection_reason == (
+        "malformed_evidence"
+    )
     assert "secret stderr" not in rendered
     assert "not-json" not in rendered
+    for forbidden in (
+        "00000000-0000-0000-0000-000000000099",
+        "fictional-private-diagnostic-rg",
+        "fictional-private-diagnostic-site",
+        "fictional-invalid-resource-id",
+        "provider free-form text",
+    ):
+        assert forbidden not in json.dumps(
+            result.to_json_dict()["what_if_structural_diagnostic"]
+        )
 
 
-def test_nonzero_what_if_result_remains_a_sanitized_failure(
+def test_what_if_structural_diagnostic_bounds_record_count_and_source_values(
     deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
 ) -> None:
-    runner = FakeRunner(
-        deployment.CommandResult(1, "raw stdout resource ID", "raw access token")
+    private_record = "provider-returned free-form private record"
+    stdout = json.dumps({"changes": [private_record] * 25})
+
+    result = deployment.deploy_web_app_infrastructure(
+        replace(deployment_request, mode="what-if"),
+        runner=FakeRunner(deployment.CommandResult(0, stdout, "private stderr")),
     )
+
+    diagnostic = result.to_json_dict()["what_if_structural_diagnostic"]
+    assert diagnostic == {
+        "rejection_reason": "non_object_change_record",
+        "bounded_record_count": 20,
+        "record_count_truncated": True,
+    }
+    serialized = json.dumps(diagnostic)
+    assert private_record not in serialized
+    assert "private stderr" not in serialized
+
+
+@pytest.mark.parametrize(
+    ("command_result", "expected_category", "expected_reason"),
+    (
+        (
+            deployment.CommandResult(
+                127,
+                "private CLI stdout",
+                "private executable path",
+            ),
+            "azure_cli_unavailable",
+            "azure_cli_invocation_failed",
+        ),
+        (
+            SimpleNamespace(
+                return_code=124,
+                stdout="private timeout stdout",
+                stderr="private timeout stderr",
+                timed_out=True,
+            ),
+            "azure_operation_failed",
+            "command_timeout",
+        ),
+        (
+            deployment.CommandResult(
+                1,
+                "private authentication stdout",
+                "ERROR: (AuthorizationFailed) private-token-value",
+            ),
+            "azure_operation_failed",
+            "authentication_or_authorization_failed",
+        ),
+        (
+            deployment.CommandResult(
+                2,
+                "private invocation stdout",
+                "ERROR: unrecognized arguments: --private-provider-switch",
+            ),
+            "azure_operation_failed",
+            "azure_cli_invocation_failed",
+        ),
+        (
+            deployment.CommandResult(
+                3,
+                "private missing-resource stdout",
+                "ERROR: (ResourceGroupNotFound) private-resource-group-name",
+            ),
+            "azure_operation_failed",
+            "resource_not_found",
+        ),
+        (
+            deployment.CommandResult(
+                1,
+                "private validation stdout",
+                "ERROR: (InvalidTemplateDeployment) private-template-detail",
+            ),
+            "azure_operation_failed",
+            "template_or_parameter_validation_failed",
+        ),
+        (
+            deployment.CommandResult(
+                1,
+                "private conflict stdout",
+                "ERROR: (DeploymentActive) private-deployment-name",
+            ),
+            "azure_operation_failed",
+            "deployment_conflict",
+        ),
+        (
+            deployment.CommandResult(
+                1,
+                "private unknown stdout",
+                "private provider text with subscription-000099",
+            ),
+            "azure_operation_failed",
+            "unknown_azure_operation_failure",
+        ),
+    ),
+    ids=(
+        "cli-unavailable",
+        "timeout",
+        "authentication",
+        "cli-invocation",
+        "resource-not-found",
+        "template-validation",
+        "deployment-conflict",
+        "unknown",
+    ),
+)
+def test_nonzero_what_if_result_has_only_a_bounded_failure_reason(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+    monkeypatch: pytest.MonkeyPatch,
+    command_result: object,
+    expected_category: str,
+    expected_reason: str,
+) -> None:
+    monkeypatch.setattr(
+        deployment,
+        "_parse_web_app_infrastructure_what_if_outcome",
+        lambda *_args, **_kwargs: pytest.fail(
+            "failed Azure command must not reach the structural parser"
+        ),
+    )
+    runner = FakeRunner(command_result)  # type: ignore[arg-type]
 
     result = deployment.deploy_web_app_infrastructure(
         replace(deployment_request, mode="what-if"), runner=runner
     )
 
     rendered = json.dumps(result.to_json_dict())
-    assert result.category == "azure_operation_failed"
+    assert result.category == expected_category
     assert result.ok is False
+    assert result.what_if_attempted is True
+    assert result.deployment_attempted is False
     assert result.what_if_summary_available is False
-    assert "resource ID" not in rendered
-    assert "access token" not in rendered
+    assert result.what_if_structural_diagnostic is None
+    assert result.azure_operation_failure_reason == expected_reason
+    assert result.to_json_dict()["azure_operation_failure_reason"] == (
+        expected_reason
+    )
+    assert len(runner.calls) == 1
+    assert _plan_from_object(result).malformed is True
+    assert evaluate_web_app_plan_safety(
+        _plan_from_object(result)
+    ).rejection_reason == "malformed_evidence"
+    private_values = (
+        getattr(command_result, "stdout", ""),
+        getattr(command_result, "stderr", ""),
+        "private-token-value",
+        "private-provider-switch",
+        "private-resource-group-name",
+        "private-template-detail",
+        "private-deployment-name",
+        "subscription-000099",
+    )
+    assert all(value not in rendered for value in private_values if value)
+
+
+def test_azure_operation_failure_reason_rejects_arbitrary_public_values(
+    deployment_request: deployment.WebAppInfrastructureDeploymentRequest,
+) -> None:
+    result = deployment.deploy_web_app_infrastructure(deployment_request)
+
+    with pytest.raises(ValueError, match="failure reason is invalid"):
+        replace(
+            result,
+            azure_operation_failure_reason="private arbitrary provider text",
+        )
 
 
 @pytest.mark.parametrize("change_type", ["Delete", "Create"])
@@ -3482,11 +4045,13 @@ def test_json_result_is_exactly_the_approved_sanitized_projection(
         "deploy_count",
         "unsupported_count",
         "delete_detected",
-            "what_if_summary_available",
-            "exact_topology_match",
-            "recommended_next_step",
-            "change_evidence",
-        }
+        "what_if_summary_available",
+        "what_if_structural_diagnostic",
+        "azure_operation_failure_reason",
+        "exact_topology_match",
+        "recommended_next_step",
+        "change_evidence",
+    }
 
 
 def test_success_messages_are_mode_specific_and_never_claim_readiness(

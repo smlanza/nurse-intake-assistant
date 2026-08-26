@@ -549,7 +549,20 @@ not part of the optional Foundry verifier settings. This does not schedule or
 continuously run the WebJob. App settings retain mock providers, suppressed
 notifications, and `SCM_DO_BUILD_DURING_DEPLOYMENT=true`, allowing App Service
 remote build automation to install dependencies from the packaged
-`requirements.txt`. The module principal ID is available only to its parent;
+`requirements.txt`. Hosted telemetry is explicitly disabled by default with
+`TELEMETRY_PROVIDER=none`. The tagged opt-in selects the existing
+`azure-monitor` provider and resolves `APPLICATIONINSIGHTS_CONNECTION_STRING`
+inside Bicep from the existing authoritative Application Insights component;
+the connection string is not a deployment input or public output. Configuration
+alone does not emit telemetry because the adapter remains lazy. Existing-Web-App
+telemetry opt-in does not reuse the full-site reconciliation surface. Its
+distinct resource-group-scoped `infra/modules/web-app-telemetry.bicep` entry
+point declares the exact Web App and authoritative Application Insights
+component as existing, preserves current app settings internally, and can
+deploy only the Web App `appsettings` configuration child with
+`TELEMETRY_PROVIDER=azure-monitor` and the internally resolved connection
+string. It has no module, output, plan, Key Vault, data, monitoring-creation,
+Foundry, RBAC, or Authentication surface. The module principal ID is available only to its parent;
 `main.bicep` neither uses nor publishes that identifier.
 
 Ordinary Web App hosting owns the parent site. App Service Authentication v2
@@ -577,17 +590,26 @@ authorization and roles remain future separate decisions.
 `scripts/deploy_web_app_infra.py` add an explicit operator boundary around both
 Web App hosting purposes. Initial creation requires `infra/main.bicep`; the nondefault
 `--reconcile-existing-web-app` purpose requires
-`infra/modules/web-app.bicep`. Purpose/template mismatches fail before
-Azure CLI execution. Check mode validates required safe arguments, the selected
-template, and the mock-safe hosted settings without constructing an Azure CLI
-runner. A shared hosting-contract
-module owns the exact seven provider/suppression settings used here and by the
+`infra/modules/web-app.bicep`. The separate nondefault
+`--configure-hosted-telemetry` purpose requires the authoritative
+`infra/modules/web-app-telemetry.bicep`, rejects telemetry through broad
+reconciliation, and accepts no hosted-verifier, Key Vault, Authentication, or
+connection-string input. Purpose/template mismatches fail before Azure CLI
+execution. Check mode validates required safe arguments, the selected template,
+and the mock-safe hosted settings without constructing an Azure CLI runner. A shared hosting-contract
+module owns the exact eight provider/suppression settings used here and by the
 configuration verifier, plus the exact remote-build and Kudu-agent baseline
 settings. The local Bicep reader is restricted to the Web App resource's active
 `siteConfig` declaration. It requires direct `alwaysOn=true` and exactly one
 baseline `WEBSITE_SKIP_RUNNING_KUDUAGENT=false`; missing, extra, duplicate,
 conflicting, commented-only, and overriding settings fail. A setting placed
 only in the optional verifier collection also fails.
+The hosted-telemetry preview contract is separate from full-site reconciliation
+and accepts only one exactly scoped `Microsoft.Web/sites/config` `appsettings`
+`Modify`. Any `Create`, `NoChange`, `Ignore`, `Delete`, `Deploy`, `Unsupported`,
+unknown, unrelated, malformed, or multiply matched record fails closed. This
+does not broaden the general Web App topology matcher or make telemetry part of
+daily READY.
 The same local boundary validates initial creation's conditional reference to
 the authoritative Authentication module and strictly rejects malformed,
 incomplete, or conflicting opt-in identifiers before Azure CLI construction.
@@ -885,7 +907,9 @@ contract without creating an Azure CLI runner. Only explicit `--live --json`
 uses three read-only Azure CLI commands with explicit JSON output projections.
 JMESPath `--query` shapes the JSON emitted to the Python verifier; it does not
 limit what Azure reads. The baseline app-settings projection emits only the
-nine hosting settings; hosted-verifier opt-in adds the five verifier names.
+ten hosting settings; hosted-verifier opt-in adds the five verifier names, and
+hosted telemetry verification adds only the existing Application Insights
+connection-setting name.
 The application never returns, logs, or serializes raw unfiltered Azure CLI
 output.
 The verifier checks successful provisioning, Linux `PYTHON|3.12`, the current
@@ -893,7 +917,9 @@ uvicorn startup command, `alwaysOn=true`, remote build,
 `WEBSITE_SKIP_RUNNING_KUDUAGENT=false`, HTTPS-only access, disabled FTPS, TLS
 1.2 minimums, `/health`, system-assigned identity presence, mock providers, and
 suppressed notifications. Deployment validation and this read-only verifier
-both enforce the WebJob prerequisites. Its immutable result never exposes
+both enforce the WebJob prerequisites. Explicit hosted telemetry verification
+requires the existing provider value and structurally validates the
+adapter-required connection string without returning it. Its immutable result never exposes
 resource or identity IDs, hostnames, raw settings, command output, errors, or
 secrets.
 
@@ -1003,8 +1029,9 @@ without logging the telemetry error, changing processing behavior, or replacing
 the primary exception. The adapter boundary is verified offline with injected
 fakes. The standalone proof obtains the exact component identity only from a
 validated current readiness receipt; it neither derives a name nor lists or
-adopts resources. Live telemetry delivery remains separate and unproven until
-fresh compatible READY evidence and a supervised proof both succeed.
+adopts resources. Standalone fixed-fictional telemetry ingestion is live-proven.
+The hosted configuration mode is implemented but awaits independent live
+verification; hosted telemetry ingestion remains separate and unproven.
 
 Application composition also owns an optional secret-access provider boundary.
 `SECRET_PROVIDER=local` is the safe default and constructs no Azure credential

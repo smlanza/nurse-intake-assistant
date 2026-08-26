@@ -85,6 +85,18 @@ WebAppUnexpectedResourceCategory = Literal[
     "foundry_project_reference",
     "unidentified",
 ]
+WebAppUnexpectedResourceAction = Literal[
+    "create",
+    "modify",
+    "no_change",
+    "ignore",
+    "delete",
+    "deploy",
+    "unsupported",
+    "replacement",
+    "unknown",
+    "multiple",
+]
 _WEB_APP_PLAN_REJECTION_REASONS = frozenset(
     {
         "malformed_evidence",
@@ -111,6 +123,64 @@ _WEB_APP_UNEXPECTED_RESOURCE_TYPES = {
         "foundry_project_reference"
     ),
 }
+_WEB_APP_UNEXPECTED_RESOURCE_ACTIONS = frozenset(
+    {
+        "create",
+        "modify",
+        "no_change",
+        "ignore",
+        "delete",
+        "deploy",
+        "unsupported",
+        "replacement",
+        "unknown",
+        "multiple",
+    }
+)
+_WEB_APP_UNEXPECTED_RESOURCE_ACTION_BY_NORMALIZED = {
+    "Create": "create",
+    "Modify": "modify",
+    "NoChange": "no_change",
+    "Ignore": "ignore",
+    "Delete": "delete",
+    "Deploy": "deploy",
+    "Unsupported": "unsupported",
+    "Replacement": "replacement",
+    "unknown": "unknown",
+}
+_MAX_WEB_APP_UNEXPECTED_RESOURCE_RECORD_COUNT = 20
+
+
+def _web_app_unexpected_resource_aggregate_valid(
+    rejection_reason: object,
+    action: object,
+    record_count: object,
+    record_count_truncated: object,
+) -> bool:
+    if type(record_count_truncated) is not bool:
+        return False
+    unexpected = rejection_reason == "unexpected_resource"
+    if not unexpected:
+        return bool(
+            action is None
+            and record_count is None
+            and record_count_truncated is False
+        )
+    if (
+        action not in _WEB_APP_UNEXPECTED_RESOURCE_ACTIONS
+        or isinstance(record_count, bool)
+        or not isinstance(record_count, int)
+        or not 1
+        <= record_count
+        <= _MAX_WEB_APP_UNEXPECTED_RESOURCE_RECORD_COUNT
+        or ((record_count > 1) is not (action == "multiple"))
+        or (
+            record_count_truncated
+            and record_count != _MAX_WEB_APP_UNEXPECTED_RESOURCE_RECORD_COUNT
+        )
+    ):
+        return False
+    return True
 
 
 def _wait_for_hosted_readiness(seconds: float) -> None:
@@ -472,6 +542,9 @@ class WebAppPlanSafetyEvaluation:
     unexpected_resource_family: AzureResourceFamily | None = None
     unexpected_resource_unknown_reason: AzureResourceUnknownReason | None = None
     unexpected_resource_provider_family: AzureProviderFamily | None = None
+    unexpected_resource_action: WebAppUnexpectedResourceAction | None = None
+    unexpected_resource_record_count: int | None = None
+    unexpected_resource_record_count_truncated: bool = False
 
     def __post_init__(self) -> None:
         if self.safe is not (self.rejection_reason is None):
@@ -538,6 +611,36 @@ class WebAppPlanSafetyEvaluation:
             raise ValueError(
                 "Web App unknown-resource reason and provider disagree."
             )
+        if not _web_app_unexpected_resource_aggregate_valid(
+            self.rejection_reason,
+            self.unexpected_resource_action,
+            self.unexpected_resource_record_count,
+            self.unexpected_resource_record_count_truncated,
+        ):
+            raise ValueError(
+                "Web App unexpected-resource action/count diagnostic is invalid."
+            )
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "safe": self.safe,
+            "rejection_reason": self.rejection_reason,
+            "unexpected_resource_category": self.unexpected_resource_category,
+            "unexpected_resource_family": self.unexpected_resource_family,
+            "unexpected_resource_unknown_reason": (
+                self.unexpected_resource_unknown_reason
+            ),
+            "unexpected_resource_provider_family": (
+                self.unexpected_resource_provider_family
+            ),
+            "unexpected_resource_action": self.unexpected_resource_action,
+            "unexpected_resource_record_count": (
+                self.unexpected_resource_record_count
+            ),
+            "unexpected_resource_record_count_truncated": (
+                self.unexpected_resource_record_count_truncated
+            ),
+        }
 
 
 @dataclass(frozen=True)
@@ -901,6 +1004,11 @@ class DailyAzureEnvironmentRebuildResult:
     web_app_plan_unexpected_resource_provider_family: (
         AzureProviderFamily | None
     ) = None
+    web_app_plan_unexpected_resource_action: (
+        WebAppUnexpectedResourceAction | None
+    ) = None
+    web_app_plan_unexpected_resource_record_count: int | None = None
+    web_app_plan_unexpected_resource_record_count_truncated: bool = False
     foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None
     what_if_diagnostic: WhatIfDiagnostic | None = None
     requested_foundry_account_name: str | None = None
@@ -1008,6 +1116,15 @@ class DailyAzureEnvironmentRebuildResult:
         ):
             raise ValueError(
                 "Web App unknown-resource reason and provider family disagree."
+            )
+        if not _web_app_unexpected_resource_aggregate_valid(
+            self.web_app_plan_rejection_reason,
+            self.web_app_plan_unexpected_resource_action,
+            self.web_app_plan_unexpected_resource_record_count,
+            self.web_app_plan_unexpected_resource_record_count_truncated,
+        ):
+            raise ValueError(
+                "Web App unexpected-resource action/count diagnostic is invalid."
             )
         if self.daily_environment_ready:
             if (
@@ -1188,6 +1305,15 @@ class DailyAzureEnvironmentRebuildResult:
             ),
             "web_app_plan_unexpected_resource_provider_family": (
                 self.web_app_plan_unexpected_resource_provider_family
+            ),
+            "web_app_plan_unexpected_resource_action": (
+                self.web_app_plan_unexpected_resource_action
+            ),
+            "web_app_plan_unexpected_resource_record_count": (
+                self.web_app_plan_unexpected_resource_record_count
+            ),
+            "web_app_plan_unexpected_resource_record_count_truncated": (
+                self.web_app_plan_unexpected_resource_record_count_truncated
             ),
         }
         if self.foundry_plan_diagnostic is not None:
@@ -1605,6 +1731,9 @@ def _unsafe_web_app_plan_evaluation(
         category, family, unknown_reason, provider_family = (
             _web_app_unexpected_resource_diagnostic(plan)
         )
+        action, record_count, record_count_truncated = (
+            _web_app_unexpected_resource_aggregate(plan)
+        )
         return WebAppPlanSafetyEvaluation(
             False,
             "unexpected_resource",
@@ -1612,6 +1741,9 @@ def _unsafe_web_app_plan_evaluation(
             family,
             unknown_reason,
             provider_family,
+            action,
+            record_count,
+            record_count_truncated,
         )
     if (
         plan.delete_count
@@ -1758,6 +1890,38 @@ def _web_app_unexpected_resource_diagnostic(
     )
 
 
+def _web_app_unexpected_resource_aggregate(
+    plan: PlanResult,
+) -> tuple[WebAppUnexpectedResourceAction, int, bool]:
+    unexpected_changes = tuple(
+        change
+        for change in plan.change_evidence
+        if change.logical_category == "unexpected_resource"
+    )
+    unrelated_count = (
+        plan.unrelated_resource_count
+        if type(plan.unrelated_resource_count) is int
+        and plan.unrelated_resource_count > 0
+        else 0
+    )
+    actual_count = len(unexpected_changes) + unrelated_count
+    bounded_count = min(
+        max(actual_count, 1),
+        _MAX_WEB_APP_UNEXPECTED_RESOURCE_RECORD_COUNT,
+    )
+    truncated = actual_count > _MAX_WEB_APP_UNEXPECTED_RESOURCE_RECORD_COUNT
+    if actual_count > 1:
+        action: WebAppUnexpectedResourceAction = "multiple"
+    elif unexpected_changes:
+        action = _WEB_APP_UNEXPECTED_RESOURCE_ACTION_BY_NORMALIZED.get(
+            unexpected_changes[0].action,
+            "unknown",
+        )
+    else:
+        action = "unknown"
+    return action, bounded_count, truncated
+
+
 def _web_app_modify_change_allowed(change: ChangeEvidence) -> bool:
     return bool(
         change.resource_type == "Microsoft.Web/sites"
@@ -1793,6 +1957,37 @@ def safe_web_app_reconciliation_plan(plan: PlanResult) -> bool:
         and change.action == "Modify"
         and change.resource_type == "Microsoft.Web/sites"
         and change.logical_category == "web_app"
+        and change.approved_boundary
+        and change.expected_identity_match
+        and change.expected_parent_match
+        and change.expected_scope_match
+        and change.expected_multiplicity_match
+    )
+
+
+def safe_hosted_telemetry_configuration_plan(plan: PlanResult) -> bool:
+    if (
+        plan.malformed
+        or not plan.exact_topology_match
+        or plan.create_count
+        or plan.modify_count != 1
+        or plan.delete_count
+        or plan.deploy_count
+        or plan.unsupported_count
+        or plan.unknown_count
+        or plan.unrelated_resource_count
+        or plan.no_change_count
+        or plan.ignore_count
+        or not _plan_counts_match_evidence(plan)
+        or len(plan.change_evidence) != 1
+    ):
+        return False
+    change = plan.change_evidence[0]
+    return bool(
+        change.boundary == "hosted_telemetry_configuration"
+        and change.action == "Modify"
+        and change.resource_type == "Microsoft.Web/sites/config"
+        and change.logical_category == "web_app_telemetry_configuration"
         and change.approved_boundary
         and change.expected_identity_match
         and change.expected_parent_match
@@ -3643,6 +3838,15 @@ class DailyAzureEnvironmentRebuild:
                     web_app_plan_unexpected_resource_provider_family=(
                         plan_evaluation.unexpected_resource_provider_family
                     ),
+                    web_app_plan_unexpected_resource_action=(
+                        plan_evaluation.unexpected_resource_action
+                    ),
+                    web_app_plan_unexpected_resource_record_count=(
+                        plan_evaluation.unexpected_resource_record_count
+                    ),
+                    web_app_plan_unexpected_resource_record_count_truncated=(
+                        plan_evaluation.unexpected_resource_record_count_truncated
+                    ),
                 )
             if not approvals.request(
                 _plan_approval_summary(
@@ -4045,6 +4249,11 @@ class DailyAzureEnvironmentRebuild:
         web_app_plan_unexpected_resource_provider_family: (
             AzureProviderFamily | None
         ) = None,
+        web_app_plan_unexpected_resource_action: (
+            WebAppUnexpectedResourceAction | None
+        ) = None,
+        web_app_plan_unexpected_resource_record_count: int | None = None,
+        web_app_plan_unexpected_resource_record_count_truncated: bool = False,
         foundry_plan_diagnostic: GuidedPlanDiagnostic | None = None,
         what_if_diagnostic: WhatIfDiagnostic | None = None,
         context: DailyAzureRuntimeContext | None = None,
@@ -4131,6 +4340,15 @@ class DailyAzureEnvironmentRebuild:
             ),
             web_app_plan_unexpected_resource_provider_family=(
                 web_app_plan_unexpected_resource_provider_family
+            ),
+            web_app_plan_unexpected_resource_action=(
+                web_app_plan_unexpected_resource_action
+            ),
+            web_app_plan_unexpected_resource_record_count=(
+                web_app_plan_unexpected_resource_record_count
+            ),
+            web_app_plan_unexpected_resource_record_count_truncated=(
+                web_app_plan_unexpected_resource_record_count_truncated
             ),
             foundry_plan_diagnostic=foundry_plan_diagnostic,
             what_if_diagnostic=what_if_diagnostic,
@@ -5595,6 +5813,10 @@ class RepositoryDailyAzureStageRunner:
             WebAppInfrastructureDeploymentRequest,
         )
 
+        hosted_telemetry_configuration = (
+            purpose == "hosted_telemetry_configuration"
+        )
+
         return WebAppInfrastructureDeploymentRequest(
             mode=mode,
             resource_group=context.resource_group,
@@ -5605,20 +5827,46 @@ class RepositoryDailyAzureStageRunner:
             cosmos_database_name="nurse-intake",
             cosmos_container_name="cases",
             template_file=(
-                self.repository_root / "infra/modules/web-app.bicep"
-                if purpose == "existing_web_app_reconciliation"
-                else self.repository_root / "infra/main.bicep"
+                self.repository_root
+                / (
+                    "infra/modules/web-app-telemetry.bicep"
+                    if hosted_telemetry_configuration
+                    else (
+                        "infra/modules/web-app.bicep"
+                        if purpose == "existing_web_app_reconciliation"
+                        else "infra/main.bicep"
+                    )
+                )
             ),
-            enable_hosted_foundry_verifier=True,
-            hosted_verifier_project_endpoint=context.project_endpoint,
-            hosted_verifier_stable_agent_endpoint=context.stable_agent_endpoint,
-            hosted_verifier_agent_name=context.agent_name,
-            hosted_verifier_agent_version=context.immutable_agent_version,
-            hosted_verifier_model_deployment_name=context.model_deployment_name,
+            enable_hosted_foundry_verifier=(not hosted_telemetry_configuration),
+            hosted_verifier_project_endpoint=(
+                None
+                if hosted_telemetry_configuration
+                else context.project_endpoint
+            ),
+            hosted_verifier_stable_agent_endpoint=(
+                None
+                if hosted_telemetry_configuration
+                else context.stable_agent_endpoint
+            ),
+            hosted_verifier_agent_name=(
+                None if hosted_telemetry_configuration else context.agent_name
+            ),
+            hosted_verifier_agent_version=(
+                None
+                if hosted_telemetry_configuration
+                else context.immutable_agent_version
+            ),
+            hosted_verifier_model_deployment_name=(
+                None
+                if hosted_telemetry_configuration
+                else context.model_deployment_name
+            ),
             enable_key_vault_runtime_authorization=(
                 self.config.enable_key_vault_runtime_authorization
                 and purpose == "initial_create"
             ),
+            enable_hosted_azure_monitor_telemetry=hosted_telemetry_configuration,
             purpose=purpose,
         )
 

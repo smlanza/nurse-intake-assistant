@@ -5,8 +5,11 @@ from typing import Literal, Protocol
 
 from src.app.services.web_app_hosting_contract import (
     ALWAYS_ON_REQUIRED,
+    APPLICATION_INSIGHTS_CONNECTION_SETTING,
     BASELINE_APP_SETTINGS,
     HOSTED_SETTING_OPTIONS,
+    HOSTED_TELEMETRY_PROVIDER_SETTING,
+    HOSTED_TELEMETRY_PROVIDER_VALUE,
     HOSTED_VERIFIER_SETTING_NAMES,
     REMOTE_BUILD_SETTING,
     SAFE_HOSTED_SETTINGS,
@@ -14,6 +17,7 @@ from src.app.services.web_app_hosting_contract import (
     WEBJOB_RUNTIME_VALUE,
     hosted_verifier_settings_valid,
 )
+from src.app.services.azure_monitor_intake_telemetry import _instrumentation_key
 
 EXPECTED_LOCAL_CONTRACT = {
     "linux_fx_version": "PYTHON|3.12",
@@ -45,9 +49,16 @@ SITE_CONFIG_QUERY = (
 _BASE_APP_SETTING_NAMES = tuple(BASELINE_APP_SETTINGS)
 
 
-def _app_settings_query(include_hosted_verifier: bool) -> str:
+def _app_settings_query(
+    include_hosted_verifier: bool,
+    include_hosted_telemetry: bool = False,
+) -> str:
     names = _BASE_APP_SETTING_NAMES + (
         EXPECTED_HOSTED_VERIFIER_SETTING_NAMES if include_hosted_verifier else ()
+    ) + (
+        (APPLICATION_INSIGHTS_CONNECTION_SETTING,)
+        if include_hosted_telemetry
+        else ()
     )
     return (
         "[?"
@@ -58,6 +69,7 @@ def _app_settings_query(include_hosted_verifier: bool) -> str:
 
 BASE_APP_SETTINGS_QUERY = _app_settings_query(False)
 APP_SETTINGS_QUERY = _app_settings_query(True)
+TELEMETRY_APP_SETTINGS_QUERY = _app_settings_query(False, True)
 
 ConfigurationCategory = Literal[
     "success",
@@ -72,6 +84,7 @@ ConfigurationCategory = Literal[
     "managed_identity_missing",
     "safe_posture_invalid",
     "hosted_verifier_configuration_invalid",
+    "hosted_telemetry_configuration_invalid",
     "azure_cli_unavailable",
     "authentication_or_authorization_failed",
     "azure_request_failed",
@@ -96,6 +109,9 @@ MESSAGES: dict[ConfigurationCategory, str] = {
     "safe_posture_invalid": "The hosted provider posture is not safe.",
     "hosted_verifier_configuration_invalid": (
         "The hosted verifier configuration is missing or does not match."
+    ),
+    "hosted_telemetry_configuration_invalid": (
+        "The hosted telemetry configuration is missing or invalid."
     ),
     "azure_cli_unavailable": "Azure CLI is unavailable.",
     "authentication_or_authorization_failed": (
@@ -122,6 +138,9 @@ NEXT_STEPS: dict[ConfigurationCategory, str] = {
     "safe_posture_invalid": "Restore mock providers and suppressed notifications before continuing.",
     "hosted_verifier_configuration_invalid": (
         "Review the five approved non-secret hosted verifier settings."
+    ),
+    "hosted_telemetry_configuration_invalid": (
+        "Restore the explicit Azure Monitor telemetry configuration."
     ),
     "azure_cli_unavailable": "Install Azure CLI before an explicit live verification.",
     "authentication_or_authorization_failed": (
@@ -171,6 +190,8 @@ class WebAppConfigurationVerificationResult:
     managed_identity_present: bool
     safe_provider_posture_verified: bool
     hosted_verifier_configuration_verified: bool
+    hosted_telemetry_configuration_verified: bool
+    application_insights_runtime_configuration_verified: bool
     recommended_next_step: str
 
     @classmethod
@@ -188,6 +209,8 @@ class WebAppConfigurationVerificationResult:
         cls,
         *,
         hosted_verifier_configuration_verified: bool = False,
+        hosted_telemetry_configuration_verified: bool = False,
+        application_insights_runtime_configuration_verified: bool = False,
     ) -> "WebAppConfigurationVerificationResult":
         return cls._create(
             "live",
@@ -208,6 +231,12 @@ class WebAppConfigurationVerificationResult:
             safe_provider_posture_verified=True,
             hosted_verifier_configuration_verified=(
                 hosted_verifier_configuration_verified
+            ),
+            hosted_telemetry_configuration_verified=(
+                hosted_telemetry_configuration_verified
+            ),
+            application_insights_runtime_configuration_verified=(
+                application_insights_runtime_configuration_verified
             ),
         )
 
@@ -251,6 +280,8 @@ class WebAppConfigurationVerificationResult:
         managed_identity_present: bool = False,
         safe_provider_posture_verified: bool = False,
         hosted_verifier_configuration_verified: bool = False,
+        hosted_telemetry_configuration_verified: bool = False,
+        application_insights_runtime_configuration_verified: bool = False,
         recommended_next_step: str | None = None,
     ) -> "WebAppConfigurationVerificationResult":
         return cls(
@@ -274,6 +305,12 @@ class WebAppConfigurationVerificationResult:
             safe_provider_posture_verified=safe_provider_posture_verified,
             hosted_verifier_configuration_verified=(
                 hosted_verifier_configuration_verified
+            ),
+            hosted_telemetry_configuration_verified=(
+                hosted_telemetry_configuration_verified
+            ),
+            application_insights_runtime_configuration_verified=(
+                application_insights_runtime_configuration_verified
             ),
             recommended_next_step=recommended_next_step or NEXT_STEPS[category],
         )
@@ -301,6 +338,12 @@ class WebAppConfigurationVerificationResult:
             "hosted_verifier_configuration_verified": (
                 self.hosted_verifier_configuration_verified
             ),
+            "hosted_telemetry_configuration_verified": (
+                self.hosted_telemetry_configuration_verified
+            ),
+            "application_insights_runtime_configuration_verified": (
+                self.application_insights_runtime_configuration_verified
+            ),
             "recommended_next_step": self.recommended_next_step,
         }
 
@@ -317,12 +360,14 @@ def verify_web_app_configuration(
     expected_hosted_verifier_settings: Mapping[str, object] | None = None,
     *,
     verify_hosted_foundry_verifier: bool = False,
+    verify_hosted_azure_monitor_telemetry: bool = False,
     runner: AzureCliRunner,
 ) -> WebAppConfigurationVerificationResult:
     if (
         not _nonempty(resource_group)
         or not _nonempty(web_app_name)
         or not isinstance(verify_hosted_foundry_verifier, bool)
+        or not isinstance(verify_hosted_azure_monitor_telemetry, bool)
         or (
             verify_hosted_foundry_verifier
             and (
@@ -356,6 +401,8 @@ def verify_web_app_configuration(
         "managed_identity_present": False,
         "safe_provider_posture_verified": False,
         "hosted_verifier_configuration_verified": False,
+        "hosted_telemetry_configuration_verified": False,
+        "application_insights_runtime_configuration_verified": False,
     }
     resource_group = resource_group.strip()
     web_app_name = web_app_name.strip()
@@ -494,7 +541,10 @@ def verify_web_app_configuration(
             "--name",
             web_app_name,
             "--query",
-            _app_settings_query(verify_hosted_foundry_verifier),
+            _app_settings_query(
+                verify_hosted_foundry_verifier,
+                verify_hosted_azure_monitor_telemetry,
+            ),
             "--output",
             "json",
             "--only-show-errors",
@@ -519,7 +569,15 @@ def verify_web_app_configuration(
             "webjob_hosting_configuration_invalid", **progress
         )
 
-    if any(settings.get(name) != value for name, value in SAFE_APP_SETTINGS.items()):
+    expected_safe_settings = dict(SAFE_APP_SETTINGS)
+    if verify_hosted_azure_monitor_telemetry:
+        expected_safe_settings[HOSTED_TELEMETRY_PROVIDER_SETTING] = (
+            HOSTED_TELEMETRY_PROVIDER_VALUE
+        )
+    if any(
+        settings.get(name) != value
+        for name, value in expected_safe_settings.items()
+    ):
         return WebAppConfigurationVerificationResult.failure(
             "safe_posture_invalid", **progress
         )
@@ -534,10 +592,24 @@ def verify_web_app_configuration(
                 "hosted_verifier_configuration_invalid", **progress
             )
         progress["hosted_verifier_configuration_verified"] = True
+    if verify_hosted_azure_monitor_telemetry:
+        connection_string = settings.get(APPLICATION_INSIGHTS_CONNECTION_SETTING)
+        if _instrumentation_key(connection_string) is None:
+            return WebAppConfigurationVerificationResult.failure(
+                "hosted_telemetry_configuration_invalid", **progress
+            )
+        progress["application_insights_runtime_configuration_verified"] = True
+        progress["hosted_telemetry_configuration_verified"] = True
     return WebAppConfigurationVerificationResult.live_success(
         hosted_verifier_configuration_verified=(
             verify_hosted_foundry_verifier
-        )
+        ),
+        hosted_telemetry_configuration_verified=(
+            verify_hosted_azure_monitor_telemetry
+        ),
+        application_insights_runtime_configuration_verified=(
+            verify_hosted_azure_monitor_telemetry
+        ),
     )
 
 

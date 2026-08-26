@@ -18,7 +18,13 @@ SAFE_HOSTED_SETTINGS: Final[Mapping[str, str]] = MappingProxyType(
         "EMAIL_PROVIDER": "mock",
         "SMS_PROVIDER": "mock",
         "DEMO_SUPPRESS_NOTIFICATIONS": "true",
+        "TELEMETRY_PROVIDER": "none",
     }
+)
+HOSTED_TELEMETRY_PROVIDER_SETTING: Final = "TELEMETRY_PROVIDER"
+HOSTED_TELEMETRY_PROVIDER_VALUE: Final = "azure-monitor"
+APPLICATION_INSIGHTS_CONNECTION_SETTING: Final = (
+    "APPLICATIONINSIGHTS_CONNECTION_STRING"
 )
 REMOTE_BUILD_SETTING: Final = "SCM_DO_BUILD_DURING_DEPLOYMENT"
 REMOTE_BUILD_VALUE: Final = "true"
@@ -78,6 +84,26 @@ APP_SERVICE_AUTHENTICATION_BICEP_PROPERTIES: Final[Mapping[str, str]] = (
 _CANONICAL_GUID = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 )
+
+
+def hosted_telemetry_configuration_valid(values: Mapping[str, object]) -> bool:
+    """Validate the exact non-secret hosted telemetry opt-in descriptor."""
+
+    if not isinstance(values, Mapping):
+        return False
+    if values.get("mode") == "disabled":
+        return set(values) == {"mode"}
+    name = values.get("applicationInsightsName")
+    return bool(
+        values.get("mode") == "enabled"
+        and set(values) == {"mode", "applicationInsightsName"}
+        and isinstance(name, str)
+        and re.fullmatch(
+            r"[A-Za-z0-9](?:[A-Za-z0-9._-]{0,258}[A-Za-z0-9])?",
+            name,
+        )
+        is not None
+    )
 
 
 def app_service_authentication_configuration_valid(

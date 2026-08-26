@@ -58,6 +58,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--resource-group")
     parser.add_argument("--web-app-name")
     parser.add_argument("--verify-hosted-foundry-verifier", action="store_true")
+    parser.add_argument(
+        "--verify-hosted-azure-monitor-telemetry",
+        action="store_true",
+    )
     for attribute in HOSTED_SETTING_OPTIONS.values():
         parser.add_argument(
             f"--{attribute.replace('_', '-')}",
@@ -85,7 +89,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
                 )
     elif args.resource_group or args.web_app_name or any(
         getattr(args, attribute) for attribute in HOSTED_SETTING_OPTIONS.values()
-    ) or args.verify_hosted_foundry_verifier:
+    ) or args.verify_hosted_foundry_verifier or args.verify_hosted_azure_monitor_telemetry:
         parser.error("resource and hosted verifier arguments are valid only with --live")
     return args
 
@@ -124,6 +128,9 @@ def main(argv: list[str] | None = None) -> int:
                     ),
                     verify_hosted_foundry_verifier=(
                         args.verify_hosted_foundry_verifier
+                    ),
+                    verify_hosted_azure_monitor_telemetry=(
+                        args.verify_hosted_azure_monitor_telemetry
                     ),
                     runner=runner,
                 )

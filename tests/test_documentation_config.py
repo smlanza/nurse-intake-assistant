@@ -46,18 +46,19 @@ def test_web_app_reconciliation_is_standalone_and_not_the_resume_point() -> None
             "separate read-only configuration verification",
             "daily coordinator fails closed",
             "not part of daily coordinator readiness",
+            "`infra/modules/web-app-telemetry.bicep`",
+            "`microsoft.web/sites/config` `appsettings` `modify`",
+            "does not broaden the general web app topology matcher",
         },
     )
     _assert_contains_all(
         progress,
         {
-            "one web app deploy",
-            "nine unidentified ignore",
-            "wrapper is removed",
+            "historical web app reconciliation proved too broad for hosted telemetry",
             "--reconcile-existing-web-app",
-            "no live direct-module preview has yet succeeded",
-            "no live reconciliation preview or deployment",
-            "resume nurse intake assistant application and ai-103 feature development",
+            "telemetry opt-in now fails locally unless it selects the dedicated app-settings boundary",
+            "no telemetry-specific live preview or deployment has occurred",
+            "next step is one supervised telemetry-specific what-if",
         },
     )
     active_resume = progress.split("## recommended next slice", 1)[1].split(
@@ -604,7 +605,7 @@ def test_architecture_documents_separate_foundry_and_web_app_proof_boundaries() 
             "Check mode validates required safe arguments",
             "Explicit `--what-if` or `--live` mode issues exactly one argument-list",
             "the CLI never creates the group",
-            "shared hosting-contract module owns the exact seven",
+            "shared hosting-contract module owns the exact eight",
             "missing, extra, duplicate, conflicting, commented-only, and overriding settings fail",
             "reduces the active change collection to sanitized",
             "Proposed deletes are surfaced for manual review",

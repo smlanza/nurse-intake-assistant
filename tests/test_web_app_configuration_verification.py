@@ -65,6 +65,7 @@ def _settings(**overrides: str | None) -> str:
         "EMAIL_PROVIDER": "mock",
         "SMS_PROVIDER": "mock",
         "DEMO_SUPPRESS_NOTIFICATIONS": "true",
+        "TELEMETRY_PROVIDER": "none",
         "SCM_DO_BUILD_DURING_DEPLOYMENT": "true",
         "WEBSITE_SKIP_RUNNING_KUDUAGENT": "false",
         **EXPECTED_HOSTED_VERIFIER_SETTINGS,
@@ -239,6 +240,74 @@ def test_baseline_live_verification_needs_no_hosted_values_and_uses_narrow_query
     )
     for name in EXPECTED_HOSTED_VERIFIER_SETTINGS:
         assert name not in service.BASE_APP_SETTINGS_QUERY
+
+
+def test_hosted_telemetry_opt_in_is_verified_without_exposing_configuration() -> None:
+    service = _service()
+    connection_string = (
+        "InstrumentationKey=11111111-2222-4333-8444-555555555555;"
+        "IngestionEndpoint=https://private.example"
+    )
+    runner = FakeRunner(
+        [
+            _result(0, _site()),
+            _result(0, _config()),
+            _result(
+                0,
+                _settings(
+                    TELEMETRY_PROVIDER="azure-monitor",
+                    APPLICATIONINSIGHTS_CONNECTION_STRING=connection_string,
+                ),
+            ),
+        ]
+    )
+
+    result = service.verify_web_app_configuration(
+        RESOURCE_GROUP,
+        WEB_APP_NAME,
+        verify_hosted_azure_monitor_telemetry=True,
+        runner=runner,
+    )
+
+    assert result.ok is True
+    assert result.hosted_telemetry_configuration_verified is True
+    assert result.application_insights_runtime_configuration_verified is True
+    assert runner.calls[2][runner.calls[2].index("--query") + 1] == (
+        service.TELEMETRY_APP_SETTINGS_QUERY
+    )
+    rendered = json.dumps(result.to_json_dict())
+    assert connection_string not in rendered
+    assert "private.example" not in rendered
+
+
+@pytest.mark.parametrize("connection_string", [None, "Endpoint=invalid"])
+def test_hosted_telemetry_partial_configuration_fails_closed(
+    connection_string: str | None,
+) -> None:
+    runner = FakeRunner(
+        [
+            _result(0, _site()),
+            _result(0, _config()),
+            _result(
+                0,
+                _settings(
+                    TELEMETRY_PROVIDER="azure-monitor",
+                    APPLICATIONINSIGHTS_CONNECTION_STRING=connection_string,
+                ),
+            ),
+        ]
+    )
+
+    result = _service().verify_web_app_configuration(
+        RESOURCE_GROUP,
+        WEB_APP_NAME,
+        verify_hosted_azure_monitor_telemetry=True,
+        runner=runner,
+    )
+
+    assert result.category == "hosted_telemetry_configuration_invalid"
+    assert result.hosted_telemetry_configuration_verified is False
+    assert result.application_insights_runtime_configuration_verified is False
 
 
 def test_running_enabled_cli_site_shape_proceeds_to_full_configuration_verification() -> None:
@@ -718,6 +787,7 @@ def test_app_settings_query_filters_to_exact_bicep_owned_allowlist() -> None:
         "DEMO_SUPPRESS_NOTIFICATIONS",
         "SCM_DO_BUILD_DURING_DEPLOYMENT",
         "WEBSITE_SKIP_RUNNING_KUDUAGENT",
+        "TELEMETRY_PROVIDER",
         *EXPECTED_HOSTED_VERIFIER_SETTINGS,
     }
 

@@ -112,6 +112,7 @@ def test_live_mode_lazily_uses_injected_runner_and_prints_sanitized_json(
                             {"name": "EMAIL_PROVIDER", "value": "mock"},
                             {"name": "SMS_PROVIDER", "value": "mock"},
                             {"name": "DEMO_SUPPRESS_NOTIFICATIONS", "value": "true"},
+                                {"name": "TELEMETRY_PROVIDER", "value": "none"},
                                 {"name": "SCM_DO_BUILD_DURING_DEPLOYMENT", "value": "true"},
                                 {
                                     "name": "WEBSITE_SKIP_RUNNING_KUDUAGENT",
@@ -186,9 +187,14 @@ def test_baseline_live_cli_accepts_no_hosted_verifier_arguments(
         expected,
         *,
         verify_hosted_foundry_verifier,
+        verify_hosted_azure_monitor_telemetry,
         runner,
     ):
-        captured.append((expected, verify_hosted_foundry_verifier))
+        captured.append((
+            expected,
+            verify_hosted_foundry_verifier,
+            verify_hosted_azure_monitor_telemetry,
+        ))
         return script.WebAppConfigurationVerificationResult.live_success()
 
     monkeypatch.setattr(script, "verify_web_app_configuration", fake_verify)
@@ -199,9 +205,18 @@ def test_baseline_live_cli_accepts_no_hosted_verifier_arguments(
         "--web-app-name", WEB_APP_NAME,
     ])
 
+    telemetry_exit_code = script.main([
+        "--live", "--json",
+        "--resource-group", RESOURCE_GROUP,
+        "--web-app-name", WEB_APP_NAME,
+        "--verify-hosted-azure-monitor-telemetry",
+    ])
+
     assert exit_code == 0
-    assert captured == [(None, False)]
-    assert json.loads(capsys.readouterr().out)[
+    assert telemetry_exit_code == 0
+    assert captured == [(None, False, False), (None, False, True)]
+    outputs = capsys.readouterr().out.splitlines()
+    assert json.loads(outputs[0])[
         "hosted_verifier_configuration_verified"
     ] is False
 

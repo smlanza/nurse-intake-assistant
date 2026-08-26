@@ -20,7 +20,7 @@ def test_main_preserves_core_resources_and_outputs() -> None:
     ):
         assert resource_type in text
     assert "paths: [\n          '/createdDate'" in text
-    assert "output applicationInsightsConnectionString" in text
+    assert "output applicationInsightsConnectionString" not in text
 
 
 def test_main_makes_foundry_optional_through_shared_module() -> None:

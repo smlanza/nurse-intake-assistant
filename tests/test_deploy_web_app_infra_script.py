@@ -140,6 +140,20 @@ def test_check_allows_ordinary_web_app_without_hosted_verifier_values(
     assert exit_code == 0
     assert payload["hosted_verifier_configuration_supplied"] is False
     assert payload["app_service_authentication_configuration_supplied"] is False
+    assert payload["hosted_telemetry_configuration_supplied"] is False
+
+    exit_code = script.main(
+        [
+            "--check",
+            "--json",
+            *ordinary,
+            "--enable-hosted-azure-monitor-telemetry",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["hosted_telemetry_configuration_supplied"] is True
+    assert "APPLICATIONINSIGHTS_CONNECTION_STRING" not in json.dumps(payload)
 
 
 def test_check_accepts_strict_non_secret_authentication_opt_in(
@@ -237,6 +251,59 @@ def test_reconciliation_is_explicit_and_not_the_cli_default(
         reconciliation.template_file
         == script.ROOT / "infra/modules/web-app.bicep"
     )
+
+
+def test_hosted_telemetry_configuration_selects_only_the_narrow_template(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+    ordinary = VALID_ARGUMENTS[: VALID_ARGUMENTS.index("--enable-hosted-foundry-verifier")]
+    captured = []
+    original_execute = script.deploy_web_app_infrastructure
+
+    def execute(request, **_kwargs):
+        captured.append(request)
+        return original_execute(request)
+
+    monkeypatch.setattr(script, "deploy_web_app_infrastructure", execute)
+
+    assert (
+        script.main(
+            [
+                "--check",
+                "--json",
+                "--configure-hosted-telemetry",
+                *ordinary,
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    request = captured[0]
+    assert request.purpose == "hosted_telemetry_configuration"
+    assert (
+        request.template_file
+        == script.ROOT / "infra/modules/web-app-telemetry.bicep"
+    )
+    assert request.enable_hosted_azure_monitor_telemetry is True
+    assert request.enable_hosted_foundry_verifier is False
+
+
+def test_hosted_telemetry_and_reconciliation_cli_purposes_are_mutually_exclusive() -> None:
+    script = _script()
+    ordinary = VALID_ARGUMENTS[: VALID_ARGUMENTS.index("--enable-hosted-foundry-verifier")]
+
+    with pytest.raises(SystemExit):
+        script.main(
+            [
+                "--check",
+                "--configure-hosted-telemetry",
+                "--reconcile-existing-web-app",
+                *ordinary,
+            ]
+        )
 
 
 def test_unsafe_argument_fails_before_runner_construction(
@@ -397,6 +464,108 @@ def test_json_what_if_prints_exactly_one_sanitized_object(
     assert payload["what_if_summary_available"] is True
     assert "raw-id" not in output
     assert "raw stderr" not in output
+
+
+def test_json_what_if_failure_prints_only_bounded_structural_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+
+    class FakeRunner:
+        def run(self, _args: list[str]):
+            return script.CommandResult(
+                0,
+                json.dumps(
+                    {
+                        "changes": [
+                            {
+                                "changeType": "Create",
+                                "resourceId": (
+                                    "/subscriptions/fictional-private-subscription/"
+                                    "resourceGroups/fictional-private-group/providers/"
+                                    "Microsoft.Web/sites/fictional-private-site"
+                                ),
+                                "resourceType": "Microsoft.Storage/storageAccounts",
+                                "providerText": "fictional provider private text",
+                            }
+                        ]
+                    }
+                ),
+                "fictional private stderr",
+            )
+
+    monkeypatch.setattr(script, "_create_azure_cli_runner", FakeRunner)
+
+    exit_code = script.main(["--what-if", "--json", *VALID_ARGUMENTS])
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    diagnostic = payload["what_if_structural_diagnostic"]
+    assert exit_code == 2
+    assert len(output.splitlines()) == 1
+    assert payload["category"] == "what_if_parse_failed"
+    assert diagnostic == {
+        "rejection_reason": "resource_type_mismatch",
+        "bounded_record_count": 1,
+        "record_count_truncated": False,
+    }
+    serialized = json.dumps(diagnostic)
+    for forbidden in (
+        "fictional-private-subscription",
+        "fictional-private-group",
+        "fictional-private-site",
+        "fictional provider private text",
+        "fictional private stderr",
+    ):
+        assert forbidden not in serialized
+
+
+def test_json_what_if_command_failure_prints_only_bounded_failure_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    script = _script()
+
+    class FakeRunner:
+        def __init__(self) -> None:
+            self.calls: list[list[str]] = []
+
+        def run(self, args: list[str]):
+            self.calls.append(args)
+            return script.CommandResult(
+                1,
+                "fictional-private-command-stdout",
+                (
+                    "ERROR: (AuthorizationFailed) fictional-private-token "
+                    "fictional-private-subscription"
+                ),
+            )
+
+    runner = FakeRunner()
+    monkeypatch.setattr(script, "_create_azure_cli_runner", lambda: runner)
+
+    exit_code = script.main(["--what-if", "--json", *VALID_ARGUMENTS])
+
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert exit_code == 2
+    assert len(output.splitlines()) == 1
+    assert len(runner.calls) == 1
+    assert payload["category"] == "azure_operation_failed"
+    assert payload["what_if_summary_available"] is False
+    assert payload["what_if_structural_diagnostic"] is None
+    assert payload["azure_operation_failure_reason"] == (
+        "authentication_or_authorization_failed"
+    )
+    assert all(
+        value not in output
+        for value in (
+            "fictional-private-command-stdout",
+            "fictional-private-token",
+            "fictional-private-subscription",
+        )
+    )
 
 
 def test_subprocess_runner_uses_argument_list_shell_false_and_captured_text(

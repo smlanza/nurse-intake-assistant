@@ -27,6 +27,7 @@ _SAFE_IGNORE_SHAPE_FIELDS = (
 )
 _MAX_NESTED_RESOURCE_CHANGE_COUNT = 20
 _MAX_ARM_PATH_COUNT = 20
+_MAX_STRUCTURAL_DIAGNOSTIC_RECORD_COUNT = 20
 
 IgnoreParserShape = Literal[
     "resource_change",
@@ -85,6 +86,28 @@ NormalizedAction = Literal[
     "Replacement",
     "unknown",
 ]
+WhatIfStructuralRejectionReason = Literal[
+    "invalid_top_level_shape",
+    "invalid_change_collection_shape",
+    "non_object_change_record",
+    "unsupported_or_invalid_change_type",
+    "invalid_resource_id_shape",
+    "invalid_resource_type_shape",
+    "resource_type_mismatch",
+    "diagnostic_unclassified",
+]
+_WHAT_IF_STRUCTURAL_REJECTION_REASONS = frozenset(
+    {
+        "invalid_top_level_shape",
+        "invalid_change_collection_shape",
+        "non_object_change_record",
+        "unsupported_or_invalid_change_type",
+        "invalid_resource_id_shape",
+        "invalid_resource_type_shape",
+        "resource_type_mismatch",
+        "diagnostic_unclassified",
+    }
+)
 AzureResourceFamily = Literal[
     "authorization_role_assignment",
     "resource_manager_deployment",
@@ -419,6 +442,46 @@ class SanitizedWhatIfSummary:
         return [change.to_json_dict() for change in self.changes]
 
 
+@dataclass(frozen=True)
+class SanitizedWhatIfStructuralDiagnostic:
+    rejection_reason: WhatIfStructuralRejectionReason
+    bounded_record_count: int | None
+    record_count_truncated: bool
+
+    def __post_init__(self) -> None:
+        if (
+            self.rejection_reason not in _WHAT_IF_STRUCTURAL_REJECTION_REASONS
+            or (
+                self.bounded_record_count is not None
+                and (
+                    isinstance(self.bounded_record_count, bool)
+                    or not 0
+                    <= self.bounded_record_count
+                    <= _MAX_STRUCTURAL_DIAGNOSTIC_RECORD_COUNT
+                )
+            )
+            or (self.bounded_record_count is None and self.record_count_truncated)
+        ):
+            raise ValueError("Sanitized what-if structural diagnostic is invalid.")
+
+    def to_json_dict(self) -> dict[str, object]:
+        return {
+            "rejection_reason": self.rejection_reason,
+            "bounded_record_count": self.bounded_record_count,
+            "record_count_truncated": self.record_count_truncated,
+        }
+
+
+@dataclass(frozen=True)
+class SanitizedWhatIfParseOutcome:
+    summary: SanitizedWhatIfSummary | None
+    structural_diagnostic: SanitizedWhatIfStructuralDiagnostic | None
+
+    def __post_init__(self) -> None:
+        if (self.summary is None) is (self.structural_diagnostic is None):
+            raise ValueError("Sanitized what-if parse outcome is inconsistent.")
+
+
 @dataclass(frozen=True, repr=False)
 class _AuthoritativeWhatIfRecord:
     record_is_object: bool
@@ -428,6 +491,7 @@ class _AuthoritativeWhatIfRecord:
     resource_id_present: bool
     resource_id_shape_valid: bool
     resource_type_present: bool
+    resource_type_shape_valid: bool
     resource_type_consistent: bool
     identity: WhatIfResourceIdentity | None = field(default=None, repr=False)
     resource_id: str | None = field(default=None, repr=False)
@@ -466,6 +530,16 @@ class _AuthoritativeWhatIfRecord:
 
 
 @dataclass(frozen=True)
+class _StructuralWhatIfRecord:
+    record_is_object: bool
+    action_is_supported: bool
+    resource_id_shape_valid: bool
+    resource_type_present: bool
+    resource_type_shape_valid: bool
+    resource_type_consistent: bool
+
+
+@dataclass(frozen=True)
 class NormalizedWhatIfPayload(Generic[_NormalizedRecordT]):
     payload_is_object: bool
     changes_present: bool
@@ -490,14 +564,9 @@ def parse_sanitized_what_if(
         {"Create", "NoChange", "Ignore"}
     ),
 ) -> SanitizedWhatIfSummary | None:
-    try:
-        payload = json.loads(stdout)
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    return normalize_sanitized_what_if_payload(
-        payload,
+    return parse_sanitized_what_if_outcome(
+        stdout,
         boundary=boundary,
-        record_factory=lambda _ordinal, _raw, _facts: None,
         expected_resources=expected_resources,
         allowlisted_resource_types=allowlisted_resource_types,
         sanitized_additional_resource_types=sanitized_additional_resource_types,
@@ -510,7 +579,61 @@ def parse_sanitized_what_if(
         ),
         allowed_unidentified_ignore_counts=allowed_unidentified_ignore_counts,
         automatically_approved_actions=automatically_approved_actions,
-    ).sanitized_summary
+    ).summary
+
+
+def parse_sanitized_what_if_outcome(
+    stdout: str,
+    *,
+    boundary: str,
+    expected_resources: tuple[ExpectedWhatIfResource, ...] | None = None,
+    allowlisted_resource_types: Mapping[str, str] | None = None,
+    sanitized_additional_resource_types: Mapping[str, str] | None = None,
+    expected_ignored_resources: tuple[ExpectedWhatIfResource, ...] = (),
+    allow_expected_ignored_resources_absent: bool = False,
+    allow_expected_ignored_resource_subsets: bool = False,
+    allowed_unidentified_ignore_counts: frozenset[int] = frozenset({0}),
+    automatically_approved_actions: frozenset[str] = frozenset(
+        {"Create", "NoChange", "Ignore"}
+    ),
+) -> SanitizedWhatIfParseOutcome:
+    try:
+        payload = json.loads(stdout)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return SanitizedWhatIfParseOutcome(
+            None,
+            _structural_diagnostic("invalid_top_level_shape"),
+        )
+    normalized = normalize_sanitized_what_if_payload(
+        payload,
+        boundary=boundary,
+        record_factory=lambda _ordinal, _raw, facts: _StructuralWhatIfRecord(
+            record_is_object=facts.record_is_object,
+            action_is_supported=facts.action_is_supported,
+            resource_id_shape_valid=facts.resource_id_shape_valid,
+            resource_type_present=facts.resource_type_present,
+            resource_type_shape_valid=facts.resource_type_shape_valid,
+            resource_type_consistent=facts.resource_type_consistent,
+        ),
+        expected_resources=expected_resources,
+        allowlisted_resource_types=allowlisted_resource_types,
+        sanitized_additional_resource_types=sanitized_additional_resource_types,
+        expected_ignored_resources=expected_ignored_resources,
+        allow_expected_ignored_resources_absent=(
+            allow_expected_ignored_resources_absent
+        ),
+        allow_expected_ignored_resource_subsets=(
+            allow_expected_ignored_resource_subsets
+        ),
+        allowed_unidentified_ignore_counts=allowed_unidentified_ignore_counts,
+        automatically_approved_actions=automatically_approved_actions,
+    )
+    if normalized.sanitized_summary is not None:
+        return SanitizedWhatIfParseOutcome(normalized.sanitized_summary, None)
+    return SanitizedWhatIfParseOutcome(
+        None,
+        _what_if_structural_diagnostic(normalized),
+    )
 
 
 def normalize_sanitized_what_if_payload(
@@ -563,6 +686,7 @@ def normalize_sanitized_what_if_payload(
                 resource_id_present=False,
                 resource_id_shape_valid=False,
                 resource_type_present=False,
+                resource_type_shape_valid=False,
                 resource_type_consistent=False,
             )
             records.append(record_factory(ordinal, raw_change, facts))
@@ -580,6 +704,9 @@ def normalize_sanitized_what_if_payload(
         identity = _resource_identity(raw_change.get("resourceId"))
         raw_resource_type = raw_change.get("resourceType")
         resource_type_present = "resourceType" in raw_change
+        resource_type_shape_valid = bool(
+            not resource_type_present or isinstance(raw_resource_type, str)
+        )
         resource_type_consistent = bool(
             identity is not None
             and (
@@ -601,6 +728,7 @@ def normalize_sanitized_what_if_payload(
             resource_id_present="resourceId" in raw_change,
             resource_id_shape_valid=identity is not None,
             resource_type_present=resource_type_present,
+            resource_type_shape_valid=resource_type_shape_valid,
             resource_type_consistent=resource_type_consistent,
             identity=identity,
             resource_id=(
@@ -664,6 +792,63 @@ def normalize_sanitized_what_if_payload(
         records=tuple(records),
         sanitized_summary=summary,
     )
+
+
+def _structural_diagnostic(
+    rejection_reason: WhatIfStructuralRejectionReason,
+    record_count: int | None = None,
+) -> SanitizedWhatIfStructuralDiagnostic:
+    return SanitizedWhatIfStructuralDiagnostic(
+        rejection_reason=rejection_reason,
+        bounded_record_count=(
+            min(record_count, _MAX_STRUCTURAL_DIAGNOSTIC_RECORD_COUNT)
+            if record_count is not None
+            else None
+        ),
+        record_count_truncated=bool(
+            record_count is not None
+            and record_count > _MAX_STRUCTURAL_DIAGNOSTIC_RECORD_COUNT
+        ),
+    )
+
+
+def _what_if_structural_diagnostic(
+    normalized: NormalizedWhatIfPayload[_StructuralWhatIfRecord],
+) -> SanitizedWhatIfStructuralDiagnostic:
+    if not normalized.payload_is_object:
+        return _structural_diagnostic("invalid_top_level_shape")
+    if not normalized.changes_present or not normalized.changes_is_list:
+        return _structural_diagnostic("invalid_change_collection_shape")
+    record_count = normalized.change_record_count
+    assert record_count is not None
+    records = normalized.records
+    if any(not record.record_is_object for record in records):
+        reason: WhatIfStructuralRejectionReason = "non_object_change_record"
+    elif any(not record.action_is_supported for record in records):
+        reason = "unsupported_or_invalid_change_type"
+    elif any(
+        record.resource_type_present and not record.resource_type_shape_valid
+        for record in records
+    ):
+        reason = "invalid_resource_type_shape"
+    elif any(
+        record.resource_type_present
+        and record.resource_type_shape_valid
+        and not record.resource_id_shape_valid
+        for record in records
+    ):
+        reason = "invalid_resource_id_shape"
+    elif any(
+        record.resource_type_present
+        and record.resource_type_shape_valid
+        and record.resource_id_shape_valid
+        and not record.resource_type_consistent
+        for record in records
+    ):
+        reason = "resource_type_mismatch"
+    else:
+        reason = "diagnostic_unclassified"
+    return _structural_diagnostic(reason, record_count)
 
 
 def _summarize_normalized_what_if(
